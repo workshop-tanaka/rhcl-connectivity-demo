@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: insurances-v1
+  namespace: travel-agency
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: insurances
+      version: v1
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2026-07-28T14:35:30Z"
+        readiness.status.sidecar.istio.io/applicationPorts: ""
+        sidecar.istio.io/inject: "true"
+      creationTimestamp: null
+      labels:
+        app: insurances
+        version: v1
+    spec:
+      containers:
+        - env:
+            - name: CURRENT_SERVICE
+              value: insurances
+            - name: CURRENT_VERSION
+              value: v1
+            - name: LISTEN_ADDRESS
+              value: :8000
+            - name: DISCOUNTS_SERVICE
+              value: http://discounts.travel-agency:8000
+            - name: MYSQL_SERVICE
+              value: mysqldb.travel-db:3306
+            - name: MYSQL_USER
+              value: root
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: rootpasswd
+                  name: mysql-credentials
+            - name: MYSQL_DATABASE
+              value: test
+          image: quay.io/kiali/demo_travels_insurances:v1
+          imagePullPolicy: IfNotPresent
+          name: insurances
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          resources: {}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: discount-access-sa
+      serviceAccountName: discount-access-sa
+      terminationGracePeriodSeconds: 30

@@ -1,0 +1,35 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# BASE portável da demo RHCL — CAMADA DE DEMO apenas.
+#
+# Contém exatamente os recursos que NÃO são governados pelo Argo CD neste
+# cluster (sem anotação argocd.argoproj.io/tracking-id). Aplicar isto não
+# disputa nada com a plataforma.
+#
+# O que a plataforma entrega — Gateway, DNSPolicy, TLSPolicy, ClusterIssuer,
+# Kuadrant CR, namespaces, Deployments/Services das apps — mora em
+# platform-reference/, sem kustomization.yaml, deliberadamente fora de alcance
+# de um 'oc apply -k'. Leia platform-reference/README.md antes de mover
+# qualquer coisa entre as duas árvores.
+#
+# Ajustes por ambiente/versao (hostname, apiVersions) sao feitos por patch em
+# env/ e overlays/ -- nunca editados aqui.
+#
+# Ordem dos diretorios = ordem do roteiro:
+#   routes/              a rota que a demo governa
+#   identity/            quem consome (API keys por tier)
+#   policies-security/   quem entra           (AuthPolicy)
+#   policies-traffic/    quanto passa         (RateLimitPolicy)
+#   policies-plans/      quanto passa POR TIER (PlanPolicy)   <- sobrepoe o anterior
+#   policies-telemetry/  o que isso vira em metrica (TelemetryPolicy)
+# ===========================================================================
+
+resources:
+  - routes/
+  - identity/
+  - policies-security/
+  - policies-traffic/
+  - policies-plans/
+  - policies-telemetry/

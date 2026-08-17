@@ -1,0 +1,5 @@
+# HTTPRoute travel-agency: hostname real do sandbox.
+- op: replace
+  path: /spec/hostnames
+  value:
+    - api.travels.sandbox5518.opentlc.com

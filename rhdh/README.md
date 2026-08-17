@@ -1,0 +1,204 @@
+# Red Hat Developer Hub
+
+Portal de desenvolvedor sobre a demo RHCL: catalogado, com as policies do Connectivity Link modeladas como recursos, e um software template que cria uma API nova já exposta e protegida.
+
+## Instalar
+
+Três camadas, aplicadas nesta ordem. Cada uma é idempotente e roda sozinha.
+
+```bash
+bash rhdh/install.sh         # 1. operator + instância + rota          (sem credenciais)
+bash rhdh/setup-catalog.sh   # 2. catálogo da demo RHCL                (sem credenciais)
+
+GITHUB_TOKEN=ghp_xxx \
+  bash rhdh/setup-github.sh <org> <repo>   # 3. integração GitHub + software template
+```
+
+As duas primeiras já entregam um portal utilizável. A terceira só é necessária para o scaffolding.
+
+| Script | O que faz |
+| --- | --- |
+| `install.sh` | Subscription (`fast-1.9`), CR `Backstage`, PostgreSQL local, Route com host fixo, `BACKEND_SECRET` |
+| `setup-catalog.sh` | Renderiza `catalog/` com os hostnames reais do cluster, serve por HTTP interno, registra a location |
+| `setup-github.sh` | `integrations.github`, descoberta da org, plugins de GitHub, registra o software template |
+
+`install.sh` **não** rotaciona o `BACKEND_SECRET` em re-execuções — rotacionar invalidaria as sessões ativas e os tokens de acesso externo já emitidos.
+
+Variáveis opcionais:
+
+```bash
+RHDH_HOST=portal.exemplo.com bash rhdh/install.sh   # host da rota (default: rhdh.<apps-domain>)
+RHDH_NS=meu-rhdh             bash rhdh/install.sh   # namespace da instância (default: rhdh)
+```
+
+## O que é criado
+
+| Recurso | Namespace | Observação |
+| --- | --- | --- |
+| Subscription `rhdh` (canal `fast-1.9`) | `rhdh-operator` | install mode `AllNamespaces` — o único suportado |
+| CR `Backstage/developer-hub` | `rhdh` | `rhdh.redhat.com/v1alpha5` |
+| `Deployment/backstage-developer-hub` | `rhdh` | frontend + backend |
+| `StatefulSet/backstage-psql-developer-hub` | `rhdh` | PostgreSQL local, PVC de 1Gi |
+| `Route/backstage-developer-hub` | `rhdh` | TLS edge, host fixo |
+| `ConfigMap/app-config-rhdh` | `rhdh` | configuração base |
+| `Secret/rhdh-backend-secret` | `rhdh` | `BACKEND_SECRET`, gerado no install |
+| `Deployment/rhdh-catalog-server` | `rhdh` | httpd servindo as entidades do catálogo |
+| `ConfigMap/app-config-rhdh-catalog` | `rhdh` | `catalog.locations` + `backend.reading.allow` |
+| `ConfigMap/app-config-rhdh-github` | `rhdh` | só com `setup-github.sh` |
+| `Secret/rhdh-github-secret` | `rhdh` | só com `setup-github.sh` |
+
+## Catálogo
+
+`catalog/travel-agency.yaml` modela a demo em duas Systems, separadas pelo **escopo do `targetRef`** das policies — que é o que decide o alcance de cada uma:
+
+- **`rhcl-ingress`** — o Gateway `prod-web` e as policies que miram nele: `prod-web-deny-all`, `ingress-gateway-rlp-lowlimits`, `prod-web-dnspolicy`, `prod-web-tls-policy`, `prod-web-telemetry`. Valem para **toda** rota anexada.
+- **`travel-agency`** — a aplicação e as policies que miram a HTTPRoute: `travel-agency-authpolicy`, `travels-plans`, `ratelimit-policy-travels`. Valem só para essa API.
+
+Os três parceiros (`globex-travel`, `initech-voyages`, `acme-trips`) entram como componentes `api-consumer` com `consumesApis`, um por API key de `base/identity/apikeys.yaml` — assim o portal mostra quem consome a API e em qual tier.
+
+Os hostnames **não** são fixos no arquivo: `setup-catalog.sh` lê `${DEMO_API_HOST}`/`${DEMO_ECHO_HOST}` das HTTPRoutes do próprio cluster, então os links apontam para o ambiente real sem que valores de ambiente sejam commitados.
+
+### Por que existe um httpd servindo o catálogo
+
+O RHDH aceita **somente** locations do tipo `url`. Uma location de arquivo montado no pod falha na API com
+
+```
+InputError: Registered locations must be of an allowed type ["url"]
+```
+
+e — pior — via `catalog.locations` no app-config ela é **silenciosamente ignorada**: nenhuma entidade aparece e nenhum erro é logado. O limite vem de `setAllowedLocationTypes` no builder do catálogo, não de uma chave de config; não há como afrouxar.
+
+Como as entidades carregam hostnames do cluster, servi-las de um repositório Git exigiria commitar valores de ambiente. Um httpd interno resolve as duas coisas: a location vira `url` e o conteúdo continua sendo gerado.
+
+### `catalog.rules` precisa listar todo kind usado
+
+Kinds fora de `catalog.rules` são rejeitados na ingestão com:
+
+```
+Entity domain:default/travel ... is not of an allowed kind for that location
+```
+
+O default do Backstage não inclui `Domain`, `Group`, `User` nem `Template`. A lista em `02-instance.template.yaml` já cobre os nove kinds usados aqui — ao adicionar um kind novo, inclua-o lá também.
+
+## Software template
+
+`templates/rhcl-exposed-api/` cria um serviço **já exposto e protegido**: Deployment, Service, HTTPRoute anexada ao `prod-web`, AuthPolicy por API key e RateLimitPolicy por identidade — mais `catalog-info.yaml` e README. Publica no GitHub e registra no catálogo.
+
+O ponto da demo é esse: a policy nasce com o serviço, em vez de virar um ticket para a plataforma depois.
+
+Requer `setup-github.sh` (a action `publish:github` vem de um plugin desabilitado por padrão) e que este repositório esteja no GitHub — a location do template é lida de lá por URL.
+
+Dois detalhes que o template já resolve, e que costumam custar tempo quando feitos à mão:
+
+- **A API key vai para `kuadrant-system`**, não para o namespace da aplicação. É o que `allNamespaces: false` significa: o Authorino procura no namespace *dele*. Criar o Secret junto do Deployment dá 401 em tudo, sem erro no status da AuthPolicy.
+- **O label `authorino.kuadrant.io/managed-by: authorino` é obrigatório.** Sem ele o Secret é ignorado, mesmo no namespace certo e com o label `app` correto.
+
+## Por que o host da rota é fixo
+
+O frontend do Backstage monta as chamadas de API a partir de `app.baseUrl`, e o backend recusa origens fora de `backend.cors.origin`. Como as duas vivem no `app-config`, a URL pública precisa ser conhecida **antes** de o pod subir — daí `spec.application.route.host` explícito em vez do host gerado pelo OpenShift. O `install.sh` deriva esse host do domínio de apps do cluster e o injeta nos dois lugares.
+
+## Autenticação
+
+O portal usa o provider **`guest`** — adequado para lab/demo, **não para produção**: qualquer pessoa com a URL entra como `user:development/guest`.
+
+Integração SCM e provider de login são coisas separadas: `setup-github.sh` habilita catálogo como código e scaffolding **sem** mexer no login.
+
+### Sair do guest
+
+Atenção a uma limitação que costuma custar tempo: **o OAuth server embutido do OpenShift não serve como IdP do Backstage**. Ele é OAuth2 puro — não expõe discovery OIDC nem emite `id_token`, e seus tokens são opacos. Verificado neste cluster:
+
+```
+https://oauth-openshift.apps.<domain>/.well-known/openid-configuration   -> 404
+https://api.<domain>:6443/.well-known/openid-configuration               -> issuer kubernetes.default.svc
+```
+
+O segundo é o issuer dos tokens projetados de ServiceAccount, não um IdP de login de usuário. Ou seja, não existe `metadataUrl` para apontar o provider `oidc` do Backstage ao login do cluster. Os dois caminhos reais:
+
+**a) IdP externo via provider `oidc`** — Red Hat Build of Keycloak (RHBK), Entra ID, Okta, GitHub. É o caminho direto, e o mesmo IdP pode alimentar o catálogo de usuários. Substitua o bloco `auth` em `02-instance.template.yaml`:
+
+```yaml
+auth:
+  environment: production
+  providers:
+    oidc:
+      production:
+        metadataUrl: https://<idp>/realms/<realm>/.well-known/openid-configuration
+        clientId: rhdh
+        clientSecret: ${OIDC_CLIENT_SECRET}
+```
+
+O `clientSecret` vai no `rhdh-backend-secret` (ou outro Secret listado em `extraEnvs.secrets`), nunca no ConfigMap — o `${...}` é resolvido pelo Backstage em runtime a partir da variável de ambiente.
+
+**b) oauth2-proxy na frente do RHDH** — é o que permite reusar a identidade do próprio cluster: o proxy fala OAuth2 com o `oauth-openshift` (via um `OAuthClient` com redirect `https://<RHDH_HOST>/oauth2/callback`), a Route passa a apontar para o proxy, e o RHDH recebe a identidade por header. Mais peças móveis, mas não exige IdP externo.
+
+Em ambos os casos, **ingestão de usuários no catálogo** é pré-requisito: diferente do `guest`, esses providers resolvem a identidade contra entidades `User`. Sem uma fonte (plugin de Keycloak/LDAP/GitHub, ou entidades `User` estáticas), o login autentica mas falha na resolução — mantenha `dangerouslyAllowSignInWithoutUserInCatalog: true` apenas enquanto isso não estiver no lugar, e remova depois.
+
+Detalhes na documentação de autenticação do RHDH: <https://docs.redhat.com/en/documentation/red_hat_developer_hub>.
+
+## Plugins dinâmicos
+
+O operator monta os plugins num PVC próprio (`...-dynamic-plugins-root`), populado pelo init container `install-dynamic-plugins`. Para habilitar plugins, crie um ConfigMap com `dynamic-plugins.yaml` e referencie-o em:
+
+```yaml
+spec:
+  application:
+    dynamicPluginsConfigMapName: dynamic-plugins-rhdh
+```
+
+Cada plugin adicionado alonga o startup do pod — o init container baixa e instala tudo antes de o backend abrir a porta.
+
+## PostgreSQL
+
+`spec.database.enableLocalDb: true` sobe um Postgres gerenciado pelo operator, com PVC na storageClass default (`gp3-csi`). Para produção, aponte para um banco externo:
+
+```yaml
+spec:
+  database:
+    enableLocalDb: false
+    authSecretName: <secret com POSTGRES_HOST/PORT/USER/PASSWORD>
+```
+
+## Operação
+
+```bash
+oc get backstage developer-hub -n rhdh                     # status do CR
+oc logs -n rhdh deploy/backstage-developer-hub -f          # logs do backend
+oc logs -n rhdh deploy/backstage-developer-hub -c install-dynamic-plugins  # falha de plugin
+oc rollout restart deploy/backstage-developer-hub -n rhdh  # recarregar app-config
+```
+
+O `app-config` é lido **no boot**: alterar o ConfigMap não tem efeito sem o `rollout restart`. Os scripts já fazem isso.
+
+### Conferir o catálogo pela API
+
+Útil porque a ingestão é assíncrona (leva até ~1 min) e falha de entidade não aparece na UI:
+
+```bash
+URL=https://$(oc get route backstage-developer-hub -n rhdh -o jsonpath='{.spec.host}')
+TOKEN=$(curl -sk "$URL/api/auth/guest/refresh" -H 'Accept: application/json' \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["backstageIdentity"]["token"])')
+
+curl -sk "$URL/api/catalog/entities?filter=kind=resource" -H "Authorization: Bearer $TOKEN" \
+  | python3 -c 'import json,sys; print([e["metadata"]["name"] for e in json.load(sys.stdin)])'
+```
+
+Para validar uma entidade **antes** de publicar, sem esperar o ciclo de ingestão, use `POST /api/catalog/validate-entity` com `{"entity": {...}, "location": "url:https://exemplo/catalog-info.yaml"}`. Foi assim que um `description:` não-quotado contendo `: ` — YAML inválido, silencioso na ingestão — apareceu.
+
+### Quando o catálogo fica vazio
+
+Na ordem, é quase sempre um destes:
+
+1. **Kind fora de `catalog.rules`** — `oc logs ... | grep "not of an allowed kind"`.
+2. **Location de tipo não-`url`** — ignorada sem log nenhum. Veja a seção do catálogo.
+3. **Host não liberado em `backend.reading.allow`** — o leitor recusa a URL.
+4. **Ingestão ainda rodando** — espere ~1 min antes de concluir qualquer coisa.
+
+## Desinstalar
+
+```bash
+oc delete backstage developer-hub -n rhdh
+oc delete ns rhdh rhdh-operator
+oc delete crd backstages.rhdh.redhat.com   # remove tambem qualquer outra instancia no cluster
+```
+
+Os PVCs são removidos junto com o namespace — **os dados do catálogo não sobrevivem**.

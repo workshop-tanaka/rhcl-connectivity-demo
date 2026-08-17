@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  annotations:
+    openshift.io/sa.scc.mcs: s0:c28,c22
+    openshift.io/sa.scc.supplemental-groups: 1000800000/10000
+    openshift.io/sa.scc.uid-range: 1000800000/10000
+  labels:
+    kubernetes.io/metadata.name: ingress-gateway
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+  name: ingress-gateway
+spec:
+  finalizers:
+    - kubernetes

@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# install.sh — instala e configura o Red Hat Developer Hub neste cluster.
+#
+# Idempotente: re-executar reconcilia o estado sem rotacionar o BACKEND_SECRET
+# (rotacionar invalidaria as sessoes e os tokens de acesso externo em uso).
+#
+# Uso:
+#   bash install.sh                                  # host = rhdh.<apps-domain>
+#   RHDH_HOST=portal.exemplo.com bash install.sh     # host explicito
+#   RHDH_NS=meu-rhdh bash install.sh                 # outro namespace
+#
+# Pre-requisitos: oc (autenticado, cluster-admin), envsubst (gettext).
+
+set -uo pipefail
+
+if [[ -t 1 ]]; then
+  _RED=$'\033[0;31m'; _GRN=$'\033[0;32m'; _YEL=$'\033[0;33m'; _BLU=$'\033[0;34m'; _RST=$'\033[0m'
+else
+  _RED=""; _GRN=""; _YEL=""; _BLU=""; _RST=""
+fi
+_log()  { printf '%s[*]%s %s\n' "$_BLU" "$_RST" "$*"; }
+_ok()   { printf '%s[OK]%s %s\n' "$_GRN" "$_RST" "$*"; }
+_warn() { printf '%s[!]%s %s\n' "$_YEL" "$_RST" "$*" >&2; }
+_die()  { printf '%s[X]%s %s\n' "$_RED" "$_RST" "$*" >&2; exit 1; }
+
+_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+command -v oc >/dev/null       || _die "oc nao encontrado no PATH."
+command -v envsubst >/dev/null || _die "envsubst nao encontrado (brew install gettext)."
+oc whoami >/dev/null 2>&1      || _die "nao autenticado no cluster (oc login)."
+
+RHDH_NS="${RHDH_NS:-rhdh}"
+RHDH_CR="${RHDH_CR:-developer-hub}"
+
+# ----- 1. hostname da rota -------------------------------------------------
+# O baseUrl precisa ser conhecido antes de o pod subir, entao o host e fixado
+# aqui e injetado tanto no app-config quanto na Route.
+if [[ -z "${RHDH_HOST:-}" ]]; then
+  _apps_domain="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
+  [[ -n "$_apps_domain" ]] || _die "nao consegui descobrir o dominio de apps; defina RHDH_HOST."
+  RHDH_HOST="rhdh.${_apps_domain}"
+fi
+export RHDH_HOST
+_log "host da rota: ${RHDH_HOST}"
+
+# ----- 2. operator ---------------------------------------------------------
+_log "aplicando o operator (namespace rhdh-operator)..."
+oc apply -f "${_here}/01-operator.yaml" >/dev/null || _die "falha ao aplicar 01-operator.yaml"
+
+_log "aguardando o CSV ficar Succeeded..."
+for _i in {1..60}; do
+  _phase="$(oc get csv -n rhdh-operator -l operators.coreos.com/rhdh.rhdh-operator= \
+              -o jsonpath='{.items[0].status.phase}' 2>/dev/null)"
+  [[ "$_phase" == "Succeeded" ]] && break
+  sleep 10
+done
+[[ "${_phase:-}" == "Succeeded" ]] || _die "CSV nao ficou Succeeded (fase atual: ${_phase:-ausente})."
+_ok "operator pronto."
+
+# A CRD e criada pelo CSV; sem ela o apply do CR abaixo falha por race.
+oc wait --for=condition=Established crd/backstages.rhdh.redhat.com --timeout=120s >/dev/null 2>&1 \
+  || _die "CRD backstages.rhdh.redhat.com nao ficou Established."
+
+# ----- 3. backend secret ---------------------------------------------------
+oc create namespace "$RHDH_NS" --dry-run=client -o yaml | oc apply -f - >/dev/null
+
+if oc get secret rhdh-backend-secret -n "$RHDH_NS" >/dev/null 2>&1; then
+  _log "rhdh-backend-secret ja existe -- preservado."
+else
+  _log "gerando rhdh-backend-secret..."
+  oc create secret generic rhdh-backend-secret -n "$RHDH_NS" \
+    --from-literal=BACKEND_SECRET="$(openssl rand -base64 32)" >/dev/null \
+    || _die "falha ao criar rhdh-backend-secret."
+  _ok "rhdh-backend-secret criado."
+fi
+
+# ----- 4. instancia --------------------------------------------------------
+# envsubst recebe a lista explicita de variaveis: sem ela, o ${BACKEND_SECRET}
+# do app-config (que o Backstage resolve em runtime) seria expandido para vazio.
+_log "aplicando a instancia RHDH..."
+envsubst '${RHDH_HOST}' < "${_here}/02-instance.template.yaml" | oc apply -f - >/dev/null \
+  || _die "falha ao aplicar a instancia."
+
+_log "aguardando o deployment ficar disponivel (pode levar alguns minutos)..."
+for _i in {1..30}; do
+  oc get deployment "backstage-${RHDH_CR}" -n "$RHDH_NS" >/dev/null 2>&1 && break
+  sleep 10
+done
+oc rollout status "deployment/backstage-${RHDH_CR}" -n "$RHDH_NS" --timeout=600s \
+  || _die "o deployment nao ficou pronto; veja: oc logs -n ${RHDH_NS} deploy/backstage-${RHDH_CR}"
+
+_ok "Red Hat Developer Hub disponivel em: https://${RHDH_HOST}"
+_warn "login via provider 'guest' (lab, sem autenticacao real). Ver README.md -> 'Sair do guest'."

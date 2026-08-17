@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# OVERLAY 'provisioned' — cluster que JA tem a infra de pe.
+#
+# Premissas: operadores (RHCL/Kuadrant, Service Mesh, cert-manager) instalados,
+# CR Kuadrant aplicado e ClusterIssuer existente. Este overlay so entrega a
+# demo em si: namespaces, app travel-agency + echo-api, Gateway/HTTPRoutes e
+# as policies (security, traffic, connectivity).
+#
+# Por isso base/kuadrant-system/ e base/issuers/ NAO entram aqui -- eles sao
+# responsabilidade do overlay 'clean' (cluster CRU, ainda nao criado).
+#
+# Fora daqui de proposito:
+#   - secret prod-web-aws-credentials: template redigido, aplicado no deploy.
+#
+# Para rodar em outro sandbox/release: troque a linha de env/ abaixo.
+#
+# Render:  oc kustomize overlays/provisioned
+# Deploy:  oc apply -k overlays/provisioned
+# ===========================================================================
+
+resources:
+  - ../../env/rhcl-1.2_ocp-4.17

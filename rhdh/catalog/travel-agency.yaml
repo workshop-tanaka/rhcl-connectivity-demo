@@ -1,0 +1,390 @@
+# ===========================================================================
+# Catalogo RHDH da demo RHCL — travel-agency.
+#
+# Modela a demo em duas Systems porque as policies do Kuadrant tem escopos
+# diferentes e isso importa na hora de explicar:
+#   - rhcl-ingress   : Gateway + policies com targetRef no Gateway (valem para
+#                      TODA rota anexada -- deny-all, rate limit baixo, DNS, TLS)
+#   - travel-agency  : app + policies com targetRef na HTTPRoute (valem so para
+#                      esta API -- API key e rate limit por usuario)
+#
+# ${DEMO_API_HOST} e ${DEMO_ECHO_HOST} sao substituidos pelo setup-catalog.sh
+# com os hostnames reais lidos das HTTPRoutes do cluster.
+# ===========================================================================
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: platform-team
+  description: Time responsavel pela plataforma e pelas policies de conectividade.
+spec:
+  type: team
+  children: []
+---
+apiVersion: backstage.io/v1alpha1
+kind: Domain
+metadata:
+  name: travel
+  description: Dominio de negocio da demo de conectividade.
+spec:
+  owner: group:default/platform-team
+---
+# ---------------------------------------------------------------------------
+# System: borda (RHCL / Kuadrant)
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: rhcl-ingress
+  description: >-
+    Borda gerenciada pelo Red Hat Connectivity Link: o Gateway compartilhado e
+    as policies de escopo de gateway.
+spec:
+  owner: group:default/platform-team
+  domain: travel
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: prod-web
+  description: Gateway compartilhado (gatewayClass istio), listener HTTPS em *.travels.
+  links:
+    - url: https://${DEMO_API_HOST}
+      title: API travel-agency
+      icon: web
+spec:
+  type: gateway
+  owner: group:default/platform-team
+  system: rhcl-ingress
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: prod-web-deny-all
+  description: >-
+    AuthPolicy no Gateway. Nega tudo por padrao -- uma rota so passa a responder
+    depois que alguem anexa uma AuthPolicy propria a ela. E o default seguro da
+    borda, nao uma policy da aplicacao.
+spec:
+  type: kuadrant-authpolicy
+  owner: group:default/platform-team
+  system: rhcl-ingress
+  dependencyOf:
+    - resource:default/prod-web
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: ingress-gateway-rlp-lowlimits
+  description: >-
+    RateLimitPolicy no Gateway: 50 req / 10s. Teto de protecao da borda; a
+    policy da rota (2000 / 10s por usuario) e mais permissiva, entao na pratica
+    quem corta primeiro e este limite do gateway.
+spec:
+  type: kuadrant-ratelimitpolicy
+  owner: group:default/platform-team
+  system: rhcl-ingress
+  dependencyOf:
+    - resource:default/prod-web
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: prod-web-dnspolicy
+  description: >-
+    DNSPolicy: publica os registros do Gateway no provedor DNS (Route 53) a
+    partir das credenciais em prod-web-aws-credentials.
+spec:
+  type: kuadrant-dnspolicy
+  owner: group:default/platform-team
+  system: rhcl-ingress
+  dependencyOf:
+    - resource:default/prod-web
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: prod-web-tls-policy
+  description: >-
+    TLSPolicy: emite o certificado do listener via ClusterIssuer do cert-manager.
+    Vive em platform-reference/ -- e da plataforma, nao da demo.
+spec:
+  type: kuadrant-tlspolicy
+  owner: group:default/platform-team
+  system: rhcl-ingress
+  dependencyOf:
+    - resource:default/prod-web
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: prod-web-telemetry
+  description: >-
+    TelemetryPolicy no Gateway: rotula as metricas com o plano (auth.kuadrant.plan)
+    e o parceiro (auth.demo.partner). O segundo so existe porque a AuthPolicy
+    exporta a identidade como dynamic metadata -- no contexto CEL do WasmPlugin
+    nao ha 'auth.identity', entao sem essa exportacao o label sai vazio.
+spec:
+  type: kuadrant-telemetrypolicy
+  owner: group:default/platform-team
+  system: rhcl-ingress
+  dependsOn:
+    - resource:default/travel-agency-authpolicy
+  dependencyOf:
+    - resource:default/prod-web
+---
+# ---------------------------------------------------------------------------
+# System: aplicacao
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: travel-agency
+  description: Aplicacao de exemplo exposta pelo Gateway prod-web.
+spec:
+  owner: group:default/platform-team
+  domain: travel
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: travel-agency-api
+  description: API publica do travel-agency, exposta pela HTTPRoute travel-agency.
+  links:
+    - url: https://${DEMO_API_HOST}
+      title: Endpoint
+      icon: web
+spec:
+  type: openapi
+  lifecycle: production
+  owner: group:default/platform-team
+  system: travel-agency
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: Travel Agency API
+      version: "1.0.0"
+      description: >-
+        Exposta pelo Gateway prod-web. A autenticacao e por API key em query
+        string, imposta pela AuthPolicy do RHCL na borda -- o servico travels
+        nao valida credencial nenhuma por conta propria.
+    servers:
+      - url: https://${DEMO_API_HOST}
+    security:
+      - ApiKeyQuery: []
+    paths:
+      /:
+        get:
+          summary: Raiz do servico travels
+          responses:
+            "200":
+              description: OK
+            "401":
+              description: API key ausente ou invalida (AuthPolicy travel-agency-authpolicy)
+            "429":
+              description: Limite excedido (RateLimitPolicy do gateway ou da rota)
+    components:
+      securitySchemes:
+        ApiKeyQuery:
+          type: apiKey
+          in: query
+          name: APIKEY
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: travel-agency-authpolicy
+  description: >-
+    AuthPolicy na HTTPRoute travel-agency. Aceita API key da query string
+    (?APIKEY=) a partir de Secrets com label app=partner em kuadrant-system, e
+    sobrepoe o deny-all do Gateway para esta rota. Tambem exporta a identidade
+    como dynamic metadata (namespace 'demo'), que e o que permite a
+    TelemetryPolicy rotular metrica por parceiro.
+spec:
+  type: kuadrant-authpolicy
+  owner: group:default/platform-team
+  system: travel-agency
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: travels-plans
+  description: >-
+    PlanPolicy na HTTPRoute travel-agency: classifica cada API key em um tier
+    pelo label kuadrant.io/plan-id e aplica limites por tier --
+    gold 30/10s (5000/dia), silver 10/10s (500/dia), free 3/10s (50/dia) e um
+    catch-all 'unclassified' de 1/60s. E o que sobrepoe a RateLimitPolicy plana.
+spec:
+  type: kuadrant-planpolicy
+  owner: group:default/platform-team
+  system: travel-agency
+  dependsOn:
+    - resource:default/travel-agency-authpolicy
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: ratelimit-policy-travels
+  description: >-
+    RateLimitPolicy plana (2000 req / 10s por auth.identity.userid), mantida de
+    proposito para ser SOBREPOSTA pelo PlanPolicy: com os planos aplicados ela
+    reporta Accepted=True, Enforced=False, "RateLimitPolicy is overridden".
+    Esse status e a prova visivel de que as policies do RHCL tem hierarquia
+    com precedencia explicita, em vez de duas regras concorrentes.
+spec:
+  type: kuadrant-ratelimitpolicy
+  owner: group:default/platform-team
+  system: travel-agency
+  dependsOn:
+    - resource:default/travel-agency-authpolicy
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: travels
+  description: Frontend da agencia; agrega os demais servicos. Unico exposto pela HTTPRoute.
+spec:
+  type: service
+  lifecycle: production
+  owner: group:default/platform-team
+  system: travel-agency
+  providesApis:
+    - travel-agency-api
+  dependsOn:
+    - component:default/flights
+    - component:default/hotels
+    - component:default/cars
+    - component:default/insurances
+    - resource:default/travel-agency-authpolicy
+    - resource:default/ratelimit-policy-travels
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: flights
+  description: Servico de voos.
+spec:
+  type: service
+  lifecycle: production
+  owner: group:default/platform-team
+  system: travel-agency
+  dependsOn:
+    - component:default/discounts
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: hotels
+  description: Servico de hoteis.
+spec:
+  type: service
+  lifecycle: production
+  owner: group:default/platform-team
+  system: travel-agency
+  dependsOn:
+    - component:default/discounts
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: cars
+  description: Servico de locacao de veiculos.
+spec:
+  type: service
+  lifecycle: production
+  owner: group:default/platform-team
+  system: travel-agency
+  dependsOn:
+    - component:default/discounts
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: insurances
+  description: Servico de seguros.
+spec:
+  type: service
+  lifecycle: production
+  owner: group:default/platform-team
+  system: travel-agency
+  dependsOn:
+    - component:default/discounts
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: discounts
+  description: >-
+    Servico de descontos, com duas versoes em paralelo (v1 e v2) atras do mesmo
+    Service -- e o alvo natural para demonstrar roteamento por peso na HTTPRoute.
+spec:
+  type: service
+  lifecycle: production
+  owner: group:default/platform-team
+  system: travel-agency
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: echo-api
+  description: >-
+    Servico de eco em namespace separado, anexado ao mesmo Gateway. Serve para
+    mostrar o deny-all da borda: sem AuthPolicy propria, esta rota nao responde.
+  links:
+    - url: https://${DEMO_ECHO_HOST}
+      title: Endpoint
+      icon: web
+spec:
+  type: service
+  lifecycle: production
+  owner: group:default/platform-team
+  system: rhcl-ingress
+---
+# ---------------------------------------------------------------------------
+# Consumidores da API.
+#
+# Cada um corresponde a uma API key em base/identity/apikeys.yaml. O tier nao
+# vem da chave em si: vem do label kuadrant.io/plan-id nela, que o PlanPolicy
+# le no predicate. Uma chave 'app: partner' SEM esse label cai no plano
+# catch-all -- e a falha e silenciosa.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: globex-travel
+  title: Globex Travel
+  description: Parceiro tier gold — 30 req/10s, 5000/dia (apikey-gold-globex).
+spec:
+  type: api-consumer
+  lifecycle: production
+  owner: group:default/platform-team
+  system: travel-agency
+  consumesApis:
+    - travel-agency-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: initech-voyages
+  title: Initech Voyages
+  description: Parceiro tier silver — 10 req/10s, 500/dia (apikey-silver-initech).
+spec:
+  type: api-consumer
+  lifecycle: production
+  owner: group:default/platform-team
+  system: travel-agency
+  consumesApis:
+    - travel-agency-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: acme-trips
+  title: ACME Trips
+  description: Parceiro tier free (avaliacao) — 3 req/10s, 50/dia (apikey-free-acme).
+spec:
+  type: api-consumer
+  lifecycle: production
+  owner: group:default/platform-team
+  system: travel-agency
+  consumesApis:
+    - travel-agency-api

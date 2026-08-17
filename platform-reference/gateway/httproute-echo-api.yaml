@@ -1,0 +1,34 @@
+# Valores especificos de ambiente foram sanitizados na captura:
+# o dominio real e o label kuadrant.io/lb-attribute-geo-code vivem em env/<versao>/.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  labels:
+    app.kubernetes.io/instance: echo-api
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: echo-api
+    deployment: echo-api
+    helm.sh/chart: echo-api-0.1.0
+    service: echo-api
+  name: echo-api
+  namespace: echo-api
+spec:
+  hostnames:
+    - echo.travels.example.com
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: prod-web
+      namespace: ingress-gateway
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: echo-api
+          namespace: echo-api
+          port: 8080
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /

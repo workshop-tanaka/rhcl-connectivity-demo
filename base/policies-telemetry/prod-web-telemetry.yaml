@@ -1,0 +1,67 @@
+# ===========================================================================
+# TelemetryPolicy — rotula as metricas do data plane com dimensoes de negocio.
+#
+# extensions.kuadrant.io/v1alpha1 (RHCL 1.2). Os valores sao expressoes CEL
+# avaliadas por requisicao, no contexto do WasmPlugin do Gateway. As metricas
+# afetadas sao as do Limitador (authorized_calls, limited_calls, authorized_hits).
+#
+# POR QUE ISTO IMPORTA NA DEMO: sem estes labels, o Grafana so consegue
+# responder "quantos 429 o gateway devolveu". Com eles, responde "qual plano
+# bateu no teto hoje" -- que e a pergunta que a area de negocio faz. O
+# dashboard 'bussiness-user' ja existe no cluster (namespace monitoring) e e
+# onde isto aparece.
+#
+# Sem TelemetryPolicy o cluster ja tem o cru: ServiceMonitors de Authorino e
+# Limitador coletando, PodMonitor 'istio-proxies-monitor' nos namespaces da
+# app, e o Thanos como datasource do Grafana. O que falta e a dimensao.
+#
+# ALVO: so 'Gateway' e aceito -- targetRef.kind: HTTPRoute e rejeitado pelo
+# CRD ("The only supported value is 'Gateway'"). Por isso esta policy vive em
+# ingress-gateway e nao junto das outras da travel-agency: policy de escopo de
+# Gateway mora no namespace do Gateway. O efeito colateral e util -- a
+# rotulagem vale para TODA rota atras do prod-web, echo-api incluida.
+#
+# ---------------------------------------------------------------------------
+# O QUE ESTA DISPONIVEL AQUI (verificado neste cluster, nao deduzido do doc):
+#
+#   auth.kuadrant.plan   -> OK. injetado pelo PlanPolicy.
+#   request.method       -> OK.
+#   request.host         -> OK.
+#   auth.identity.*      -> NAO EXISTE neste contexto. O label some da metrica,
+#                           sem erro, sem evento, sem status degradado.
+#
+# Nao ha como rotular por PARCEIRO hoje. O caminho obvio -- exportar a
+# identidade como dynamic metadata no AuthPolicy e ler aqui -- nao funciona
+# enquanto houver PlanPolicy na mesma rota: o controller do PlanPolicy
+# REESCREVE o bloco response.success.dynamicMetadata inteiro do AuthConfig
+# gerado, descartando o que o AuthPolicy tiver declarado ali. Confirme com:
+#
+#   oc get authconfig -n kuadrant-system -o yaml | grep -A20 dynamicMetadata
+#
+# Consequencia pratica para o roteiro: a granularidade e POR PLANO, nao por
+# cliente. Para a conversa de negocio ("o tier free esta saturando") isso
+# basta. Para cobranca por consumidor, nao -- e vale dizer isso na demo em vez
+# de deixar a pergunta no ar. Ver docs/RUNBOOK.md.
+#
+# CARDINALIDADE: cada label multiplica series no Prometheus. 'plan' (4 valores),
+# 'method' e 'vhost' sao seguros. Nao coloque aqui nada derivado de
+# request.url_path ou de header livre.
+# ===========================================================================
+apiVersion: extensions.kuadrant.io/v1alpha1
+kind: TelemetryPolicy
+metadata:
+  name: prod-web-telemetry
+  namespace: ingress-gateway
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: prod-web
+  metrics:
+    default:
+      labels:
+        # Tier resolvido pelo PlanPolicy. Vazio => a classificacao falhou:
+        # e o sintoma do fail-open documentado em base/identity/apikeys.yaml.
+        plan: 'auth.kuadrant.plan'
+        method: 'request.method'
+        vhost: 'request.host'

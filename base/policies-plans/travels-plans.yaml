@@ -1,0 +1,81 @@
+# ===========================================================================
+# PlanPolicy — API como produto: tiers comerciais em cima da mesma rota.
+#
+# extensions.kuadrant.io/v1alpha1, entregue pelo RHCL 1.2. A extensao
+# 'plan-policy' roda dentro do kuadrant-operator (confirme com:
+#   oc logs -n kuadrant-system deploy/kuadrant-operator-controller-manager \
+#     | grep 'Discovered extension').
+#
+# O que o controller faz quando isto e aplicado:
+#   1. injeta no AuthConfig gerado uma dynamicMetadata 'plan', calculada por
+#      CEL a partir dos predicates abaixo;
+#   2. cria no Limitador um limite por tier (namespace travel-agency/travel-agency);
+#   3. reescreve o WasmPlugin do Gateway com conditionalData por
+#      'auth.kuadrant.plan == "<tier>"'.
+#
+# Inspecione os tres:
+#   oc get authconfig -n kuadrant-system -o yaml | grep -A20 'properties:'
+#   oc get limitador limitador -n kuadrant-system -o jsonpath='{.spec.limits}'
+#   oc get wasmplugin kuadrant-prod-web -n ingress-gateway -o jsonpath='{.spec.pluginConfig}'
+#
+# ---------------------------------------------------------------------------
+# ORDEM IMPORTA: "a identidade e classificada pelo primeiro plano que casar"
+# (schema do CRD). Por isso o catch-all vem por ultimo -- se viesse antes,
+# engoliria gold e silver.
+#
+# O catch-all nao e enfeite. Sem ele, uma identidade que nao casa com nenhum
+# plano fica sem 'plan', o wasm nao chama o Limitador e a requisicao passa sem
+# limite. Fail-open. O plano 'unclassified' e deliberadamente apertado: se
+# alguem emitir uma chave sem tier, o efeito e visivel (429 cedo) em vez de
+# invisivel (sem limite).
+#
+# LIMITES: baixos de proposito. Um limite realista (milhares/10s) nao produz
+# nenhum 429 numa demo -- e o efeito da policy fica invisivel na tela. Estes
+# numeros existem para caber num 'watch' de 30 segundos. Ver docs/RUNBOOK.md.
+# ===========================================================================
+apiVersion: extensions.kuadrant.io/v1alpha1
+kind: PlanPolicy
+metadata:
+  name: travels-plans
+  namespace: travel-agency
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: travel-agency
+
+  plans:
+    # -- gold: parceiro integrado, cota de negocio (diaria) e nao de rajada.
+    - tier: gold
+      predicate: 'auth.identity.metadata.labels["kuadrant.io/plan-id"] == "gold"'
+      limits:
+        daily: 5000
+        custom:
+          - limit: 30
+            window: 10s
+
+    # -- silver: contrato menor, mesma API.
+    - tier: silver
+      predicate: 'auth.identity.metadata.labels["kuadrant.io/plan-id"] == "silver"'
+      limits:
+        daily: 500
+        custom:
+          - limit: 10
+            window: 10s
+
+    # -- free: avaliacao. O 429 aqui e o argumento de upgrade.
+    - tier: free
+      predicate: 'auth.identity.metadata.labels["kuadrant.io/plan-id"] == "free"'
+      limits:
+        daily: 50
+        custom:
+          - limit: 3
+            window: 10s
+
+    # -- catch-all: rede de seguranca contra o fail-open. Mantenha por ultimo.
+    - tier: unclassified
+      predicate: 'true'
+      limits:
+        custom:
+          - limit: 1
+            window: 60s

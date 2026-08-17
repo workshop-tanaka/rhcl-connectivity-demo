@@ -1,0 +1,30 @@
+# Valores especificos de ambiente foram sanitizados na captura:
+# o dominio real e o label kuadrant.io/lb-attribute-geo-code vivem em env/<versao>/.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  labels:
+    deployment: travels-v1
+    service: travels
+  name: travel-agency
+  namespace: travel-agency
+spec:
+  hostnames:
+    - api.travels.example.com
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: prod-web
+      namespace: ingress-gateway
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: travels
+          namespace: travel-agency
+          port: 8000
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /

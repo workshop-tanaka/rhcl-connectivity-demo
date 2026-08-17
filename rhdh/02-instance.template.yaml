@@ -1,0 +1,89 @@
+# ===========================================================================
+# Red Hat Developer Hub — instancia (CR Backstage) + configuracao.
+#
+# Template: ${RHDH_HOST} e substituido pelo install.sh com o hostname real da
+# rota (derivado do dominio de apps do cluster). Nada mais e interpolado --
+# ${BACKEND_SECRET} abaixo e resolvido pelo PROPRIO Backstage em runtime, a
+# partir da variavel de ambiente injetada pelo Secret; nao pode ser expandido
+# aqui, senao o segredo iria em claro para dentro do ConfigMap.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rhdh
+---
+# ---------------------------------------------------------------------------
+# Configuracao da aplicacao.
+#
+# baseUrl/cors precisam bater EXATAMENTE com a URL publica da rota: o frontend
+# do Backstage monta as chamadas de API a partir de app.baseUrl, e o backend
+# recusa origens que nao constem em backend.cors.origin. Por isso a rota tem
+# host fixo (spec.application.route.host no CR) em vez do host gerado pelo
+# OpenShift -- o host precisa ser conhecido ANTES de o pod subir.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config-rhdh
+  namespace: rhdh
+data:
+  app-config-rhdh.yaml: |
+    app:
+      title: Red Hat Developer Hub
+      baseUrl: https://${RHDH_HOST}
+
+    backend:
+      baseUrl: https://${RHDH_HOST}
+      cors:
+        origin: https://${RHDH_HOST}
+      auth:
+        externalAccess:
+          - type: legacy
+            options:
+              subject: legacy-default-config
+              secret: "${BACKEND_SECRET}"
+
+    # Login: provider 'guest' -- adequado para lab/demo, NAO para producao.
+    # Ver README.md ("Sair do guest") para promover isto.
+    auth:
+      environment: development
+      providers:
+        guest:
+          dangerouslyAllowOutsideDevelopment: true
+      # O usuario 'guest' nao existe no catalogo; sem isto o sign-in e recusado.
+      dangerouslyAllowSignInWithoutUserInCatalog: true
+
+    # 'locations' NAO e definido aqui de proposito: quem define e o
+    # app-config-rhdh-catalog (setup-catalog.sh). Arrays nao se somam entre
+    # arquivos de config do Backstage -- o ultimo vence -- entao declarar uma
+    # lista vazia aqui competiria com a camada de catalogo.
+    catalog:
+      rules:
+        - allow: [Component, System, Domain, Group, User, Resource, Location, Template, API]
+---
+# ---------------------------------------------------------------------------
+# Instancia RHDH.
+#
+# database.enableLocalDb: o operator sobe um PostgreSQL proprio com PVC
+# (storageClass default do cluster). Para producao, apontar para um Postgres
+# externo via spec.database.authSecretName e enableLocalDb: false.
+# ---------------------------------------------------------------------------
+apiVersion: rhdh.redhat.com/v1alpha5
+kind: Backstage
+metadata:
+  name: developer-hub
+  namespace: rhdh
+spec:
+  application:
+    appConfig:
+      mountPath: /opt/app-root/src
+      configMaps:
+        - name: app-config-rhdh
+    extraEnvs:
+      secrets:
+        - name: rhdh-backend-secret
+    route:
+      enabled: true
+      host: ${RHDH_HOST}
+  database:
+    enableLocalDb: true

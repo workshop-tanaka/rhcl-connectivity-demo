@@ -1,0 +1,6 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# HTTPRoute travel-agency. Unico recurso de rede da demo que NAO e rastreado
+# pelo Argo -- o Gateway prod-web e a rota do echo-api sao (platform-reference/).
+resources:
+  - httproute-travel-agency.yaml

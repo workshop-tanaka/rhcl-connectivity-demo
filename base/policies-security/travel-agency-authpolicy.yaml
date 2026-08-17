@@ -1,0 +1,46 @@
+# ===========================================================================
+# AuthPolicy da rota travel-agency — quem entra.
+#
+# Autenticacao por API key: o Authorino procura Secrets com 'app: partner' no
+# proprio namespace (allNamespaces: false => kuadrant-system, onde ele roda) e
+# casa contra o parametro de query APIKEY. Os Secrets estao em base/identity/.
+#
+# ---------------------------------------------------------------------------
+# NAO adicione aqui um bloco response.success.dynamicMetadata.
+#
+# A tentacao e obvia -- exportar a identidade para poder rotular metricas por
+# parceiro em base/policies-telemetry/. Nao funciona: o controller do
+# PlanPolicy reescreve o response.success.dynamicMetadata inteiro do AuthConfig
+# gerado, e o que for declarado aqui e descartado em silencio (sem erro, sem
+# status degradado). Testado neste cluster; ver o comentario extenso em
+# base/policies-telemetry/prod-web-telemetry.yaml.
+#
+# Enquanto houver PlanPolicy nesta rota, a unica dimensao de identidade que
+# chega ao data plane e 'auth.kuadrant.plan'.
+# ---------------------------------------------------------------------------
+# ===========================================================================
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: travel-agency-authpolicy
+  namespace: travel-agency
+spec:
+  defaults:
+    rules:
+      authentication:
+        api-key-authn:
+          apiKey:
+            allNamespaces: false
+            selector:
+              matchLabels:
+                app: partner
+          credentials:
+            queryString:
+              name: APIKEY
+          metrics: false
+          priority: 0
+    strategy: atomic
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: travel-agency

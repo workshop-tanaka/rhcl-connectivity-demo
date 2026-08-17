@@ -1,0 +1,82 @@
+# ===========================================================================
+# Servidor estatico das entidades do catalogo.
+#
+# POR QUE ISTO EXISTE: o RHDH so aceita locations do tipo 'url'. Tentar
+# registrar as entidades como arquivo montado no pod falha com
+#
+#   InputError: Registered locations must be of an allowed type ["url"]
+#
+# e -- pior -- via 'catalog.locations' no app-config a location e simplesmente
+# ignorada, sem nenhum erro no log. O limite vem de setAllowedLocationTypes no
+# builder do catalogo, nao de uma chave de config: nao ha como afrouxar.
+#
+# As entidades tambem carregam hostnames especificos do cluster (lidos das
+# HTTPRoutes pelo setup-catalog.sh), entao servi-las de um repositorio Git
+# exigiria commitar valores de ambiente. Servir de dentro do cluster resolve as
+# duas coisas: a location vira 'url' e o conteudo continua sendo gerado.
+#
+# O ConfigMap rhdh-catalog-entities e criado pelo setup-catalog.sh a partir de
+# catalog/travel-agency.yaml -- por isso nao aparece aqui.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rhdh-catalog-server
+  namespace: rhdh
+  labels:
+    app: rhdh-catalog-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rhdh-catalog-server
+  template:
+    metadata:
+      labels:
+        app: rhdh-catalog-server
+    spec:
+      containers:
+        - name: httpd
+          image: registry.access.redhat.com/ubi9/httpd-24:latest
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - name: entities
+              mountPath: /var/www/html
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /travel-agency.yaml
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: entities
+          configMap:
+            name: rhdh-catalog-entities
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rhdh-catalog-server
+  namespace: rhdh
+  labels:
+    app: rhdh-catalog-server
+spec:
+  type: ClusterIP
+  selector:
+    app: rhdh-catalog-server
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

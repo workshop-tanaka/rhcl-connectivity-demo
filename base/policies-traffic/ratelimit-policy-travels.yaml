@@ -1,0 +1,35 @@
+# ===========================================================================
+# RateLimitPolicy "plana" — mantida de proposito, e SOBREPOSTA pelo PlanPolicy.
+#
+# Com base/policies-plans/ aplicado, esta policy passa a reportar:
+#   Accepted=True, Enforced=False, "RateLimitPolicy is overridden"
+#
+#   oc get ratelimitpolicy ratelimit-policy-travels -n travel-agency \
+#     -o jsonpath='{.status.conditions[*].message}'
+#
+# Esse status e um dos momentos mais uteis do roteiro: mostra, sem slide, que
+# as policies do RHCL formam uma hierarquia com precedencia explicita e
+# legivel -- em vez de duas regras concorrentes cujo vencedor so se descobre
+# pelo comportamento.
+#
+# O limite abaixo (2000/10s) tambem documenta o problema que o PlanPolicy
+# resolve: e alto demais para produzir um unico 429 numa demo, e trata todos
+# os consumidores como iguais.
+# ===========================================================================
+apiVersion: kuadrant.io/v1
+kind: RateLimitPolicy
+metadata:
+  name: ratelimit-policy-travels
+  namespace: travel-agency
+spec:
+  limits:
+    per-user:
+      counters:
+        - expression: auth.identity.userid
+      rates:
+        - limit: 2000
+          window: 10s
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: travel-agency

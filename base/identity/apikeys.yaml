@@ -1,0 +1,86 @@
+# ===========================================================================
+# Consumidores da API — um Secret de API key por parceiro.
+#
+# O AuthPolicy (base/policies-security/travel-agency-authpolicy.yaml) seleciona
+# estes Secrets por 'app: partner'. O PlanPolicy
+# (base/policies-plans/travels-plans.yaml) classifica cada um em um tier pelo
+# label 'kuadrant.io/plan-id'.
+#
+# Dois labels, dois papéis distintos -- nao unifique:
+#   app: partner              -> QUEM entra (selector do AuthPolicy)
+#   kuadrant.io/plan-id       -> QUANTO pode (predicate do PlanPolicy)
+#
+# CUIDADO (validado neste cluster): o predicate do PlanPolicy indexa o label
+# direto. Se um Secret com 'app: partner' NAO tiver 'kuadrant.io/plan-id', a
+# expressao CEL erra em runtime -- e o erro e SILENCIOSO: nenhum plano e
+# atribuido, a chamada ao Limitador nao acontece e a requisicao passa SEM
+# limite nenhum. Fail-open. Por isso todo Secret aqui carrega o label, e o
+# PlanPolicy ainda termina com um plano catch-all. Ver docs/RUNBOOK.md.
+#
+# Chaves em claro: sao credenciais de demo, descartaveis, de um sandbox
+# efemero. Em qualquer outro contexto isto vira template redigido, como
+# platform-reference/policies-connectivity/secret-prod-web-aws-credentials.template.yaml.
+#
+# O namespace e kuadrant-system porque o AuthPolicy usa allNamespaces: false --
+# a busca acontece no namespace do Authorino.
+# ===========================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-gold-globex
+  namespace: kuadrant-system
+  labels:
+    app: partner
+    authorino.kuadrant.io/managed-by: authorino
+    kuadrant.io/plan-id: gold
+  annotations:
+    kuadrant.io/partner-name: "Globex Travel"
+type: Opaque
+stringData:
+  api_key: gold-globex-2f8a1c
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-silver-initech
+  namespace: kuadrant-system
+  labels:
+    app: partner
+    authorino.kuadrant.io/managed-by: authorino
+    kuadrant.io/plan-id: silver
+  annotations:
+    kuadrant.io/partner-name: "Initech Voyages"
+type: Opaque
+stringData:
+  api_key: silver-initech-7b3e90
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-free-acme
+  namespace: kuadrant-system
+  labels:
+    app: partner
+    authorino.kuadrant.io/managed-by: authorino
+    kuadrant.io/plan-id: free
+  annotations:
+    kuadrant.io/partner-name: "ACME Trips (avaliacao)"
+type: Opaque
+stringData:
+  api_key: free-acme-c41d5e
+---
+# apikey-blue: a chave original do workshop. Mantida para o roteiro poder
+# mostrar o comportamento pre-tiering, e rotulada como 'free' para nao cair
+# no caso fail-open descrito acima.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-blue
+  namespace: kuadrant-system
+  labels:
+    app: partner
+    authorino.kuadrant.io/managed-by: authorino
+    kuadrant.io/plan-id: free
+type: Opaque
+stringData:
+  api_key: blue

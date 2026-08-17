@@ -1,0 +1,12 @@
+# Gateway prod-web: dominio do sandbox + geo-code.
+#
+# /spec/listeners/0 = listener 'api' (unico listener da base). Se a base ganhar
+# mais listeners, este indice precisa ser revisto.
+- op: add
+  path: /metadata/labels
+  value:
+    kuadrant.io/lb-attribute-geo-code: GEO-EU
+
+- op: replace
+  path: /spec/listeners/0/hostname
+  value: '*.travels.sandbox5518.opentlc.com'

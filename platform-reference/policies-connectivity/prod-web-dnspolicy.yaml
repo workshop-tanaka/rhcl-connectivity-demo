@@ -1,0 +1,12 @@
+apiVersion: kuadrant.io/v1
+kind: DNSPolicy
+metadata:
+  name: prod-web-dnspolicy
+  namespace: ingress-gateway
+spec:
+  providerRefs:
+    - name: prod-web-aws-credentials
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: prod-web

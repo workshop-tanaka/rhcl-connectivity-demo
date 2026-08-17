@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# CAMADA DE AMBIENTE — RHCL 1.2 / OpenShift 4.17 (sandbox5518.opentlc.com)
+#
+# Fica entre base/ e overlays/: pega a base portavel e aplica tudo que e
+# especifico deste cluster e desta versao dos operadores.
+#
+# O que mora aqui:
+#   - hostname do dominio do sandbox, para a rota que a DEMO governa
+#
+# O que NAO mora mais aqui: os patches do Gateway prod-web e do HTTPRoute
+# echo-api. Ambos alteram recursos rastreados pelo Argo (Applications
+# 'ingress-gateway' e 'echo-api', com selfHeal ligado) -- aplica-los seria
+# revertido em segundos. Foram para platform-reference/gateway/ como registro.
+# Ver platform-reference/README.md.
+#
+# apiVersions: nao ha patch porque os manifests capturados ja estao nas
+# versoes desta release (kuadrant.io/v1 para Auth/RateLimit, e
+# extensions.kuadrant.io/v1alpha1 para Plan/Telemetry). Se mudar de release,
+# o patch de apiVersion entra aqui.
+#
+# Trocar de ambiente = criar env/<outra-versao>/ e apontar o overlay para la.
+# ===========================================================================
+
+resources:
+  - ../../base
+
+patches:
+  # JSON 6902 (nao strategic merge): HTTPRoute e CRD sem schema conhecido pelo
+  # kustomize -- um merge de lista sobrescreveria campos vizinhos. O patch
+  # posicional altera so o campo alvo.
+  - path: patch-httproute-travel-agency.yaml
+    target:
+      group: gateway.networking.k8s.io
+      version: v1
+      kind: HTTPRoute
+      name: travel-agency
+      namespace: travel-agency

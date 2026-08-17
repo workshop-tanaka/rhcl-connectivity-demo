@@ -1,0 +1,5 @@
+# HTTPRoute echo-api: hostname real do sandbox.
+- op: replace
+  path: /spec/hostnames
+  value:
+    - echo.travels.sandbox5518.opentlc.com

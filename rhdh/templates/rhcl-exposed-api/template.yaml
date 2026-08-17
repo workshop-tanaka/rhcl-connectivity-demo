@@ -1,0 +1,144 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: rhcl-exposed-api
+  title: API exposta pelo Red Hat Connectivity Link
+  description: >-
+    Cria um servico ja exposto no Gateway prod-web e protegido pelas policies do
+    RHCL: HTTPRoute, AuthPolicy por API key e RateLimitPolicy por identidade.
+    Gera o repositorio no GitHub e registra o componente no catalogo.
+  tags:
+    - rhcl
+    - kuadrant
+    - gateway-api
+    - openshift
+spec:
+  type: service
+  owner: group:default/platform-team
+
+  parameters:
+    - title: Identidade do servico
+      required: [name, owner]
+      properties:
+        name:
+          title: Nome
+          type: string
+          description: Nome do componente, do Deployment e do Service.
+          pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+          ui:autofocus: true
+        description:
+          title: Descricao
+          type: string
+          description: Aparece no catalogo.
+        owner:
+          title: Dono
+          type: string
+          description: Time responsavel.
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: [Group, User]
+          default: group:default/platform-team
+
+    - title: Exposicao no gateway
+      required: [namespace, hostname, image, port]
+      properties:
+        namespace:
+          title: Namespace
+          type: string
+          description: Namespace do OpenShift onde o servico roda.
+          default: travel-agency
+        hostname:
+          title: Hostname
+          type: string
+          description: >-
+            Precisa casar com o listener do Gateway prod-web (*.travels.<dominio>),
+            senao a HTTPRoute e aceita mas nunca recebe trafego.
+          default: nova-api.travels.example.com
+        image:
+          title: Imagem do container
+          type: string
+          description: >-
+            O default e a mesma imagem de eco usada pelo echo-api desta demo --
+            responde em qualquer path e devolve os headers recebidos, o que
+            torna facil provar que a AuthPolicy e a RateLimitPolicy pegaram.
+          default: quay.io/3scale/authorino:echo-api
+        port:
+          title: Porta do container
+          type: integer
+          default: 8080
+
+    - title: Policies do RHCL
+      required: [apiKeyLabel, rateLimit, rateLimitWindow]
+      properties:
+        apiKeyLabel:
+          title: Label das API keys
+          type: string
+          description: >-
+            A AuthPolicy aceita chaves a partir de Secrets com este label. Use um
+            valor proprio para isolar as chaves desta API das demais.
+          default: partner
+        rateLimit:
+          title: Limite de requisicoes
+          type: integer
+          description: Contado por identidade autenticada, nao por IP.
+          default: 100
+        rateLimitWindow:
+          title: Janela
+          type: string
+          description: "Janela do limite (ex: 10s, 1m)."
+          default: 10s
+
+    - title: Repositorio
+      required: [repoUrl]
+      properties:
+        repoUrl:
+          title: Destino no GitHub
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts:
+              - github.com
+
+  steps:
+    - id: fetch
+      name: Gerar manifests
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          namespace: ${{ parameters.namespace }}
+          hostname: ${{ parameters.hostname }}
+          image: ${{ parameters.image }}
+          port: ${{ parameters.port }}
+          apiKeyLabel: ${{ parameters.apiKeyLabel }}
+          rateLimit: ${{ parameters.rateLimit }}
+          rateLimitWindow: ${{ parameters.rateLimitWindow }}
+          repoUrl: ${{ parameters.repoUrl }}
+
+    - id: publish
+      name: Publicar no GitHub
+      action: publish:github
+      input:
+        repoUrl: ${{ parameters.repoUrl }}
+        description: ${{ parameters.description }}
+        defaultBranch: main
+        repoVisibility: private
+
+    - id: register
+      name: Registrar no catalogo
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+  output:
+    links:
+      - title: Repositorio
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: Abrir no catalogo
+        icon: catalog
+        entityRef: ${{ steps.register.output.entityRef }}

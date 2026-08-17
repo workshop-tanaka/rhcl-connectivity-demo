@@ -1,0 +1,56 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{ values.name }}
+  description: ${{ values.description }}
+  links:
+    - url: https://${{ values.hostname }}
+      title: Endpoint
+      icon: web
+spec:
+  type: service
+  lifecycle: experimental
+  owner: ${{ values.owner }}
+  system: travel-agency
+  providesApis:
+    - ${{ values.name }}-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: ${{ values.name }}-api
+  description: API de ${{ values.name }}, exposta pelo Gateway prod-web.
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: ${{ values.owner }}
+  system: travel-agency
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: ${{ values.name }}
+      version: "1.0.0"
+      description: >-
+        Autenticacao por API key em query string, imposta na borda pela
+        AuthPolicy do RHCL. O servico nao valida credencial por conta propria.
+    servers:
+      - url: https://${{ values.hostname }}
+    security:
+      - ApiKeyQuery: []
+    paths:
+      /:
+        get:
+          summary: Raiz do servico
+          responses:
+            "200":
+              description: OK
+            "401":
+              description: API key ausente ou invalida
+            "429":
+              description: Limite de ${{ values.rateLimit }} req / ${{ values.rateLimitWindow }} excedido
+    components:
+      securitySchemes:
+        ApiKeyQuery:
+          type: apiKey
+          in: query
+          name: APIKEY
