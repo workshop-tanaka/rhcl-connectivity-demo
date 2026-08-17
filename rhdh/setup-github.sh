@@ -46,14 +46,23 @@ RHDH_CR="${RHDH_CR:-developer-hub}"
 
 [[ -n "$GITHUB_ORG"  ]] || _die "uso: GITHUB_TOKEN=... bash setup-github.sh <org> <repo> [branch]"
 [[ -n "$GITHUB_REPO" ]] || _die "uso: GITHUB_TOKEN=... bash setup-github.sh <org> <repo> [branch]"
-[[ -n "${GITHUB_TOKEN:-}" ]] || _die "defina GITHUB_TOKEN no ambiente (nao passe como argumento: fica no historico do shell)."
-
 oc get backstage "$RHDH_CR" -n "$RHDH_NS" >/dev/null 2>&1 \
   || _die "instancia ${RHDH_CR} nao encontrada em ${RHDH_NS}; rode install.sh antes."
+
+# Sem GITHUB_TOKEN no ambiente, reaproveita o Secret ja gravado -- permite
+# reaplicar mudancas de configuracao sem ter o token a mao de novo.
+_reuse_secret=false
+if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+  oc get secret rhdh-github-secret -n "$RHDH_NS" >/dev/null 2>&1 \
+    || _die "defina GITHUB_TOKEN no ambiente (nao passe como argumento: fica no historico do shell)."
+  _reuse_secret=true
+  _log "GITHUB_TOKEN nao definido -- reaproveitando o Secret existente."
+fi
 
 # ----- 1. validar o token antes de reiniciar nada ---------------------------
 # Um token errado so apareceria depois de ~5 min de rollout, como catalogo
 # vazio e sem erro obvio. Barato conferir agora.
+if [[ "$_reuse_secret" == false ]]; then
 _log "validando o token no GitHub..."
 _user="$(curl -sf -H "Authorization: Bearer ${GITHUB_TOKEN}" \
           -H "Accept: application/vnd.github+json" \
@@ -81,10 +90,26 @@ oc create secret generic rhdh-github-secret -n "$RHDH_NS" \
   --from-literal=GITHUB_URL="https://github.com" \
   --dry-run=client -o yaml | oc apply -f - >/dev/null \
   || _die "falha ao criar rhdh-github-secret."
+else
+_tpl_path="rhdh/templates/rhcl-exposed-api/template.yaml"
+fi
 
 # ----- 3. app-config da camada GitHub --------------------------------------
-# Sem 'catalog.locations' aqui de proposito: essa lista e um array e vive
-# inteira no app-config-rhdh-catalog (ver setup-catalog.sh).
+# Só as credenciais de integracao aqui.
+#
+# 'catalog.providers.github' NAO entra neste arquivo: o
+# dynamic-plugins.default.yaml ja declara um provider chamado 'providerId' no
+# pluginConfig do plugin, e o RHDH MESCLA esse bloco em vez de substitui-lo.
+# Declarar um provider com outro nome nao troca o default -- cria um SEGUNDO
+# provider varrendo a mesma org, e os dois brigam pelas mesmas entidades:
+#
+#   Source github-provider:demoOrg detected conflicting entityRef
+#   location:default/generated-... already referenced by github-provider:providerId
+#
+# A configuracao do provider vai no passo 4, sobre o MESMO nome 'providerId'.
+#
+# 'catalog.locations' tambem fica fora: e array, e vive inteira no
+# app-config-rhdh-catalog (ver setup-catalog.sh).
 oc apply -f - >/dev/null <<EOF || _die "falha ao criar app-config-rhdh-github."
 apiVersion: v1
 kind: ConfigMap
@@ -97,21 +122,6 @@ data:
       github:
         - host: github.com
           token: \${GITHUB_TOKEN}
-    catalog:
-      providers:
-        github:
-          demoOrg:
-            organization: \${GITHUB_ORG}
-            catalogPath: /catalog-info.yaml
-            filters:
-              branch: ${GITHUB_BRANCH}
-            schedule:
-              frequency:
-                minutes: 30
-              initialDelay:
-                seconds: 30
-              timeout:
-                minutes: 3
 EOF
 
 # ----- 4. plugins dinamicos ------------------------------------------------
@@ -130,9 +140,33 @@ data:
     includes:
       - dynamic-plugins.default.yaml
     plugins:
-      # descoberta de repos da org com catalog-info.yaml
+      # Descoberta de repos da org com catalog-info.yaml na raiz.
+      #
+      # O nome 'providerId' e obrigatorio: e o que o default usa. Como o
+      # pluginConfig e mesclado, reusar o nome ajusta o provider existente;
+      # qualquer outro nome criaria um segundo provider sobre a mesma org.
+      #
+      # O default so define 'organization' e roda a cada 3h -- lento demais
+      # para uma demo, onde o repo recem-criado precisa aparecer no catalogo
+      # em seguida.
       - package: ./dynamic-plugins/dist/backstage-plugin-catalog-backend-module-github-dynamic
         disabled: false
+        pluginConfig:
+          catalog:
+            providers:
+              github:
+                providerId:
+                  organization: \${GITHUB_ORG}
+                  catalogPath: /catalog-info.yaml
+                  filters:
+                    branch: ${GITHUB_BRANCH}
+                  schedule:
+                    frequency:
+                      minutes: 5
+                    initialDelay:
+                      seconds: 30
+                    timeout:
+                      minutes: 3
       # action publish:github, usada pelo template rhcl-exposed-api
       - package: ./dynamic-plugins/dist/backstage-plugin-scaffolder-backend-module-github-dynamic
         disabled: false

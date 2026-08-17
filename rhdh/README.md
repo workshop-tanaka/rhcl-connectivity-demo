@@ -145,7 +145,32 @@ spec:
     dynamicPluginsConfigMapName: dynamic-plugins-rhdh
 ```
 
-Cada plugin adicionado alonga o startup do pod — o init container baixa e instala tudo antes de o backend abrir a porta.
+Cada plugin adicionado alonga o startup do pod — o init container instala tudo antes de o backend abrir a porta. Os plugins usados aqui já vêm na imagem (`./dynamic-plugins/dist/...`), apenas desabilitados: nada é baixado da rede.
+
+### `pluginConfig` é mesclado, não substituído
+
+O `dynamic-plugins.default.yaml` da imagem já traz `pluginConfig` para vários plugins. O seu bloco é **mesclado** com o default — não o substitui. Para configuração baseada em nome, isso importa muito.
+
+Concreto: o plugin de catálogo do GitHub declara por padrão um provider chamado `providerId`. Declarar um provider com outro nome não troca o default — cria um **segundo** provider varrendo a mesma organização, e os dois disputam as mesmas entidades:
+
+```
+Source github-provider:demoOrg detected conflicting entityRef
+location:default/generated-... already referenced by github-provider:providerId
+```
+
+Por isso `setup-github.sh` configura o provider sob o nome `providerId`: reusar o nome ajusta o que já existe. A regra vale para qualquer plugin com config nomeada — confira o nome no default antes de escolher o seu.
+
+### Escopo da descoberta
+
+O provider varre **toda** a organização e adota qualquer repo com `catalog-info.yaml` na raiz. Numa org com outros projetos, eles entram no catálogo junto com a demo. Para restringir, use os filtros do provider:
+
+```yaml
+filters:
+  branch: main
+  repository: '^rhcl-.*'   # ou: topic: { include: [rhcl-demo] }
+```
+
+Se for por topic, o template também precisa marcar os repos criados — `publish:github` aceita `topics` no input.
 
 ## PostgreSQL
 
