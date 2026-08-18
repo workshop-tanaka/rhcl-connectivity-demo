@@ -101,6 +101,8 @@ Opcionais, para os Atos 4 e 5 terem tela: `kiali-ossm` e `tempo-product` +
 (community). O `preflight.sh` procura as routes em `monitoring`,
 `istio-system` e `tracing-system`. O `kiali-ossm` rende duas coisas: a route do
 Kiali e a aba **Service Mesh** dentro do console — ver [secao 7](#7-consoles-integradas).
+Nenhuma das duas nasce com metrica: o Kiali ainda precisa da CA e do RBAC para
+ler o Thanos, e a malha precisa de PodMonitor — [secao 7.1](#71-o-que-cr-kiali-saudavel-quer-dizer).
 
 ---
 
@@ -276,6 +278,55 @@ para ele. O plugin nao fala com a malha: ele fala com o Kiali de `istio-system`
 pelo proxy do console (`authorization: UserToken`), entao um CR `Kiali` saudavel
 e pre-requisito, nao detalhe.
 
+### 7.1 O que "CR `Kiali` saudavel" quer dizer
+
+Nao e figura de linguagem, e o plugin instalado nao ajuda a descobrir. Com o CR
+aplicado e o pod `Running`, a aba abre dizendo:
+
+```
+Metrics are disabled
+Graph requires a metrics store (Prometheus) to be enabled.
+Enable Prometheus in the Kiali configuration to use this feature.
+```
+
+...enquanto o CR diz `external_services.prometheus.enabled: true`. Quem desliga
+e o runtime, ao falhar o health check contra o `thanos-querier`. Sao tres coisas
+a ligar, todas em `platform-reference/monitoring/`:
+
+```bash
+# CR + ClusterRoleBinding (cluster-monitoring-view na SA do Kiali)
+oc apply -f platform-reference/monitoring/kiali.yaml
+
+# CA da service CA do OpenShift -- a chave TEM de ser additional-ca-bundle.pem
+oc create cm kiali-cabundle -n istio-system --from-literal=additional-ca-bundle.pem="$(
+  oc get cm kiali-cabundle-openshift -n istio-system -o jsonpath='{.data.service-ca\.crt}')"
+oc rollout restart deploy/kiali -n istio-system
+
+# PodMonitors dos proxies + ServiceMonitor do istiod (senao o grafo abre vazio)
+oc apply -f platform-reference/monitoring/istio-monitors.yaml
+```
+
+Nao tente resolver o TLS por `external_services.prometheus.auth.ca_file`: o CRD
+aceita o campo e o Kiali 2.27 o **ignora**, avisando so por uma linha de
+`DEPRECATION` no log.
+
+Conferir, em vez de supor:
+
+```bash
+oc logs -n istio-system deploy/kiali | grep -E "Prometheus connected|x509|cabundle"
+# INF Loaded [1] valid CA certificate(s) from [/kiali-cabundle/additional-ca-bundle.pem]
+# INF Prometheus connected -- metrics features restored
+
+curl -sk "https://$(oc get route kiali -n istio-system -o jsonpath='{.spec.host}')/api/status" \
+  | python3 -c 'import json,sys; print([s for s in json.load(sys.stdin)["externalServices"] if s["name"]=="Prometheus"])'
+# [{'name': 'Prometheus', 'version': '0.39.2', ...}]   <- sem 'version', esta desligado
+```
+
+O `preflight.sh` faz esses dois checks (mais a contagem de `istio_requests_total`
+no Thanos) na secao de observabilidade. Detalhe do porque isso passa batido: os
+pods da malha ja tem `prometheus.io/scrape: true`, que o Prometheus de user
+workload do OpenShift ignora -- so PodMonitor/ServiceMonitor valem.
+
 Conferir que os dois realmente servem seus assets ao console — o pod do console
 e quem tem que alcanca-los, e e ai que um Service errado aparece:
 
@@ -294,6 +345,44 @@ Link** (Overview, Policies, Policy Topology, API Products, API Keys, API Key
 Approvals) e **Service Mesh** (Overview, Traffic Graph, Mesh, Namespaces,
 Applications, Workloads, Services, Istio Config).
 
+Tres das seis abas do Connectivity Link — *API Products*, *API Keys* e *API Key
+Approvals* — sao do **developer portal**, e so tem dado depois de dois passos.
+
+O controller vem desligado: o 1.4.2 entrega as CRDs `devportal.kuadrant.io` mas
+nao o reconciliador. Ligue no CR da plataforma:
+
+```bash
+oc patch kuadrant kuadrant -n kuadrant-system --type=merge \
+  -p '{"spec":{"components":{"developerPortal":{"enabled":true}}}}'
+oc rollout status deploy/developer-portal-controller -n kuadrant-system
+```
+
+Depois aplique a camada de catalogo — `APIProduct` + tres `APIKey`, um por
+parceiro do Ato 2:
+
+```bash
+oc apply -k env/rhcl-1.4_ocp-4.21/devportal
+oc get apiproduct -A ; oc get apikey -A ; oc get apikeyrequest -A
+```
+
+O `APIProduct` **descobre a demo sozinho**: `status.discoveredPlans` traz os
+quatro tiers com limite e cota lidos do `PlanPolicy`, e `discoveredAuthScheme` o
+esquema de API key lido do `AuthPolicy`. Os `APIKey` nascem `Pending`, e o
+controller gera um `APIKeyRequest` para cada um — e sao esses pendentes que
+povoam a terceira aba.
+
+> ⚠️ **Nao aprove os pedidos.** Aprovar cunha um Secret visivel ao Authorino com
+> o plano em *annotation* em vez do label que o `PlanPolicy` le, e a chave sai
+> sem limite nenhum. Medido: 10 de 10 requisicoes servidas num tier de 3/10s.
+> Armadilha 11 do [runbook](RUNBOOK.md). Pendente e o estado correto — e nesse
+> estado o controller nao toca nos Secrets da demo.
+
+> A descoberta do esquema exige `spec.rules` no AuthPolicy da rota, **nao**
+> `spec.defaults.rules`: o controller ignora o wrapper de defaults, o APIProduct
+> fica sem `discoveredAuthScheme` e todo APIKey morre em
+> `Failed=True reason=AuthSchemeNotFound`. A base do repo ja esta na forma certa,
+> com o porque no proprio arquivo.
+
 Se a Policy Topology abrir vazia, o plugin esta bem e o dado nao chegou: a tela
 le o ConfigMap que o operator mantem.
 
@@ -308,13 +397,15 @@ oc get cm topology -n kuadrant-system -o jsonpath='{.data.topology}' | head -5
 Com os operadores opcionais fora, o resultado correto é:
 
 ```
-[OK] demo pode ser apresentada — 8 aviso(s) acima degradam algum ato.
+[OK] demo pode ser apresentada — 9 aviso(s) acima degradam algum ato.
 ```
 
 Os avisos são as três routes de observabilidade ausentes (Kiali, Tempo,
-Grafana), as três do RHDH, e as duas consoles: sem o `kiali-ossm` não há
+Grafana), as três do RHDH, as duas consoles — sem o `kiali-ossm` não há
 `ConsolePlugin/ossmconsole`, e o do Connectivity Link existe sem estar
-habilitado até você rodar o patch da [seção 7](#7-consoles-integradas).
+habilitado até você rodar o patch da [seção 7](#7-consoles-integradas) — e a
+ausência de série `istio_*` no Thanos, que é o `istio-monitors.yaml` da
+[seção 7.1](#71-o-que-cr-kiali-saudavel-quer-dizer) ainda não aplicado.
 **Falha nenhuma** — se aparecer alguma, a mensagem traz a correção ao lado.
 
 Com tudo de pé, como o `w4xtj` ficou, sobram 2 avisos — os dois do RHDH que
@@ -324,7 +415,7 @@ dependem de `setup-catalog.sh` e `setup-github.sh`:
 == consoles integradas (Atos 3 e 5) ==
   ✓ Connectivity Link: aba no console (kuadrant-console-plugin)
   ✓ Service Mesh: aba no console (ossmconsole)
-  ✓ Policy Topology com dado: 27 nós no grafo do operator
+  ✓ Policy Topology com dado: 28 nós no grafo do operator
 ```
 
 Essa terceira linha é a que vale ler: o plugin pode estar perfeito e a tela

@@ -1,0 +1,37 @@
+# ===========================================================================
+# PeerAuthentication STRICT — mTLS obrigatorio no namespace inteiro.
+#
+# Sem selector, vale para TODOS os workloads de travel-agency. A partir daqui
+# um pod sem sidecar nao consegue mais falar com nenhum dos sete servicos: o
+# Envoy do lado servidor exige certificado de cliente emitido pela CA da malha.
+#
+# O QUE ISTO NAO QUEBRA (verificado neste cluster, nao deduzido do doc):
+#
+#   - o Gateway prod-web. Ele e um gateway Istio (gatewayClassName: istio),
+#     entao esta na malha e apresenta certificado como qualquer sidecar. O
+#     caminho norte-sul dos Atos 1-4 continua identico.
+#   - o scrape do Prometheus. O PodMonitor 'istio-proxies-monitor' coleta na
+#     15020 (metricas mescladas do sidecar), porta que o Istio isenta de mTLS
+#     por construcao. O Ato 4 nao perde metrica.
+#   - as probes do kubelet. Vem do no, fora da malha, e o Istio as reescreve
+#     para a 15021.
+#   - as chamadas para travel-db (MySQL dos quatro backends). STRICT governa o
+#     que ENTRA em travel-agency; a saida para outro namespace segue o
+#     auto-mTLS. travel-db tambem esta injetado.
+#
+# PARA DEMONSTRAR: no Kiali, Graph -> Display -> Security. As arestas ganham
+# cadeado. Sem esta policy o cadeado tambem aparece (auto-mTLS ja cifra por
+# padrao) -- a diferenca e que sem STRICT o servidor AINDA ACEITA texto claro.
+# O ato tem que dizer isso, senao a plateia ve o mesmo cadeado nos dois casos.
+#
+# ROLLBACK: se algo inesperado quebrar, mode: PERMISSIVE devolve o
+# comportamento anterior sem remover o recurso.
+# ===========================================================================
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: travel-agency-mtls
+  namespace: travel-agency
+spec:
+  mtls:
+    mode: STRICT

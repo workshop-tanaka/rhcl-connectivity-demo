@@ -26,6 +26,12 @@ kind: Kustomization
 
 resources:
   - ../../base
+  # Camada de developer portal — APIProduct + APIKeys que povoam as tres abas de
+  # API Catalog do console. Fica aqui, e nao em base/, porque as CRDs
+  # devportal.kuadrant.io so existem no RHCL 1.4.2+ ("especifico desta versao
+  # dos operadores", como diz o cabecalho). Exige o componente developerPortal
+  # ligado no CR Kuadrant — ver devportal/kustomization.yaml.
+  - devportal/
 
 patches:
   # JSON 6902 (nao strategic merge): HTTPRoute e CRD sem schema conhecido pelo

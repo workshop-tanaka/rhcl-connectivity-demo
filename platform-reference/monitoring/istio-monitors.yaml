@@ -1,0 +1,168 @@
+# ===========================================================================
+# Coleta dos proxies do Istio -- o que enche o grafo do Kiali no Ato 5.
+#
+# Mesma classe de defeito dos ServiceMonitors do Kuadrant em servicemonitors.yaml,
+# um degrau adiante: la a serie do Limitador nao chegava ao Thanos, aqui nao
+# chegava NENHUMA serie 'istio_*'. 'count({__name__=~"istio.*"})' voltava vazio.
+#
+# Por que passa despercebido: os pods da malha ja carregam
+# 'prometheus.io/scrape: true' e 'prometheus.io/port: 15020', que e o padrao que
+# o Prometheus de comunidade le sozinho. O Prometheus de user workload do
+# OpenShift IGNORA anotacao -- ele so raspa o que um PodMonitor ou ServiceMonitor
+# declara. Sem estes objetos a malha parece instrumentada e nao esta.
+#
+# O sintoma final e pior do que uma tela de erro: corrigidos o TLS e o RBAC do
+# Kiali (ver kiali.yaml), o grafo abre, conecta, e fica VAZIO -- o que no palco
+# se le como "nao ha trafego", nao como "falta coleta".
+#
+# Um detalhe desta combinacao (Istio 1.30 sobre OCP 4.21 / k8s 1.34): o sidecar
+# e injetado como NATIVE SIDECAR, ou seja como initContainer com
+# restartPolicy: Always. Ele nao aparece em '.spec.containers':
+#
+#   oc get pods -n travel-agency -o 'custom-columns=NAME:.metadata.name,\
+#     INIT:.spec.initContainers[*].name,MAIN:.spec.containers[*].name'
+#
+# O relabeling abaixo casa por nome de container, e o service discovery do
+# Prometheus enxerga initContainers -- entao a regra canonica vale sem mudanca.
+# Mas se um dia estes targets sumirem, e o primeiro lugar para olhar.
+# ===========================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: istiod-monitor
+  namespace: istio-system
+spec:
+  targetLabels:
+    - app
+  selector:
+    matchLabels:
+      istio: pilot
+  endpoints:
+    - port: http-monitoring
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: istio-proxies-monitor
+  namespace: ingress-gateway
+spec:
+  selector:
+    matchExpressions:
+      - key: istio-prometheus-ignore
+        operator: DoesNotExist
+  podMetricsEndpoints:
+    - path: /stats/prometheus
+      interval: 30s
+      relabelings:
+        - action: keep
+          sourceLabels: ["__meta_kubernetes_pod_container_name"]
+          regex: "istio-proxy"
+        - action: keep
+          sourceLabels: ["__meta_kubernetes_pod_annotationpresent_prometheus_io_scrape"]
+        - action: replace
+          regex: (\d+);(([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4})
+          replacement: "[$2]:$1"
+          sourceLabels:
+            - "__meta_kubernetes_pod_annotation_prometheus_io_port"
+            - "__meta_kubernetes_pod_ip"
+          targetLabel: "__address__"
+        - action: replace
+          regex: (\d+);((([0-9]+?)(\.|$)){4})
+          replacement: "$2:$1"
+          sourceLabels:
+            - "__meta_kubernetes_pod_annotation_prometheus_io_port"
+            - "__meta_kubernetes_pod_ip"
+          targetLabel: "__address__"
+        - action: labeldrop
+          regex: "__meta_kubernetes_pod_label_(.+)"
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_namespace"]
+          targetLabel: namespace
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_pod_name"]
+          targetLabel: pod_name
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: istio-proxies-monitor
+  namespace: travel-agency
+spec:
+  selector:
+    matchExpressions:
+      - key: istio-prometheus-ignore
+        operator: DoesNotExist
+  podMetricsEndpoints:
+    - path: /stats/prometheus
+      interval: 30s
+      relabelings:
+        - action: keep
+          sourceLabels: ["__meta_kubernetes_pod_container_name"]
+          regex: "istio-proxy"
+        - action: keep
+          sourceLabels: ["__meta_kubernetes_pod_annotationpresent_prometheus_io_scrape"]
+        - action: replace
+          regex: (\d+);(([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4})
+          replacement: "[$2]:$1"
+          sourceLabels:
+            - "__meta_kubernetes_pod_annotation_prometheus_io_port"
+            - "__meta_kubernetes_pod_ip"
+          targetLabel: "__address__"
+        - action: replace
+          regex: (\d+);((([0-9]+?)(\.|$)){4})
+          replacement: "$2:$1"
+          sourceLabels:
+            - "__meta_kubernetes_pod_annotation_prometheus_io_port"
+            - "__meta_kubernetes_pod_ip"
+          targetLabel: "__address__"
+        - action: labeldrop
+          regex: "__meta_kubernetes_pod_label_(.+)"
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_namespace"]
+          targetLabel: namespace
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_pod_name"]
+          targetLabel: pod_name
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: istio-proxies-monitor
+  namespace: travel-db
+spec:
+  selector:
+    matchExpressions:
+      - key: istio-prometheus-ignore
+        operator: DoesNotExist
+  podMetricsEndpoints:
+    - path: /stats/prometheus
+      interval: 30s
+      relabelings:
+        - action: keep
+          sourceLabels: ["__meta_kubernetes_pod_container_name"]
+          regex: "istio-proxy"
+        - action: keep
+          sourceLabels: ["__meta_kubernetes_pod_annotationpresent_prometheus_io_scrape"]
+        - action: replace
+          regex: (\d+);(([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4})
+          replacement: "[$2]:$1"
+          sourceLabels:
+            - "__meta_kubernetes_pod_annotation_prometheus_io_port"
+            - "__meta_kubernetes_pod_ip"
+          targetLabel: "__address__"
+        - action: replace
+          regex: (\d+);((([0-9]+?)(\.|$)){4})
+          replacement: "$2:$1"
+          sourceLabels:
+            - "__meta_kubernetes_pod_annotation_prometheus_io_port"
+            - "__meta_kubernetes_pod_ip"
+          targetLabel: "__address__"
+        - action: labeldrop
+          regex: "__meta_kubernetes_pod_label_(.+)"
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_namespace"]
+          targetLabel: namespace
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_pod_name"]
+          targetLabel: pod_name

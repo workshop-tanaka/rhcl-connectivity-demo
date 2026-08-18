@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# Camada de developer portal — so RHCL 1.4.2+.
+#
+# Separada de base/ porque as CRDs devportal.kuadrant.io nao existem no 1.2, e
+# um 'oc apply -k overlays/provisioned' falharia. Quem inclui isto e a camada
+# env/ do 1.4.
+#
+# Pre-requisito no cluster (nao e manifest, e patch no CR da plataforma):
+#   oc patch kuadrant kuadrant -n kuadrant-system --type=merge \
+#     -p '{"spec":{"components":{"developerPortal":{"enabled":true}}}}'
+#
+# Ver docs/PROVISIONING-1.4.md secao 7.
+# ===========================================================================
+
+resources:
+  - apiproduct-travels.yaml
+  - apikeys.yaml

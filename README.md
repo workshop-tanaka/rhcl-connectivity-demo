@@ -48,6 +48,7 @@ base/                      camada de demo (aplicavel)
   policies-traffic/        RateLimitPolicy  — quanto passa
   policies-plans/          PlanPolicy       — quanto passa POR TIER
   policies-telemetry/      TelemetryPolicy  — o que isso vira em metrica
+  mesh/                    Service Mesh     — o par leste-oeste (Ato 7)
 env/rhcl-1.2_ocp-4.17/     hostname do sandbox (patch)
 overlays/provisioned/      cluster que ja tem a infra de pe
 platform-reference/        governado pelo Argo — NAO aplicar
@@ -71,6 +72,7 @@ bash scripts/traffic.sh tiers        # comparativo dos tiers (default)
 bash scripts/traffic.sh burst gold   # rajada de um tier so
 bash scripts/traffic.sh anon         # sem chave / chave invalida -> 401
 bash scripts/traffic.sh soak         # trafego continuo, para assistir no Grafana
+bash scripts/traffic.sh mesh-split   # divisao v1/v2 do canary na malha (Ato 7)
 bash scripts/traffic.sh metrics      # contadores do Limitador, por plano
 
 bash scripts/capture.sh              # re-captura o cluster, roteando por ownership

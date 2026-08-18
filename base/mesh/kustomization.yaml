@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# CAMADA DE MALHA — o par leste-oeste das policies do RHCL.
+#
+# Estes recursos nao sao do RHCL: sao do Service Mesh (OSSM 3 / sailoperator).
+# Estao na mesma base/ porque obedecem ao mesmo criterio das outras -- nenhum
+# deles tem argocd.argoproj.io/tracking-id, entao sao da camada de demo e nao
+# da plataforma. Ver platform-reference/README.md.
+#
+# Ordem = ordem do Ato 7:
+#   peerauthentication  quem PODE falar        (mTLS obrigatorio)
+#   authorizationpolicy quem pode falar COM QUEM (por identidade SPIFFE)
+#   destinationrule     quais versoes existem
+#   virtualservice      quanto vai para cada uma, e o que fazer quando falha
+#
+# A dependencia entre os dois primeiros e real e nao apenas narrativa: a
+# AuthorizationPolicy compara principals, que so existem porque o mTLS os
+# provou. Aplicar a segunda sem a primeira nao daria erro -- daria uma regra
+# que nunca casa.
+#
+# A ORDEM DE APLICACAO NAO IMPORTA para o kustomize (ele nao ordena por isso),
+# mas importa para o roteiro: apresentar o canary antes do mTLS desmonta o
+# argumento de que a identidade vem da malha.
+# ===========================================================================
+
+resources:
+  - peerauthentication-strict.yaml
+  - authorizationpolicy-discounts.yaml
+  - destinationrule-discounts.yaml
+  - virtualservice-discounts.yaml

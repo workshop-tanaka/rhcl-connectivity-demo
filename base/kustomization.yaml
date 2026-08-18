@@ -24,6 +24,11 @@ kind: Kustomization
 #   policies-traffic/    quanto passa         (RateLimitPolicy)
 #   policies-plans/      quanto passa POR TIER (PlanPolicy)   <- sobrepoe o anterior
 #   policies-telemetry/  o que isso vira em metrica (TelemetryPolicy)
+#   mesh/                o par leste-oeste, do Service Mesh e nao do RHCL
+#
+# mesh/ e a unica pasta cujos recursos nao sao do RHCL. Entra aqui, e nao em
+# platform-reference/, pelo mesmo criterio das outras: nenhum deles tem
+# tracking-id do Argo. Ver base/mesh/kustomization.yaml.
 # ===========================================================================
 
 resources:
@@ -33,3 +38,4 @@ resources:
   - policies-traffic/
   - policies-plans/
   - policies-telemetry/
+  - mesh/

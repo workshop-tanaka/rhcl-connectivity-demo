@@ -1,0 +1,83 @@
+# ===========================================================================
+# APIKeys do developer portal — os tres parceiros da demo, como pedido de
+# acesso ao catalogo.
+#
+# Moram em kuadrant-system porque 'secretRef' nao tem campo de namespace: o
+# Secret tem que estar no mesmo namespace do APIKey. E os Secrets da demo estao
+# la (base/identity/) porque e onde o Authorino procura -- o AuthPolicy usa
+# 'allNamespaces: false'.
+#
+# ---------------------------------------------------------------------------
+# ESTES CRs FICAM 'Pending' DE PROPOSITO. NAO APROVE.
+#
+# O APIProduct usa approvalMode: manual, entao cada APIKey nasce
+# 'Pending=True reason=AwaitingApproval' e o controller gera sozinho um
+# APIKeyRequest em travel-agency. E esse o estado que povoa as tres abas do
+# console -- API Products, API Keys e API Key Approvals -- e ele e seguro:
+# enquanto pendente, o controller NAO toca nos Secrets referenciados
+# (verificado neste cluster, com snapshot antes/depois).
+#
+# Aprovar quebra o Ato 2 em silencio. Na aprovacao o controller cunha um Secret
+# NOVO (devportal-<ns>-<apikey>-<hash>) com 'app: partner' e
+# 'authorino.kuadrant.io/managed-by', ou seja visivel para o Authorino, mas
+# grava o plano como ANNOTATION 'secret.kuadrant.io/plan-id'. Os predicados do
+# PlanPolicy leem o LABEL 'kuadrant.io/plan-id'. Indexar label ausente em CEL
+# nao devolve false: ERRA, e o erro aborta a classificacao inteira -- inclusive
+# o tier catch-all 'unclassified' (predicate: true). Resultado medido: 10 de 10
+# requisicoes com a chave aprovada devolveram 200 num tier free de 3/10s, isto
+# e, chave sem limite nenhum.
+#
+# E a armadilha 1 do RUNBOOK, alcancada por outro caminho. O preflight.sh pega
+# (reprova a chave sem plan-id), mas so DEPOIS de a chave existir.
+# ---------------------------------------------------------------------------
+# ===========================================================================
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIKey
+metadata:
+  name: acme-free
+  namespace: kuadrant-system
+spec:
+  apiProductRef:
+    name: travels-api
+    namespace: travel-agency
+  planTier: free
+  useCase: Consulta de pacotes no plano de entrada, sem compromisso contratual.
+  requestedBy:
+    userId: acme
+    email: api@acme.example
+  secretRef:
+    name: apikey-free-acme
+---
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIKey
+metadata:
+  name: initech-silver
+  namespace: kuadrant-system
+spec:
+  apiProductRef:
+    name: travels-api
+    namespace: travel-agency
+  planTier: silver
+  useCase: Integracao do portal de viagens corporativas, volume medio.
+  requestedBy:
+    userId: initech
+    email: api@initech.example
+  secretRef:
+    name: apikey-silver-initech
+---
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIKey
+metadata:
+  name: globex-gold
+  namespace: kuadrant-system
+spec:
+  apiProductRef:
+    name: travels-api
+    namespace: travel-agency
+  planTier: gold
+  useCase: Revenda white-label, com SLA e volume alto.
+  requestedBy:
+    userId: globex
+    email: api@globex.example
+  secretRef:
+    name: apikey-gold-globex

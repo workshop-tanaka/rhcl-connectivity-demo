@@ -1,0 +1,47 @@
+# ===========================================================================
+# AuthorizationPolicy — o par LESTE-OESTE do AuthPolicy do RHCL.
+#
+# O AuthPolicy (base/policies-security/) decide quem entra pela BORDA. Esta
+# decide quem pode falar com quem DENTRO da malha, e a diferenca de escopo e
+# o argumento inteiro do ato: uma chave de API valida abre a porta da rua, nao
+# abre todas as portas internas.
+#
+# A REGRA VEM DO PROPRIO APP, nao foi inventada para a demo. O grafo e:
+#
+#     gateway -> travels -> cars, flights, hotels, insurances -> discounts
+#
+# e os quatro vendedores rodam com o ServiceAccount 'discount-access-sa'
+# enquanto travels roda com 'default':
+#
+#   oc get pods -n travel-agency \
+#     -o custom-columns='POD:.metadata.name,SA:.spec.serviceAccountName'
+#
+# Ou seja: quem vende produto consulta desconto; o orquestrador nao. O SA ja
+# existia em platform-reference/workloads/travel-agency/ sem nenhuma policy
+# que o usasse -- esta policy e que da sentido a ele.
+#
+# IDENTIDADE, NAO ENDERECO: o principal e o SPIFFE ID que o mTLS provou
+# (trust domain 'cluster.local', confirmado em cm/istio -n istio-system). Nao
+# e IP, nao e header, nao e label de pod -- nada que o chamador possa forjar.
+# Por isso esta policy DEPENDE do STRICT do arquivo anterior: sem mTLS nao ha
+# principal para comparar, e uma regra por principal nao casaria nunca.
+#
+# ACTION: ALLOW cria negacao implicita -- havendo qualquer regra ALLOW no
+# workload, o que nao casa e recusado com 'RBAC: access denied' (403). Nao ha
+# deny-all a escrever.
+# ===========================================================================
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: discounts-only-sellers
+  namespace: travel-agency
+spec:
+  selector:
+    matchLabels:
+      app: discounts
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/travel-agency/sa/discount-access-sa

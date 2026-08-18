@@ -25,21 +25,27 @@ metadata:
   name: travel-agency-authpolicy
   namespace: travel-agency
 spec:
-  defaults:
-    rules:
-      authentication:
-        api-key-authn:
-          apiKey:
-            allNamespaces: false
-            selector:
-              matchLabels:
-                app: partner
-          credentials:
-            queryString:
-              name: APIKEY
-          metrics: false
-          priority: 0
-    strategy: atomic
+  # 'rules' direto, NAO 'defaults.rules'.
+  #
+  # As duas formas sao equivalentes para esta policy (rules == defaults
+  # implicitos, e 'atomic' e a estrategia default; com uma policy so na rota nao
+  # ha merge com que interagir). Mas a descoberta do developer portal le
+  # 'spec.rules' e IGNORA 'spec.defaults.rules': com o wrapper, o APIProduct
+  # fica sem 'status.discoveredAuthScheme' e todo APIKey criado contra ele morre
+  # em 'Failed=True reason=AuthSchemeNotFound'. Ver a armadilha no RUNBOOK.
+  rules:
+    authentication:
+      api-key-authn:
+        apiKey:
+          allNamespaces: false
+          selector:
+            matchLabels:
+              app: partner
+        credentials:
+          queryString:
+            name: APIKEY
+        metrics: false
+        priority: 0
   targetRef:
     group: gateway.networking.k8s.io
     kind: HTTPRoute

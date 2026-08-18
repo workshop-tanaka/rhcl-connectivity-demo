@@ -1,6 +1,7 @@
 # Roteiro de execução da demo — RHCL como plataforma de API
 
-**Duração:** 20 min (Atos 1–5) ou 30 min com o Ato 6 (RHDH).
+**Duração:** 20 min (Atos 1–5), 30 min com o Ato 6 (RHDH), 38 min com o Ato 7
+(Service Mesh). Os dois últimos são independentes entre si.
 **Público:** plataforma, arquitetura, e quem decide sobre gateway de API.
 **Tese:** a mesma API servida em três planos comerciais, sem uma linha de
 código na aplicação — e com o resultado mensurável no Grafana que o cluster já
@@ -34,6 +35,7 @@ Provisionar um cluster novo do zero: [PROVISIONING-1.4.md](PROVISIONING-1.4.md).
   - [Ato 4 — Isso vira número de negócio](#ato-4--isso-vira-número-de-negócio-4-min)
   - [Ato 5 — O caminho todo é rastreável](#ato-5--o-caminho-todo-é-rastreável-3-min)
   - [Ato 6 — A policy nasce com o serviço](#ato-6--a-policy-nasce-com-o-serviço-8-min-opcional)
+  - [Ato 7 — A borda não é a única fronteira](#ato-7--a-borda-não-é-a-única-fronteira-8-min-opcional)
 - [Se algo falhar no palco](#se-algo-falhar-no-palco)
 - [Reset entre apresentações](#reset-entre-apresentações)
 - [Perguntas que sempre aparecem](#perguntas-que-sempre-aparecem)
@@ -126,19 +128,29 @@ fica sem força — mas um Ato 2 morto custa mais caro que um gráfico chato.
 | **Terminal 1** | grande, fonte alta — é onde tudo acontece |
 | Terminal 2 | `soak` rodando (pode ficar minimizado) |
 | Aba 1 | Grafana → dashboard `bussiness-user` |
-| Aba 2 | Kiali → Graph, namespaces `ingress-gateway` + `travel-agency` |
+| Aba 2 | Console do OpenShift — **Connectivity Link → Policy Topology** (Ato 3) e **Service Mesh → Traffic Graph** (Ato 5) |
 | Aba 3 | Tempo (Jaeger UI) |
 | Aba 4 | RHDH (só se for fazer o Ato 6) |
 | Editor | repo aberto, `base/policies-plans/travels-plans.yaml` já visível |
 
+Aba 2 serve dois atos porque as duas telas moram no mesmo console — e é o
+console que o time do cliente já abre todo dia, o que economiza a explicação de
+"esta é outra ferramenta". Se as consoles não estiverem ligadas neste cluster,
+ver [PROVISIONING-1.4 seção 7](PROVISIONING-1.4.md#7-consoles-integradas); o
+`preflight.sh` diz em que estado elas estão.
+
 URLs saem do próprio preflight, ou:
 
 ```bash
+oc whoami --show-console                          # + /kuadrant/policy-topology e /ossmconsole/graph
 oc get route grafana-route -n monitoring          -o jsonpath='{.spec.host}{"\n"}'
 oc get route kiali         -n istio-system        -o jsonpath='{.spec.host}{"\n"}'
 oc get route tracing-ui    -n tracing-system      -o jsonpath='{.spec.host}{"\n"}'
 oc get route backstage-developer-hub -n rhdh      -o jsonpath='{.spec.host}{"\n"}'
 ```
+
+A route do Kiali continua no ar e é o plano B da Aba 2 — o plugin de Service
+Mesh é o mesmo Kiali servido por dentro do console, não uma segunda instalação.
 
 ---
 
@@ -201,6 +213,16 @@ oc get secrets -n kuadrant-system -l app=partner \
 > "Criar um tier novo é adicionar um bloco neste YAML. Mover um cliente de
 > plano é editar um label."
 
+> **Connectivity Link → API Keys** mostra os mesmos três parceiros desta
+> rajada, com plano e solicitante, e é uma tela melhor que o `oc get` para a
+> plateia. Em *API Products*, o `travels-api` traz os quatro tiers com limite e
+> cota — descobertos do `PlanPolicy`, não digitados.
+>
+> ⚠️ **Não aprove nada em *API Key Approvals*.** Os três pedidos estão
+> `Pending` de propósito. Aprovar cunha um Secret novo, visível ao Authorino,
+> com o plano gravado em *annotation* em vez do label que o `PlanPolicy` lê — a
+> chave sai **sem limite nenhum** e o Ato 2 perde o sentido. Armadilha 11.
+
 ---
 
 ### Ato 3 — Precedência de policies é explícita *(4 min)*
@@ -237,6 +259,21 @@ curl -s -o /dev/null -w '%{http_code}\n' https://api-travels.apps.<dominio>/trav
 
 Dois códigos diferentes, duas policies diferentes, no mesmo gateway. O default
 da plataforma é fechado; quem quer abrir, declara como.
+
+Esse fork não precisa ficar só no `oc get`: em **Connectivity Link → Policy
+Topology** ele está desenhado. O listener do `prod-web` bifurca para as duas
+rotas, e as quatro policies chegam nos alvos como aresta tracejada — duas no
+Gateway (`prod-web-deny-all`, `ingress-gateway-rlp-lowlimits`) e duas na rota
+(`travel-agency-authpolicy` e a RLP dos planos). É a mesma frase do ato, em
+imagem.
+
+> **O grafo não marca quem venceu.** Não existe badge de *overridden* nele — o
+> desenho faz a pergunta, o campo de status responde. Não perca tempo no palco
+> procurando a resposta na tela.
+
+Se alguém perguntar pelo `PlanPolicy` no grafo: ele não aparece. O nó da rota é
+a `RateLimitPolicy/travels-plans` que ele **gerou** (o `PlanPolicy` está lá como
+`ownerReference`) — o que já adianta o argumento do fim deste ato.
 
 **No 1.2.1** — o par era a RLP plana de 2000/10s contra o `PlanPolicy`, na
 mesma rota:
@@ -311,7 +348,38 @@ No **Grafana**, dashboards `bussiness-user`, `app-developer` e
 ### Ato 5 — O caminho todo é rastreável *(3 min)*
 
 **Kiali** — topologia com o `prod-web` na borda e o fan-out da travel-agency.
-Mostra que o gateway não é uma caixa-preta pendurada fora da malha.
+Mostra que o gateway não é uma caixa-preta pendurada fora da malha. No 1.4 dá
+para abrir pela aba **Service Mesh** do próprio console (Traffic Graph), sem
+trocar de janela.
+
+> O grafo só desenha o que houve de tráfego na janela escolhida, e o `soak` do
+> Terminal 2 bate só em `/travels` — que não atravessa a malha. Antes do ato,
+> rode `bash scripts/traffic.sh mesh` (tier gold, ~2 req/s por 3 min): é o modo
+> que chama `/travels/<cidade>` e acende o fan-out inteiro até o `mysqldb`.
+> Depois abra o grafo com `ingress-gateway` + `travel-agency` + `travel-db`
+> selecionados e janela **Last 5m** — a coleta leva ~1 min (PodMonitor a 30s).
+>
+> O `mesh` também manda o header `user`, e isso não é detalhe: é ele que faz
+> `flights`, `hotels`, `cars` e `insurances` chamarem o `discounts`. Sem o
+> header os quatro respondem sozinhos, o `discounts` não recebe nada, e o grafo
+> perde o nível mais profundo — junto com o único serviço que tem duas versões
+> (v1 e v2), que é o que mostra roteamento por versão na malha.
+>
+> E usa **só a chave gold**: `429` é recusado na borda e nunca entra na malha,
+> então tier limitado dá pico no Grafana e grafo vazio no Kiali ao mesmo tempo.
+> O round-robin do `soak`, além disso, queima os 50/dia do `free` e derruba o
+> Ato 2.
+
+Com o `mesh` rodando, o grafo fecha assim — a route standalone do Kiali fica
+como plano B se a aba do console não abrir:
+
+```
+prod-web (ingress-gateway)
+  └─ travels ─┬─ flights ────┬─ discounts (v1, v2)
+              ├─ hotels ─────┤
+              ├─ cars ───────┤
+              └─ insurances ─┴─ mysqldb (travel-db)
+```
 
 **Tempo (Jaeger UI)** — busque o serviço `prod-web-istio.ingress-gateway` e
 abra um trace: a decisão do gateway e a chamada de aplicação no mesmo timeline,
@@ -368,6 +436,145 @@ Dois detalhes que o template já resolve e que custam tempo quando feitos à mã
 
 ---
 
+### Ato 7 — A borda não é a única fronteira *(8 min, opcional)*
+
+Este ato é do **Service Mesh**, não do RHCL — e existe porque a pergunta vem
+sozinha depois do Ato 1: *"então a chave de API protege tudo?"*. Não protege.
+Ela abre a porta da rua. As portas de dentro são outra fronteira, e é a malha
+que as governa.
+
+O argumento fecha porque é o **mesmo Envoy** nas duas pontas: o `prod-web` é um
+gateway Istio (`gatewayClassName: istio`). Não é integração, é o mesmo dado
+plano com dois escopos de policy.
+
+Os manifestos estão em [base/mesh/](../base/mesh/) e saem do mesmo
+`oc apply -k overlays/rhcl-1.4` dos outros atos.
+
+> **Pré-requisito de tela:** deixe o Kiali aberto em *Graph*, namespace
+> `travel-agency`, modo **Versioned app graph**. E rode
+> `bash scripts/traffic.sh mesh` num terminal de fundo — sem tráfego o grafo
+> fica vazio e os três movimentos abaixo ficam sem ilustração.
+
+#### 1. Ninguém fala em texto claro *(2 min)*
+
+```bash
+oc get peerauthentication travel-agency-mtls -n travel-agency \
+  -o jsonpath='{.spec.mtls.mode}{"\n"}'
+```
+
+Agora prove de fora da malha — um pod no `default`, que não tem sidecar:
+
+```bash
+oc run mtls-probe -n default --image=registry.access.redhat.com/ubi9/ubi-minimal \
+  --restart=Never --rm -i -- curl -s -m 6 -o /dev/null \
+  -w 'HTTP=%{http_code} exit=%{exitcode}\n' \
+  http://discounts.travel-agency:8000/discounts/probe
+```
+
+```
+HTTP=000 exit=56
+```
+
+Exit 56 é conexão resetada: **não houve HTTP**. O servidor derrubou antes,
+porque o cliente não apresentou certificado.
+
+> **O contraste que faz o ponto** — e vale mostrar, porque sozinho o STRICT
+> parece redundante. Em `PERMISSIVE` a mesma sonda devolve `HTTP=403 exit=0`:
+> a conexão em texto claro **completa**, e quem recusa é a AuthorizationPolicy
+> do movimento seguinte. Ou seja: sem STRICT o servidor ainda aceita texto
+> claro — só que ali já não há identidade nenhuma para autorizar.
+>
+> Cuidado ao demonstrar isso ao vivo: `oc patch ... PERMISSIVE` e volte para
+> `STRICT` antes de seguir. O `preflight.sh` não vai avisar.
+
+No Kiali, *Display → Security*: as arestas ganham cadeado.
+
+#### 2. A chave abriu a porta da rua, não o cofre *(3 min)*
+
+O grafo real da aplicação é `travels → {cars, flights, hotels, insurances} →
+discounts`, e os quatro vendedores rodam com um ServiceAccount próprio
+(`discount-access-sa`) que o `travels` não tem. A regra não foi inventada para
+a demo — o SA já existia sem nenhuma policy que o usasse.
+
+```bash
+for app in travels cars flights hotels insurances; do
+  P=$(oc get pod -n travel-agency -l app=$app -o name | head -1)
+  SA=$(oc get $P -n travel-agency -o jsonpath='{.spec.serviceAccountName}')
+  printf '%-11s (sa=%-18s) -> ' "$app" "$SA"
+  oc exec -n travel-agency $P -c $app -- curl -s -m 4 -o /dev/null \
+    -w '%{http_code}\n' "http://discounts.travel-agency:8000/discounts/$app"
+done
+```
+
+```
+travels     (sa=default           ) -> 403
+cars        (sa=discount-access-sa) -> 200
+flights     (sa=discount-access-sa) -> 200
+hotels      (sa=discount-access-sa) -> 200
+insurances  (sa=discount-access-sa) -> 200
+```
+
+O corpo da recusa é `RBAC: access denied`, e ela vem do sidecar — o processo
+do `discounts` nunca foi acordado.
+
+> "A requisição que chegou aqui já passou pela chave de API no gateway. Mesmo
+> assim o `travels` não entra. São duas perguntas diferentes: *quem é o
+> cliente* e *quem é o serviço*."
+
+O que compara não é IP nem header — é o **SPIFFE ID que o mTLS provou**
+(`cluster.local/ns/travel-agency/sa/discount-access-sa`). Por isso este
+movimento depende do anterior: sem STRICT não há identidade para autorizar.
+
+#### 3. Versão é decisão de plataforma *(3 min)*
+
+```bash
+bash scripts/traffic.sh mesh-split
+```
+
+```
+divisao de trafego em discounts   (60 chamadas)
+  v1    55   92%
+  v2     5    8%
+```
+
+Os dois pods sempre estiveram lá. **Antes** da `VirtualService`, o mesmo
+comando media `52% / 48%` — round-robin do Service, porque o Kubernetes só sabe
+balancear por pod. Depois, 90/10 declarado, independente de quantas réplicas
+cada versão tem.
+
+No Kiali, *Versioned app graph*: duas arestas para `discounts`, com o
+percentual em cada uma.
+
+> **Não procure a versão na resposta.** `v1` e `v2` são a mesma imagem e
+> devolvem o mesmo corpo. A divisão só existe na métrica e no grafo — é por
+> isso que `mesh-split` lê `istio_requests_total` no Envoy de cada pod.
+
+#### Encerramento — e o cenário de falha, se sobrar tempo
+
+```bash
+oc patch virtualservice discounts -n travel-agency --type=merge -p \
+  '{"spec":{"http":[{"fault":{"abort":{"httpStatus":503,"percentage":{"value":100}}},
+    "route":[{"destination":{"host":"discounts.travel-agency.svc.cluster.local",
+    "subset":"v1"},"weight":100}]}]}}'
+```
+
+Com o `discounts` 100% fora, a API na borda continua devolvendo `200` com o
+catálogo completo — sem desconto. Degradação graciosa, e uma boa deixa para o
+Kiali em vermelho.
+
+```bash
+oc apply -f base/mesh/virtualservice-discounts.yaml   # reverte
+```
+
+> **Não tente usar isso para demonstrar retry ou timeout** — os dois testes
+> óbvios falham, e a armadilha 12 explica por quê, com os números.
+
+**O fecho dos dois dias:** o RHCL respondeu *quem entra, quanto pode e quanto
+custa*; a malha respondeu *quem fala com quem, em qual versão e o que acontece
+quando quebra*. Nenhuma linha de aplicação mudou em nenhum dos dois.
+
+---
+
 ## Se algo falhar no palco
 
 | Sintoma | Causa provável | Saída rápida |
@@ -379,10 +586,19 @@ Dois detalhes que o template já resolve e que custam tempo quando feitos à mã
 | `000` no meio da rajada | timeout de rede do sandbox | repita; se persistir, `oc get pods -n ingress-gateway` |
 | `404` com chave válida | auth e rate limit passaram; quem devolveu foi a app. Ela só responde em `/travels` — `/`, `/flights` e `/hotels` dão 404 | não mexa nas policies; volte ao default (`PATH_` não definido) |
 | Grafana com linha achatada | sem tráfego de fundo | suba o `soak` e dê ~1 min |
+| Grafo do Kiali só com `prod-web → travels` | tráfego em `/travels`, que não fan-outa | `bash scripts/traffic.sh mesh`, não `soak` |
+| Grafo sem o nó `discounts` | tráfego sem o header `user` | idem — o modo `mesh` já manda o header |
+| Grafo vazio mesmo com `mesh` rodando | PodMonitor ausente, ou <1 min de tráfego | `oc get podmonitor -A`; ver `platform-reference/monitoring/istio-monitors.yaml` |
 | Policy some depois de aplicar | recurso rastreado pelo Argo, `selfHeal` reverteu | `bash scripts/capture.sh` mostra o que mudou de dono |
+| Aba do console abre em branco | plugin habilitado com backend fora do ar — ou, na Policy Topology, ConfigMap `topology` vazio | `bash scripts/preflight.sh` → seção "consoles integradas" separa os dois casos; plano B: route do Kiali e o `oc get` do próprio ato |
+| Aprovou um pedido em *API Key Approvals* e o rate limit sumiu | o Secret cunhado pelo portal grava o plano em annotation, não no label — o CEL erra e a classificação inteira aborta (armadilha 11) | `oc delete secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true` e apague o `apikeyapproval` que você criou em `travel-agency` |
+| Ato 7: `mesh-split` diz "nenhuma chamada chegou ao discounts" | header `user` ausente, ou `429` na borda comendo a rajada | `bash scripts/traffic.sh metrics` para ver a cota do gold; `reset` se preciso |
+| Ato 7: divisão dá ~50/50 e não 90/10 | `VirtualService` não aplicada, ou revertida por um teste de fault injection | `oc apply -f base/mesh/virtualservice-discounts.yaml` |
+| Ato 7: a sonda de mTLS devolve `403` e não `000` | ficou em `PERMISSIVE` depois da demonstração do contraste | `oc patch peerauthentication travel-agency-mtls -n travel-agency --type=merge -p '{"spec":{"mtls":{"mode":"STRICT"}}}'` |
+| Ato 7: todos os cinco serviços devolvem `200` | `AuthorizationPolicy` ausente — e ela falha **aberta**, como a armadilha 1 | `oc get authorizationpolicy -n travel-agency` |
 
 Se o tempo apertar, **corte os Atos 5 e 6**. Os Atos 1–4 sustentam a tese
-sozinhos.
+sozinhos. O Ato 7 é independente dos dois: dá para ir do 4 direto pra ele.
 
 ---
 
@@ -656,3 +872,149 @@ Verificado neste cluster: config correta no pod, token presente em
 Defesa: o `setup-catalog.sh` agora extrai o host de `TEMPLATE_LOCATION_URL` e o
 acrescenta a allowlist junto com a location. Vale a regra geral -- **toda
 location nova precisa do seu host liberado**.
+
+---
+
+### 10. O Kiali desliga as métricas sozinho, e a tela culpa a configuração
+
+A aba **Service Mesh** do console abre com:
+
+> *Metrics are disabled. Graph requires a metrics store (Prometheus) to be
+> enabled. Enable Prometheus in the Kiali configuration to use this feature.*
+
+A mensagem manda habilitar algo que **já está habilitado** — o CR diz
+`external_services.prometheus.enabled: true`. Quem desliga é o runtime: o Kiali
+falha o health check contra o `thanos-querier` a cada 30s e desabilita o
+Prometheus por conta própria. A config nunca muda, então conferir o CR confirma
+o que já parecia certo e a investigação morre ali.
+
+São **três** defeitos empilhados, e cada um só aparece depois de corrigido o
+anterior:
+
+**1. TLS.** O `thanos-querier` serve certificado da service CA do OpenShift, e o
+Kiali não confia nela por padrão:
+
+```
+WRN Prometheus unreachable at [https://thanos-querier...:9091/-/healthy]
+    x509: certificate signed by unknown authority. Retrying in 30s
+INF Error getting Prometheus version: prometheus is disabled
+```
+
+A armadilha dentro da armadilha: o campo óbvio,
+`external_services.prometheus.auth.ca_file`, **é aceito pelo CRD e ignorado pelo
+Kiali 2.27**. Configurar por ali dá a impressão exata de ter resolvido — e o
+único sinal é uma linha de `DEPRECATION` no log. O caminho atual é o ConfigMap
+`kiali-cabundle`, com a chave **exatamente** `additional-ca-bundle.pem`.
+
+**2. RBAC.** Corrigido o TLS, o token da SA do Kiali toma 403 da porta 9091:
+`verb=get, resource=prometheuses, subresource=api`. Falta
+`cluster-monitoring-view` na `kiali-service-account`.
+
+**3. Coleta.** Corrigidos os dois, o Kiali conecta e **o grafo abre vazio** —
+não havia nenhum `PodMonitor` raspando os proxies, e `count(istio_requests_total)`
+no Thanos voltava vazio. Os pods da malha carregam `prometheus.io/scrape: true`,
+que é o padrão que o Prometheus de comunidade lê sozinho e que o Prometheus de
+user workload do OpenShift **ignora**. É o pior dos três no palco: não há erro
+na tela, e grafo vazio se lê como *"não há tráfego"*.
+
+Tudo em [platform-reference/monitoring/](../platform-reference/monitoring/):
+`kiali.yaml` (CR + `ClusterRoleBinding` + o comando do cabundle) e
+`istio-monitors.yaml` (os `PodMonitor`s e o `ServiceMonitor` do istiod). O
+preflight passou a checar os dois pontos que importam — se o Kiali lê o Thanos, e
+se existe série `istio_*` — porque route no ar e pod `Running` não dizem nada
+sobre nenhum deles.
+
+Detalhe de ambiente, para quando os targets sumirem: neste cluster (Istio 1.30
+sobre OCP 4.21 / k8s 1.34) o sidecar é injetado como **native sidecar**, ou seja
+como `initContainer` com `restartPolicy: Always`. Ele não aparece em
+`.spec.containers` — um `oc get pods -o custom-columns=...containers[*].name` faz
+a malha parecer não injetada.
+
+---
+
+### 11. Aprovar chave no developer portal cunha uma chave sem limite
+
+O RHCL 1.4.2 traz o developer portal (`components.developerPortal.enabled`), e
+com ele um `APIProduct` que **descobre a demo inteira sozinho**: os quatro tiers
+com limite e cota vêm do `PlanPolicy`, o esquema de API key vem do `AuthPolicy`.
+Nada disso é digitado. As três abas de API Catalog do console passam a ter dado.
+
+O defeito está na aprovação. Ao aprovar um `APIKey`, o controller cunha um
+Secret novo — `devportal-<ns>-<apikey>-<hash>` — com `app: partner` e
+`authorino.kuadrant.io/managed-by: authorino`, isto é, **visível ao Authorino**.
+Mas grava o plano como *annotation*:
+
+```
+labels:       app=partner  authorino.kuadrant.io/managed-by=authorino
+              devportal.kuadrant.io/enforcement=true
+annotations:  secret.kuadrant.io/plan-id = free      <- o plano está AQUI
+```
+
+E os predicados do `PlanPolicy` leem o **label**:
+
+```
+gold          -> auth.identity.metadata.labels["kuadrant.io/plan-id"] == "gold"
+unclassified  -> true
+```
+
+Indexar label ausente em CEL não devolve `false`: **erra**. O erro aborta a
+classificação inteira, inclusive o catch-all `unclassified` (`predicate: true`)
+que existe justamente para pegar o resto. Medido neste cluster, com a chave
+aprovada num tier `free` de 3/10s:
+
+```
+200 200 200 200 200 200 200 200 200 200
+```
+
+Dez de dez servidas — chave sem limite algum. É a [armadilha 1](#1-predicate-de-plano-que-indexa-label-ausente-falha-aberto)
+alcançada por outro caminho: lá a chave órfã era erro humano, aqui é o produto
+que a cria. O `preflight.sh` pega (reprova chave sem `plan-id`), mas só depois
+de ela existir.
+
+Por isso `env/rhcl-1.4_ocp-4.21/devportal/` deixa os três `APIKey` em `Pending`
+e o roteiro avisa para não aprovar: pendente povoa as três abas e **não toca nos
+Secrets** referenciados — verificado com snapshot antes/depois. A saída, se
+alguém aprovar:
+
+```bash
+oc delete secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true
+oc delete apikeyapproval --all -n travel-agency
+```
+
+Fechar de verdade seria fazer o `PlanPolicy` ler a annotation, ou guardar o
+predicado com `has()` — as duas coisas mexem no centro do Ato 2 e ficaram fora.
+
+---
+
+### 12. Fault injection não exercita retry nem timeout
+
+O caminho óbvio para demonstrar resiliência é injetar uma falha e mostrar a
+malha absorvendo. **Os dois testes óbvios falham**, e falham em silêncio — a
+config está correta, o resultado é que não é o esperado. Ambos medidos neste
+cluster, com `timeout: 3s` e `retries.attempts: 2` na rota do `discounts`:
+
+| Injeção | Esperado | Medido |
+| --- | --- | --- |
+| `delay: 5s` | timeout dispara → 504 | **`HTTP 200` em 5.03s** |
+| `abort: 503`, 50% | retries absorvem → ~200 | **11 de 20 falharam (~55%)** |
+
+O motivo é diferente em cada caso:
+
+- o **timeout da rota mede a chamada upstream**. O delay injetado acontece
+  antes dela, no filtro de falha do Envoy, e simplesmente não entra na conta.
+  Um delay de 5s com timeout de 3s devolve 200 depois de 5s, como se nada
+  estivesse configurado.
+- o **abort é um *local reply***: o Envoy gera a resposta de erro ele mesmo, e
+  não re-tenta a própria injeção. `retryOn: 5xx` não vê aquilo como um 5xx do
+  upstream, porque não houve upstream.
+
+Consequência para o roteiro: fault injection serve para **provocar o cenário**
+— derrubar o `discounts` e mostrar a API degradando com elegância, que é um bom
+momento — e não para provar que o `retry` funciona. Exercitar retry/timeout de
+verdade exige um upstream lento ou instável de verdade, o que esta app não
+oferece.
+
+Vale dizer isso na demo se alguém perguntar, porque muito tutorial encadeia as
+duas coisas como se compusessem. Os campos estão em
+[base/mesh/virtualservice-discounts.yaml](../base/mesh/virtualservice-discounts.yaml)
+e são config legítima de produção — só não são demonstráveis por esse caminho.

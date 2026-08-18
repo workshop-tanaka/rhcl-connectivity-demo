@@ -80,3 +80,21 @@ Application do Argo governa: ele nasceu do provisionamento do cluster 1.4, onde
 console é camada de plataforma — não é recurso que o roteiro aplica ou remove.
 Passo a passo (e o patch que o plugin do Connectivity Link ainda exige) na
 [seção 7 do PROVISIONING-1.4](../docs/PROVISIONING-1.4.md#7-consoles-integradas).
+
+## `monitoring/`
+
+Como `consoles/`, esta pasta está fora do alcance do Argo — ela existe porque a
+captura do workshop não trouxe o que as Applications entregavam, e cada arquivo
+aqui corresponde a uma cadeia que quebra em silêncio:
+
+| Arquivo | Sem ele |
+| --- | --- |
+| `servicemonitors.yaml` | o `TelemetryPolicy` rotula por `plan` e nada leva a série ao Thanos — Ato 4 sem número |
+| `istio-monitors.yaml` | nada raspa os proxies da malha — o grafo do Ato 5 abre **vazio**, o que se lê como "não há tráfego" |
+| `kiali.yaml` | o Kiali não confia na service CA nem tem RBAC no Thanos — a aba Service Mesh diz *"Metrics are disabled"* apontando para uma config que já está `enabled: true` |
+| `grafana-dashboard-plans.yaml` | os dashboards de fábrica agregam sem quebrar por `plan` |
+
+`kiali.yaml` carrega o CR `Kiali` que até então só existia no cluster, e não no
+repo. O ConfigMap `kiali-cabundle` que ele exige **não** está aqui: o PEM é
+específico do cluster. O comando está no cabeçalho do arquivo e na
+[seção 7.1 do PROVISIONING-1.4](../docs/PROVISIONING-1.4.md#71-o-que-cr-kiali-saudavel-quer-dizer).

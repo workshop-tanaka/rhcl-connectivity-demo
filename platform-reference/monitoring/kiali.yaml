@@ -1,0 +1,95 @@
+# ===========================================================================
+# Kiali lendo o Thanos -- o CR e o RBAC que faltavam.
+#
+# O CR abaixo foi aplicado a mao no provisionamento do cluster 1.4 e nao
+# existia em lugar nenhum deste repo: so sobrevivia no last-applied-configuration
+# do proprio objeto. Sem ele capturado, o proximo cluster repete os tres
+# defeitos que a aba "Service Mesh" do console expos:
+#
+#   1. TLS   -- o thanos-querier serve certificado da service CA do OpenShift.
+#               O Kiali nao confia nela por padrao, falha o health check a cada
+#               30s com 'x509: certificate signed by unknown authority', e
+#               DESLIGA o Prometheus em runtime. A tela entao diz "Metrics are
+#               disabled ... Enable Prometheus in the Kiali configuration",
+#               apontando para uma config que ja esta 'enabled: true'.
+#               Resolve-se com o ConfigMap kiali-cabundle -- ver comando abaixo.
+#   2. RBAC  -- corrigido o TLS, o token da SA do Kiali toma 403 do Thanos:
+#               'verb=get, resource=prometheuses, subresource=api'.
+#               Resolve-se com o ClusterRoleBinding deste arquivo.
+#   3. COLETA -- corrigidos 1 e 2, o Kiali conecta e o grafo continua VAZIO,
+#               porque nao havia nada raspando os proxies do Istio.
+#               Resolve-se com istio-monitors.yaml, ao lado.
+#
+# Atencao ao campo que NAO esta aqui: 'external_services.prometheus.auth.ca_file'
+# aceita valor no CRD e e IGNORADO pelo Kiali 2.27 --
+#   'DEPRECATION: [external_services.prometheus.auth.ca_file] is deprecated
+#    and will be ignored. To configure custom CA certificates, use the
+#    kiali-cabundle ConfigMap instead.'
+# Configurar por ali da a impressao de ter resolvido e nao muda nada.
+#
+# O ConfigMap kiali-cabundle nao entra neste arquivo porque o PEM e especifico
+# do cluster (a service CA e gerada no provisionamento). Crie-o a partir do
+# bundle que o proprio operator ja injeta:
+#
+#   oc create cm kiali-cabundle -n istio-system --from-literal=additional-ca-bundle.pem="$(
+#     oc get cm kiali-cabundle-openshift -n istio-system -o jsonpath='{.data.service-ca\.crt}')"
+#   oc rollout restart deploy/kiali -n istio-system
+#
+# Tres detalhes que custam tempo se descobertos no palco:
+#
+#   - A CHAVE tem de ser exatamente 'additional-ca-bundle.pem'. O Kiali monta o
+#     diretorio /kiali-cabundle inteiro mas le so esse nome; qualquer outra
+#     chave e ignorada em silencio. O log diz qual arquivo ele procurou.
+#   - NAO use a chave 'service-ca.crt' e NAO anote o ConfigMap com
+#     'service.beta.openshift.io/inject-cabundle: "true"'. O deployment ja
+#     projeta kiali-cabundle-openshift com essa mesma chave no mesmo diretorio,
+#     e caminho duplicado em volume projetado quebra o mount do pod.
+#   - Sucesso tem log proprio, e vale conferir os dois:
+#       INF Loaded [1] valid CA certificate(s) from [/kiali-cabundle/additional-ca-bundle.pem]
+#       INF Prometheus connected -- metrics features restored
+# ===========================================================================
+apiVersion: kiali.io/v1alpha1
+kind: Kiali
+metadata:
+  name: kiali
+  namespace: istio-system
+spec:
+  auth:
+    strategy: anonymous
+  deployment:
+    accessible_namespaces:
+      - '**'
+  external_services:
+    prometheus:
+      auth:
+        type: bearer
+        use_kiali_token: true
+      thanos_proxy:
+        enabled: true
+      url: https://thanos-querier.openshift-monitoring.svc.cluster.local:9091
+    tracing:
+      enabled: true
+      internal_url: http://tempo-tempo-jaegerui.tracing-system.svc.cluster.local:16686
+      use_grpc: false
+---
+# O Kiali consulta o Thanos com o proprio token da SA (use_kiali_token: true).
+# A porta 9091 do thanos-querier exige 'cluster-monitoring-view' -- sem ele o
+# kube-rbac-proxy devolve:
+#   Forbidden (user=system:serviceaccount:istio-system:kiali-service-account,
+#              verb=get, resource=prometheuses, subresource=api)
+#
+# Equivale a:
+#   oc adm policy add-cluster-role-to-user cluster-monitoring-view \
+#     -z kiali-service-account -n istio-system
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kiali-cluster-monitoring-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-monitoring-view
+subjects:
+  - kind: ServiceAccount
+    name: kiali-service-account
+    namespace: istio-system

@@ -1,0 +1,61 @@
+# ===========================================================================
+# VirtualService — canary 90/10 e resiliencia na mesma rota.
+#
+# ANTES desta policy: o Service faz round-robin e a v2 ja recebe metade do
+# trafego. DEPOIS: 10%. O ato e esse -- o Kubernetes so sabe balancear por
+# pod, e "quantos pods de cada versao" e uma unidade grosseira demais para
+# decidir exposicao. Aqui a proporcao e declarada, e independe de replicas.
+#
+# COMO OBSERVAR -- e importante, porque o caminho obvio NAO funciona: a v1 e a
+# v2 sao a MESMA imagem (quay.io/kiali/demo_travels_discounts:v1) e o corpo da
+# resposta e identico nas duas ({"user":"cars","discount":0.05}). Verificado
+# neste cluster. Nao da para contar a divisao pelo payload. Ela aparece em:
+#
+#   - Kiali, Graph em 'Versioned app graph': duas arestas para discounts, com
+#     o percentual em cada uma. E a tela do ato.
+#   - istio_requests_total{destination_version=...}, que o PodMonitor
+#     'istio-proxies-monitor' ja coleta neste namespace. E o numero:
+#     'bash scripts/traffic.sh mesh-split'.
+#
+# TIMEOUT E RETRIES sao config legitima de producao -- a aplicacao nao declara
+# nem um nem outro, e passa a ter os dois. Mas NAO tente demonstra-los com
+# fault injection: os dois testes obvios falham, e os dois foram medidos aqui.
+#
+#   delay de 5s + timeout de 3s   -> HTTP 200 em 5.03s. O timeout da rota mede
+#                                    a chamada UPSTREAM; o delay injetado
+#                                    acontece antes dela e nao entra na conta.
+#   abort 503 em 50% + attempts:2 -> 11 de 20 chamadas falharam (~55%). O Envoy
+#                                    gera a recusa como local reply e nao
+#                                    re-tenta a propria injecao.
+#
+# Ou seja: fault injection serve para PROVOCAR o cenario de falha, nao para
+# exercitar a resiliencia configurada. Exercitar retry/timeout de verdade exige
+# um upstream lento ou instavel de verdade. Ver a armadilha 12 no runbook --
+# muito tutorial sugere o contrario.
+#
+# CUIDADO com o timeout: 3s vale para esta rota interna. Nao confunda com o
+# caminho norte-sul dos Atos 1-4, que nao passa por aqui.
+# ===========================================================================
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: discounts
+  namespace: travel-agency
+spec:
+  hosts:
+    - discounts.travel-agency.svc.cluster.local
+  http:
+    - route:
+        - destination:
+            host: discounts.travel-agency.svc.cluster.local
+            subset: v1
+          weight: 90
+        - destination:
+            host: discounts.travel-agency.svc.cluster.local
+            subset: v2
+          weight: 10
+      timeout: 3s
+      retries:
+        attempts: 2
+        perTryTimeout: 1s
+        retryOn: 5xx,reset,connect-failure

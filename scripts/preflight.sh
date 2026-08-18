@@ -157,8 +157,18 @@ else
   while IFS=$'\t' read -r n tier; do
     [[ -z "$n" ]] && continue
     if [[ -z "$tier" ]]; then
-      _bad "chave '${n}' SEM label kuadrant.io/plan-id" \
-           "fail-open: essa chave passa sem limite nenhum. oc label secret ${n} -n kuadrant-system kuadrant.io/plan-id=free"
+      # Duas origens, correcoes opostas. Chave cunhada pelo developer portal na
+      # aprovacao de um APIKey grava o plano em ANNOTATION
+      # (secret.kuadrant.io/plan-id) e nao no label -- rotular a mao mascara o
+      # problema em vez de resolver. Armadilha 11 do RUNBOOK.
+      if [[ -n "$(oc get secret "$n" -n kuadrant-system \
+                   -o jsonpath='{.metadata.labels.devportal\.kuadrant\.io/enforcement}' 2>/dev/null)" ]]; then
+        _bad "chave '${n}' foi CUNHADA pelo developer portal e está sem plano" \
+             "alguém aprovou um APIKey: fail-open (armadilha 11). oc delete secret ${n} -n kuadrant-system; oc delete apikeyapproval --all -n travel-agency"
+      else
+        _bad "chave '${n}' SEM label kuadrant.io/plan-id" \
+             "fail-open: essa chave passa sem limite nenhum. oc label secret ${n} -n kuadrant-system kuadrant.io/plan-id=free"
+      fi
       _orphan=1
     fi
   done <<< "$_keys"
@@ -242,6 +252,50 @@ for r in "grafana-route:monitoring:Grafana" "kiali:istio-system:Kiali" "tracing-
   fi
 done
 
+# Route existir não diz nada sobre o Kiali. Ele pode estar Running, com o CR em
+# 'prometheus.enabled: true', e ainda assim abrir a aba Service Mesh com
+# "Metrics are disabled" -- porque quem desliga o Prometheus é o RUNTIME, quando
+# o health check contra o Thanos falha (TLS da service CA, ou 403 de RBAC). A
+# config segue dizendo 'enabled' o tempo todo. Quem sabe a verdade é o Kiali.
+_kiali_h="$(oc get route kiali -n istio-system -o jsonpath='{.spec.host}' 2>/dev/null)"
+if [[ -n "$_kiali_h" ]]; then
+  _promver="$(curl -sk --max-time 15 "https://${_kiali_h}/api/status" 2>/dev/null \
+            | python3 -c "
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit()
+for s in d.get('externalServices',[]):
+    if s.get('name')=='Prometheus': print(s.get('version',''))
+" 2>/dev/null)"
+  if [[ -n "$_promver" ]]; then
+    _ok "Kiali lê o Thanos (Prometheus ${_promver})"
+  else
+    _warn "Kiali sem métricas: a aba Service Mesh vai dizer 'Metrics are disabled'" \
+          "falta o ConfigMap kiali-cabundle e/ou o cluster-monitoring-view -- platform-reference/monitoring/kiali.yaml"
+  fi
+fi
+
+# Kiali conectado com grafo vazio é pior do que erro na tela: no palco lê-se como
+# "não há tráfego". Sem PodMonitor nada raspa os proxies e não existe série istio_*.
+if [[ -n "$_thanos" ]]; then
+  _istio="$(curl -sk --max-time 10 -H "Authorization: Bearer $(oc whoami -t)" \
+             "https://${_thanos}/api/v1/query" \
+             --data-urlencode 'query=count(istio_requests_total)' 2>/dev/null \
+           | python3 -c "
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit()
+r=d.get('data',{}).get('result',[])
+print(r[0]['value'][1] if r else '')
+" 2>/dev/null)"
+  if [[ -n "$_istio" ]]; then
+    _ok "malha instrumentada: ${_istio} séries 'istio_requests_total' no Thanos"
+  else
+    _warn "nenhuma série 'istio_*' no Thanos: o grafo do Ato 5 abre vazio" \
+          "oc apply -f platform-reference/monitoring/istio-monitors.yaml && bash scripts/traffic.sh mesh"
+  fi
+fi
+
 # Tempo só tem o gateway se houve tráfego recente com tracing ligado.
 _tempo="$(oc get route tracing-ui -n tracing-system -o jsonpath='{.spec.host}' 2>/dev/null)"
 if [[ -n "$_tempo" ]]; then
@@ -308,6 +362,32 @@ if [[ "$_plugins" == *'"kuadrant-console-plugin"'* ]]; then
   else
     _warn "ConfigMap topology com ${_topo:-0} nós — Policy Topology abre vazia" \
           "oc logs -n kuadrant-system deploy/kuadrant-operator-controller-manager | tail"
+  fi
+
+  # As tres abas de API Catalog vem do developer portal, componente OPCIONAL do
+  # CR Kuadrant. Sem ele as CRDs existem e nada reconcilia: os CRs ficam sem
+  # status e as abas exibem objeto com cara de quebrado. Com ele, o estado
+  # correto e 'Pending' -- aprovado significa que alguem cunhou chave fail-open
+  # (armadilha 11), e a secao de identidades acima e quem reprova.
+  if [[ "$(oc get kuadrant kuadrant -n kuadrant-system \
+            -o jsonpath='{.spec.components.developerPortal.enabled}' 2>/dev/null)" == "true" ]]; then
+    _prod="$(oc get apiproduct -A -o jsonpath='{range .items[*]}{.metadata.name}={.status.conditions[?(@.type=="Ready")].status};{end}' 2>/dev/null)"
+    _sch="$(oc get apiproduct travels-api -n travel-agency -o jsonpath='{.status.discoveredAuthScheme.authentication}' 2>/dev/null)"
+    # -o em vez de -c: o jsonpath concatena sem newline, e 'grep -c' conta LINHA
+    # -- com duas chaves falhando reportaria 1.
+    _kfail="$(oc get apikey -A -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Failed")].status}{"\n"}{end}' 2>/dev/null | grep -c '^True$')"
+    if [[ -z "$_prod" ]]; then
+      _warn "developer portal ligado, mas sem APIProduct — as 3 abas de API Catalog abrem vazias" \
+            "oc apply -k env/rhcl-1.4_ocp-4.21/devportal"
+    elif [[ "${_kfail:-0}" -gt 0 ]]; then
+      _bad "${_kfail} APIKey em Failed — provável AuthSchemeNotFound" \
+           "o AuthPolicy da rota precisa declarar spec.rules, não spec.defaults.rules; oc get apikey -A -o wide"
+    elif [[ -z "$_sch" ]]; then
+      _warn "APIProduct travels-api sem discoveredAuthScheme" \
+            "AuthPolicy com wrapper 'defaults'? o portal ignora e todo APIKey falha; ver base/policies-security/travel-agency-authpolicy.yaml"
+    else
+      _ok "developer portal: ${_prod%%=*} pronto, $(oc get apikey -A --no-headers 2>/dev/null | grep -c .) APIKey pendente(s), esquema descoberto"
+    fi
   fi
 fi
 

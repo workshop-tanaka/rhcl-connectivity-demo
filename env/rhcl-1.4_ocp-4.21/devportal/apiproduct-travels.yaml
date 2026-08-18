@@ -1,0 +1,43 @@
+# ===========================================================================
+# APIProduct — a Travels API como item de catalogo do developer portal.
+#
+# Requer 'components.developerPortal.enabled: true' no CR Kuadrant (o
+# controller vem desligado por default) e as CRDs devportal.kuadrant.io, que
+# so existem a partir do RHCL 1.4.2. E por isso que este diretorio mora em
+# env/rhcl-1.4_ocp-4.21/ e nao em base/: no cluster 1.2 o apply falharia.
+#
+# Nao ha nada a preencher a mao alem dos metadados comerciais: o controller
+# descobre o resto da propria rota. Depois de aplicar, status traz
+#   discoveredPlans        os 4 tiers com limite e cota, lidos do PlanPolicy
+#   discoveredAuthScheme   o esquema de API key, lido do AuthPolicy da rota
+#
+# ---------------------------------------------------------------------------
+# A descoberta do esquema exige que o AuthPolicy da rota declare 'spec.rules',
+# NAO 'spec.defaults.rules' -- o controller ignora o wrapper de defaults e o
+# APIProduct fica sem discoveredAuthScheme, o que reprova todo APIKey com
+# 'Failed=True reason=AuthSchemeNotFound'. Ver o comentario em
+# base/policies-security/travel-agency-authpolicy.yaml.
+# ---------------------------------------------------------------------------
+# ===========================================================================
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIProduct
+metadata:
+  name: travels-api
+  namespace: travel-agency
+spec:
+  displayName: Travels API
+  description: >-
+    A API da travel-agency publicada em tres planos comerciais (free, silver,
+    gold). O limite de cada plano vem do PlanPolicy travels-plans; a chave do
+    parceiro carrega o plano no label kuadrant.io/plan-id.
+  version: v1
+  approvalMode: manual
+  publishStatus: Published
+  tags:
+    - travel
+    - partners
+    - rate-limited
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: travel-agency
