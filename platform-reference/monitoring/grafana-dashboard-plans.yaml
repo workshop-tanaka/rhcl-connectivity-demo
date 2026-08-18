@@ -1,0 +1,73 @@
+# ===========================================================================
+# Dashboard 'RHCL — planos comerciais'.
+#
+# Existe porque os tres dashboards de fabrica do kuadrant-operator
+# (bussiness-user, app-developer, platform-engineer) sao anteriores ao
+# TelemetryPolicy: eles AGREGAM, sem quebrar por 'plan'. No palco isso e uma
+# frustacao -- o Ato 4 promete "qual plano esta saturando" e o painel de fabrica
+# so sabe dizer "quantos 429 houve".
+#
+# As quatro consultas aqui usam o label 'plan' que o TelemetryPolicy injeta.
+# Sao exatamente as perguntas do Ato 4, na ordem em que se fazem.
+#
+# Requer: GrafanaDatasource 'Thanos' e os ServiceMonitors deste diretorio.
+# ===========================================================================
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: rhcl-planos
+  namespace: monitoring
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  json: >
+    {
+      "title": "RHCL — planos comerciais",
+      "uid": "rhcl-planos",
+      "timezone": "browser",
+      "refresh": "5s",
+      "time": {"from": "now-15m", "to": "now"},
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Servidas por plano (req/s)",
+          "description": "authorized_calls quebrado por tier. E a leitura de consumo por plano comercial.",
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 0},
+          "targets": [
+            {"expr": "sum by (plan) (rate(authorized_calls[1m]))", "legendFormat": "{{plan}}"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Limitadas por plano (429/s)",
+          "description": "limited_calls por tier. Subida sustentada aqui = plano saturando, nao incidente.",
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 0},
+          "targets": [
+            {"expr": "sum by (plan) (rate(limited_calls[1m]))", "legendFormat": "{{plan}}"}
+          ]
+        },
+        {
+          "type": "piechart",
+          "title": "Participacao no trafego servido",
+          "description": "Quanto do consumo total cada plano representa na janela.",
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 9},
+          "targets": [
+            {"expr": "sum by (plan) (increase(authorized_calls[15m]))", "legendFormat": "{{plan}}"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Taxa de recusa por plano (%)",
+          "description": "limited / (limited + authorized). A pergunta comercial: quem esta batendo no teto do plano que contratou.",
+          "gridPos": {"h": 8, "w": 16, "x": 8, "y": 9},
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}},
+          "targets": [
+            {
+              "expr": "100 * sum by (plan) (increase(limited_calls[15m])) / clamp_min(sum by (plan) (increase(limited_calls[15m])) + sum by (plan) (increase(authorized_calls[15m])), 1)",
+              "legendFormat": "{{plan}}"
+            }
+          ]
+        }
+      ]
+    }

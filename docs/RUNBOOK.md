@@ -95,12 +95,27 @@ Ambos se resolvem com uma rodada de aquecimento — que também popula os
 gráficos do Ato 4, que precisam de série temporal e não de uma rajada isolada:
 
 ```bash
-bash scripts/traffic.sh tiers        # aquece e valida
 DURATION=600 bash scripts/traffic.sh soak &    # 10 min de tráfego de fundo
+bash scripts/traffic.sh reset        # ZERA as cotas queimadas pelo soak
+bash scripts/traffic.sh tiers        # valida DEPOIS do reset
 ```
 
-Deixe o `soak` rodando durante a apresentação. Sem ele, os painéis do Grafana
-mostram uma linha achatada e o Ato 4 fica sem força.
+> ⚠️ **A ordem importa, e é contraintuitiva.** O `soak` faz round-robin entre
+> todos os tiers, e o `PlanPolicy` tem cota **diária** além da janela de 10s:
+> `free` 50/dia, `silver` 500/dia, `gold` 5000/dia. A ~8 req/s a chave `free`
+> estoura os 50 em **~25 segundos** — os 10 minutos de soak deixam o tier free
+> com zero requisições servidas, e o Ato 2 vira três linhas de `429`.
+>
+> O sintoma engana: parece rate limit funcionando, e é cota exaurida.
+> `traffic.sh reset` reinicia o Limitador, cujos contadores são in-memory.
+>
+> Se for deixar o `soak` rodando **durante** a apresentação — e o Ato 4 fica
+> melhor com ele —, dê o `reset` logo antes de começar e conte que o free tem
+> ~6 minutos de vida útil até a cota diária acabar de novo. Na prática: rode o
+> Ato 2 cedo, ou suba o soak só depois dele.
+
+Sem tráfego de fundo os painéis do Grafana mostram uma linha achatada e o Ato 4
+fica sem força — mas um Ato 2 morto custa mais caro que um gráfico chato.
 
 ---
 
@@ -359,6 +374,7 @@ Dois detalhes que o template já resolve e que custam tempo quando feitos à mã
 | --- | --- | --- |
 | Tudo `200`, nenhum `429` | chave sem `kuadrant.io/plan-id` → fail-open | `bash scripts/preflight.sh core` aponta a chave; `oc label secret <n> -n kuadrant-system kuadrant.io/plan-id=free` |
 | `429` onde era pra ser `200` | contador da janela anterior ainda aberto | espere 11s e repita — é o motivo da pausa no script |
+| **`free` com zero `200`**, gold e silver normais | **cota diária exaurida** (50/dia) por ensaio ou `soak` | `bash scripts/traffic.sh reset` — 30s, e é o modo de falha mais provável |
 | Tudo `401`, inclusive com chave | Secret sem `authorino.kuadrant.io/managed-by`, ou no namespace errado | `oc get secrets -n kuadrant-system -l app=partner` |
 | `000` no meio da rajada | timeout de rede do sandbox | repita; se persistir, `oc get pods -n ingress-gateway` |
 | `404` com chave válida | auth e rate limit passaram; quem devolveu foi a app. Ela só responde em `/travels` — `/`, `/flights` e `/hotels` dão 404 | não mexa nas policies; volte ao default (`PATH_` não definido) |
@@ -390,7 +406,15 @@ oc apply -k overlays/rhcl-1.4        # 1.2: overlays/provisioned
 bash scripts/preflight.sh core
 ```
 
-Os contadores do Limitador são in-memory e por janela — não precisam de reset.
+Os contadores do Limitador são in-memory. A janela de 10s se resolve sozinha em
+segundos, mas **a cota diária não** — e depois de um ensaio ou de um `soak` ela
+é o que impede a demo de repetir:
+
+```bash
+bash scripts/traffic.sh reset        # reinicia o Limitador, zera tudo
+```
+
+Entre duas apresentações no mesmo dia, esse é o comando que importa.
 
 ---
 
@@ -551,3 +575,34 @@ então os Atos 1–4 funcionam, mas o grafo do Kiali fica incompleto no Ato 5.
 oc create secret generic mysql-credentials -n travel-agency \
   --from-literal=rootpasswd=travelagency
 ```
+
+### 8. A cota diária do plano mata o ensaio — e o roteiro pedia isso
+
+O `PlanPolicy` declara **dois** limites por tier, e só um é visível no Ato 2:
+
+```
+free      3/10s   +    50/dia
+silver   10/10s   +   500/dia
+gold     30/10s   +  5000/dia
+```
+
+A janela de 10s é a que a demo mostra. A diária é a que quebra o ensaio: o
+`traffic.sh soak` faz round-robin entre todos os tiers, então a ~8 req/s a
+chave `free` estoura os 50/dia em **~25 segundos**. E o roteiro mandava rodar
+`DURATION=600 soak` trinta minutos antes de apresentar — ou seja, a preparação
+recomendada **garantia** o Ato 2 morto.
+
+Verificado neste cluster: 2552 requisições de ensaio, e o preflight passou a
+acusar `tier free: nenhuma requisição servida`.
+
+O sintoma engana em cheio, porque parece exatamente o que a demo quer mostrar —
+`429` em toda rajada do free. A diferença é que não há nenhum `200` antes deles,
+e o `gold` continua normal.
+
+Defesa: `bash scripts/traffic.sh reset` reinicia o Limitador; os contadores são
+in-memory e voltam a zero, cota diária inclusive. Leva ~30s. A ordem correta no
+aquecimento é **soak → reset → tiers**, e não o contrário.
+
+Não é específico do 1.4 — as cotas estão em `base/policies-plans/`, então o
+mesmo valia no 1.2.1. Só não aparecia porque ninguém rodava soak longo antes de
+conferir os tiers.

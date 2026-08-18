@@ -188,11 +188,34 @@ mode_metrics() {
   _log "series sem 'plan' sao anteriores a TelemetryPolicy -- nao sao erro."
 }
 
+# Zera os contadores do Limitador reiniciando o pod -- eles sao in-memory.
+#
+# Existe por causa das cotas DIARIAS do PlanPolicy, que a janela de 10s esconde:
+# free tem 50/dia, silver 500/dia, gold 5000/dia. O 'soak' faz round-robin entre
+# todos os tiers, entao a ~8 req/s a chave free estoura os 50 em ~25 segundos.
+# Os 10 minutos de soak que o roteiro manda rodar antes de apresentar deixam o
+# tier free com ZERO requisicoes servidas -- e o Ato 2, que e o centro da demo,
+# mostra tres linhas de 429.
+#
+# O sintoma engana: parece rate limit funcionando, e e cota exaurida.
+# Rode isto depois de qualquer ensaio pesado e antes de subir ao palco.
+mode_reset() {
+  _log "reiniciando o Limitador (contadores sao in-memory)"
+  oc rollout restart deployment/limitador-limitador -n kuadrant-system >/dev/null \
+    || _die "nao consegui reiniciar o Limitador."
+  oc rollout status deployment/limitador-limitador -n kuadrant-system --timeout=180s >/dev/null \
+    || _die "o Limitador nao voltou a tempo."
+  sleep 5
+  _ok "contadores zerados -- cotas diarias incluidas."
+  _log "confirme com: bash scripts/traffic.sh tiers"
+}
+
 case "${1:-tiers}" in
   tiers)   mode_tiers ;;
   burst)   mode_burst "${2:-}" ;;
   anon)    mode_anon ;;
   soak)    mode_soak ;;
   metrics) mode_metrics ;;
-  *)       _die "modo desconhecido: $1 (use: tiers | burst <tier> | anon | soak | metrics)" ;;
+  reset)   mode_reset ;;
+  *)       _die "modo desconhecido: $1 (use: tiers | burst <tier> | anon | soak | metrics | reset)" ;;
 esac
