@@ -40,6 +40,7 @@ oc get authpolicy travel-agency-authpolicy -n travel-agency \
 | `ClusterIssuer/prod-web-lets-encrypt-issuer` | `ingress-gateway` | `platform-reference/issuers/` |
 | `Kuadrant/kuadrant` | `kuadrant` | `platform-reference/kuadrant-system/` |
 | Deployments/Services/SA de travel-agency e echo-api | `travel-agency`, `echo-api` | `platform-reference/workloads/` |
+| `mysqldb` + seed de dados (namespace `travel-db`) | **nenhuma** | `platform-reference/workloads/travel-db/` |
 | — | — | — |
 | `HTTPRoute/travel-agency` | **nenhuma** | `base/routes/` |
 | `AuthPolicy` ×2 | **nenhuma** | `base/policies-security/` |

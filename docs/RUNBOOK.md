@@ -814,6 +814,33 @@ curl -s ".../travels?APIKEY=<chave>" | head -c 120
 # []                                           <- banco ausente
 ```
 
+**A massa de dados vem de dois scripts, não de um.** O diretório tem o
+`mysqldb.yaml` e o `00-seed-enrich.yaml` — aplique os dois (o `oc apply -f` do
+diretório acima já faz isso). O seed da imagem do Kiali cria o schema e as 45
+cidades, mas as ofertas dele são formulaicas: três companhias chamadas `Red`,
+`Blue` e `Green Airlines`, dois modelos de carro, e preços em progressão
+aritmética no `cityId` — Varsóvia custa mais que Amsterdam porque tem id maior.
+Isso não quebra ato nenhum, mas denuncia dado de laboratório assim que o payload
+vai para a tela. O `00-seed-enrich.yaml` reescreve as quatro tabelas de oferta
+com catálogos reais e preço proporcional ao custo da praça:
+
+```bash
+curl -s ".../travels/Oslo?APIKEY=<chave>"   # Hilton Oslo 506, Hostel Oslo Central 67
+curl -s ".../travels/Sofia?APIKEY=<chave>"  # Grand Hotel Sofia 340, ibis Sofia 89
+```
+
+O porte da cidade também conta: Paris tem 9 voos, Vaduz tem 2. É determinístico
+— sem `RAND()` — então todo pod sobe com exatamente a mesma massa e o ensaio é
+reproduzível. Se as contagens abaixo não baterem, algum dos dois scripts não
+rodou:
+
+```bash
+oc exec -n travel-db deploy/mysqldb -c mysqldb -- \
+  mysql -uroot -ptravelagency -e "SELECT COUNT(*) FROM test.flights;"
+# 279   <- os dois scripts rodaram
+# 135   <- só o seed da imagem; falta o ConfigMap
+```
+
 > O namespace separado não é acidente: nas variantes deste workshop o banco vive
 > **fora** do cluster, alcançado por Red Hat Service Interconnect (Skupper).
 > Aqui ele roda local — a demo cobre o eixo **norte-sul** (entrada de tráfego,

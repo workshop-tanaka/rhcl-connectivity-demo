@@ -31,6 +31,11 @@
 # A imagem e a do demo original do Kiali. O data dir vem vazio; o schema e os
 # dados do banco 'test' (cidades, hoteis, voos, carros, seguros) nascem dos
 # scripts de /docker-entrypoint-initdb.d a cada start do pod.
+#
+# Sao DOIS scripts ali dentro, nesta ordem: o 'mysqldb-init.sql' da imagem cria
+# o schema e as 45 cidades, e o 'zz-seed-enrich.sql' (ConfigMap em
+# 00-seed-enrich.yaml) reescreve as ofertas com catalogos reais. Aplique os
+# dois arquivos deste diretorio, nao so este.
 # ===========================================================================
 apiVersion: v1
 kind: Namespace
@@ -102,6 +107,16 @@ spec:
               mountPath: /var/run/mysqld
             - name: tmp
               mountPath: /tmp
+            # Seed complementar (00-seed-enrich.yaml): troca a massa formulaica
+            # da imagem por catalogos reais com preco por praca.
+            #
+            # subPath monta SO este arquivo. Um mount no diretorio inteiro
+            # esconderia o mysqldb-init.sql da imagem -- e sem ele nao ha
+            # schema, so um banco vazio.
+            - name: seed-enrich
+              mountPath: /docker-entrypoint-initdb.d/zz-seed-enrich.sql
+              subPath: zz-seed-enrich.sql
+              readOnly: true
           env:
             - name: MYSQL_ROOT_PASSWORD
               valueFrom:
@@ -122,6 +137,9 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        - name: seed-enrich
+          configMap:
+            name: mysqldb-seed-enrich
 ---
 apiVersion: v1
 kind: Service

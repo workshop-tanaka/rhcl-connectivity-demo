@@ -1,0 +1,252 @@
+# ===========================================================================
+# Massa de dados da travel-agency.
+#
+# POR QUE ISTO EXISTE
+#
+# A imagem do Kiali ja traz um seed em /docker-entrypoint-initdb.d/mysqldb-init.sql:
+# 45 capitais europeias (com lat/lng reais) e 405 ofertas. O schema dele e a
+# base -- este arquivo NAO o substitui, roda DEPOIS dele.
+#
+# O problema nao era volume, era realismo. O seed original e formulaico:
+#
+#   airlines   'Red Airlines', 'Blue Airlines', 'Green Airlines'   (3 no total)
+#   carros     'Sports Car', 'Economy Car'                         (2 no total)
+#   seguros    'Yellow Insurances', 'Blue Insurances'              (2 no total)
+#   hoteis     'Grand Hotel <cidade>' / 'Little <cidade> Hotel'
+#
+# e os precos sao uma progressao aritmetica em cityId -- preco = base +
+# (cityId-1) * incremento. Varsovia custa mais que Amsterdam porque tem id
+# maior, nao porque seja cara:
+#
+#   Amsterdam (id 1)   Red Airlines 1001   Sports Car 1005
+#   Warsaw    (id 44)  Red Airlines 1044   Sports Car 1220
+#
+# Isso passa despercebido enquanto a demo mede status (401/200/429), mas
+# denuncia dado de laboratorio no instante em que alguem projeta o payload.
+#
+# O QUE ESTE SEED FAZ
+#
+# Reescreve hotels/flights/cars/insurances com catalogos reais (companhias,
+# redes hoteleiras, modelos, seguradoras) e da aos precos duas dimensoes que o
+# original nao tinha:
+#
+#   custo da cidade  Oslo e Reykjavik caras, Sofia e Kiev baratas -- um indice
+#                    por cidade multiplica o preco de catalogo.
+#   porte da cidade  hub grande tem mais oferta que microestado. Amsterdam
+#                    recebe ~7 voos, Vaduz ~2.
+#
+# A tabela 'cities' NAO e tocada: lat/lng ali sao reais e ja servem.
+#
+# DETERMINISTICO DE PROPOSITO
+#
+# Nao ha RAND(). A dispersao vem de MOD(cityId*p + itemId*q, r) com primos --
+# parece irregular, mas dois pods sobem com exatamente a mesma massa. Uma demo
+# em que o preco muda a cada restart e uma demo que ninguem consegue ensaiar.
+#
+# COMO ENTRA NO POD
+#
+# Montado via subPath em /docker-entrypoint-initdb.d/zz-seed-enrich.sql -- veja
+# mysqldb.yaml. Dois detalhes que nao sao estilo:
+#
+#   subPath   monta SO este arquivo. Um mount normal no diretorio esconderia o
+#             mysqldb-init.sql da imagem, e o schema nunca seria criado.
+#   'zz-'     docker_process_init_files expande o glob em ordem alfabetica.
+#             O prefixo garante que este rode DEPOIS de 'mysqldb-init.sql'
+#             ('m' < 'z'). Um nome como '00-' rodaria ANTES -- e falharia,
+#             porque as tabelas ainda nao existem.
+#
+# O data dir e emptyDir, entao os dois scripts rodam a cada start do pod.
+# ===========================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysqldb-seed-enrich
+  namespace: travel-db
+  labels:
+    app: mysqldb
+data:
+  zz-seed-enrich.sql: |
+    -- Roda depois de mysqldb-init.sql. Assume test.cities ja populada.
+    USE test;
+
+    -- ---------------------------------------------------------------------
+    -- Perfil por cidade: quanto custa, e quao grande e.
+    --
+    -- costIdx  multiplicador de preco. 0.60 (Kiev) a 1.80 (Monaco).
+    -- hub      3 = hub aereo grande, 2 = capital media, 1 = microestado.
+    --          Decide QUANTAS ofertas a cidade recebe.
+    --
+    -- Casado por NOME, nao por id: se o seed da imagem reordenar as cidades,
+    -- isto continua correto em vez de silenciosamente trocar os perfis.
+    -- ---------------------------------------------------------------------
+    DROP TABLE IF EXISTS _seed_city;
+    CREATE TABLE _seed_city (
+      cityId  INT PRIMARY KEY,
+      city    VARCHAR(64),
+      costIdx DECIMAL(4,2),
+      hub     INT
+    );
+    INSERT INTO _seed_city (cityId, city, costIdx, hub)
+    SELECT c.cityId, v.city, v.costIdx, v.hub
+    FROM cities c
+    JOIN (
+      SELECT 'Amsterdam'  city, 1.35 costIdx, 3 hub UNION ALL
+      SELECT 'Andorra',    1.15, 1 UNION ALL
+      SELECT 'Athens',     1.00, 3 UNION ALL
+      SELECT 'Belgrade',   0.80, 2 UNION ALL
+      SELECT 'Berlin',     1.15, 3 UNION ALL
+      SELECT 'Bern',       1.75, 2 UNION ALL
+      SELECT 'Bratislava', 1.00, 2 UNION ALL
+      SELECT 'Brussels',   1.25, 3 UNION ALL
+      SELECT 'Bucharest',  0.80, 2 UNION ALL
+      SELECT 'Budapest',   0.95, 3 UNION ALL
+      SELECT 'Chisinau',   0.60, 2 UNION ALL
+      SELECT 'Copenhagen', 1.60, 3 UNION ALL
+      SELECT 'Dublin',     1.40, 3 UNION ALL
+      SELECT 'Helsinki',   1.35, 3 UNION ALL
+      SELECT 'Kiev',       0.60, 2 UNION ALL
+      SELECT 'Lisbon',     1.05, 3 UNION ALL
+      SELECT 'Ljubljana',  1.05, 2 UNION ALL
+      SELECT 'London',     1.50, 3 UNION ALL
+      SELECT 'Luxembourg', 1.55, 2 UNION ALL
+      SELECT 'Madrid',     1.10, 3 UNION ALL
+      SELECT 'Minsk',      0.65, 2 UNION ALL
+      SELECT 'Monaco',     1.80, 1 UNION ALL
+      SELECT 'Moscow',     1.00, 3 UNION ALL
+      SELECT 'Nicosia',    1.05, 2 UNION ALL
+      SELECT 'Nuuk',       1.70, 1 UNION ALL
+      SELECT 'Oslo',       1.70, 3 UNION ALL
+      SELECT 'Paris',      1.45, 3 UNION ALL
+      SELECT 'Podgorica',  0.75, 2 UNION ALL
+      SELECT 'Prague',     1.00, 3 UNION ALL
+      SELECT 'Reykjavik',  1.65, 2 UNION ALL
+      SELECT 'Riga',       0.95, 2 UNION ALL
+      SELECT 'Rome',       1.20, 3 UNION ALL
+      SELECT 'San Marino', 1.20, 1 UNION ALL
+      SELECT 'Sarajevo',   0.70, 2 UNION ALL
+      SELECT 'Skopje',     0.65, 2 UNION ALL
+      SELECT 'Sofia',      0.75, 2 UNION ALL
+      SELECT 'Stockholm',  1.40, 3 UNION ALL
+      SELECT 'Tallinn',    1.00, 2 UNION ALL
+      SELECT 'Tirana',     0.65, 2 UNION ALL
+      SELECT 'Vaduz',      1.60, 1 UNION ALL
+      SELECT 'Valletta',   1.10, 2 UNION ALL
+      SELECT 'Vienna',     1.25, 3 UNION ALL
+      SELECT 'Vilnius',    0.90, 2 UNION ALL
+      SELECT 'Warsaw',     0.95, 3 UNION ALL
+      SELECT 'Zagreb',     0.95, 2
+    ) v ON v.city = c.city;
+
+    -- ---------------------------------------------------------------------
+    -- Catalogos. 'base' e o preco de referencia antes do indice da cidade.
+    -- ---------------------------------------------------------------------
+    DROP TABLE IF EXISTS _seed_airline;
+    CREATE TABLE _seed_airline (id INT PRIMARY KEY, airline VARCHAR(48), base INT);
+    INSERT INTO _seed_airline VALUES
+      ( 1,'Wizz Air',          79), ( 2,'Ryanair',           89),
+      ( 3,'Vueling',           99), ( 4,'easyJet',          109),
+      ( 5,'Aegean Airlines',  330), ( 6,'LOT Polish Airlines',340),
+      ( 7,'TAP Air Portugal', 355), ( 8,'ITA Airways',       365),
+      ( 9,'Iberia',           375), (10,'SAS',               395),
+      (11,'Finnair',          405), (12,'KLM',               415),
+      (13,'Air France',       425), (14,'Lufthansa',         440),
+      (15,'British Airways',  455), (16,'Swiss',             460);
+
+    -- prefix/suffix montam o nome com a cidade: 'Hilton ' + 'Oslo' + ''.
+    DROP TABLE IF EXISTS _seed_hotel;
+    CREATE TABLE _seed_hotel (id INT PRIMARY KEY, prefix VARCHAR(32), suffix VARCHAR(32), base INT);
+    INSERT INTO _seed_hotel VALUES
+      ( 1,'Hostel ',      ' Central', 35), ( 2,'Pension ',     '',  60),
+      ( 3,'B&B Hotel ',   '',         75), ( 4,'ibis ',        '',  85),
+      ( 5,'Mercure ',     '',        125), ( 6,'Novotel ',     '', 135),
+      ( 7,'NH ',          '',        140), ( 8,'Melia ',       '', 165),
+      ( 9,'Radisson Blu ','',        180), (10,'Marriott ',    '', 230),
+      (11,'Hilton ',      '',        240), (12,'Grand Hotel ', '', 260);
+
+    DROP TABLE IF EXISTS _seed_car;
+    CREATE TABLE _seed_car (id INT PRIMARY KEY, carModel VARCHAR(48), base INT);
+    INSERT INTO _seed_car VALUES
+      ( 1,'Fiat 500',            180), ( 2,'Renault Clio',      205),
+      ( 3,'Volkswagen Golf',     235), ( 4,'Skoda Octavia',     260),
+      ( 5,'Toyota C-HR',         350), ( 6,'Tesla Model 3',     385),
+      ( 7,'Volkswagen Transporter',420),( 8,'BMW 3 Series',     480),
+      ( 9,'Audi A6',             560), (10,'Mercedes E-Class',  700);
+
+    DROP TABLE IF EXISTS _seed_insurance;
+    CREATE TABLE _seed_insurance (id INT PRIMARY KEY, company VARCHAR(64), base INT);
+    INSERT INTO _seed_insurance VALUES
+      (1,'Europ Assistance Basic', 45), (2,'Mapfre Basic',        60),
+      (3,'ERGO Standard',         105), (4,'Generali Standard',  130),
+      (5,'AXA Comfort',           180), (6,'Zurich Comfort',     210),
+      (7,'Allianz Premium',       275), (8,'AXA Premium Plus',   320);
+
+    -- ---------------------------------------------------------------------
+    -- Fora com a massa formulaica. 'cities' fica -- lat/lng ali sao reais.
+    -- ---------------------------------------------------------------------
+    DELETE FROM flights;
+    DELETE FROM hotels;
+    DELETE FROM cars;
+    DELETE FROM insurances;
+
+    -- ---------------------------------------------------------------------
+    -- Geracao. Duas decisoes se repetem nos quatro INSERTs:
+    --
+    -- QUEM ENTRA   MOD(cityId*p + id*q, r) < limiar(hub). Espalha a oferta de
+    --              forma irregular mas estavel. O 'OR id = MOD(...)+1' e um
+    --              piso: garante que nenhuma cidade fique sem oferta nenhuma
+    --              -- sem ele um microestado azarado devolveria lista vazia,
+    --              que e exatamente o sintoma do banco ausente que o RUNBOOK
+    --              ensina a diagnosticar.
+    --
+    -- QUANTO CUSTA base * fator(costIdx) + jitter. O peso do costIdx muda por
+    --              categoria: hotel sente muito o custo local, aluguel de
+    --              carro sente pouco, seguro quase nada.
+    -- ---------------------------------------------------------------------
+
+    -- voos: ~7 num hub grande, ~2 num microestado
+    INSERT INTO flights (flightId, cityId, airline, price)
+    SELECT ROW_NUMBER() OVER (ORDER BY c.cityId, a.id), c.cityId, a.airline,
+           ROUND(a.base * (0.75 + 0.50 * c.costIdx)
+                 + MOD(c.cityId * 31 + a.id * 17, 61) - 30)
+    FROM _seed_city c JOIN _seed_airline a
+      ON MOD(c.cityId * 7 + a.id * 13, 20) < c.hub * 3
+      OR a.id = MOD(c.cityId * 3, 16) + 1;
+
+    -- hoteis: 4 a 6 por cidade. Fator alto -- e o item que mais sente a praca.
+    INSERT INTO hotels (hotelId, cityId, hotel, price)
+    SELECT ROW_NUMBER() OVER (ORDER BY c.cityId, h.id), c.cityId,
+           CONCAT(h.prefix, c.city, h.suffix),
+           ROUND(h.base * (0.60 + 0.90 * c.costIdx)
+                 + MOD(c.cityId * 23 + h.id * 29, 41) - 20)
+    FROM _seed_city c JOIN _seed_hotel h
+      ON MOD(c.cityId * 11 + h.id * 7, 12) < c.hub + 3
+      OR h.id = MOD(c.cityId * 5, 12) + 1;
+
+    -- carros: 3 a 5 por cidade. Diaria varia pouco entre paises.
+    INSERT INTO cars (carId, cityId, carModel, price)
+    SELECT ROW_NUMBER() OVER (ORDER BY c.cityId, m.id), c.cityId, m.carModel,
+           ROUND(m.base * (0.80 + 0.40 * c.costIdx)
+                 + MOD(c.cityId * 19 + m.id * 37, 51) - 25)
+    FROM _seed_city c JOIN _seed_car m
+      ON MOD(c.cityId * 13 + m.id * 11, 10) < c.hub + 2
+      OR m.id = MOD(c.cityId * 7, 10) + 1;
+
+    -- seguros: 3 a 5 por cidade. Preco quase indiferente ao destino.
+    INSERT INTO insurances (insuranceId, cityId, company, price)
+    SELECT ROW_NUMBER() OVER (ORDER BY c.cityId, i.id), c.cityId, i.company,
+           ROUND(i.base * (0.85 + 0.30 * c.costIdx)
+                 + MOD(c.cityId * 17 + i.id * 43, 31) - 15)
+    FROM _seed_city c JOIN _seed_insurance i
+      ON MOD(c.cityId * 5 + i.id * 19, 8) < c.hub + 2
+      OR i.id = MOD(c.cityId * 11, 8) + 1;
+
+    -- ---------------------------------------------------------------------
+    -- As tabelas de apoio saem: os quatro backends fazem 'SELECT ... WHERE
+    -- cityId = ?' nas quatro tabelas de sempre e nao sabem que estas
+    -- existiram. O schema que sobra e identico ao da imagem.
+    -- ---------------------------------------------------------------------
+    DROP TABLE _seed_city;
+    DROP TABLE _seed_airline;
+    DROP TABLE _seed_hotel;
+    DROP TABLE _seed_car;
+    DROP TABLE _seed_insurance;
