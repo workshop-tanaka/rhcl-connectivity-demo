@@ -124,73 +124,18 @@ data:
           token: \${GITHUB_TOKEN}
 EOF
 
-# ----- 4. plugins dinamicos ------------------------------------------------
-# Os dois ja vem na imagem, apenas desabilitados -- por isso o package aponta
-# para ./dynamic-plugins/dist e nao para um registry: nada e baixado da rede.
-# 'includes' preserva o catalogo default; sem ele, so estes dois ficariam.
-_log "habilitando os plugins de GitHub..."
-oc apply -f - >/dev/null <<EOF || _die "falha ao criar dynamic-plugins-rhdh."
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: dynamic-plugins-rhdh
-  namespace: ${RHDH_NS}
-data:
-  dynamic-plugins.yaml: |
-    includes:
-      - dynamic-plugins.default.yaml
-    plugins:
-      # Descoberta de repos da org com catalog-info.yaml na raiz.
-      #
-      # O nome 'providerId' e obrigatorio: e o que o default usa. Como o
-      # pluginConfig e mesclado, reusar o nome ajusta o provider existente;
-      # qualquer outro nome criaria um segundo provider sobre a mesma org.
-      #
-      # O default so define 'organization' e roda a cada 3h -- lento demais
-      # para uma demo, onde o repo recem-criado precisa aparecer no catalogo
-      # em seguida.
-      - package: ./dynamic-plugins/dist/backstage-plugin-catalog-backend-module-github-dynamic
-        disabled: false
-        pluginConfig:
-          catalog:
-            providers:
-              github:
-                providerId:
-                  organization: \${GITHUB_ORG}
-                  catalogPath: /catalog-info.yaml
-                  filters:
-                    branch: ${GITHUB_BRANCH}
-                  schedule:
-                    frequency:
-                      minutes: 5
-                    initialDelay:
-                      seconds: 30
-                    timeout:
-                      minutes: 3
-      # action publish:github, usada pelo template rhcl-exposed-api
-      - package: ./dynamic-plugins/dist/backstage-plugin-scaffolder-backend-module-github-dynamic
-        disabled: false
-EOF
+# ----- 4. plugins e ligacao no CR ------------------------------------------
+# Delegado ao setup-plugins.sh, que e o DONO do ConfigMap dynamic-plugins-rhdh.
+# O CR aceita um unico dynamicPluginsConfigMapName, entao a lista de plugins tem
+# que ser escrita num lugar so -- se esta camada escrevesse a sua propria, ligar
+# o GitHub apagaria Kubernetes e Topology, e vice-versa. O setup-plugins.sh
+# detecta o rhdh-github-secret criado acima e inclui os plugins do GitHub.
+_log "habilitando os plugins (delegado ao setup-plugins.sh)..."
+GITHUB_BRANCH="${GITHUB_BRANCH}" bash "${_here}/setup-plugins.sh" \
+  || _die "falha ao habilitar os plugins."
 
-# ----- 5. ligar no CR ------------------------------------------------------
-# extraEnvs.secrets vai completo: merge patch substitui arrays, e omitir o
-# rhdh-backend-secret aqui quebraria o backend.
-_log "atualizando a instancia..."
-oc patch backstage "$RHDH_CR" -n "$RHDH_NS" --type=merge -p '{
-  "spec": {
-    "application": {
-      "dynamicPluginsConfigMapName": "dynamic-plugins-rhdh",
-      "extraEnvs": {
-        "secrets": [
-          {"name": "rhdh-backend-secret"},
-          {"name": "rhdh-github-secret"}
-        ]
-      }
-    }
-  }
-}' >/dev/null || _die "falha ao aplicar o patch no CR."
 
-# ----- 6. registrar o template e recarregar --------------------------------
+# ----- 5. registrar o template e recarregar --------------------------------
 # Delegado ao setup-catalog.sh: ele detecta o app-config-rhdh-github, monta a
 # lista de appConfig na ordem certa e faz o restart.
 _log "registrando o software template..."

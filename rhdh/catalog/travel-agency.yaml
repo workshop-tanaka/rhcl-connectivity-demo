@@ -242,6 +242,10 @@ kind: Component
 metadata:
   name: travels
   description: Frontend da agencia; agrega os demais servicos. Unico exposto pela HTTPRoute.
+  annotations:
+    backstage.io/kubernetes-label-selector: app=travels
+    backstage.io/kubernetes-namespace: travel-agency
+    github.com/project-slug: ${DEMO_REPO_SLUG}
 spec:
   type: service
   lifecycle: production
@@ -262,6 +266,10 @@ kind: Component
 metadata:
   name: flights
   description: Servico de voos.
+  annotations:
+    backstage.io/kubernetes-label-selector: app=flights
+    backstage.io/kubernetes-namespace: travel-agency
+    github.com/project-slug: ${DEMO_REPO_SLUG}
 spec:
   type: service
   lifecycle: production
@@ -275,6 +283,10 @@ kind: Component
 metadata:
   name: hotels
   description: Servico de hoteis.
+  annotations:
+    backstage.io/kubernetes-label-selector: app=hotels
+    backstage.io/kubernetes-namespace: travel-agency
+    github.com/project-slug: ${DEMO_REPO_SLUG}
 spec:
   type: service
   lifecycle: production
@@ -288,6 +300,10 @@ kind: Component
 metadata:
   name: cars
   description: Servico de locacao de veiculos.
+  annotations:
+    backstage.io/kubernetes-label-selector: app=cars
+    backstage.io/kubernetes-namespace: travel-agency
+    github.com/project-slug: ${DEMO_REPO_SLUG}
 spec:
   type: service
   lifecycle: production
@@ -301,6 +317,10 @@ kind: Component
 metadata:
   name: insurances
   description: Servico de seguros.
+  annotations:
+    backstage.io/kubernetes-label-selector: app=insurances
+    backstage.io/kubernetes-namespace: travel-agency
+    github.com/project-slug: ${DEMO_REPO_SLUG}
 spec:
   type: service
   lifecycle: production
@@ -316,6 +336,10 @@ metadata:
   description: >-
     Servico de descontos, com duas versoes em paralelo (v1 e v2) atras do mesmo
     Service -- e o alvo natural para demonstrar roteamento por peso na HTTPRoute.
+  annotations:
+    backstage.io/kubernetes-label-selector: app=discounts
+    backstage.io/kubernetes-namespace: travel-agency
+    github.com/project-slug: ${DEMO_REPO_SLUG}
 spec:
   type: service
   lifecycle: production
@@ -333,6 +357,10 @@ metadata:
     - url: https://${DEMO_ECHO_HOST}
       title: Endpoint
       icon: web
+  annotations:
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/name=echo-api
+    backstage.io/kubernetes-namespace: echo-api
+    github.com/project-slug: ${DEMO_REPO_SLUG}
 spec:
   type: service
   lifecycle: production

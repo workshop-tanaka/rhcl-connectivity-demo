@@ -1,0 +1,78 @@
+# ===========================================================================
+# Acesso de leitura ao cluster para o plugin Kubernetes / Topology.
+#
+# O RHDH le o cluster com uma ServiceAccount dedicada, nao com a do pod: o
+# plugin espera um token estatico em K8S_CLUSTER_TOKEN, e o token projetado do
+# pod tem validade curta e rotaciona -- usa-lo daria uma aba que funciona hoje
+# e quebra amanha, sem erro obvio.
+#
+# So leitura, e so os kinds que os dois plugins consultam.
+# ===========================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rhdh-kubernetes
+  namespace: ${RHDH_NS}
+---
+# Desde o Kubernetes 1.24 a criacao do Secret de token nao e mais automatica:
+# sem este objeto, a SA existe e nunca produz token.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rhdh-kubernetes-sa-token
+  namespace: ${RHDH_NS}
+  annotations:
+    kubernetes.io/service-account.name: rhdh-kubernetes
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rhdh-kubernetes-reader
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, services, configmaps, limitranges, resourcequotas, nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets, daemonsets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods]
+    verbs: [get, list, watch]
+  # OpenShift: o Topology usa Route para montar o link "abrir a aplicacao".
+  - apiGroups: [route.openshift.io]
+    resources: [routes]
+    verbs: [get, list, watch]
+  # Gateway API + RHCL: entram como customResources no app-config, para que as
+  # policies aparecam na aba Kubernetes do componente.
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes, gateways]
+    verbs: [get, list, watch]
+  - apiGroups: [kuadrant.io]
+    resources: [authpolicies, ratelimitpolicies, dnspolicies, tlspolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [extensions.kuadrant.io]
+    resources: [planpolicies, telemetrypolicies]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rhdh-kubernetes-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rhdh-kubernetes-reader
+subjects:
+  - kind: ServiceAccount
+    name: rhdh-kubernetes
+    namespace: ${RHDH_NS}

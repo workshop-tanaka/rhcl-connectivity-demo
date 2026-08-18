@@ -9,17 +9,19 @@ Três camadas, aplicadas nesta ordem. Cada uma é idempotente e roda sozinha.
 ```bash
 bash rhdh/install.sh         # 1. operator + instância + rota          (sem credenciais)
 bash rhdh/setup-catalog.sh   # 2. catálogo da demo RHCL                (sem credenciais)
+bash rhdh/setup-plugins.sh   # 3. Kubernetes + Topology                (cluster-admin)
 
 GITHUB_TOKEN=ghp_xxx \
-  bash rhdh/setup-github.sh <org> <repo>   # 3. integração GitHub + software template
+  bash rhdh/setup-github.sh <org> <repo>   # 4. integração GitHub + software template
 ```
 
-As duas primeiras já entregam um portal utilizável. A terceira só é necessária para o scaffolding.
+As duas primeiras já entregam um portal utilizável. A quarta chama a terceira sozinha, então `setup-github.sh` também habilita os plugins do GitHub.
 
 | Script | O que faz |
 | --- | --- |
 | `install.sh` | Subscription (`fast-1.9`), CR `Backstage`, PostgreSQL local, Route com host fixo, `BACKEND_SECRET` |
 | `setup-catalog.sh` | Renderiza `catalog/` com os hostnames reais do cluster, serve por HTTP interno, registra a location |
+| `setup-plugins.sh` | ServiceAccount + RBAC de leitura, `dynamic-plugins-rhdh`, config do plugin Kubernetes |
 | `setup-github.sh` | `integrations.github`, descoberta da org, plugins de GitHub, registra o software template |
 
 `install.sh` **não** rotaciona o `BACKEND_SECRET` em re-execuções — rotacionar invalidaria as sessões ativas e os tokens de acesso externo já emitidos.
@@ -134,6 +136,68 @@ O `clientSecret` vai no `rhdh-backend-secret` (ou outro Secret listado em `extra
 Em ambos os casos, **ingestão de usuários no catálogo** é pré-requisito: diferente do `guest`, esses providers resolvem a identidade contra entidades `User`. Sem uma fonte (plugin de Keycloak/LDAP/GitHub, ou entidades `User` estáticas), o login autentica mas falha na resolução — mantenha `dangerouslyAllowSignInWithoutUserInCatalog: true` apenas enquanto isso não estiver no lugar, e remova depois.
 
 Detalhes na documentação de autenticação do RHDH: <https://docs.redhat.com/en/documentation/red_hat_developer_hub>.
+
+## Plugins
+
+`setup-plugins.sh` habilita os plugins e é o **dono único** do ConfigMap `dynamic-plugins-rhdh` — o CR aceita um só `dynamicPluginsConfigMapName`, então a lista vive num lugar só e a camada GitHub entra nela condicionalmente.
+
+```bash
+bash rhdh/setup-plugins.sh                   # Kubernetes, Topology e GitHub
+WITH_KIALI=true bash rhdh/setup-plugins.sh   # inclui o Kiali (não documentado pela Red Hat)
+```
+
+### O que existe, e o que não existe
+
+Dos plugins normalmente pedidos para uma demo de conectividade, metade **não existe**. Conferido contra o *Dynamic plugins reference* 1.10 e contra o registry:
+
+| Pedido | Situação |
+| --- | --- |
+| Kubernetes (backend) | **GA** — `backstage-plugin-kubernetes-backend-dynamic` 0.21.2, na imagem |
+| Kubernetes (frontend) | **Technology Preview** — `backstage-plugin-kubernetes` 0.12.17, na imagem |
+| OpenShift | **GA** — é o `backstage-community-plugin-topology` 2.12.3, na imagem |
+| GitHub Actions / Issues / Insights | **Community** — via ghcr, tags `bs_1.49.4__*` |
+| Kiali | Não consta em nenhum capítulo do doc 1.10. A imagem existe no ghcr com build para o Backstage 1.49.4, mas fora do conjunto documentado: sem compromisso de suporte |
+| Service Mesh | Não existe plugin próprio — o Kiali é o console de Service Mesh |
+| Tempo · Jaeger | Não existem. Neste cluster "Jaeger" é a UI do Tempo (`tempo-tempo-jaegerui`) |
+| Grafana | Não consta no doc; no ghcr só há builds de PR (`pr_*`), nenhum `bs_*` |
+| Connectivity Link | Não existe plugin de Kuadrant/RHCL — busca no npm não retorna nada |
+
+Para o RHCL, o caminho nativo mais próximo é `customResources` do plugin Kubernetes: HTTPRoute, AuthPolicy, RateLimitPolicy e PlanPolicy aparecem na aba Kubernetes do componente. Não é um plugin, mas mostra a policy no lugar certo.
+
+### A tag do OCI amarra o Backstage, não o RHDH
+
+O formato é `bs_<backstage>__<plugin>`. RHDH 1.10.3 embute **Backstage 1.49.4**, então só servem tags `bs_1.49.4__*` — a mais recente de um plugin costuma ser `bs_1.52.0__*` e **não** serve. Confira antes de fixar:
+
+```bash
+skopeo inspect docker://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/<plugin>:<tag> | jq .Digest
+```
+
+### Anotações que as abas exigem
+
+Sem elas o plugin carrega e a aba não aparece — sem erro:
+
+| Anotação | Usada por |
+| --- | --- |
+| `backstage.io/kubernetes-label-selector` | Kubernetes, Topology |
+| `backstage.io/kubernetes-namespace` | Kubernetes, Topology |
+| `github.com/project-slug` | GitHub Actions, Issues, Insights |
+
+O `setup-catalog.sh` deriva o slug do remote do próprio repositório; sem remote no GitHub, remove a anotação em vez de publicá-la vazia.
+
+**Por que seletor de label e não `backstage.io/kubernetes-id`:** o id exigiria rotular os workloads, e eles vivem em `platform-reference/`, governados pelo Argo com `selfHeal` — o label seria revertido em segundos. O seletor reaproveita os labels que já existem.
+
+### Duas armadilhas encontradas neste cluster
+
+**1. O plugin ignora `caData` e `skipTLSVerify`.** Com os dois configurados, toda consulta falhava com `self-signed certificate in certificate chain`, enquanto um `curl` com o mesmo CA respondia 200 de dentro do pod. A solução é fazer o Node confiar no CA globalmente: `setup-plugins.sh` monta o `kube-root-ca.crt` via `extraFiles` e aponta `NODE_EXTRA_CA_CERTS` para ele. Por isso `setup-catalog.sh` não pode zerar `extraFiles`.
+
+**2. Deployment sem label não aparece.** Os Deployments do travel-agency não têm labels próprios — só o `selector` os tem. Resultado, verificado:
+
+```
+travels   -> pods, services, replicasets
+echo-api  -> pods, services, deployments, replicasets, customresources
+```
+
+`echo-api` traz mais porque o Deployment dele carrega `app.kubernetes.io/name`. Como o Topology desenha a partir do Deployment, os serviços do travel-agency ficam com a visão reduzida. Corrigir exigiria rotular os Deployments — que são do Argo.
 
 ## Plugins dinâmicos
 

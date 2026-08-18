@@ -54,14 +54,27 @@ if [[ -z "$DEMO_API_HOST" ]]; then
   _warn "HTTPRoute travel-agency nao encontrada; usando placeholder ${DEMO_API_HOST}."
 fi
 [[ -n "$DEMO_ECHO_HOST" ]] || DEMO_ECHO_HOST="echo.travels.example.com"
-export DEMO_API_HOST DEMO_ECHO_HOST
+# Slug do repositorio, para as abas do GitHub (Actions/Issues/Insights). Vem do
+# remote do proprio repo: fixa-lo no YAML amarraria o catalogo a um fork.
+DEMO_REPO_SLUG="${DEMO_REPO_SLUG:-$(git -C "${_here}/.." remote get-url origin 2>/dev/null \
+  | sed -E 's|.*github\.com[:/]||; s|\.git$||')}"
+export DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_SLUG
 _log "hosts da demo: ${DEMO_API_HOST} / ${DEMO_ECHO_HOST}"
 
 # ----- 2. entidades renderizadas -------------------------------------------
 _rendered="$(mktemp)"
 trap 'rm -f "$_rendered"' EXIT
-envsubst '${DEMO_API_HOST} ${DEMO_ECHO_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
+envsubst '${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_SLUG}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
   || _die "falha ao renderizar catalog/travel-agency.yaml"
+
+# Sem remote no GitHub a anotacao sairia vazia, e as abas do GitHub falhariam
+# pedindo um slug invalido em vez de simplesmente nao aparecer.
+if [[ -z "$DEMO_REPO_SLUG" ]]; then
+  sed -i.bak '/github\.com\/project-slug/d' "$_rendered" && rm -f "${_rendered}.bak"
+  _warn "sem remote github -- abas do GitHub omitidas do catalogo."
+else
+  _log "repositorio das abas do GitHub: ${DEMO_REPO_SLUG}"
+fi
 
 # ----- 2b. fidelidade: so entra no catalogo o que existe no cluster ---------
 # O catalogo modela as policies do RHCL, e nem todo ambiente tem todas. No
@@ -166,22 +179,28 @@ EOF
 # Merge patch substitui arrays inteiros, entao a lista vai completa. O
 # app-config do GitHub, se existir, entra por ultimo: em conflito, vence.
 _cms='{"name":"app-config-rhdh"},{"name":"app-config-rhdh-catalog"}'
+# Cada camada opcional precisa ser reincluida aqui: o merge patch substitui o
+# array inteiro, entao omitir uma delas a REMOVE do CR silenciosamente -- os
+# plugins parariam de achar a config e a aba Kubernetes sumiria sem erro.
+if oc get configmap app-config-rhdh-plugins -n "$RHDH_NS" >/dev/null 2>&1; then
+  _cms="${_cms},{\"name\":\"app-config-rhdh-plugins\"}"
+  _log "camada de plugins detectada -- incluida no appConfig."
+fi
 if oc get configmap app-config-rhdh-github -n "$RHDH_NS" >/dev/null 2>&1; then
   _cms="${_cms},{\"name\":\"app-config-rhdh-github\"}"
   _log "camada GitHub detectada -- incluida no appConfig."
 fi
 
 _log "atualizando a instancia..."
-# extraFiles: null limpa a tentativa anterior de montar as entidades como
-# arquivo no pod -- abordagem abandonada porque o RHDH so aceita locations
-# do tipo 'url'. Em instalacao nova e no-op.
+# extraFiles NAO e tocado aqui: quem o usa e o setup-plugins.sh, para montar o
+# CA do cluster. Zera-lo removeria o NODE_EXTRA_CA_CERTS e quebraria a aba
+# Kubernetes -- sem erro visivel, so recursos que nunca carregam.
 oc patch backstage "$RHDH_CR" -n "$RHDH_NS" --type=merge -p "{
   \"spec\": {\"application\": {
     \"appConfig\": {
       \"mountPath\": \"/opt/app-root/src\",
       \"configMaps\": [${_cms}]
-    },
-    \"extraFiles\": null
+    }
   }}
 }" >/dev/null || _die "falha ao aplicar o patch no CR."
 
