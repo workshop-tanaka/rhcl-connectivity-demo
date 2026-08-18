@@ -6,8 +6,19 @@
 código na aplicação — e com o resultado mensurável no Grafana que o cluster já
 tinha.
 
-Tudo aqui foi executado em RHCL 1.2.1 / OpenShift 4.17
-(`sandbox5518.opentlc.com`). Não é roteiro teórico.
+Tudo aqui foi executado, em duas releases. Não é roteiro teórico.
+
+| Ambiente | Overlay | Estado |
+| --- | --- | --- |
+| RHCL 1.2.1 / OCP 4.17 (`sandbox5518.opentlc.com`) | `overlays/provisioned` | validado; sandbox expirado |
+| **RHCL 1.4.2 / OCP 4.21** (`cluster-w4xtj.dyn.redhatworkshops.io`) | `overlays/rhcl-1.4` | **ambiente atual** |
+
+Onde as duas divergem, o texto marca qual release está descrevendo. A diferença
+que mais custa é o **Ato 3**: o 1.4 inverteu a precedência entre a
+`RateLimitPolicy` plana e a que o `PlanPolicy` gera, e o ato precisa ser contado
+de outro jeito. Ver a [armadilha 5](#5-o-rhcl-14-inverteu-a-precedência-de-rate-limit).
+
+Provisionar um cluster novo do zero: [PROVISIONING-1.4.md](PROVISIONING-1.4.md).
 
 ---
 
@@ -46,14 +57,18 @@ código 1.
 Se o cluster for novo, ou o preflight acusar recursos ausentes:
 
 ```bash
-oc apply -k overlays/provisioned     # camada de demo (~10s)
+oc apply -k overlays/rhcl-1.4        # camada de demo (~10s) -- 1.2: overlays/provisioned
 bash scripts/preflight.sh            # confirma
 ```
 
-> A **infraestrutura** (Gateway, DNSPolicy, TLSPolicy, operadores, app
-> travel-agency) não é aplicada por este repo — quem entrega é o Argo CD, a
-> partir de `github.com/app-connectivity-workshop/acw-helm`. Se ela não estiver
-> de pé, o problema é lá, não aqui. Ver [platform-reference/README.md](../platform-reference/README.md).
+> A **infraestrutura** (Gateway, operadores, app travel-agency) não vem deste
+> overlay. Onde ela mora depende do ambiente:
+>
+> - **1.2 / sandbox** — entregue pelo Argo CD, de
+>   `github.com/app-connectivity-workshop/acw-helm`. Se não estiver de pé, o
+>   problema é lá, não aqui. Ver [platform-reference/README.md](../platform-reference/README.md).
+> - **1.4 / cluster-w4xtj** — não há Argo. `platform-reference/` é aplicável, e
+>   o passo a passo do zero está em [PROVISIONING-1.4.md](PROVISIONING-1.4.md).
 
 Para o Ato 6, uma vez por cluster:
 
@@ -175,8 +190,41 @@ oc get secrets -n kuadrant-system -l app=partner \
 
 ### Ato 3 — Precedência de policies é explícita *(4 min)*
 
-Existe uma `RateLimitPolicy` "plana" nesta mesma rota, de 2000/10s. Ela não
-sumiu, e não está brigando em silêncio com o `PlanPolicy`:
+> **Este ato muda conforme a release.** No 1.2.1 o par era a `RateLimitPolicy`
+> plana da rota contra o `PlanPolicy`. No 1.4.2 essa precedência inverteu, e
+> manter a RLP plana mataria os tiers do Ato 2 — por isso ela sai do render em
+> `overlays/rhcl-1.4`. O argumento continua o mesmo; muda o par mostrado.
+
+**No 1.4.2 (ambiente atual)** — o par é Gateway contra rota. As policies que
+miram o `prod-web` valem para toda rota anexada, e cedem onde a rota declara a
+sua:
+
+```bash
+oc get authpolicy prod-web-deny-all -n ingress-gateway \
+  -o jsonpath='{range .status.conditions[*]}{.type}={.status} ({.message}){"\n"}{end}'
+oc get ratelimitpolicy ingress-gateway-rlp-lowlimits -n ingress-gateway \
+  -o jsonpath='{range .status.conditions[*]}{.type}={.status} ({.message}){"\n"}{end}'
+```
+
+```
+Accepted=True (Resource accepted)
+Enforced=True (AuthPolicy has been partially enforced)
+```
+
+*Partially enforced* é a palavra que faz o ato: a policy do Gateway **está**
+valendo — para o `echo-api`, que não declarou nada — e **cedeu** para o
+`travel-agency`, que declarou. Prove os dois lados na mesma tela:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://echo-travels.apps.<dominio>/    # 403 — deny-all do Gateway
+curl -s -o /dev/null -w '%{http_code}\n' https://api-travels.apps.<dominio>/travels  # 401 — AuthPolicy da rota
+```
+
+Dois códigos diferentes, duas policies diferentes, no mesmo gateway. O default
+da plataforma é fechado; quem quer abrir, declara como.
+
+**No 1.2.1** — o par era a RLP plana de 2000/10s contra o `PlanPolicy`, na
+mesma rota:
 
 ```bash
 oc get ratelimitpolicy ratelimit-policy-travels -n travel-agency \
@@ -190,7 +238,7 @@ Enforced=False (RateLimitPolicy is overridden)
 
 **O cluster declara quem venceu.** Numa stack montada com anotações de ingress
 ou EnvoyFilters soltos, descobrir qual regra prevaleceu é arqueologia. Aqui é
-um campo de status.
+um campo de status — e isso vale nas duas releases, seja qual for o par.
 
 Depois mostre os três artefatos que o `PlanPolicy` gerou sozinho:
 
@@ -338,7 +386,7 @@ intervenção.
 Restaurar:
 
 ```bash
-oc apply -k overlays/provisioned
+oc apply -k overlays/rhcl-1.4        # 1.2: overlays/provisioned
 bash scripts/preflight.sh core
 ```
 
@@ -431,3 +479,75 @@ revertido em segundos. A fronteira está em
 [platform-reference/README.md](../platform-reference/README.md) e é legível na
 anotação `argocd.argoproj.io/tracking-id`. `overlays/provisioned` toca
 **apenas** recursos sem tracking-id — por construção.
+
+> Vale só para o cluster do workshop. No `cluster-w4xtj` não há Argo: ali
+> `platform-reference/` deixa de ser leitura e passa a ser aplicável, que é
+> como o ambiente 1.4 foi montado.
+
+---
+
+As três seguintes apareceram ao subir o RHCL 1.4.2 em cluster novo.
+
+### 5. O RHCL 1.4 inverteu a precedência de rate limit
+
+No 1.2.1 o `PlanPolicy` sobrepunha a `RateLimitPolicy` plana da mesma rota. No
+**1.4.2 é o contrário**: a RLP plana vence, o `PlanPolicy` fica
+`Accepted=False`, e **os três tiers deixam de existir**.
+
+```
+travels-plans            Enforced=False  RateLimitPolicy is overridden by
+                                         [travel-agency/ratelimit-policy-travels]
+travels-plans (Plan)     Accepted=False  PlanPolicy has encountered some issues
+```
+
+Não é o desempate por `creationTimestamp` da GEP-713: verificado no cluster, a
+RLP do `PlanPolicy` nasce **3 segundos antes** e ainda assim perde.
+
+O que torna isso perigoso é o silêncio no caminho de dados — todas as chamadas
+respondem `200`, e só a ausência de `429` denuncia. Se você não rodar o Ato 2
+antes de subir ao palco, descobre com a plateia na sala.
+
+Defesas: `overlays/rhcl-1.4` tira a RLP plana do render (`$patch: delete` na
+camada `env/`), e o `preflight.sh` trata a inversão como **falha**, não aviso —
+ele detecta o regime em vez de fixar um lado.
+
+### 6. Emitir certificado por DNS01 quebra o DNS do próprio host
+
+Nos clusters RHPDS, emitir por DNS01 para `api.travels.apps.<cluster>...` faz o
+solver criar `_acme-challenge.api.travels.apps...`. Isso faz `api.travels.apps`
+e `travels.apps` passarem a **existir** como empty non-terminals — e pela
+RFC 4592 um wildcard não sintetiza resposta para nomes abaixo de um nó que
+existe. Resultado: `*.apps` para de cobrir o host, que fica em NOERROR/NODATA.
+
+O certificado sai `Ready=True`, tudo parece ter dado certo, e o que quebrou foi
+o DNS do mesmo nome. `curl` devolve exit 6. Remover o TXT depois não restaura.
+
+Defesa, aplicada no ambiente 1.4: não usar `TLSPolicy`/DNS01 para o hostname do
+Gateway. O cluster já tem um wildcard confiável — copie
+`secret/cert-manager-ingress-cert` de `openshift-ingress` para o namespace do
+gateway como `api-tls` — e use hostnames de **um rótulo** sob `.apps`
+(`api-travels.apps...`, nunca `api.travels.apps...`).
+
+### 7. A captura não trouxe o que o Argo entregava
+
+Duas ausências que só aparecem em cluster novo, porque no workshop vinham de
+Applications que a captura não lia:
+
+- **ServiceMonitors** de Limitador e Authorino. Sem eles o `TelemetryPolicy`
+  rotula a métrica por `plan` normalmente e nada leva a série até o Thanos — o
+  Ato 4 fica sem número, sem nenhum erro visível. Estão em
+  [platform-reference/monitoring/](../platform-reference/monitoring/).
+- **Deployment do `echo-api`**. O Service existia sem backend. Importa mais do
+  que parece: é a segunda rota anexada ao `prod-web`, e sem ela as policies de
+  Gateway ficam `Enforced=False` por não terem o que proteger — que é
+  exatamente o par do Ato 3 no 1.4.
+
+Os quatro backends do fan-out (`cars`, `flights`, `hotels`, `insurances`) também
+esperam um Secret `mysql-credentials` que a captura não trouxe. Sem ele ficam em
+`CreateContainerConfigError`; o `travels` sobe e serve `/travels` mesmo assim,
+então os Atos 1–4 funcionam, mas o grafo do Kiali fica incompleto no Ato 5.
+
+```bash
+oc create secret generic mysql-credentials -n travel-agency \
+  --from-literal=rootpasswd=travelagency
+```

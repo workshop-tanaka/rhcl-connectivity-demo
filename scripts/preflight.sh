@@ -108,19 +108,38 @@ _check_policy planpolicy       travels-plans                 travel-agency
 _check_policy telemetrypolicy  prod-web-telemetry            ingress-gateway
 _check_policy ratelimitpolicy  ingress-gateway-rlp-lowlimits ingress-gateway
 
-# Esta é a exceção: com PlanPolicy na rota, a RLP "plana" DEVE aparecer como
-# sobreposta. Enforced=True aqui significa que o PlanPolicy não pegou — e o
-# Ato 3 do roteiro perde o argumento.
+# Precedência entre a RLP "plana" e a que o PlanPolicy gera -- e o regime MUDA
+# com a release, então o script decide o que esperar em vez de fixar um lado:
+#
+#   RHCL 1.2.1  a RLP plana coexiste e aparece sobreposta pelo PlanPolicy.
+#               É o Ato 3 como está escrito no roteiro.
+#   RHCL 1.4.2  inverteu: a RLP plana sobrepõe a do PlanPolicy, o PlanPolicy
+#               fica Accepted=False e os TIERS SOMEM. Por isso o overlay
+#               rhcl-1.4 tira a RLP plana do render -- ausente aqui é o
+#               estado correto, não uma pendência.
+#
+# A inversão é falha, não aviso: o caminho de dados continua devolvendo 200 e
+# nada denuncia que os três planos deixaram de existir até a demo estar no ar.
 _rlp_e="$(_cond ratelimitpolicy ratelimit-policy-travels travel-agency Enforced)"
 _rlp_m="$(oc get ratelimitpolicy ratelimit-policy-travels -n travel-agency \
            -o jsonpath='{.status.conditions[?(@.type=="Enforced")].message}' 2>/dev/null)"
-if [[ "$_rlp_e" == "False" && "$_rlp_m" == *overridden* ]]; then
-  _ok "ratelimitpolicy/ratelimit-policy-travels sobreposta pelo PlanPolicy (esperado — Ato 3)"
-elif [[ -z "$_rlp_e" ]]; then
-  _warn "ratelimitpolicy/ratelimit-policy-travels ausente" "o Ato 3 depende dela para mostrar precedência"
+_plan_e="$(_cond planpolicy travels-plans travel-agency Enforced)"
+
+if [[ -z "$_rlp_e" ]]; then
+  if [[ "$_plan_e" == "True" ]]; then
+    _ok "RLP plana fora do render, PlanPolicy no comando (esperado — regime 1.4)"
+  else
+    _bad "RLP plana ausente E PlanPolicy não aplicado" \
+         "sem nenhuma das duas não há rate limit: oc apply -k overlays/rhcl-1.4"
+  fi
+elif [[ "$_rlp_e" == "False" && "$_rlp_m" == *overridden* ]]; then
+  _ok "ratelimitpolicy/ratelimit-policy-travels sobreposta pelo PlanPolicy (esperado — regime 1.2, Ato 3)"
+elif [[ "$_rlp_e" == "True" && "$_plan_e" != "True" ]]; then
+  _bad "a RLP plana sobrepôs o PlanPolicy — OS TIERS NÃO EXISTEM" \
+       "inversão de precedência do RHCL 1.4: use overlays/rhcl-1.4, que tira a RLP plana do render"
 else
-  _warn "RLP travels com Enforced=${_rlp_e} — esperado False/overridden" \
-        "o PlanPolicy pode não ter sido aplicado; o Ato 3 perde o argumento"
+  _warn "RLP travels com Enforced=${_rlp_e}, PlanPolicy Enforced=${_plan_e}" \
+        "combinação não prevista; confira 'oc get ratelimitpolicy -n travel-agency'"
 fi
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,252 @@
+# Provisionar a demo num cluster novo — RHCL 1.4 / OCP 4.21
+
+Executado de ponta a ponta em `cluster-w4xtj.dyn.redhatworkshops.io`
+(OpenShift 4.21.27, single-node, 32 vCPU / 128 GB) em 2026-08-17. Cada comando
+aqui rodou; os números e as saídas são do cluster, não do manual.
+
+Diferença de fundo em relação ao sandbox do workshop: **não há Argo CD**. Lá,
+metade da plataforma vinha de `acw-helm` e `platform-reference/` era leitura.
+Aqui `platform-reference/` é aplicável — é a fonte da camada de plataforma.
+
+---
+
+## 1. Antes de começar: o que o cluster já tem
+
+Metade da lista costuma vir pronta nos clusters RHPDS. Confira antes de instalar:
+
+```bash
+oc get csv -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,PHASE:.status.phase --no-headers | sort -u -k2
+oc get crd | grep gateway.networking      # 4.19+ traz Gateway API de fabrica
+oc get clusterissuer                      # RHPDS ja traz ACME funcionando
+oc get ingresses.config cluster -o jsonpath='{.spec.domain}{"\n"}'
+```
+
+No `w4xtj` já existiam: Gateway API (nativa do 4.21), cert-manager 1.20 com
+ClusterIssuer ACME, RHDH 1.10.3 com instância rodando, RHBK 26.4 com duas
+instâncias Keycloak, e ODF com storageclass default.
+
+Confirme também qual RHCL o catálogo publica — é o que decide se a demo roda
+sem adaptação:
+
+```bash
+oc get packagemanifest rhcl-operator -n openshift-marketplace \
+  -o jsonpath='{range .status.channels[*]}{.name}{"\t"}{.currentCSV}{"\n"}{end}'
+# stable    rhcl-operator.v1.4.2
+```
+
+> O **1.4.2 entrega as CRDs `devportal.kuadrant.io`** (`apiproducts`, `apikeys`,
+> `apikeyrequests`, `apikeyapprovals`) no mesmo CSV das extensões de policy. Um
+> operator só serve a demo e o `rhcl-developer-portal`.
+
+---
+
+## 2. Operadores
+
+Só dois são obrigatórios para os Atos 1–4:
+
+```bash
+cat <<'EOF' | oc apply -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: servicemeshoperator3
+  namespace: openshift-operators
+spec:
+  channel: stable
+  name: servicemeshoperator3
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kuadrant-system
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: kuadrant-system
+  namespace: kuadrant-system
+spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: rhcl-operator
+  namespace: kuadrant-system
+spec:
+  channel: stable
+  name: rhcl-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+EOF
+```
+
+O RHCL vai para `kuadrant-system` com OperatorGroup próprio — mesmo sendo
+`AllNamespaces`, é lá que o `preflight.sh` procura o controller.
+
+Ligue o **user workload monitoring**, sem o qual o Ato 4 não tem métrica:
+
+```bash
+oc -n openshift-monitoring patch cm cluster-monitoring-config --type=merge \
+  -p '{"data":{"config.yaml":"enableUserWorkload: true\n"}}' \
+  || oc -n openshift-monitoring create cm cluster-monitoring-config \
+       --from-literal=config.yaml='enableUserWorkload: true'
+```
+
+Opcionais, para os Atos 4 e 5 terem tela: `kiali-ossm` e `tempo-product` +
+`opentelemetry-product` (ambos `redhat-operators`), e `grafana-operator`
+(community). O `preflight.sh` procura as routes em `monitoring`,
+`istio-system` e `tracing-system`.
+
+---
+
+## 3. Malha
+
+```bash
+cat <<'EOF' | oc apply -f -
+apiVersion: v1
+kind: Namespace
+metadata: {name: istio-system}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: istio-cni}
+---
+apiVersion: sailoperator.io/v1
+kind: Istio
+metadata: {name: default}
+spec:
+  namespace: istio-system
+  updateStrategy: {type: InPlace}
+---
+apiVersion: sailoperator.io/v1
+kind: IstioCNI
+metadata: {name: default}
+spec:
+  namespace: istio-cni
+EOF
+
+oc get gatewayclass    # istio  Accepted=True
+```
+
+---
+
+## 4. Plataforma
+
+```bash
+oc apply -f platform-reference/kuadrant-system/     # CR Kuadrant
+for ns in ingress-gateway travel-agency echo-api; do oc create ns $ns; done
+oc label namespace travel-agency istio-injection=enabled
+
+oc apply -f platform-reference/workloads/travel-agency/
+oc apply -f platform-reference/workloads/echo-api/
+oc apply -f platform-reference/monitoring/           # ServiceMonitors
+
+# a captura nao trouxe este Secret; sem ele 4 dos 6 backends nao sobem
+oc create secret generic mysql-credentials -n travel-agency \
+  --from-literal=rootpasswd=travelagency
+```
+
+Não crie os namespaces a partir de `platform-reference/namespaces/`: eles
+carregam anotações de SCC com faixas de UID do cluster antigo.
+
+---
+
+## 5. Gateway, DNS e TLS — onde está a decisão
+
+**Não use `TLSPolicy` com DNS01 aqui.** Emitir para um host de dois rótulos
+(`api.travels.apps...`) cria `_acme-challenge.<host>`, o que faz os nós
+intermediários existirem como empty non-terminals e, pela RFC 4592, o wildcard
+`*.apps` deixa de cobrir o nome. O certificado sai `Ready=True` e o host para de
+resolver. Detalhe completo na armadilha 6 do [runbook](RUNBOOK.md).
+
+O caminho que funciona usa o wildcard que o cluster já tem e hostnames de **um
+rótulo**:
+
+```bash
+DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
+
+# 1. certificado wildcard do cluster como api-tls
+oc get secret cert-manager-ingress-cert -n openshift-ingress -o json \
+  | python3 -c "
+import sys,json; d=json.load(sys.stdin)
+print(json.dumps({'apiVersion':'v1','kind':'Secret','type':'kubernetes.io/tls',
+ 'metadata':{'name':'api-tls','namespace':'ingress-gateway'},'data':d['data']}))" \
+  | oc apply -f -
+
+# 2. Gateway. ClusterIP porque nao ha LoadBalancer em SNO -- quem publica e a Route
+cat <<EOF | oc apply -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: prod-web
+  namespace: ingress-gateway
+  annotations:
+    networking.istio.io/service-type: ClusterIP
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: api
+      hostname: '*.${DOMAIN}'
+      port: 443
+      protocol: HTTPS
+      allowedRoutes: {namespaces: {from: All}}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - {group: "", kind: Secret, name: api-tls}
+EOF
+
+# 3. publicar por Route passthrough, uma por hostname
+oc create route passthrough prod-web-gateway --service=prod-web-istio --port=443 \
+  --hostname=api-travels.${DOMAIN} -n ingress-gateway
+oc create route passthrough echo-api-gateway --service=prod-web-istio --port=443 \
+  --hostname=echo-travels.${DOMAIN} -n ingress-gateway
+```
+
+O listener precisa ser o wildcard `*.apps...`, não um host exato: as **duas**
+rotas se anexam a ele, e é isso que dá o que fazer às policies de Gateway — sem
+a segunda rota elas ficam `Enforced=False`, e o Ato 3 perde o par.
+
+A rota do `echo-api` mora em `platform-reference/gateway/httproute-echo-api.yaml`
+— troque o hostname antes de aplicar.
+
+---
+
+## 6. Camada de demo
+
+```bash
+oc apply -k overlays/rhcl-1.4
+bash scripts/preflight.sh
+bash scripts/traffic.sh tiers
+```
+
+Para outro cluster, copie `env/rhcl-1.4_ocp-4.21/` e ajuste o hostname em
+`patch-httproute-travel-agency.yaml`; depois aponte um overlay novo para ele.
+**Não** edite o overlay existente — os ambientes convivem de propósito.
+
+---
+
+## 7. O que esperar do preflight
+
+Com os operadores opcionais fora, o resultado correto é:
+
+```
+[OK] demo pode ser apresentada — 6 aviso(s) acima degradam algum ato.
+```
+
+Os avisos são as três routes de observabilidade ausentes (Kiali, Tempo,
+Grafana) e as três do RHDH. **Falha nenhuma** — se aparecer alguma, a mensagem
+traz a correção ao lado.
+
+Um sinal específico a procurar, porque é o que mata a demo em silêncio:
+
+```
+✓ RLP plana fora do render, PlanPolicy no comando (esperado — regime 1.4)
+```
+
+Se em vez disso vier *"a RLP plana sobrepôs o PlanPolicy — OS TIERS NÃO
+EXISTEM"*, você está aplicando o overlay do 1.2 num cluster 1.4.
