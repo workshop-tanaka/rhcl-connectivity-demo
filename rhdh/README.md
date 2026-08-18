@@ -225,6 +225,18 @@ API travels-api  (origem: kuadrant:travel-agency/travels-api)
   tags                          travel, partners, rate-limited, kuadrant, apiproduct
 ```
 
+#### Onde isso aparece na tela
+
+Verificado no navegador, não só na API:
+
+**Barra lateral → Kuadrant** → página *API Products*, com filtros por PUBLISH STATUS (Draft/Published), LIFECYCLE, **POLICY** (`travels-plans`, `echo-plans`), **AUTHENTICATION** (API Key) e **ROUTE** (`travel-agency`, `echo-api`). É o inventário de APIs publicadas, recortado pelas policies do RHCL.
+
+**Catálogo → APIs → Travels API** → abas **API Keys** e **API Product Info**, ao lado de Overview e Definition. É onde o consumidor pede a chave e o dono aprova.
+
+Frontend dinâmico no RHDH **não aparece sozinho**: sem `dynamicRoutes`/`entityTabs` declarados, o plugin carrega e a UI fica igual. E `apiFactories` não é opcional — sem ele a página sobe e quebra com `NotImplementedError` em `apiRef{plugin.kuadrant.service}`, que é o cliente que fala com o backend.
+
+A chave do bloco é o **nome scalprum do módulo**. A doc do projeto usa `kuadrant.kuadrant-backstage-plugin-frontend`; o `package.json` da v0.4.0 declara `internal.plugin-kuadrant`, e é essa que o `/api/scalprum/plugins` confirma estar servida. O script declara as duas — a que não casar é ignorada.
+
 #### Quatro obstáculos, todos silenciosos
 
 1. **`@` não pode iniciar escalar YAML.** `- package: @kuadrant/...` invalida o arquivo e o instalador pula as entradas **sem escrever log nenhum**. Precisa de aspas.

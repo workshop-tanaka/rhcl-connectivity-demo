@@ -155,7 +155,66 @@ if [[ "${WITH_KUADRANT:-false}" == "true" ]]; then
         disabled: false
       - package: \"@kuadrant/kuadrant-backstage-plugin-frontend@${_kd_ver}\"
         integrity: \"${_kd_fe_hash}\"
-        disabled: false"
+        disabled: false
+        # Sem este bloco o frontend CARREGA e nao mostra nada: no RHDH, plugin
+        # de frontend so aparece se declarar rota/aba. A chave e o nome scalprum
+        # do modulo. A doc do projeto usa 'kuadrant.kuadrant-backstage-plugin-
+        # frontend', mas o package.json instalado declara 'internal.plugin-
+        # kuadrant' -- as duas ficam aqui porque a que nao casar e ignorada.
+        pluginConfig:
+          dynamicPlugins:
+            frontend:
+              internal.plugin-kuadrant: &kuadrantFrontend
+                # apiFactories NAO e opcional: sem ele a pagina /kuadrant sobe
+                # e quebra com NotImplementedError, 'No implementation available
+                # for apiRef plugin.kuadrant.service' -- e o cliente que fala com
+                # o backend do plugin. (aspas simples: duplas fechariam a string.)
+                apiFactories:
+                  - importName: kuadrantApiFactory
+                appIcons:
+                  - name: kuadrantIcon
+                    importName: KuadrantIcon
+                dynamicRoutes:
+                  - path: /kuadrant
+                    importName: KuadrantPage
+                    menuItem:
+                      icon: kuadrantIcon
+                      text: Kuadrant
+                # Abas na pagina da entidade API -- e onde o consumidor pede a
+                # chave e o dono aprova.
+                entityTabs:
+                  - mountPoint: entity.page.api-keys
+                    path: /api-keys
+                    title: API Keys
+                  - mountPoint: entity.page.api-product-info
+                    path: /api-product-info
+                    title: API Product Info
+                mountPoints:
+                  - mountPoint: entity.page.api-keys/cards
+                    importName: EntityKuadrantApiKeyManagementTab
+                    config:
+                      layout:
+                        gridColumn: '1 / -1'
+                      if:
+                        allOf:
+                          - isKind: api
+                  - mountPoint: entity.page.api-product-info/cards
+                    importName: EntityKuadrantApiProductInfoContent
+                    config:
+                      layout:
+                        gridColumn: '1 / -1'
+                      if:
+                        allOf:
+                          - isKind: api
+                  - mountPoint: entity.page.overview/cards
+                    importName: EntityKuadrantApiAccessCard
+                    config:
+                      layout:
+                        gridColumn: '1 / -1'
+                      if:
+                        allOf:
+                          - isKind: api
+              kuadrant.kuadrant-backstage-plugin-frontend: *kuadrantFrontend"
   _warn "plugin Kuadrant incluido (v${_kd_ver}) -- versao de RHDH nao coberta pela doc do projeto."
 fi
 
