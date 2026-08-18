@@ -430,3 +430,89 @@ Um sinal específico a procurar, porque é o que mata a demo em silêncio:
 
 Se em vez disso vier *"a RLP plana sobrepôs o PlanPolicy — OS TIERS NÃO
 EXISTEM"*, você está aplicando o overlay do 1.2 num cluster 1.4.
+
+---
+
+## 9. Dashboards do Grafana
+
+**O operator do RHCL nao entrega dashboard nenhum.** Vale dizer porque a
+suposicao contraria e natural: o CSV do `rhcl-operator` nao menciona `grafana`
+uma unica vez, nao tem RBAC sobre `grafana.*` (ou seja, e incapaz de criar um
+`GrafanaDashboard`), e nao ha arquivo de dashboard dentro da imagem. Os tres
+"de fabrica" — *Business User*, *App Developer*, *Platform Engineer* — sao
+exemplos no repo do projeto. No sandbox 1.2 quem os provisionava era o Argo do
+workshop.
+
+O que o cluster ja tem e o **RHCL — planos comerciais** (`rhcl-planos`), de
+`platform-reference/monitoring/`, que e o dashboard do Ato 4 porque e o unico
+que quebra por `plan`.
+
+### Instalar os tres de fabrica
+
+Nao basta importar os JSONs. Todo painel util faz join de `istio_requests_total`
+com `gatewayapi_httproute_labels` (`group_left`), e as 11 metricas `gatewayapi_*`
+**nao existem** neste cluster — conferido no Thanos antes de escrever isto:
+
+```
+istio_requests_total                 57 series
+gatewayapi_httproute_labels          AUSENTE
+gatewayapi_gateway_info              AUSENTE       (+9 outras)
+```
+
+Quem as emite e um kube-state-metrics dedicado, com uma config de Custom
+Resource State que vem de outro projeto (`Kuadrant/gateway-api-state-metrics`,
+ref `0.7.0`). Os dois estao vendorizados no repo:
+
+```bash
+# 1. as metricas primeiro -- sem elas os dashboards sobem VAZIOS
+oc apply -f platform-reference/monitoring/kube-state-metrics-kuadrant.yaml
+oc rollout status deploy/kube-state-metrics-kuadrant -n monitoring
+
+# 2. conferir que chegaram ao Thanos (leva ~60s: scrape de 30s + agregacao)
+TOKEN=$(oc whoami -t); THANOS=$(oc get route thanos-querier -n openshift-monitoring -o jsonpath='{.spec.host}')
+curl -sk -H "Authorization: Bearer $TOKEN" "https://${THANOS}/api/v1/query" \
+  --data-urlencode 'query=count(gatewayapi_httproute_labels)'
+
+# 3. so entao os dashboards
+oc apply -f platform-reference/monitoring/kuadrant-dashboards/
+oc get grafanadashboards -n monitoring
+```
+
+> ⚠️ O passo 1 traz **ClusterRole + ClusterRoleBinding** (leitura de Gateway API
+> e `kuadrant.io` em todos os namespaces) e um Deployment que puxa
+> `registry.k8s.io/kube-state-metrics:v2.9.2`. Cluster sem egress para
+> `registry.k8s.io` para em `ImagePullBackOff` — e ai os dashboards ficam vazios
+> do mesmo jeito. Revise o arquivo antes de aplicar; o cabecalho dele diz de
+> onde cada pedaco veio e como recapturar.
+
+No Grafana eles aparecem como **Business User Dashboard** (`jA3LDk-Iz`),
+**App Developer Dashboard** (`J_sdY4-Ik`) e **Platform Engineer Dashboard**
+(`djqDaDISk`) — nao com os nomes `bussiness-user`/`app-developer`, que era como
+o runbook os chamava.
+
+### O que efetivamente acende
+
+Instalado neste cluster e verificado painel a painel, rodando cada query dos
+dashboards contra o Thanos com as variaveis de template resolvidas:
+
+| dashboard | queries com dado |
+| --- | --- |
+| App Developer | **22 / 22** |
+| Business User | **7 / 7** |
+| Platform Engineer | **23 / 29** |
+
+As 6 vazias do Platform Engineer sao estado do cluster, nao defeito: duas
+consultam `gatewayapi_tlspolicy_target_info` e **nao ha TLSPolicy aqui** (de
+proposito — ver a armadilha do DNS01), tres dependem de `ALERTS{alertstate=
+"pending"}` com zero alertas pendentes, e o painel *Unhealthy* conta gateway
+degradado, que nao existe.
+
+Uma correcao nossa sobre o upstream: a ClusterRole do `kuadrant-operator` nao
+concede `dnsrecords` nem `dnshealthcheckprobes`, mas a config de CRS do
+`gateway-api-state-metrics` 0.7.0 observa os dois. Sem o acerto o KSM funciona —
+as familias `gatewayapi_*` saem normalmente — e reclama `forbidden` no log uma
+vez por segundo, o que despista quem for depurar depois. Os dois recursos estao
+acrescentados no arquivo, marcados como adicao nossa.
+
+Mesmo instalados, eles **agregam sem quebrar por `plan`**: sao anteriores ao
+`TelemetryPolicy`. Para tier, continua sendo `rhcl-planos`.

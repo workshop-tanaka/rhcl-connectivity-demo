@@ -1,16 +1,57 @@
 # ===========================================================================
 # Dashboard 'RHCL — planos comerciais'.
 #
-# Existe porque os tres dashboards de fabrica do kuadrant-operator
-# (bussiness-user, app-developer, platform-engineer) sao anteriores ao
+# Existe porque os tres dashboards de fabrica (business_user, app_developer,
+# platform_engineer, em kuadrant-dashboards/) sao anteriores ao
 # TelemetryPolicy: eles AGREGAM, sem quebrar por 'plan'. No palco isso e uma
 # frustacao -- o Ato 4 promete "qual plano esta saturando" e o painel de fabrica
 # so sabe dizer "quantos 429 houve".
 #
-# As quatro consultas aqui usam o label 'plan' que o TelemetryPolicy injeta.
-# Sao exatamente as perguntas do Ato 4, na ordem em que se fazem.
+# As consultas aqui usam o label 'plan' que o TelemetryPolicy injeta. Sao
+# exatamente as perguntas do Ato 4, na ordem em que se fazem.
 #
 # Requer: GrafanaDatasource 'Thanos' e os ServiceMonitors deste diretorio.
+#
+# ---------------------------------------------------------------------------
+# DATASOURCE EXPLICITO, e por que isso nao e detalhe:
+#
+# Painel sem 'datasource' declarado usa o DEFAULT do Grafana. Aqui funcionava
+# por coincidencia -- o GrafanaDatasource 'thanos' esta com isDefault: true. No
+# dia em que alguem provisionar um segundo datasource como default, os paineis
+# abrem "No data" NO PALCO, sem erro em lugar nenhum que denuncie.
+#
+# ARMADILHA, medida neste cluster: o campo obvio do operator para resolver isso
+# -- spec.datasources, com inputName/datasourceName -- substitui '${DS_X}' pelo
+# NOME do datasource, nao pelo UID. O painel fica com uid="Thanos", o UID real e
+# um uuid gerado por cluster, e o backend do Grafana nao resolve:
+#
+#   GET  /api/datasources/uid/Thanos   -> 404
+#   POST /api/ds/query  (uid: Thanos)  -> {"message":"Data source not found"}
+#
+# E o CR fica DashboardSynchronized=True o tempo todo -- o sync so diz que o
+# JSON entrou, nao que o painel tem de onde ler.
+#
+# O que funciona (e o que os tres dashboards de fabrica em kuadrant-dashboards/
+# fazem, vindos do upstream): uma VARIAVEL de dashboard do tipo 'datasource'.
+# O nome vira UID no front-end, na hora de montar a consulta. 'current' aponta
+# para 'Thanos'; se o datasource nao existir com esse nome, o seletor cai no
+# default do Grafana em vez de quebrar.
+#
+# ---------------------------------------------------------------------------
+# O PAINEL DE COTA e uma aproximacao, e o roteiro precisa saber disso:
+#
+# O Limitador nao exporta o estado dos contadores como metrica (so
+# authorized_calls, limited_calls, limitador_up, datastore_partitioned). O que
+# resta da cota do dia so existe na API HTTP dele, /counters/<namespace> --
+# 'bash scripts/traffic.sh metrics' e o preflight leem de la, com numero exato.
+#
+# Aqui a leitura e derivada: increase(authorized_calls[24h]) contra a cota
+# declarada no PlanPolicy. As duas divergem depois de um restart do Limitador
+# (os contadores sao in-memory: zeram no pod e nao zeram no Prometheus), e a
+# barra pode passar de 100%. Nao e defeito do painel -- e o ensaio de ontem.
+#
+# As cotas (50 / 500 / 5000) estao DUPLICADAS aqui, vindas de
+# base/policies-plans/travels-plans.yaml. Mexeu la, mexa aqui.
 # ===========================================================================
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
@@ -28,14 +69,30 @@ spec:
       "timezone": "browser",
       "refresh": "5s",
       "time": {"from": "now-15m", "to": "now"},
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {"text": "Thanos", "value": "Thanos", "selected": false},
+            "options": [],
+            "refresh": 1,
+            "hide": 0,
+            "includeAll": false,
+            "multi": false
+          }
+        ]
+      },
       "panels": [
         {
           "type": "timeseries",
           "title": "Servidas por plano (req/s)",
           "description": "authorized_calls quebrado por tier. E a leitura de consumo por plano comercial.",
           "gridPos": {"h": 9, "w": 12, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
           "targets": [
-            {"expr": "sum by (plan) (rate(authorized_calls[1m]))", "legendFormat": "{{plan}}"}
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (plan) (rate(authorized_calls[1m]))", "legendFormat": "{{plan}}"}
           ]
         },
         {
@@ -43,8 +100,9 @@ spec:
           "title": "Limitadas por plano (429/s)",
           "description": "limited_calls por tier. Subida sustentada aqui = plano saturando, nao incidente.",
           "gridPos": {"h": 9, "w": 12, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
           "targets": [
-            {"expr": "sum by (plan) (rate(limited_calls[1m]))", "legendFormat": "{{plan}}"}
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (plan) (rate(limited_calls[1m]))", "legendFormat": "{{plan}}"}
           ]
         },
         {
@@ -52,8 +110,9 @@ spec:
           "title": "Participacao no trafego servido",
           "description": "Quanto do consumo total cada plano representa na janela.",
           "gridPos": {"h": 8, "w": 8, "x": 0, "y": 9},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
           "targets": [
-            {"expr": "sum by (plan) (increase(authorized_calls[15m]))", "legendFormat": "{{plan}}"}
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (plan) (increase(authorized_calls[15m]))", "legendFormat": "{{plan}}"}
           ]
         },
         {
@@ -61,11 +120,39 @@ spec:
           "title": "Taxa de recusa por plano (%)",
           "description": "limited / (limited + authorized). A pergunta comercial: quem esta batendo no teto do plano que contratou.",
           "gridPos": {"h": 8, "w": 16, "x": 8, "y": 9},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
           "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}},
           "targets": [
             {
+              "datasource": {"type": "prometheus", "uid": "${datasource}"},
               "expr": "100 * sum by (plan) (increase(limited_calls[15m])) / clamp_min(sum by (plan) (increase(limited_calls[15m])) + sum by (plan) (increase(authorized_calls[15m])), 1)",
               "legendFormat": "{{plan}}"
+            }
+          ]
+        },
+        {
+          "type": "bargauge",
+          "title": "Cota diaria consumida por plano (%)",
+          "description": "A rajada (3/10s, 10/10s, 30/10s) e o que a plateia ve; a COTA do dia (50, 500, 5000) e o que fecha contrato -- e a que esgota sem aviso durante o ensaio. Aproximacao por increase[24h] contra a cota do PlanPolicy: pode passar de 100% depois de um restart do Limitador, porque os contadores dele sao in-memory e o Prometheus nao zera junto. Numero exato: bash scripts/traffic.sh metrics.",
+          "gridPos": {"h": 6, "w": 24, "x": 0, "y": 17},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent", "min": 0, "max": 100,
+              "thresholds": {"mode": "absolute", "steps": [
+                {"color": "green", "value": null},
+                {"color": "orange", "value": 80},
+                {"color": "red", "value": 100}
+              ]}
+            }
+          },
+          "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true},
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${datasource}"},
+              "expr": "100 * (sum by (plan) (increase(authorized_calls{plan=\"free\"}[24h])) / 50 or sum by (plan) (increase(authorized_calls{plan=\"silver\"}[24h])) / 500 or sum by (plan) (increase(authorized_calls{plan=\"gold\"}[24h])) / 5000)",
+              "legendFormat": "{{plan}}",
+              "instant": true
             }
           ]
         }

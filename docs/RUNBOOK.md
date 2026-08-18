@@ -127,7 +127,7 @@ fica sem força — mas um Ato 2 morto custa mais caro que um gráfico chato.
 | --- | --- |
 | **Terminal 1** | grande, fonte alta — é onde tudo acontece |
 | Terminal 2 | `soak` rodando (pode ficar minimizado) |
-| Aba 1 | Grafana → dashboard `bussiness-user` |
+| Aba 1 | Grafana → dashboard **RHCL — planos comerciais** (`rhcl-planos`) |
 | Aba 2 | Console do OpenShift — **Connectivity Link → Policy Topology** (Ato 3) e **Service Mesh → Traffic Graph** (Ato 5) |
 | Aba 3 | Tempo (Jaeger UI) |
 | Aba 4 | RHDH (só se for fazer o Ato 6) |
@@ -334,14 +334,40 @@ curl -sk -H "Authorization: Bearer $TOKEN" "https://${THANOS}/api/v1/query" \
 `PlanPolicy` → `TelemetryPolicy` → Limitador → Prometheus (user-workload) →
 Thanos → Grafana.
 
-No **Grafana**, dashboards `bussiness-user`, `app-developer` e
-`platform-engineer` já vêm provisionados.
+No **Grafana**, o dashboard do ato é o **RHCL — planos comerciais**
+(`rhcl-planos`), de [platform-reference/monitoring/](../platform-reference/monitoring/).
+Ele existe porque é o único que quebra por `plan`. A URL sai do `preflight.sh`,
+que também confirma que ele importou — dashboard aplicado e dashboard visível
+são coisas diferentes, e a diferença só aparece na hora de projetar.
 
-> ⚠️ Os três dashboards vêm de `Kuadrant/kuadrant-operator` **v1.0.2**, anterior
-> ao `TelemetryPolicy`: eles **agregam sem quebrar por `plan`**. Para mostrar
-> tiers, use o painel de exploração com
-> `sum by (plan) (rate(limited_calls[1m]))`. Não prometa que o dashboard de
-> fábrica já mostra planos — ele não mostra.
+Os quatro primeiros painéis são a rajada — consumo, 429, participação, taxa de
+recusa. O quinto é **cota diária consumida por plano**, e é o que muda a
+conversa: a rajada (3/10s) é o que a plateia vê, a cota (50/dia) é o que está no
+contrato. É também a que esgota sem avisar durante o ensaio — [armadilha
+8](#8-a-cota-diária-do-plano-mata-o-ensaio--e-o-roteiro-pedia-isso).
+
+> O painel de cota é uma **aproximação**: o Limitador não exporta o estado dos
+> contadores como métrica, então o painel deriva de `increase[24h]` contra a
+> cota do `PlanPolicy` e pode passar de 100% depois de um restart. O número
+> exato vem do contador do próprio Limitador, e sai em duas telas de terminal:
+> `bash scripts/traffic.sh metrics` e o `preflight.sh`.
+
+> ⚠️ **Os dashboards de fábrica não vêm de fábrica.** O operator do RHCL não
+> entrega dashboard nenhum — o CSV não menciona `grafana` uma única vez e não
+> tem RBAC sobre `grafana.*`. Os três (*Business User*, *App Developer*,
+> *Platform Engineer*) são exemplos no repo do projeto, e no sandbox 1.2 quem
+> os provisionava era o Argo do workshop, não o operator.
+>
+> Estão versionados em
+> [platform-reference/monitoring/kuadrant-dashboards/](../platform-reference/monitoring/kuadrant-dashboards/),
+> junto com o `kube-state-metrics` de que dependem — sem ele sobem **vazios**,
+> porque todo painel útil faz join com `gatewayapi_*`. Instalação na
+> [seção 9 do PROVISIONING-1.4](PROVISIONING-1.4.md#9-dashboards-do-grafana).
+>
+> E mesmo instalados eles **agregam sem quebrar por `plan`**: são anteriores ao
+> `TelemetryPolicy`. Para mostrar tiers, use `rhcl-planos` ou o painel de
+> exploração com `sum by (plan) (rate(limited_calls[1m]))`. Não prometa que o
+> dashboard de fábrica mostra planos — ele não mostra.
 
 ---
 

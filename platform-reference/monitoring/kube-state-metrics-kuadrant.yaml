@@ -1,0 +1,1119 @@
+# ===========================================================================
+# kube-state-metrics 'kuadrant' — a fonte das metricas gatewayapi_*.
+#
+# POR QUE ISTO EXISTE
+# Os tres dashboards de fabrica do Connectivity Link (business_user,
+# app_developer, platform_engineer) NAO sao entregues pelo operator: o CSV do
+# RHCL nao menciona grafana uma vez e nao tem RBAC sobre grafana.*, e nao ha
+# arquivo de dashboard na imagem. Eles sao exemplos no repo do projeto.
+#
+# E nao basta importar os JSONs: todo painel util faz join de
+# istio_requests_total com gatewayapi_httproute_labels (group_left). Medido
+# neste cluster antes de aplicar isto: as 11 metricas gatewayapi_* estavam
+# AUSENTES do Thanos, entao os dashboards subiriam vazios.
+#
+# Quem as emite e um kube-state-metrics dedicado, lendo uma config de Custom
+# Resource State que vem de OUTRO projeto:
+#   github.com/Kuadrant/gateway-api-state-metrics//config/kuadrant?ref=0.7.0
+#
+# ORIGEM (vendorizado de proposito, para o cluster nao depender de egress):
+#   ConfigMap custom-resource-state  <- gateway-api-state-metrics @ 0.7.0
+#   restante                         <- kuadrant-operator @ main,
+#                                       config/observability/openshift/kube-state-metrics.yaml
+#
+# Reproduzir a captura:
+#   oc kustomize "github.com/Kuadrant/gateway-api-state-metrics/config/kuadrant?ref=0.7.0"
+#   curl -sL .../config/observability/openshift/kube-state-metrics.yaml
+#
+# ATENCAO ao aplicar: traz ClusterRole + ClusterRoleBinding (leitura de
+# Gateway API e kuadrant.io em todos os namespaces) e um Deployment que puxa
+# registry.k8s.io/kube-state-metrics:v2.9.2 — cluster sem egress para
+# registry.k8s.io fica em ImagePullBackOff.
+#
+# O ServiceMonitor incluso e coletado pelo user workload monitoring, que este
+# cluster ja tem ligado (ver PROVISIONING-1.4 secao 2).
+#
+# O Namespace/monitoring do upstream foi REMOVIDO daqui: ele ja existe e e onde
+# o Grafana mora — nao ha por que um apply desta pilha encostar nele.
+# ===========================================================================
+apiVersion: v1
+data:
+  custom-resource-state.yaml: |
+    kind: CustomResourceStateMetrics
+    spec:
+      resources:
+        - groupVersionKind:
+            group: gateway.networking.k8s.io
+            kind: "Gateway"
+            version: "v1beta1"
+          metricNamePrefix: gatewayapi_gateway
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+          metrics:
+          - name: "info"
+            help: "Gateway information"
+            each:
+              type: Info
+              info:
+                labelsFromPath:
+                  gatewayclass_name: [spec, gatewayClassName]
+          - name: "labels"
+            help: "Kubernetes labels converted to Prometheus labels."
+            each:
+              type: Info
+              info:
+                path: [metadata]
+                labelsFromPath:
+                  "*": [labels]
+          - name: "created"
+            help: "created timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "deleted"
+            help: "deletion timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, deletionTimestamp]
+          - name: "listener_info"
+            help: "Gateway listener information"
+            each:
+              type: Info
+              info:
+                path: [spec, listeners]
+                labelsFromPath:
+                  listener_name: ["name"]
+                  port: ["port"]
+                  protocol: ["protocol"]
+                  hostname: ["hostname"]
+                  tls_mode: ["tls","mode"]
+                  allowed_routes_namespaces_from: ["allowedRoutes", "namespaces", "from"]
+          - name: "status"
+            help: "status condition"
+            each:
+              type: Gauge
+              gauge:
+                path: [status, conditions]
+                labelsFromPath:
+                  type: ["type"]
+                valueFrom: ["status"]
+          - name: "status_listener_attached_routes"
+            help: "Number of attached routes for a listener"
+            each:
+              type: Gauge
+              gauge:
+                path: [status, listeners]
+                labelsFromPath:
+                  listener_name: ["name"]
+                valueFrom: ["attachedRoutes"]
+          - name: "status_address_info"
+            help: "Gateway address types and values"
+            each:
+              type: Info
+              info:
+                path: [status, addresses]
+                labelsFromPath:
+                  type: ["type"]
+                  value: ["value"]
+        - groupVersionKind:
+            group: gateway.networking.k8s.io
+            kind: "GatewayClass"
+            version: "v1beta1"
+          metricNamePrefix: gatewayapi_gatewayclass
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+          metrics:
+          - name: "info"
+            help: "GatewayClass information"
+            each:
+              type: Info
+              info:
+                labelsFromPath:
+                  controller_name: [spec, controllerName]
+          - name: "labels"
+            help: "Kubernetes labels converted to Prometheus labels."
+            each:
+              type: Info
+              info:
+                path: [metadata]
+                labelsFromPath:
+                  "*": [labels]
+          - name: "created"
+            help: "created timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "deleted"
+            help: "deletion timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, deletionTimestamp]
+          - name: "status"
+            help: "status condition"
+            each:
+              type: Gauge
+              gauge:
+                path: [status, conditions]
+                labelsFromPath:
+                  type: ["type"]
+                valueFrom: ["status"]
+          - name: "status_supported_features"
+            help: "List of supported features for the GatewayClass"
+            each:
+              type: Info
+              info:
+                path: [status, supportedFeatures]
+                labelsFromPath:
+                  features: []
+        - groupVersionKind:
+            group: gateway.networking.k8s.io
+            kind: "HTTPRoute"
+            version: "v1beta1"
+          metricNamePrefix: gatewayapi_httproute
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+          metrics:
+          - name: "labels"
+            help: "Kubernetes labels converted to Prometheus labels."
+            each:
+              type: Info
+              info:
+                path: [metadata]
+                labelsFromPath:
+                  "*": [labels]
+          - name: "created"
+            help: "created timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "deleted"
+            help: "deletion timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, deletionTimestamp]
+          - name: "hostname_info"
+            help: "Hostname information"
+            each:
+              type: Info
+              info:
+                path: [spec, hostnames]
+                labelsFromPath:
+                  hostname: []
+          - name: "parent_info"
+            help: "Parent references that the httproute wants to be attached to"
+            each:
+              type: Info
+              info:
+                path: [spec, parentRefs]
+                labelsFromPath:
+                  parent_group: ["group"]
+                  parent_kind: ["kind"]
+                  parent_name: ["name"]
+                  parent_namespace: ["namespace"]
+                  parent_section_name: ["sectionName"]
+                  parent_port: ["port"]
+          - name: "status_parent_info"
+            help: "Parent references that the httproute is attached to"
+            each:
+              type: Info
+              info:
+                path: [status, parents]
+                labelsFromPath:
+                  controller_name: ["controllerName"]
+                  parent_group: ["parentRef", "group"]
+                  parent_kind: ["parentRef", "kind"]
+                  parent_name: ["parentRef", "name"]
+                  parent_namespace: ["parentRef", "namespace"]
+                  parent_section_name: ["parentRef", "sectionName"]
+                  parent_port: ["parentRef", "port"]
+        - groupVersionKind:
+            group: gateway.networking.k8s.io
+            kind: "GRPCRoute"
+            version: "v1alpha2"
+          metricNamePrefix: gatewayapi_grpcroute
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+          metrics:
+          - name: "labels"
+            help: "Kubernetes labels converted to Prometheus labels."
+            each:
+              type: Info
+              info:
+                path: [metadata]
+                labelsFromPath:
+                  "*": [labels]
+          - name: "created"
+            help: "created timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "deleted"
+            help: "deletion timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, deletionTimestamp]
+          - name: "hostname_info"
+            help: "Hostname information"
+            each:
+              type: Info
+              info:
+                path: [spec, hostnames]
+                labelsFromPath:
+                  hostname: []
+          - name: "parent_info"
+            help: "Parent references that the grpcroute wants to be attached to"
+            each:
+              type: Info
+              info:
+                path: [spec, parentRefs]
+                labelsFromPath:
+                  parent_group: ["group"]
+                  parent_kind: ["kind"]
+                  parent_name: ["name"]
+                  parent_namespace: ["namespace"]
+                  parent_section_name: ["sectionName"]
+                  parent_port: ["port"]
+          - name: "status_parent_info"
+            help: "Parent references that the grpcroute is attached to"
+            each:
+              type: Info
+              info:
+                path: [status, parents]
+                labelsFromPath:
+                  controller_name: ["controllerName"]
+                  parent_group: ["parentRef", "group"]
+                  parent_kind: ["parentRef", "kind"]
+                  parent_name: ["parentRef", "name"]
+                  parent_namespace: ["parentRef", "namespace"]
+                  parent_section_name: ["parentRef", "sectionName"]
+                  parent_port: ["parentRef", "port"]
+        - groupVersionKind:
+            group: gateway.networking.k8s.io
+            kind: "TCPRoute"
+            version: "v1alpha2"
+          metricNamePrefix: gatewayapi_tcproute
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+          metrics:
+          - name: "labels"
+            help: "Kubernetes labels converted to Prometheus labels."
+            each:
+              type: Info
+              info:
+                path: [metadata]
+                labelsFromPath:
+                  "*": [labels]
+          - name: "created"
+            help: "created timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "deleted"
+            help: "deletion timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, deletionTimestamp]
+          - name: "parent_info"
+            help: "Parent references that the tcproute wants to be attached to"
+            each:
+              type: Info
+              info:
+                path: [spec, parentRefs]
+                labelsFromPath:
+                  parent_group: ["group"]
+                  parent_kind: ["kind"]
+                  parent_name: ["name"]
+                  parent_namespace: ["namespace"]
+                  parent_section_name: ["sectionName"]
+                  parent_port: ["port"]
+          - name: "status_parent_info"
+            help: "Parent references that the tcproute is attached to"
+            each:
+              type: Info
+              info:
+                path: [status, parents]
+                labelsFromPath:
+                  controller_name: ["controllerName"]
+                  parent_group: ["parentRef", "group"]
+                  parent_kind: ["parentRef", "kind"]
+                  parent_name: ["parentRef", "name"]
+                  parent_namespace: ["parentRef", "namespace"]
+                  parent_section_name: ["parentRef", "sectionName"]
+                  parent_port: ["parentRef", "port"]
+        - groupVersionKind:
+            group: gateway.networking.k8s.io
+            kind: "TLSRoute"
+            version: "v1alpha2"
+          metricNamePrefix: gatewayapi_tlsroute
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+          metrics:
+          - name: "labels"
+            help: "Kubernetes labels converted to Prometheus labels."
+            each:
+              type: Info
+              info:
+                path: [metadata]
+                labelsFromPath:
+                  "*": [labels]
+          - name: "created"
+            help: "created timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "deleted"
+            help: "deletion timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, deletionTimestamp]
+          - name: "hostname_info"
+            help: "Hostname information"
+            each:
+              type: Info
+              info:
+                path: [spec, hostnames]
+                labelsFromPath:
+                  hostname: []
+          - name: "parent_info"
+            help: "Parent references that the tlsroute wants to be attached to"
+            each:
+              type: Info
+              info:
+                path: [spec, parentRefs]
+                labelsFromPath:
+                  parent_group: ["group"]
+                  parent_kind: ["kind"]
+                  parent_name: ["name"]
+                  parent_namespace: ["namespace"]
+                  parent_section_name: ["sectionName"]
+                  parent_port: ["port"]
+          - name: "status_parent_info"
+            help: "Parent references that the tlsroute is attached to"
+            each:
+              type: Info
+              info:
+                path: [status, parents]
+                labelsFromPath:
+                  controller_name: ["controllerName"]
+                  parent_group: ["parentRef", "group"]
+                  parent_kind: ["parentRef", "kind"]
+                  parent_name: ["parentRef", "name"]
+                  parent_namespace: ["parentRef", "namespace"]
+                  parent_section_name: ["parentRef", "sectionName"]
+                  parent_port: ["parentRef", "port"]
+        - groupVersionKind:
+            group: gateway.networking.k8s.io
+            kind: "UDPRoute"
+            version: "v1alpha2"
+          metricNamePrefix: gatewayapi_udproute
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+          metrics:
+          - name: "labels"
+            help: "Kubernetes labels converted to Prometheus labels."
+            each:
+              type: Info
+              info:
+                path: [metadata]
+                labelsFromPath:
+                  "*": [labels]
+          - name: "created"
+            help: "created timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "deleted"
+            help: "deletion timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, deletionTimestamp]
+          - name: "parent_info"
+            help: "Parent references that the udproute wants to be attached to"
+            each:
+              type: Info
+              info:
+                path: [spec, parentRefs]
+                labelsFromPath:
+                  parent_group: ["group"]
+                  parent_kind: ["kind"]
+                  parent_name: ["name"]
+                  parent_namespace: ["namespace"]
+                  parent_section_name: ["sectionName"]
+                  parent_port: ["port"]
+          - name: "status_parent_info"
+            help: "Parent references that the udproute is attached to"
+            each:
+              type: Info
+              info:
+                path: [status, parents]
+                labelsFromPath:
+                  controller_name: ["controllerName"]
+                  parent_group: ["parentRef", "group"]
+                  parent_kind: ["parentRef", "kind"]
+                  parent_name: ["parentRef", "name"]
+                  parent_namespace: ["parentRef", "namespace"]
+                  parent_section_name: ["parentRef", "sectionName"]
+                  parent_port: ["parentRef", "port"]
+        - groupVersionKind:
+            group: gateway.networking.k8s.io
+            kind: "BackendTLSPolicy"
+            version: "v1alpha2"
+          metricNamePrefix: gatewayapi_backendtlspolicy
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+          metrics:
+          - name: "labels"
+            help: "Kubernetes labels converted to Prometheus labels."
+            each:
+              type: Info
+              info:
+                path: [metadata]
+                labelsFromPath:
+                  "*": [labels]
+          - name: "created"
+            help: "created timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "deleted"
+            help: "deletion timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, deletionTimestamp]
+          - name: "target_info"
+            help: "Target references that the backendtlspolicy wants to be attached to"
+            each:
+              type: Info
+              info:
+                path: [spec, targetRef]
+                labelsFromPath:
+                  target_group: ["group"]
+                  target_kind: ["kind"]
+                  target_name: ["name"]
+                  target_namespace: ["namespace"]
+        - groupVersionKind:
+            group: kuadrant.io
+            kind: "TLSPolicy"
+            version: "v1"
+          metricNamePrefix: gatewayapi_tlspolicy
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+          metrics:
+          - name: "labels"
+            help: "Kubernetes labels converted to Prometheus labels."
+            each:
+              type: Info
+              info:
+                path: [metadata]
+                labelsFromPath:
+                  "*": [labels]
+          - name: "created"
+            help: "created timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "deleted"
+            help: "deletion timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, deletionTimestamp]
+          - name: "target_info"
+            help: "Target references that the tlspolicy wants to be attached to"
+            each:
+              type: Info
+              info:
+                path: [spec, targetRef]
+                labelsFromPath:
+                  target_group: ["group"]
+                  target_kind: ["kind"]
+                  target_name: ["name"]
+                  target_namespace: ["namespace"]
+          - name: "status"
+            help: "status condition"
+            each:
+              type: Gauge
+              gauge:
+                path: [status, conditions]
+                labelsFromPath:
+                  type: ["type"]
+                valueFrom: ["status"]
+        - groupVersionKind:
+            group: kuadrant.io
+            kind: "DNSPolicy"
+            version: "v1"
+          metricNamePrefix: gatewayapi_dnspolicy
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+          metrics:
+          - name: "labels"
+            help: "Kubernetes labels converted to Prometheus labels."
+            each:
+              type: Info
+              info:
+                path: [metadata]
+                labelsFromPath:
+                  "*": [labels]
+          - name: "created"
+            help: "created timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "deleted"
+            help: "deletion timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, deletionTimestamp]
+          - name: "target_info"
+            help: "Target references that the dnspolicy wants to be attached to"
+            each:
+              type: Info
+              info:
+                path: [spec, targetRef]
+                labelsFromPath:
+                  target_group: ["group"]
+                  target_kind: ["kind"]
+                  target_name: ["name"]
+                  target_namespace: ["namespace"]
+          - name: "status"
+            help: "status condition"
+            each:
+              type: Gauge
+              gauge:
+                path: [status, conditions]
+                labelsFromPath:
+                  type: ["type"]
+                valueFrom: ["status"]
+        - groupVersionKind:
+            group: kuadrant.io
+            kind: "RateLimitPolicy"
+            version: "v1"
+          metricNamePrefix: gatewayapi_ratelimitpolicy
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+          metrics:
+          - name: "labels"
+            help: "Kubernetes labels converted to Prometheus labels."
+            each:
+              type: Info
+              info:
+                path: [metadata]
+                labelsFromPath:
+                  "*": [labels]
+          - name: "created"
+            help: "created timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "deleted"
+            help: "deletion timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, deletionTimestamp]
+          - name: "target_info"
+            help: "Target references that the tlspolicy wants to be attached to"
+            each:
+              type: Info
+              info:
+                path: [spec, targetRef]
+                labelsFromPath:
+                  target_group: ["group"]
+                  target_kind: ["kind"]
+                  target_name: ["name"]
+                  target_namespace: ["namespace"]
+          - name: "status"
+            help: "status condition"
+            each:
+              type: Gauge
+              gauge:
+                path: [status, conditions]
+                labelsFromPath:
+                  type: ["type"]
+                valueFrom: ["status"]
+        - groupVersionKind:
+            group: kuadrant.io
+            kind: "AuthPolicy"
+            version: "v1"
+          metricNamePrefix: gatewayapi_authpolicy
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+          metrics:
+          - name: "labels"
+            help: "Kubernetes labels converted to Prometheus labels."
+            each:
+              type: Info
+              info:
+                path: [metadata]
+                labelsFromPath:
+                  "*": [labels]
+          - name: "created"
+            help: "created timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "deleted"
+            help: "deletion timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, deletionTimestamp]
+          - name: "target_info"
+            help: "Target references that the authpolicy wants to be attached to"
+            each:
+              type: Info
+              info:
+                path: [spec, targetRef]
+                labelsFromPath:
+                  target_group: ["group"]
+                  target_kind: ["kind"]
+                  target_name: ["name"]
+                  target_namespace: ["namespace"]
+          - name: "status"
+            help: "status condition"
+            each:
+              type: Gauge
+              gauge:
+                path: [status, conditions]
+                labelsFromPath:
+                  type: ["type"]
+                valueFrom: ["status"]
+        - groupVersionKind:
+            group: kuadrant.io
+            kind: "DNSRecord"
+            version: "v1alpha1"
+          metricNamePrefix: kuadrant_dnsrecord
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+            rootDomain:
+            - spec
+            - rootHost
+          metrics:
+          - name: "created"
+            help: "created timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "status_root_domain_owners"
+            help: "root domain owners (the ids of controllers managing this root domain)"
+            each:
+              type: Info
+              info:
+                path: [status, domainOwners]
+                labelsFromPath:
+                  owner: []
+          - name: "status"
+            help: "status condition"
+            each:
+              type: Gauge
+              gauge:
+                path: [status, conditions]
+                labelsFromPath:
+                  type: ["type"]
+                valueFrom: ["status"]
+        - groupVersionKind:
+            group: kuadrant.io
+            kind: "DNSHealthCheckProbe"
+            version: "v1alpha1"
+          metricNamePrefix: kuadrant_dnshealthcheckprobe
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+          metrics:
+          - name: "healthy_status"
+            help: "DNS Probe current status"
+            each:
+              type: Gauge
+              gauge:
+                path: [status, healthy]
+kind: ConfigMap
+metadata:
+  name: custom-resource-state
+  namespace: monitoring
+---
+apiVersion: v1
+automountServiceAccountToken: false
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/component: exporter
+    app.kubernetes.io/name: kube-state-metrics-kuadrant
+    app.kubernetes.io/part-of: kuadrant
+    app.kubernetes.io/version: 2.5.0
+  name: kube-state-metrics-kuadrant
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/component: exporter
+    app.kubernetes.io/name: kube-state-metrics-kuadrant
+    app.kubernetes.io/part-of: kuadrant
+    app.kubernetes.io/version: 2.5.0
+  name: kube-state-metrics-kuadrant
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  - nodes
+  - pods
+  - services
+  - resourcequotas
+  - replicationcontrollers
+  - limitranges
+  - persistentvolumeclaims
+  - persistentvolumes
+  - namespaces
+  - endpoints
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  - daemonsets
+  - deployments
+  - replicasets
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - cronjobs
+  - jobs
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - certificates.k8s.io
+  resources:
+  - certificatesigningrequests
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - storageclasses
+  - volumeattachments
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - mutatingwebhookconfigurations
+  - validatingwebhookconfigurations
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  - ingresses
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - "apiextensions.k8s.io"
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - "gateway.networking.k8s.io"
+  resources:
+  - gateways
+  - gatewayclasses
+  - httproutes
+  - grpcroutes
+  - tcproutes
+  - tlsroutes
+  - udproutes
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - "kuadrant.io"
+  resources:
+  - tlspolicies
+  - dnspolicies
+  - ratelimitpolicies
+  - authpolicies
+  # ACRESCENTADOS por nós, nao estao no upstream: a config de CRS do
+  # gateway-api-state-metrics 0.7.0 observa DNSRecord e DNSHealthCheckProbe
+  # (prefixos kuadrant_dnsrecord/kuadrant_dnshealthcheckprobe), mas a
+  # ClusterRole do kuadrant-operator nao concede nenhum dos dois. Sem isto o
+  # KSM funciona -- as familias gatewayapi_* saem normalmente -- e reclama em
+  # loop no log, uma linha por segundo, o que despista quem for depurar depois.
+  - dnsrecords
+  - dnshealthcheckprobes
+  verbs:
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: exporter
+    app.kubernetes.io/name: kube-state-metrics-kuadrant
+    app.kubernetes.io/part-of: kuadrant
+    app.kubernetes.io/version: 2.5.0
+  name: kube-state-metrics-kuadrant
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kube-state-metrics-kuadrant
+subjects:
+- kind: ServiceAccount
+  name: kube-state-metrics-kuadrant
+  namespace: monitoring
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: exporter
+    app.kubernetes.io/name: kube-state-metrics-kuadrant
+    app.kubernetes.io/part-of: kuadrant
+    app.kubernetes.io/version: 2.5.0
+  name: kube-state-metrics-kuadrant
+  namespace: monitoring
+spec:
+  clusterIP: None
+  ports:
+  - name: https-main
+    port: 8081
+    targetPort: https-main
+  - name: https-self
+    port: 8082
+    targetPort: https-self
+  selector:
+    app.kubernetes.io/component: exporter
+    app.kubernetes.io/name: kube-state-metrics-kuadrant
+    app.kubernetes.io/part-of: kuadrant
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: exporter
+    app.kubernetes.io/name: kube-state-metrics-kuadrant
+    app.kubernetes.io/part-of: kuadrant
+    app.kubernetes.io/version: 2.5.0
+  name: kube-state-metrics-kuadrant
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: exporter
+      app.kubernetes.io/name: kube-state-metrics-kuadrant
+      app.kubernetes.io/part-of: kuadrant
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: kube-state-metrics
+      labels:
+        app.kubernetes.io/component: exporter
+        app.kubernetes.io/name: kube-state-metrics-kuadrant
+        app.kubernetes.io/part-of: kuadrant
+        app.kubernetes.io/version: 2.5.0
+    spec:
+      volumes:
+      - name: custom-resource-state
+        configMap:
+          defaultMode: 420
+          name: custom-resource-state
+      automountServiceAccountToken: true
+      containers:
+      - volumeMounts:
+        - name: custom-resource-state
+          mountPath: /custom-resource-state
+        args:
+        - --port=8081
+        - --telemetry-port=8082
+        - --custom-resource-state-config-file
+        - /custom-resource-state/custom-resource-state.yaml
+        image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.9.2
+        name: kube-state-metrics
+        resources:
+          limits:
+            cpu: 100m
+            memory: 250Mi
+          requests:
+            cpu: 10m
+            memory: 190Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          readOnlyRootFilesystem: true
+        ports:
+        - containerPort: 8081
+          name: https-main
+        - containerPort: 8082
+          name: https-self
+      nodeSelector:
+        kubernetes.io/os: linux
+      serviceAccountName: kube-state-metrics-kuadrant
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    app.kubernetes.io/component: exporter
+    app.kubernetes.io/name: kube-state-metrics-kuadrant
+    app.kubernetes.io/part-of: kuadrant
+    app.kubernetes.io/version: 2.5.0
+  name: kube-state-metrics-kuadrant
+  namespace: monitoring
+spec:
+  endpoints:
+  - honorLabels: true
+    interval: 30s
+    port: https-main
+    relabelings:
+    - action: labeldrop
+      regex: (pod|service|endpoint|namespace)
+    scheme: http
+    scrapeTimeout: 30s
+  - interval: 30s
+    port: https-self
+    scheme: http
+  jobLabel: app.kubernetes.io/name
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: exporter
+      app.kubernetes.io/name: kube-state-metrics-kuadrant
+      app.kubernetes.io/part-of: kuadrant
