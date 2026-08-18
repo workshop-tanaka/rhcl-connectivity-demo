@@ -71,3 +71,12 @@ Applications menos `travel-agency` e `travel-web`.
 recursos da plataforma, então não podem participar do render da demo. Ficam
 aqui como registro do que o ambiente real tem de diferente da base portável
 (hostname do sandbox, `kuadrant.io/lb-attribute-geo-code`).
+
+## `consoles/`
+
+`consoles/ossmconsole.yaml` é o único diretório desta árvore que **nenhuma**
+Application do Argo governa: ele nasceu do provisionamento do cluster 1.4, onde
+`platform-reference/` é aplicável. Está aqui, e não em `base/`, porque plugin de
+console é camada de plataforma — não é recurso que o roteiro aplica ou remove.
+Passo a passo (e o patch que o plugin do Connectivity Link ainda exige) na
+[seção 7 do PROVISIONING-1.4](../docs/PROVISIONING-1.4.md#7-consoles-integradas).

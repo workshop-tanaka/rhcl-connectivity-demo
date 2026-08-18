@@ -1,0 +1,20 @@
+# OpenShift Service Mesh Console (OSSMC) — a aba "Service Mesh" dentro do console
+# do OpenShift, servida pelo mesmo Kiali que atende a route de istio-system.
+#
+# Requer o operator kiali-ossm (openshift-operators, canal stable) e um CR Kiali
+# ja saudavel: o plugin nao fala com a malha, fala com o Kiali via proxy do
+# console (authorization: UserToken).
+#
+# O operator kiali-ossm cria o ConsolePlugin/ossmconsole E se habilita sozinho
+# em console.operator/cluster. Nao precisa patch.
+apiVersion: kiali.io/v1alpha1
+kind: OSSMConsole
+metadata:
+  name: ossmconsole
+  namespace: istio-system
+spec:
+  version: default
+  kiali:
+    serviceName: kiali
+    serviceNamespace: istio-system
+    servicePort: 20001

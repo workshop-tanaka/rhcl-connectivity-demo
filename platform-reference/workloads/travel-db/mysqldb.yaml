@@ -1,0 +1,142 @@
+# ===========================================================================
+# Banco da travel-agency.
+#
+# POR QUE ISTO EXISTE
+#
+# Os quatro backends do fan-out (cars, flights, hotels, insurances) consultam
+# um MySQL em 'mysqldb.travel-db:3306' -- veja MYSQL_SERVICE nos Deployments em
+# ../travel-agency/. A captura do cluster do workshop nao trouxe este namespace,
+# e o resultado era discreto o suficiente para passar batido:
+#
+#   [hotels/v1] Internal Error: dial tcp: lookup mysqldb.travel-db: no such host
+#
+#   curl .../travels?APIKEY=...   ->   HTTP 200   []
+#
+# A API respondia 200 com CORPO VAZIO. Os Atos 1-4 do roteiro medem codigo de
+# status (401/200/429) e o rate limit acontece no gateway, antes da aplicacao --
+# entao tudo passava. So aparecia se alguem pedisse para ver o payload.
+#
+# O NAMESPACE SEPARADO NAO E ACIDENTE
+#
+# 'travel-db' e um namespace proprio porque, nas variantes deste workshop, o
+# banco vive FORA do cluster e a ponte e feita com Red Hat Service Interconnect
+# (Skupper). Aqui ele roda local: a demo cobre o eixo norte-sul (entrada de
+# trafego, identidade, cota, telemetria por plano), nao o leste-oeste.
+#
+# Para transformar isto numa demo de Service Interconnect, o caminho e mover
+# este Deployment para outro cluster e substituir o Service abaixo pelo Service
+# que o Skupper publica -- os apps nao mudam, porque continuam resolvendo o
+# mesmo nome. O 'skupper-operator' esta disponivel no catalogo do cluster.
+#
+# A imagem e a do demo original do Kiali. O data dir vem vazio; o schema e os
+# dados do banco 'test' (cidades, hoteis, voos, carros, seguros) nascem dos
+# scripts de /docker-entrypoint-initdb.d a cada start do pod.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: travel-db
+  labels:
+    istio-injection: enabled
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-credentials
+  namespace: travel-db
+type: Opaque
+stringData:
+  # Credencial de demo, descartavel. O mesmo Secret precisa existir em
+  # travel-agency, de onde os quatro backends o leem.
+  rootpasswd: travelagency
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysqldb
+  namespace: travel-db
+  labels:
+    app: mysqldb
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysqldb
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: mysqldb
+        version: v1
+    spec:
+      # A imagem do Kiali e feita para Docker: espera rodar como o usuario
+      # 'mysql' e escrever em /var/lib/mysql. No OpenShift o SCC restricted-v2
+      # da um UID aleatorio, e o mysqld aborta:
+      #
+      #   Can't create/write to file '/var/lib/mysql/is_writable' (errno 13)
+      #   --initialize specified but the data directory exists and is not writable
+      #
+      # Os emptyDir abaixo cobrem os tres caminhos que o entrypoint escreve. Com
+      # fsGroup atribuido pelo OpenShift, os volumes nascem com o grupo certo e
+      # g+rwx -- o UID aleatorio passa a poder escrever.
+      #
+      # O data dir vem VAZIO na imagem (o log diz "Initializing database files"),
+      # entao o schema e os dados de 'test' nascem dos scripts em
+      # /docker-entrypoint-initdb.d a cada start. Perder o emptyDir num restart
+      # nao perde nada que nao seja recriado -- e por isso nao ha PVC aqui.
+      securityContext:
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: mysqldb
+          image: quay.io/kiali/demo_travels_mysqldb:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: tcp
+              containerPort: 3306
+              protocol: TCP
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+            - name: run
+              mountPath: /var/run/mysqld
+            - name: tmp
+              mountPath: /tmp
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-credentials
+                  key: rootpasswd
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysqldb
+  namespace: travel-db
+  labels:
+    app: mysqldb
+spec:
+  type: ClusterIP
+  selector:
+    app: mysqldb
+    version: v1
+  ports:
+    - name: tcp
+      port: 3306
+      protocol: TCP
+      targetPort: 3306

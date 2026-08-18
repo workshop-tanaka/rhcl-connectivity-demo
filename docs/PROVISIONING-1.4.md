@@ -99,7 +99,8 @@ oc -n openshift-monitoring patch cm cluster-monitoring-config --type=merge \
 Opcionais, para os Atos 4 e 5 terem tela: `kiali-ossm` e `tempo-product` +
 `opentelemetry-product` (ambos `redhat-operators`), e `grafana-operator`
 (community). O `preflight.sh` procura as routes em `monitoring`,
-`istio-system` e `tracing-system`.
+`istio-system` e `tracing-system`. O `kiali-ossm` rende duas coisas: a route do
+Kiali e a aba **Service Mesh** dentro do console — ver [secao 7](#7-consoles-integradas).
 
 ---
 
@@ -143,7 +144,8 @@ oc label namespace travel-agency istio-injection=enabled
 
 oc apply -f platform-reference/workloads/travel-agency/
 oc apply -f platform-reference/workloads/echo-api/
-oc apply -f platform-reference/monitoring/           # ServiceMonitors
+oc apply -f platform-reference/workloads/travel-db/    # MySQL do fan-out
+oc apply -f platform-reference/monitoring/             # ServiceMonitors
 
 # a captura nao trouxe este Secret; sem ele 4 dos 6 backends nao sobem
 oc create secret generic mysql-credentials -n travel-agency \
@@ -152,6 +154,18 @@ oc create secret generic mysql-credentials -n travel-agency \
 
 Não crie os namespaces a partir de `platform-reference/namespaces/`: eles
 carregam anotações de SCC com faixas de UID do cluster antigo.
+
+> **`travel-db` não é opcional, ainda que pareça.** Sem o MySQL, `cars`,
+> `flights`, `hotels` e `insurances` erram contra `mysqldb.travel-db:3306` e a
+> API responde **`200` com corpo vazio** (`[]`). Os Atos 1–4 medem código de
+> status e continuam passando — o defeito só aparece se alguém olhar o payload.
+> Confira com:
+>
+> ```bash
+> curl -s ".../travels?APIKEY=<chave>" | head -c 120
+> # [{"city":"Amsterdam","lat":"52.3500",...   <- com banco
+> # []                                          <- sem banco
+> ```
 
 ---
 
@@ -230,17 +244,92 @@ Para outro cluster, copie `env/rhcl-1.4_ocp-4.21/` e ajuste o hostname em
 
 ---
 
-## 7. O que esperar do preflight
+## 7. Consoles integradas
+
+Os dois produtos entregam plugin de console do OpenShift. Vale ligar: o Ato 3
+ganha a **Policy Topology** (o grafo policy→Gateway→HTTPRoute desenhado pelo
+proprio operator) e o Ato 5 deixa de precisar de aba separada para o Kiali.
+
+**Connectivity Link** — o `rhcl-operator` ja cria o `ConsolePlugin` e o
+deployment em `kuadrant-system`, mas **nao** se habilita no console. Falta um
+patch:
+
+```bash
+oc get consoleplugin kuadrant-console-plugin            # criado pelo operator
+oc patch console.operator.openshift.io cluster --type=json \
+  -p '[{"op":"add","path":"/spec/plugins/-","value":"kuadrant-console-plugin"}]'
+```
+
+O `--type=json` com `/spec/plugins/-` **acrescenta** ao array. Um `merge` com a
+lista inteira apaga os plugins que o cluster ja tinha (aqui: `odf-console`,
+`monitoring-plugin`, `networking-console-plugin`, e o `ossmconsole` abaixo).
+
+**Service Mesh** — precisa do operator `kiali-ossm` (`openshift-operators`,
+canal `stable`, o mesmo que entrega o CR `Kiali`) e de um CR `OSSMConsole`:
+
+```bash
+oc apply -f platform-reference/consoles/ossmconsole.yaml
+```
+
+Esse operator **se habilita sozinho** no `console.operator` — nao repita o patch
+para ele. O plugin nao fala com a malha: ele fala com o Kiali de `istio-system`
+pelo proxy do console (`authorization: UserToken`), entao um CR `Kiali` saudavel
+e pre-requisito, nao detalhe.
+
+Conferir que os dois realmente servem seus assets ao console — o pod do console
+e quem tem que alcanca-los, e e ai que um Service errado aparece:
+
+```bash
+POD=$(oc get pod -n openshift-console -l component=ui -o name | head -1)
+for p in kuadrant-console-plugin.kuadrant-system:9443 ossmconsole.istio-system:9443; do
+  oc exec -n openshift-console "$POD" -- \
+    curl -sk -o /dev/null -w "$p %{http_code}\n" "https://$p/plugin-manifest.json"
+done
+# kuadrant-console-plugin.kuadrant-system:9443 200   (plugin 0.4.1, 57 extensions)
+# ossmconsole.istio-system:9443 200                  (plugin 2.27.2, 56 extensions)
+```
+
+Depois do patch o console faz rollout (~1 min). A navegacao ganha **Connectivity
+Link** (Overview, Policies, Policy Topology, API Products, API Keys, API Key
+Approvals) e **Service Mesh** (Overview, Traffic Graph, Mesh, Namespaces,
+Applications, Workloads, Services, Istio Config).
+
+Se a Policy Topology abrir vazia, o plugin esta bem e o dado nao chegou: a tela
+le o ConfigMap que o operator mantem.
+
+```bash
+oc get cm topology -n kuadrant-system -o jsonpath='{.data.topology}' | head -5
+```
+
+---
+
+## 8. O que esperar do preflight
 
 Com os operadores opcionais fora, o resultado correto é:
 
 ```
-[OK] demo pode ser apresentada — 6 aviso(s) acima degradam algum ato.
+[OK] demo pode ser apresentada — 8 aviso(s) acima degradam algum ato.
 ```
 
 Os avisos são as três routes de observabilidade ausentes (Kiali, Tempo,
-Grafana) e as três do RHDH. **Falha nenhuma** — se aparecer alguma, a mensagem
-traz a correção ao lado.
+Grafana), as três do RHDH, e as duas consoles: sem o `kiali-ossm` não há
+`ConsolePlugin/ossmconsole`, e o do Connectivity Link existe sem estar
+habilitado até você rodar o patch da [seção 7](#7-consoles-integradas).
+**Falha nenhuma** — se aparecer alguma, a mensagem traz a correção ao lado.
+
+Com tudo de pé, como o `w4xtj` ficou, sobram 2 avisos — os dois do RHDH que
+dependem de `setup-catalog.sh` e `setup-github.sh`:
+
+```
+== consoles integradas (Atos 3 e 5) ==
+  ✓ Connectivity Link: aba no console (kuadrant-console-plugin)
+  ✓ Service Mesh: aba no console (ossmconsole)
+  ✓ Policy Topology com dado: 27 nós no grafo do operator
+```
+
+Essa terceira linha é a que vale ler: o plugin pode estar perfeito e a tela
+abrir vazia, porque a Policy Topology não desenha a partir dos CRs — ela lê o
+ConfigMap `topology` que o operator reescreve.
 
 Um sinal específico a procurar, porque é o que mata a demo em silêncio:
 

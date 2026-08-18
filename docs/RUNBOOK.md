@@ -566,15 +566,43 @@ Applications que a captura não lia:
   Gateway ficam `Enforced=False` por não terem o que proteger — que é
   exatamente o par do Ato 3 no 1.4.
 
-Os quatro backends do fan-out (`cars`, `flights`, `hotels`, `insurances`) também
-esperam um Secret `mysql-credentials` que a captura não trouxe. Sem ele ficam em
-`CreateContainerConfigError`; o `travels` sobe e serve `/travels` mesmo assim,
-então os Atos 1–4 funcionam, mas o grafo do Kiali fica incompleto no Ato 5.
+- **O banco inteiro.** Os quatro backends do fan-out (`cars`, `flights`,
+  `hotels`, `insurances`) consultam um MySQL em `mysqldb.travel-db:3306`, e nem
+  o namespace `travel-db` nem o Secret `mysql-credentials` vieram na captura.
+
+O caso do banco merece atenção porque **falha de um jeito que os Atos 1–4 não
+detectam**. Sem ele:
+
+```
+[hotels/v1] Internal Error: dial tcp: lookup mysqldb.travel-db: no such host
+
+curl .../travels?APIKEY=...   ->   HTTP 200   []
+```
+
+A API responde `200` com **corpo vazio**. Os atos medem código de status —
+401, 200, 429 — e o rate limit acontece no gateway, antes da aplicação, então
+tudo passa no preflight e no `traffic.sh`. O defeito só aparece se alguém pedir
+para ver o payload na tela.
 
 ```bash
+oc apply -f platform-reference/workloads/travel-db/
 oc create secret generic mysql-credentials -n travel-agency \
   --from-literal=rootpasswd=travelagency
 ```
+
+Confira sempre o corpo, não só o status:
+
+```bash
+curl -s ".../travels?APIKEY=<chave>" | head -c 120
+# [{"city":"Amsterdam","lat":"52.3500",...    <- certo
+# []                                           <- banco ausente
+```
+
+> O namespace separado não é acidente: nas variantes deste workshop o banco vive
+> **fora** do cluster, alcançado por Red Hat Service Interconnect (Skupper).
+> Aqui ele roda local — a demo cobre o eixo **norte-sul** (entrada de tráfego,
+> identidade, cota, telemetria por plano), não o **leste-oeste**. Ver
+> [PROVISIONING-1.4.md](PROVISIONING-1.4.md).
 
 ### 8. A cota diária do plano mata o ensaio — e o roteiro pedia isso
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # preflight.sh — verifica se a demo está pronta para ser apresentada.
 #
-# Roda em ~40s e checa a cadeia inteira, na ordem em que o roteiro a percorre.
+# Roda em ~45s e checa a cadeia inteira, na ordem em que o roteiro a percorre.
 # Cada falha vem com a correção ao lado — a ideia é não descobrir problema com
 # a plateia na sala.
 #
@@ -9,7 +9,7 @@
 #
 # Uso:
 #   bash preflight.sh          # tudo
-#   bash preflight.sh core     # só o caminho de dados (pula observabilidade/RHDH)
+#   bash preflight.sh core     # só o caminho de dados (pula observabilidade/consoles/RHDH)
 #
 # Saída: 0 se a demo pode ser apresentada, 1 se algo essencial está quebrado.
 # Avisos (amarelo) não falham o script — são coisas que degradam um ato, não
@@ -249,6 +249,65 @@ if [[ -n "$_tempo" ]]; then
     _ok "Tempo tem traces do gateway (Ato 5)"
   else
     _warn "Tempo ainda não tem traces do prod-web" "gere tráfego e aguarde ~20s"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+_sec "consoles integradas (Atos 3 e 5)"
+
+# Plugin de console quebra em três lugares e só o primeiro aparece num
+# 'oc get consoleplugin': o CR pode não existir, existir e não estar na lista do
+# console operator, ou estar na lista com o backend fora do ar. O do meio é o
+# caso real -- o rhcl-operator cria o ConsolePlugin e NÃO se habilita, enquanto
+# o kiali-ossm se habilita sozinho. Aviso, não falha: sem as abas os Atos 3 e 5
+# continuam pelas routes do Kiali e pelo 'oc get'.
+# Passo a passo em docs/PROVISIONING-1.4.md seção 7.
+_plugins="$(oc get console.operator.openshift.io cluster -o jsonpath='{.spec.plugins}' 2>/dev/null)"
+
+for p in "kuadrant-console-plugin:Connectivity Link" "ossmconsole:Service Mesh"; do
+  _p="${p%%:*}"; _plabel="${p#*:}"
+
+  # O Service do backend sai do próprio CR -- nada de nome de namespace fixo.
+  _backend="$(oc get consoleplugin "$_p" \
+               -o jsonpath='{.spec.backend.service.namespace}/{.spec.backend.service.name}' 2>/dev/null)"
+  if [[ -z "$_backend" || "$_backend" == "/" ]]; then
+    if [[ "$_p" == "ossmconsole" ]]; then
+      _warn "${_plabel}: sem aba no console (ConsolePlugin ausente)" \
+            "oc apply -f platform-reference/consoles/ossmconsole.yaml — precisa do operator kiali-ossm"
+    else
+      _warn "${_plabel}: sem aba no console (ConsolePlugin ausente)" \
+            "quem cria é o rhcl-operator: oc get pods -n kuadrant-system"
+    fi
+    continue
+  fi
+
+  if [[ "$_plugins" != *"\"${_p}\""* ]]; then
+    _warn "${_plabel}: plugin de pé, mas não habilitado no console" \
+          "oc patch console.operator.openshift.io cluster --type=json -p '[{\"op\":\"add\",\"path\":\"/spec/plugins/-\",\"value\":\"${_p}\"}]'"
+    continue
+  fi
+
+  # Habilitado com backend sem endpoint pronto = aba que carrega em branco.
+  if [[ -z "$(oc get endpointslices -n "${_backend%/*}" \
+               -l "kubernetes.io/service-name=${_backend#*/}" \
+               -o jsonpath='{range .items[*].endpoints[?(@.conditions.ready==true)]}{.addresses[0]}{end}' 2>/dev/null)" ]]; then
+    _warn "${_plabel}: habilitado, mas o backend do plugin não tem endpoint pronto" \
+          "oc get pods -n ${_backend%/*} | grep ${_backend#*/}"
+  else
+    _ok "${_plabel}: aba no console (${_p})"
+  fi
+done
+
+# A Policy Topology não lê os CRs: lê este ConfigMap, que o kuadrant-operator
+# reescreve a cada reconciliação. Plugin no ar + ConfigMap vazio = tela em
+# branco, sem erro nenhum na UI para denunciar.
+if [[ "$_plugins" == *'"kuadrant-console-plugin"'* ]]; then
+  _topo="$(oc get cm topology -n kuadrant-system -o jsonpath='{.data.topology}' 2>/dev/null | grep -c 'label=')"
+  if [[ "${_topo:-0}" -ge 10 ]]; then
+    _ok "Policy Topology com dado: ${_topo} nós no grafo do operator"
+  else
+    _warn "ConfigMap topology com ${_topo:-0} nós — Policy Topology abre vazia" \
+          "oc logs -n kuadrant-system deploy/kuadrant-operator-controller-manager | tail"
   fi
 fi
 
