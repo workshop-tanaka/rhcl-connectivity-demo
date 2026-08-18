@@ -1,0 +1,5 @@
+# HTTPRoute travel-agency: hostname real do cluster w4xtj.
+- op: replace
+  path: /spec/hostnames
+  value:
+    - api-travels.apps.cluster-w4xtj.dyn.redhatworkshops.io

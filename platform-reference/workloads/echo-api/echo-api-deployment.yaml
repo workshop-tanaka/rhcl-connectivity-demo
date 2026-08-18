@@ -1,0 +1,51 @@
+# ===========================================================================
+# Deployment do echo-api.
+#
+# A captura original trouxe so o Service -- o Deployment ficava numa
+# Application do Argo que nao foi lida. Num cluster provisionado do zero o
+# Service ficava sem backend, e a rota echo-api respondia 503.
+#
+# Por que o echo-api importa mesmo nao aparecendo no roteiro: ele e a SEGUNDA
+# rota anexada ao prod-web, e e o que da o que fazer as policies de Gateway.
+# Com uma unica rota (travel-agency, que tem AuthPolicy e PlanPolicy proprios),
+# prod-web-deny-all e ingress-gateway-rlp-lowlimits ficam Enforced=False --
+# corretamente sobrepostas, mas sem nada a proteger. Com o echo-api de pe elas
+# voltam a valer, e o Ato 3 ganha o par gateway-vs-rota para contar precedencia.
+#
+# Imagem: ubi9/httpd-24, do registry da Red Hat -- sem pull secret e sem
+# dependencia de docker.io. Responde 200 em / na porta 8080.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-api
+  namespace: echo-api
+  labels:
+    app.kubernetes.io/instance: echo-api
+    app.kubernetes.io/name: echo-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: echo-api
+      app.kubernetes.io/name: echo-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: echo-api
+        app.kubernetes.io/name: echo-api
+    spec:
+      containers:
+        - name: echo-api
+          image: registry.access.redhat.com/ubi9/httpd-24:latest
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

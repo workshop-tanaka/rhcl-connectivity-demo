@@ -1,0 +1,51 @@
+# ===========================================================================
+# ServiceMonitors do data plane do RHCL.
+#
+# Sem eles a cadeia do Ato 4 para no meio: o TelemetryPolicy rotula a metrica
+# por 'plan' no Limitador, mas nada leva essa serie ate o Prometheus de user
+# workload -- e a consulta no Thanos volta vazia.
+#
+# No cluster do workshop (sandbox5518) estes objetos vinham do Argo, junto com
+# a stack de observabilidade, e por isso nao apareceram na captura original.
+# Num cluster provisionado do zero eles precisam ser criados a mao.
+#
+# Pre-requisito: user workload monitoring ligado.
+#   oc -n openshift-monitoring patch cm cluster-monitoring-config --type=merge \
+#     -p '{"data":{"config.yaml":"enableUserWorkload: true\n"}}'
+#
+# kuadrant-system NAO e um namespace openshift-*, entao o Prometheus de user
+# workload o enxerga sem configuracao adicional.
+# ===========================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: limitador
+  namespace: kuadrant-system
+  labels:
+    app: limitador
+spec:
+  selector:
+    matchLabels:
+      app: limitador
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+---
+# authorized_calls / limited_calls saem do Limitador; o Authorino entra aqui
+# para o lado de identidade (auth_server_evaluator_*), usado no Ato 5.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: authorino
+  namespace: kuadrant-system
+  labels:
+    app: authorino
+spec:
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

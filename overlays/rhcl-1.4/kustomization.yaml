@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# OVERLAY 'rhcl-1.4' — RHCL 1.4.2 / OpenShift 4.21
+# (cluster-w4xtj.dyn.redhatworkshops.io)
+#
+# Existe em paralelo ao overlay 'provisioned' (RHCL 1.2 / OCP 4.17), e nao no
+# lugar dele: os dois ambientes convivem, cada um apontando para a sua camada
+# env/. Trocar de cluster e trocar de overlay no comando, sem editar arquivo --
+# era esse o problema do switch de uma linha que existia antes.
+#
+# Premissas deste cluster (todas ja satisfeitas, ver docs/PROVISIONING-1.4.md):
+#   - Service Mesh 3.4.1 com CR Istio + IstioCNI (fornece gatewayClassName istio)
+#   - RHCL 1.4.2 e CR Kuadrant em kuadrant-system
+#   - user workload monitoring ligado + ServiceMonitors de
+#     platform-reference/monitoring/
+#   - Gateway prod-web publicado por Route passthrough (nao ha LoadBalancer
+#     em SNO) e servindo o wildcard *.apps do proprio cluster
+#
+# O que muda em relacao ao 1.2 esta em env/rhcl-1.4_ocp-4.21/:
+#   - hostname de UM rotulo sob .apps (ver a armadilha de DNS01 no runbook)
+#   - a RateLimitPolicy plana sai do render (o 1.4 inverteu a precedencia)
+#
+# Render:  oc kustomize overlays/rhcl-1.4
+# Deploy:  oc apply -k overlays/rhcl-1.4
+# ===========================================================================
+
+resources:
+  - ../../env/rhcl-1.4_ocp-4.21

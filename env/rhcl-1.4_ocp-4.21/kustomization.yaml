@@ -1,0 +1,58 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# CAMADA DE AMBIENTE — RHCL 1.4 / OpenShift 4.21 (cluster-w4xtj.dyn.redhatworkshops.io)
+#
+# Fica entre base/ e overlays/: pega a base portavel e aplica tudo que e
+# especifico deste cluster e desta versao dos operadores.
+#
+# O que mora aqui:
+#   - hostname do dominio do sandbox, para a rota que a DEMO governa
+#
+# O que NAO mora mais aqui: os patches do Gateway prod-web e do HTTPRoute
+# echo-api. Ambos alteram recursos rastreados pelo Argo (Applications
+# 'ingress-gateway' e 'echo-api', com selfHeal ligado) -- aplica-los seria
+# revertido em segundos. Foram para platform-reference/gateway/ como registro.
+# Ver platform-reference/README.md.
+#
+# apiVersions: nao ha patch porque os manifests capturados ja estao nas
+# versoes desta release (kuadrant.io/v1 para Auth/RateLimit, e
+# extensions.kuadrant.io/v1alpha1 para Plan/Telemetry). Se mudar de release,
+# o patch de apiVersion entra aqui.
+#
+# Trocar de ambiente = criar env/<outra-versao>/ e apontar o overlay para la.
+# ===========================================================================
+
+resources:
+  - ../../base
+
+patches:
+  # JSON 6902 (nao strategic merge): HTTPRoute e CRD sem schema conhecido pelo
+  # kustomize -- um merge de lista sobrescreveria campos vizinhos. O patch
+  # posicional altera so o campo alvo.
+  - path: patch-httproute-travel-agency.yaml
+    target:
+      group: gateway.networking.k8s.io
+      version: v1
+      kind: HTTPRoute
+      name: travel-agency
+      namespace: travel-agency
+
+  # RHCL 1.4.2 inverteu a precedencia em relacao ao 1.2.1: uma RateLimitPolicy
+  # "plana" na mesma HTTPRoute sobrepoe a RLP que o PlanPolicy gera -- e nao o
+  # contrario. Com ela presente o PlanPolicy fica Enforced=False e os tiers do
+  # Ato 2 simplesmente nao acontecem. Verificado neste cluster: a RLP do
+  # PlanPolicy nasce 3s ANTES e ainda assim perde, entao nao e o desempate por
+  # creationTimestamp da GEP-713.
+  #
+  # Nesta release ela sai do render. O Ato 3 (precedencia explicita) passa a ser
+  # contado com ingress-gateway-rlp-lowlimits, que mira o Gateway e e sobreposta
+  # pelas policies de rota -- hierarquia que continua valendo no 1.4.
+  - patch: |-
+      apiVersion: kuadrant.io/v1
+      kind: RateLimitPolicy
+      metadata:
+        name: ratelimit-policy-travels
+        namespace: travel-agency
+      $patch: delete
