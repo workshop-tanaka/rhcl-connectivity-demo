@@ -29,13 +29,43 @@
 # alguem emitir uma chave sem tier, o efeito e visivel (429 cedo) em vez de
 # invisivel (sem limite).
 #
-# LIMITES: baixos de proposito. Um limite realista (milhares/10s) nao produz
-# nenhum 429 numa demo -- e o efeito da policy fica invisivel na tela. Estes
-# numeros existem para caber num 'watch' de 30 segundos. Ver docs/RUNBOOK.md.
+# ---------------------------------------------------------------------------
+# DOIS LIMITES POR TIER, COM PAPEIS DIFERENTES -- e so um deles e da demo.
+#
+#   custom (janela de 10s)  e o que o Ato 2 mostra. Baixo de proposito: um
+#                           limite realista (milhares/10s) nao produz nenhum
+#                           429 na tela e o efeito da policy fica invisivel.
+#
+#   daily                   NAO aparece em nenhum ato. Existe porque o
+#                           APIProduct do developer portal publica os planos a
+#                           partir daqui (status.discoveredPlans) -- e um plano
+#                           comercial sem cota nao convence ninguem.
+#
+# POR QUE AS DIARIAS SAO ALTAS: elas ja mataram a demo. Com free=50/dia, um
+# unico ciclo de ensaio (preflight + traffic.sh tiers) consumia 15 -- tres
+# ensaios e o Ato 2 ficava morto ate 00:00 UTC, com um sintoma que engana em
+# cheio (429 em tudo, que e exatamente o que a demo QUER mostrar, mas sem
+# nenhum 200 antes). Ver armadilha 8 em docs/RUNBOOK.md.
+#
+# Os valores atuais mantem a razao 1:10:100 entre os planos -- que e o que o
+# portal exibe e o que sustenta a conversa comercial -- e dao ~55 minutos de
+# soak continuo no free antes de esbarrar na cota. O ritual de 'traffic.sh
+# reset' continua valendo como rede, mas deixou de ser pre-requisito para
+# apresentar.
+#
+# Ao mexer nestes numeros: mexa nas TRES diarias juntas. A razao entre elas e
+# o argumento; o valor absoluto e so folga de ensaio.
+# ---------------------------------------------------------------------------
 # ===========================================================================
 apiVersion: extensions.kuadrant.io/v1alpha1
 kind: PlanPolicy
 metadata:
+  # 'app: travels' nao e usado por nenhum controlador do Kuadrant -- serve ao
+  # portal: e por este label que o RHDH liga esta policy ao componente
+  # travels (backstage.io/kubernetes-label-selector) e a mostra na aba
+  # Kubernetes. Nao existe plugin de Connectivity Link; este e o caminho.
+  labels:
+    app: travels
   name: travels-plans
   namespace: travel-agency
 spec:
@@ -49,7 +79,7 @@ spec:
     - tier: gold
       predicate: 'auth.identity.metadata.labels["kuadrant.io/plan-id"] == "gold"'
       limits:
-        daily: 5000
+        daily: 100000
         custom:
           - limit: 30
             window: 10s
@@ -58,7 +88,7 @@ spec:
     - tier: silver
       predicate: 'auth.identity.metadata.labels["kuadrant.io/plan-id"] == "silver"'
       limits:
-        daily: 500
+        daily: 10000
         custom:
           - limit: 10
             window: 10s
@@ -67,7 +97,7 @@ spec:
     - tier: free
       predicate: 'auth.identity.metadata.labels["kuadrant.io/plan-id"] == "free"'
       limits:
-        daily: 50
+        daily: 1000
         custom:
           - limit: 3
             window: 10s

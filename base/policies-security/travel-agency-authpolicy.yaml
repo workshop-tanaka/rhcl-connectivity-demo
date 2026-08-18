@@ -22,6 +22,12 @@
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata:
+  # 'app: travels' nao e usado por nenhum controlador do Kuadrant -- serve ao
+  # portal: e por este label que o RHDH liga esta policy ao componente
+  # travels (backstage.io/kubernetes-label-selector) e a mostra na aba
+  # Kubernetes. Nao existe plugin de Connectivity Link; este e o caminho.
+  labels:
+    app: travels
   name: travel-agency-authpolicy
   namespace: travel-agency
 spec:

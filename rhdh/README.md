@@ -184,6 +184,48 @@ Sem elas o plugin carrega e a aba não aparece — sem erro:
 
 O `setup-catalog.sh` deriva o slug do remote do próprio repositório; sem remote no GitHub, remove a anotação em vez de publicá-la vazia.
 
+### Só abas com conteúdo
+
+Uma aba vazia custa mais credibilidade do que a ausência dela, então a anotação só entra onde há o que mostrar. Foi medido, não presumido:
+
+| Aba | Onde aparece | Por quê |
+| --- | --- | --- |
+| Kubernetes · Topology | 7 serviços da demo | têm workload no cluster |
+| GitHub Insights | só serviços criados pelo template | README próprio, daquele serviço |
+| Definition | `travel-agency-api` | tem spec OpenAPI |
+| — | parceiros, Systems, Resources | não têm workload nem repositório |
+
+Os plugins **GitHub Actions e Issues foram removidos**: o repositório da demo não tem workflow nem issue, então as duas abas apareceriam vazias em todo componente. Os pacotes estão comentados em `setup-plugins.sh`, prontos para religar quando houver CI.
+
+Os serviços da demo **não** recebem `github.com/project-slug`: o código deles não está neste repositório, e as três abas mostrariam o mesmo conteúdo genérico nos sete. Já os serviços gerados pelo software template recebem — o slug sai de `parseRepoUrl` sobre o `repoUrl` escolhido no formulário, validado por `dry-run`:
+
+```bash
+curl -sk -X POST "$URL/api/scaffolder/v2/dry-run" -H "Authorization: Bearer $TOKEN" ...
+# -> github.com/project-slug: devhub-tanaka/nova-api
+```
+
+### Connectivity Link no portal
+
+Não existe plugin de Kuadrant/RHCL. O caminho nativo é `customResources` do plugin Kubernetes: as policies entram na aba Kubernetes do componente, junto dos pods e services.
+
+Só que o plugin mostra apenas objetos que casem com o seletor da entidade — e as policies não nasciam com label. Por isso `base/` rotula com `app: travels` a HTTPRoute, a AuthPolicy e a PlanPolicy. Esse label **não é lido por nenhum controlador do Kuadrant**: existe para o portal.
+
+Resultado na página do componente `travels`:
+
+```
+pods              travels-v1-...
+services          travels
+replicasets       travels-v1-... (2)
+customresources   HTTPRoute/travel-agency
+customresources   AuthPolicy/travel-agency-authpolicy
+customresources   RateLimitPolicy/travels-plans
+customresources   PlanPolicy/travels-plans
+```
+
+A cadeia inteira — rota, quem entra, quanto passa e por tier — na mesma tela do serviço.
+
+**Ressalva:** a `RateLimitPolicy/travels-plans` é *gerada* pelo PlanPolicy (`ownerReferences: PlanPolicy/travels-plans`), então o label dela não está em git. Se o controlador reconciliar sem preservá-lo, ela some da aba — as outras três continuam.
+
 **Por que seletor de label e não `backstage.io/kubernetes-id`:** o id exigiria rotular os workloads, e eles vivem em `platform-reference/`, governados pelo Argo com `selfHeal` — o label seria revertido em segundos. O seletor reaproveita os labels que já existem.
 
 ### Duas armadilhas encontradas neste cluster
