@@ -606,3 +606,25 @@ aquecimento é **soak → reset → tiers**, e não o contrário.
 Não é específico do 1.4 — as cotas estão em `base/policies-plans/`, então o
 mesmo valia no 1.2.1. Só não aparecia porque ninguém rodava soak longo antes de
 conferir os tiers.
+
+### 9. `backend.reading.allow` e uma allowlist — e falha em silencio
+
+O `setup-catalog.sh` libera o host do servidor interno de catalogo em
+`backend.reading.allow`. Quando o `setup-github.sh` acrescenta o software
+template como segunda location, o host dela e **github.com** — e ter
+`integrations.github` configurado, com token valido no pod, **nao isenta** da
+allowlist.
+
+O sintoma e o pior tipo: nada. No RHDH 1.10.3, a location nao e criada, nenhuma
+entidade aparece, e **nao ha erro no log** — nem `Reading from ... is not
+allowed`, nem warning. O `Create` do portal abre sem nenhum template, e todo o
+resto (catalogo, Systems, parceiros) funciona normalmente, o que faz parecer
+problema do template e nao de configuracao.
+
+Verificado neste cluster: config correta no pod, token presente em
+`printenv GITHUB_TOKEN`, location declarada em `app-config-catalog.yaml`, e
+`kind=template` retornando lista vazia.
+
+Defesa: o `setup-catalog.sh` agora extrai o host de `TEMPLATE_LOCATION_URL` e o
+acrescenta a allowlist junto com a location. Vale a regra geral -- **toda
+location nova precisa do seu host liberado**.

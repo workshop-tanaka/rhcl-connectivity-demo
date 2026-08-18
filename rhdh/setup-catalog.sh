@@ -125,11 +125,22 @@ _ok "entidades sendo servidas em http://${CATALOG_SVC}/travel-agency.yaml"
 _locations="        - type: url
           target: http://${CATALOG_SVC}/travel-agency.yaml"
 
+# backend.reading.allow e uma ALLOWLIST: host que nao esta nela e recusado, e
+# ter 'integrations.github' configurado NAO isenta. Cada location adicionada
+# aqui precisa do seu host liberado abaixo -- senao a entidade simplesmente nao
+# aparece, e (verificado no RHDH 1.10.3) sem erro no log: nem a location e
+# criada, nem falha visivel. O sintoma e um 'Create' sem nenhum template.
+_allow="          - host: ${CATALOG_SVC}"
+
 if [[ -n "${TEMPLATE_LOCATION_URL:-}" ]]; then
   _locations="${_locations}
         - type: url
           target: ${TEMPLATE_LOCATION_URL}"
+  _tpl_host="$(printf '%s' "$TEMPLATE_LOCATION_URL" | sed -E 's|^[a-z]+://([^/]+)/.*|\1|')"
+  _allow="${_allow}
+          - host: ${_tpl_host}"
   _log "software template incluido: ${TEMPLATE_LOCATION_URL}"
+  _log "host liberado para leitura: ${_tpl_host}"
 fi
 
 # backend.reading.allow: sem liberar o host, o leitor de URL recusa o Service
@@ -145,7 +156,7 @@ data:
     backend:
       reading:
         allow:
-          - host: ${CATALOG_SVC}
+${_allow}
     catalog:
       locations:
 ${_locations}
