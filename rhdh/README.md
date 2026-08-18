@@ -235,6 +235,8 @@ Verificado no navegador, não só na API:
 
 As abas são condicionadas a `hasAnnotation: kuadrant.io/apiproduct`, não a `isKind: api`. Só a anotação distingue a entidade que o plugin ingeriu de um APIProduct das APIs escritas à mão — verificado: `travel-agency-api` fica com Overview e Definition apenas, `travels-api` com as quatro.
 
+As rotas de detalhe precisam ser declaradas uma a uma. Só `/kuadrant` faz a lista renderizar, mas o clique num produto navega para `/kuadrant/api-products/<ns>/<nome>` — e **rota não declarada não dá erro, apenas não pinta nada**. O mesmo vale para `/kuadrant/my-api-keys` e o detalhe de chave.
+
 Frontend dinâmico no RHDH **não aparece sozinho**: sem `dynamicRoutes`/`entityTabs` declarados, o plugin carrega e a UI fica igual. E `apiFactories` não é opcional — sem ele a página sobe e quebra com `NotImplementedError` em `apiRef{plugin.kuadrant.service}`, que é o cliente que fala com o backend.
 
 A chave do bloco é o **nome scalprum do módulo**. A doc do projeto usa `kuadrant.kuadrant-backstage-plugin-frontend`; o `package.json` da v0.4.0 declara `internal.plugin-kuadrant`, e é essa que o `/api/scalprum/plugins` confirma estar servida. O script declara as duas — a que não casar é ignorada.

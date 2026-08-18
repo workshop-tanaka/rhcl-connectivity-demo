@@ -174,12 +174,25 @@ if [[ "${WITH_KUADRANT:-false}" == "true" ]]; then
                 appIcons:
                   - name: kuadrantIcon
                     importName: KuadrantIcon
+                # As rotas de detalhe NAO sao opcionais: sem elas a lista de
+                # API Products renderiza, o clique navega para
+                # /kuadrant/api-products/<ns>/<nome> e nada acontece -- rota
+                # inexistente nao mostra erro, so nao pinta nada. Mesmo vale
+                # para o detalhe de chave.
                 dynamicRoutes:
                   - path: /kuadrant
                     importName: KuadrantPage
                     menuItem:
                       icon: kuadrantIcon
                       text: Kuadrant
+                  - path: /kuadrant/api-products
+                    importName: ApiProductsPage
+                  - path: /kuadrant/api-products/:namespace/:name
+                    importName: ApiProductDetailPage
+                  - path: /kuadrant/my-api-keys
+                    importName: MyApiKeysPage
+                  - path: /kuadrant/api-keys/:namespace/:name
+                    importName: ApiKeyDetailPage
                 # Abas na pagina da entidade API -- e onde o consumidor pede a
                 # chave e o dono aprova.
                 entityTabs:
