@@ -37,9 +37,19 @@ export RHDH_NS RHDH_CR
 # O baseUrl precisa ser conhecido antes de o pod subir, entao o host e fixado
 # aqui e injetado tanto no app-config quanto na Route.
 if [[ -z "${RHDH_HOST:-}" ]]; then
-  _apps_domain="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
-  [[ -n "$_apps_domain" ]] || _die "nao consegui descobrir o dominio de apps; defina RHDH_HOST."
-  RHDH_HOST="rhdh.${_apps_domain}"
+  # Se ja existe instancia, o host DELA vence o default. Sem isto, reinstalar
+  # sem RHDH_HOST troca a rota para rhdh.<apps-domain> e reescreve baseUrl/cors:
+  # o portal continua no ar, mas some do endereco que as pessoas tem aberto --
+  # e o host antigo passa a responder 503.
+  RHDH_HOST="$(oc get backstage "$RHDH_CR" -n "$RHDH_NS" \
+    -o jsonpath='{.spec.application.route.host}' 2>/dev/null)"
+  if [[ -n "$RHDH_HOST" ]]; then
+    _log "host preservado da instancia existente: ${RHDH_HOST}"
+  else
+    _apps_domain="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
+    [[ -n "$_apps_domain" ]] || _die "nao consegui descobrir o dominio de apps; defina RHDH_HOST."
+    RHDH_HOST="rhdh.${_apps_domain}"
+  fi
 fi
 export RHDH_HOST
 _log "host da rota: ${RHDH_HOST}"
