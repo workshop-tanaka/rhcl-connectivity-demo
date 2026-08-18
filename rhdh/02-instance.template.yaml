@@ -1,8 +1,11 @@
 # ===========================================================================
 # Red Hat Developer Hub — instancia (CR Backstage) + configuracao.
 #
-# Template: ${RHDH_HOST} e substituido pelo install.sh com o hostname real da
-# rota (derivado do dominio de apps do cluster). Nada mais e interpolado --
+# Template: ${RHDH_HOST} e ${RHDH_NS} sao substituidos pelo install.sh -- o
+# hostname real da rota (derivado do dominio de apps) e o namespace de destino.
+# O namespace era fixo em 'rhdh' ate 2026-08-17, o que fazia RHDH_NS ser aceito
+# pelo script e ignorado aqui: uma instancia "isolada" caia por cima da que ja
+# existia. Nada mais e interpolado --
 # ${BACKEND_SECRET} abaixo e resolvido pelo PROPRIO Backstage em runtime, a
 # partir da variavel de ambiente injetada pelo Secret; nao pode ser expandido
 # aqui, senao o segredo iria em claro para dentro do ConfigMap.
@@ -10,7 +13,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: rhdh
+  name: ${RHDH_NS}
 ---
 # ---------------------------------------------------------------------------
 # Configuracao da aplicacao.
@@ -25,7 +28,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: app-config-rhdh
-  namespace: rhdh
+  namespace: ${RHDH_NS}
 data:
   app-config-rhdh.yaml: |
     app:
@@ -71,8 +74,8 @@ data:
 apiVersion: rhdh.redhat.com/v1alpha5
 kind: Backstage
 metadata:
-  name: developer-hub
-  namespace: rhdh
+  name: ${RHDH_CR}
+  namespace: ${RHDH_NS}
 spec:
   application:
     appConfig:

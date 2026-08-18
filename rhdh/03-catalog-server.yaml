@@ -22,7 +22,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: rhdh-catalog-server
-  namespace: rhdh
+  namespace: ${RHDH_NS}
   labels:
     app: rhdh-catalog-server
 spec:
@@ -68,7 +68,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: rhdh-catalog-server
-  namespace: rhdh
+  namespace: ${RHDH_NS}
   labels:
     app: rhdh-catalog-server
 spec:

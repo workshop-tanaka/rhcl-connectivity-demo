@@ -34,6 +34,7 @@ command -v envsubst >/dev/null || _die "envsubst nao encontrado (brew install ge
 oc whoami >/dev/null 2>&1      || _die "nao autenticado no cluster (oc login)."
 
 RHDH_NS="${RHDH_NS:-rhdh}"
+export RHDH_NS
 RHDH_CR="${RHDH_CR:-developer-hub}"
 CATALOG_SVC="rhdh-catalog-server.${RHDH_NS}.svc.cluster.local:8080"
 
@@ -62,13 +63,52 @@ trap 'rm -f "$_rendered"' EXIT
 envsubst '${DEMO_API_HOST} ${DEMO_ECHO_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
   || _die "falha ao renderizar catalog/travel-agency.yaml"
 
+# ----- 2b. fidelidade: so entra no catalogo o que existe no cluster ---------
+# O catalogo modela as policies do RHCL, e nem todo ambiente tem todas. No
+# cluster 1.4, por exemplo, nao ha DNSPolicy nem TLSPolicy (o certificado vem
+# do wildcard do cluster) e a RateLimitPolicy plana saiu do render. Publicar as
+# tres assim mesmo daria um portal que descreve recursos inexistentes -- e o
+# Ato 6 existe justamente para mostrar que o catalogo reflete a plataforma.
+#
+# O vinculo e o spec.type: 'kuadrant-<kind>' + o nome da entidade batem com o
+# objeto no cluster. Entidades sem esse prefixo (Component, System, API...) nao
+# sao filtradas.
+_present="$(mktemp)"; _filtered="$(mktemp)"; _dropped="$(mktemp)"
+trap 'rm -f "$_rendered" "$_present" "$_filtered" "$_dropped"' EXIT
+
+for _k in gateway dnspolicy tlspolicy authpolicy ratelimitpolicy planpolicy telemetrypolicy; do
+  oc get "$_k" -A -o jsonpath="{range .items[*]}${_k}/{.metadata.name}{'\n'}{end}" 2>/dev/null
+done > "$_present"
+
+python3 - "$_rendered" "$_present" "$_dropped" > "$_filtered" <<'PY' || _die "falha ao filtrar o catalogo."
+import re, sys
+have = {l.strip() for l in open(sys.argv[2]) if l.strip()}
+kept, dropped = [], []
+for doc in open(sys.argv[1]).read().split('\n---\n'):
+    kind = re.search(r'^\s*type:\s*kuadrant-(\S+)', doc, re.M)
+    name = re.search(r'^\s*name:\s*(\S+)', doc, re.M)
+    if kind and name and f"{kind.group(1)}/{name.group(1)}" not in have:
+        dropped.append(name.group(1))
+    else:
+        kept.append(doc)
+open(sys.argv[3], 'w').write(', '.join(dropped))
+print('\n---\n'.join(kept))
+PY
+
+if [[ -s "$_dropped" ]]; then
+  _warn "fora do catalogo, nao existem neste cluster: $(cat "$_dropped")"
+else
+  _ok "todas as entidades do catalogo existem no cluster."
+fi
+cat "$_filtered" > "$_rendered"
+
 _log "publicando as entidades..."
 oc create configmap rhdh-catalog-entities -n "$RHDH_NS" \
   --from-file=travel-agency.yaml="$_rendered" \
   --dry-run=client -o yaml | oc apply -f - >/dev/null \
   || _die "falha ao criar o ConfigMap rhdh-catalog-entities."
 
-oc apply -f "${_here}/03-catalog-server.yaml" >/dev/null \
+envsubst '${RHDH_NS}' < "${_here}/03-catalog-server.yaml" | oc apply -f - >/dev/null \
   || _die "falha ao aplicar o servidor de catalogo."
 
 # O ConfigMap mudou: sem restart o httpd continua servindo a versao antiga.

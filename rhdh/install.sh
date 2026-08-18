@@ -31,6 +31,7 @@ oc whoami >/dev/null 2>&1      || _die "nao autenticado no cluster (oc login)."
 
 RHDH_NS="${RHDH_NS:-rhdh}"
 RHDH_CR="${RHDH_CR:-developer-hub}"
+export RHDH_NS RHDH_CR
 
 # ----- 1. hostname da rota -------------------------------------------------
 # O baseUrl precisa ser conhecido antes de o pod subir, entao o host e fixado
@@ -44,18 +45,30 @@ export RHDH_HOST
 _log "host da rota: ${RHDH_HOST}"
 
 # ----- 2. operator ---------------------------------------------------------
-_log "aplicando o operator (namespace rhdh-operator)..."
-oc apply -f "${_here}/01-operator.yaml" >/dev/null || _die "falha ao aplicar 01-operator.yaml"
+# O operator do RHDH so existe em modo AllNamespaces. Se o cluster ja tiver um
+# -- comum nos clusters de workshop, que costumam vir com o RHDH pronto --,
+# aplicar a nossa Subscription cria uma SEGUNDA assinatura do mesmo operator,
+# com canal possivelmente diferente do instalado. O resultado e conflito de CSV,
+# nao uma instalacao paralela. Entao: detectar antes de instalar.
+if oc get crd backstages.rhdh.redhat.com >/dev/null 2>&1; then
+  _existing="$(oc get csv -A -o jsonpath='{range .items[?(@.status.phase=="Succeeded")]}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+                | grep -m1 '^rhdh-operator')"
+  _ok "operator ja instalado no cluster (${_existing:-versao desconhecida}) -- reusando."
+  _log "para forcar a instalacao deste repo: oc apply -f rhdh/01-operator.yaml"
+else
+  _log "aplicando o operator (namespace rhdh-operator)..."
+  oc apply -f "${_here}/01-operator.yaml" >/dev/null || _die "falha ao aplicar 01-operator.yaml"
 
-_log "aguardando o CSV ficar Succeeded..."
-for _i in {1..60}; do
-  _phase="$(oc get csv -n rhdh-operator -l operators.coreos.com/rhdh.rhdh-operator= \
-              -o jsonpath='{.items[0].status.phase}' 2>/dev/null)"
-  [[ "$_phase" == "Succeeded" ]] && break
-  sleep 10
-done
-[[ "${_phase:-}" == "Succeeded" ]] || _die "CSV nao ficou Succeeded (fase atual: ${_phase:-ausente})."
-_ok "operator pronto."
+  _log "aguardando o CSV ficar Succeeded..."
+  for _i in {1..60}; do
+    _phase="$(oc get csv -n rhdh-operator -l operators.coreos.com/rhdh.rhdh-operator= \
+                -o jsonpath='{.items[0].status.phase}' 2>/dev/null)"
+    [[ "$_phase" == "Succeeded" ]] && break
+    sleep 10
+  done
+  [[ "${_phase:-}" == "Succeeded" ]] || _die "CSV nao ficou Succeeded (fase atual: ${_phase:-ausente})."
+  _ok "operator pronto."
+fi
 
 # A CRD e criada pelo CSV; sem ela o apply do CR abaixo falha por race.
 oc wait --for=condition=Established crd/backstages.rhdh.redhat.com --timeout=120s >/dev/null 2>&1 \
@@ -78,7 +91,7 @@ fi
 # envsubst recebe a lista explicita de variaveis: sem ela, o ${BACKEND_SECRET}
 # do app-config (que o Backstage resolve em runtime) seria expandido para vazio.
 _log "aplicando a instancia RHDH..."
-envsubst '${RHDH_HOST}' < "${_here}/02-instance.template.yaml" | oc apply -f - >/dev/null \
+envsubst '${RHDH_HOST} ${RHDH_NS} ${RHDH_CR}' < "${_here}/02-instance.template.yaml" | oc apply -f - >/dev/null \
   || _die "falha ao aplicar a instancia."
 
 _log "aguardando o deployment ficar disponivel (pode levar alguns minutos)..."

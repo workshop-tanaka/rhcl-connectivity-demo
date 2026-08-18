@@ -255,23 +255,27 @@ fi
 # ---------------------------------------------------------------------------
 _sec "Red Hat Developer Hub (Ato 6)"
 
-_rhdh="$(oc get route backstage-developer-hub -n rhdh -o jsonpath='{.spec.host}' 2>/dev/null)"
+# RHDH_NS: o namespace da instancia DA DEMO. Um cluster de workshop pode ja ter
+# outro RHDH rodando em 'rhdh' -- olhar so o namespace fixo faria o preflight
+# aprovar o portal errado e depois reclamar de catalogo ausente nele.
+_rhdh_ns="${RHDH_NS:-rhdh}"
+_rhdh="$(oc get route backstage-developer-hub -n "$_rhdh_ns" -o jsonpath='{.spec.host}' 2>/dev/null)"
 if [[ -z "$_rhdh" ]]; then
   _warn "RHDH não instalado" "bash rhdh/install.sh — ou pule o Ato 6"
 else
   if [[ "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://${_rhdh}")" =~ ^(200|302)$ ]]; then
     _ok "portal no ar: https://${_rhdh}"
   else
-    _warn "portal não respondeu" "oc get pods -n rhdh"
+    _warn "portal não respondeu" "oc get pods -n ${_rhdh_ns}"
   fi
 
-  if oc get cm app-config-rhdh-catalog -n rhdh >/dev/null 2>&1; then
+  if oc get cm app-config-rhdh-catalog -n "$_rhdh_ns" >/dev/null 2>&1; then
     _ok "catálogo configurado"
   else
     _warn "catálogo não configurado" "bash rhdh/setup-catalog.sh"
   fi
 
-  if oc get cm app-config-rhdh-github -n rhdh >/dev/null 2>&1; then
+  if oc get cm app-config-rhdh-github -n "$_rhdh_ns" >/dev/null 2>&1; then
     _ok "integração GitHub + software template registrados"
   else
     _warn "sem integração GitHub" "bash rhdh/setup-github.sh <org> <repo> — sem isso o scaffolding do Ato 6 não roda"
