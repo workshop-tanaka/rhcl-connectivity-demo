@@ -22,6 +22,11 @@
 apiVersion: devportal.kuadrant.io/v1alpha1
 kind: APIProduct
 metadata:
+  # Sem esta anotacao o plugin @kuadrant/* le o APIProduct, conta como
+  # publicado e nao sincroniza: "has no backstage.io/owner annotation,
+  # skipping catalog sync". O valor precisa ser uma entidade que exista.
+  annotations:
+    backstage.io/owner: group:default/platform-team
   name: travels-api
   namespace: travel-agency
 spec:

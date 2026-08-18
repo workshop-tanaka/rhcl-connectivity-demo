@@ -94,6 +94,46 @@ _log "aplicando a instancia RHDH..."
 envsubst '${RHDH_HOST} ${RHDH_NS} ${RHDH_CR}' < "${_here}/02-instance.template.yaml" | oc apply -f - >/dev/null \
   || _die "falha ao aplicar a instancia."
 
+# 02-instance.template.yaml declara appConfig com o ConfigMap base apenas, e o
+# merge patch do apply SUBSTITUI o array inteiro. Sem recompor aqui, reinstalar
+# derruba silenciosamente as camadas de catalogo/plugins/GitHub -- o pod sobe,
+# falha o readiness e o sintoma aparece longe da causa:
+#   Missing required config value at 'kubernetes.clusterLocatorMethods[0]...'
+_cms='{"name":"app-config-rhdh"}'
+for _extra in app-config-rhdh-catalog app-config-rhdh-plugins app-config-rhdh-github; do
+  if oc get configmap "$_extra" -n "$RHDH_NS" >/dev/null 2>&1; then
+    _cms="${_cms},{\"name\":\"${_extra}\"}"
+    _log "camada detectada, preservada no appConfig: ${_extra}"
+  fi
+done
+# O mesmo vale para extraEnvs.secrets: sem o rhdh-kubernetes-secret, as
+# variaveis K8S_CLUSTER_* somem e a config vira "Missing required config value
+# at 'kubernetes.clusterLocatorMethods[0].clusters[0].name' in 'env'" -- um
+# erro que aponta para o app-config, mas cuja causa e a variavel ausente.
+_secrets='{"name":"rhdh-backend-secret"}'
+for _sec in rhdh-kubernetes-secret rhdh-github-secret; do
+  if oc get secret "$_sec" -n "$RHDH_NS" >/dev/null 2>&1; then
+    _secrets="${_secrets},{\"name\":\"${_sec}\"}"
+    _log "credencial detectada, preservada em extraEnvs: ${_sec}"
+  fi
+done
+
+# NODE_EXTRA_CA_CERTS + o CA montado sobrevivem pelo mesmo motivo: quem os
+# define e o setup-plugins.sh, e um apply do template os apagaria.
+_envs=''
+if oc get backstage "$RHDH_CR" -n "$RHDH_NS" \
+     -o jsonpath='{.spec.application.extraEnvs.envs[?(@.name=="NODE_EXTRA_CA_CERTS")].value}' 2>/dev/null | grep -q .; then
+  _ca_path="$(oc get backstage "$RHDH_CR" -n "$RHDH_NS" \
+    -o jsonpath='{.spec.application.extraEnvs.envs[?(@.name=="NODE_EXTRA_CA_CERTS")].value}')"
+  _envs=",\"envs\":[{\"name\":\"NODE_EXTRA_CA_CERTS\",\"value\":\"${_ca_path}\"}]"
+fi
+
+oc patch backstage "$RHDH_CR" -n "$RHDH_NS" --type=merge \
+  -p "{\"spec\":{\"application\":{
+    \"appConfig\":{\"mountPath\":\"/opt/app-root/src\",\"configMaps\":[${_cms}]},
+    \"extraEnvs\":{\"secrets\":[${_secrets}]${_envs}}
+  }}}" >/dev/null || _die "falha ao recompor appConfig/extraEnvs."
+
 _log "aguardando o deployment ficar disponivel (pode levar alguns minutos)..."
 for _i in {1..30}; do
   oc get deployment "backstage-${RHDH_CR}" -n "$RHDH_NS" >/dev/null 2>&1 && break

@@ -160,7 +160,7 @@ Dos plugins normalmente pedidos para uma demo de conectividade, metade **não ex
 | Service Mesh | Não existe plugin próprio — o Kiali é o console de Service Mesh |
 | Tempo · Jaeger | Não existem. Neste cluster "Jaeger" é a UI do Tempo (`tempo-tempo-jaegerui`) |
 | Grafana | Não consta no doc; no ghcr só há builds de PR (`pr_*`), nenhum `bs_*` |
-| Connectivity Link | Não existe plugin de Kuadrant/RHCL — busca no npm não retorna nada |
+| Connectivity Link | **Existe**: `@kuadrant/*` no npm público, v0.4.0. Fora do catálogo da Red Hat — ver abaixo |
 
 Para o RHCL, o caminho nativo mais próximo é `customResources` do plugin Kubernetes: HTTPRoute, AuthPolicy, RateLimitPolicy e PlanPolicy aparecem na aba Kubernetes do componente. Não é um plugin, mas mostra a policy no lugar certo.
 
@@ -206,25 +206,37 @@ curl -sk -X POST "$URL/api/scaffolder/v2/dry-run" -H "Authorization: Bearer $TOK
 
 ### Connectivity Link no portal
 
-Não existe plugin de Kuadrant/RHCL. O caminho nativo é `customResources` do plugin Kubernetes: as policies entram na aba Kubernetes do componente, junto dos pods e services.
+**Existe** plugin de Kuadrant, ao contrário do que a lista acima dizia até eu medir de novo: `@kuadrant/kuadrant-backstage-plugin-frontend` e `@kuadrant/kuadrant-backstage-plugin-backend-dynamic`, v0.4.0 no npm público. Não aparece no *Dynamic plugins reference* da Red Hat — é upstream do projeto Kuadrant.
 
-Só que o plugin mostra apenas objetos que casem com o seletor da entidade — e as policies não nasciam com label. Por isso `base/` rotula com `app: travels` a HTTPRoute, a AuthPolicy e a PlanPolicy. Esse label **não é lido por nenhum controlador do Kuadrant**: existe para o portal.
+A documentação do projeto declara suporte ao **RHDH 1.8.4 (Backstage 1.42.5)**; aqui roda **1.10.3 (Backstage 1.49.4)**. Combinação não coberta, mas **verificada funcionando** — por isso fica atrás de flag:
 
-Resultado na página do componente `travels`:
-
-```
-pods              travels-v1-...
-services          travels
-replicasets       travels-v1-... (2)
-customresources   HTTPRoute/travel-agency
-customresources   AuthPolicy/travel-agency-authpolicy
-customresources   RateLimitPolicy/travels-plans
-customresources   PlanPolicy/travels-plans
+```bash
+WITH_KUADRANT=true bash rhdh/setup-plugins.sh
 ```
 
-A cadeia inteira — rota, quem entra, quanto passa e por tier — na mesma tela do serviço.
+O plugin ingere os `APIProduct` do developer portal do RHCL como entidades do catálogo. O `travels-api` chega assim:
 
-**Ressalva:** a `RateLimitPolicy/travels-plans` é *gerada* pelo PlanPolicy (`ownerReferences: PlanPolicy/travels-plans`), então o label dela não está em git. Se o controlador reconciliar sem preservá-lo, ela some da aba — as outras três continuam.
+```
+API travels-api  (origem: kuadrant:travel-agency/travels-api)
+  kuadrant.io/apiproduct        travels-api
+  kuadrant.io/httproute         travels
+  kuadrant.io/auth-apikey       true
+  kuadrant.io/openapi-spec-url  https://.../q/openapi
+  tags                          travel, partners, rate-limited, kuadrant, apiproduct
+```
+
+#### Quatro obstáculos, todos silenciosos
+
+1. **`@` não pode iniciar escalar YAML.** `- package: @kuadrant/...` invalida o arquivo e o instalador pula as entradas **sem escrever log nenhum**. Precisa de aspas.
+2. **`integrity` é obrigatório** para pacote npm. Sem ele o init container aborta (`No integrity hash provided`) e o pod entra em `Init:CrashLoopBackOff`. O script busca o hash no registry.
+3. **O plugin lê `skipTLSVerify`, não `caData`.** Ele monta o próprio `KubeConfig` a partir de `kubernetes.clusterLocatorMethods[0].clusters[0]`. Sem a flag, todo list falha com `failed to list apiproducts: HTTP request failed`. As duas chaves convivem no app-config porque cada plugin lê uma.
+4. **`backstage.io/owner` no CR do APIProduct.** Sem ela o plugin lê, conta como publicado e não sincroniza: `has no backstage.io/owner annotation, skipping catalog sync` — e o catálogo fica vazio sem erro.
+
+Além disso, o RBAC precisa cobrir `devportal.kuadrant.io` (leitura em `apiproducts`, escrita em `apikeys`/`apikeyrequests`/`apikeyapprovals` para o fluxo de aprovação).
+
+Como fallback — e para os componentes que não são APIProduct — as policies continuam visíveis via `customResources` do plugin Kubernetes: `base/` rotula HTTPRoute, AuthPolicy e PlanPolicy com `app: travels`, e a página do componente `travels` mostra a cadeia inteira junto dos pods. Esse label não é lido por nenhum controlador do Kuadrant; existe para o portal.
+
+**Ressalva:** a `RateLimitPolicy/travels-plans` é *gerada* pelo PlanPolicy (`ownerReferences`), então o label dela não está em git.
 
 **Por que seletor de label e não `backstage.io/kubernetes-id`:** o id exigiria rotular os workloads, e eles vivem em `platform-reference/`, governados pelo Argo com `selfHeal` — o label seria revertido em segundos. O seletor reaproveita os labels que já existem.
 

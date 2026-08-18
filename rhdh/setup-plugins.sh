@@ -124,6 +124,41 @@ if [[ "${WITH_KIALI:-false}" == "true" ]]; then
   _warn "Kiali incluido -- fora do conjunto documentado pela Red Hat, e baixado do ghcr.io."
 fi
 
+# Kuadrant / Connectivity Link. EXISTE plugin -- @kuadrant/*, no npm publico,
+# v0.4.0. A doc oficial declara suporte ao RHDH 1.8.4 (Backstage 1.42.5) e aqui
+# roda 1.10.3 (Backstage 1.49.4): combinacao nao testada pelo projeto. O backend
+# embute as proprias dependencias e o frontend traz dist-scalprum, entao o
+# formato e o certo; o risco esta no skew de versao.
+#
+# Requer ainda: permission.enabled + politica de RBAC, e 'APIProduct' em
+# catalog.rules. Por isso fica atras de flag.
+if [[ "${WITH_KUADRANT:-false}" == "true" ]]; then
+  _kd_ver="${KUADRANT_PLUGIN_VERSION:-0.4.0}"
+  _npm_integrity() {
+    curl -sf "https://registry.npmjs.org/$(printf '%s' "$1" | sed 's|/|%2F|')/$2" \
+      | python3 -c "import json,sys; print(json.load(sys.stdin)['dist']['integrity'])" 2>/dev/null
+  }
+  _kd_be_hash="$(_npm_integrity '@kuadrant/kuadrant-backstage-plugin-backend-dynamic' "$_kd_ver")"
+  _kd_fe_hash="$(_npm_integrity '@kuadrant/kuadrant-backstage-plugin-frontend' "$_kd_ver")"
+  [[ -n "$_kd_be_hash" && -n "$_kd_fe_hash" ]] \
+    || _die "nao consegui obter o integrity dos pacotes @kuadrant no npm."
+  _plugins="${_plugins}
+      # As aspas NAO sao estilo: '@' e caractere reservado em YAML e nao pode
+      # iniciar um escalar simples. Sem elas o arquivo inteiro fica invalido --
+      # e o instalador pula as entradas sem escrever uma linha de log.
+      # 'integrity' e OBRIGATORIO para pacote vindo do npm: sem ele o init
+      # container aborta com 'No integrity hash provided' e o pod fica em
+      # Init:CrashLoopBackOff. Os hashes sao buscados acima, no registry.
+      # (aspas simples de proposito: aspas duplas aqui fechariam a string.)
+      - package: \"@kuadrant/kuadrant-backstage-plugin-backend-dynamic@${_kd_ver}\"
+        integrity: \"${_kd_be_hash}\"
+        disabled: false
+      - package: \"@kuadrant/kuadrant-backstage-plugin-frontend@${_kd_ver}\"
+        integrity: \"${_kd_fe_hash}\"
+        disabled: false"
+  _warn "plugin Kuadrant incluido (v${_kd_ver}) -- versao de RHDH nao coberta pela doc do projeto."
+fi
+
 # Camada GitHub: se o Secret existe, os plugins dela entram nesta mesma lista.
 if oc get secret rhdh-github-secret -n "$RHDH_NS" >/dev/null 2>&1; then
   _gh_branch="${GITHUB_BRANCH:-main}"
@@ -203,6 +238,12 @@ data:
               authProvider: serviceAccount
               serviceAccountToken: \${K8S_CLUSTER_TOKEN}
               caData: \${K8S_CLUSTER_CA}
+              # As duas chaves convivem porque cada plugin le uma. O plugin
+              # Kubernetes ignora ambas e depende do NODE_EXTRA_CA_CERTS; o
+              # plugin @kuadrant/* monta o proprio KubeConfig e le SO o
+              # skipTLSVerify -- sem ele, todo list de APIProduct falha com
+              # "failed to list apiproducts: HTTP request failed".
+              skipTLSVerify: true
               skipMetricsLookup: false
               customResources:
                 - group: route.openshift.io

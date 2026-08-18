@@ -62,7 +62,7 @@ data:
     # lista vazia aqui competiria com a camada de catalogo.
     catalog:
       rules:
-        - allow: [Component, System, Domain, Group, User, Resource, Location, Template, API]
+        - allow: [Component, System, Domain, Group, User, Resource, Location, Template, API, APIProduct]
 ---
 # ---------------------------------------------------------------------------
 # Instancia RHDH.
