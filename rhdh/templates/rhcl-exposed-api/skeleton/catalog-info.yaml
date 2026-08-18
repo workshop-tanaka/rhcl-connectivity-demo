@@ -3,6 +3,13 @@ kind: Component
 metadata:
   name: ${{ values.name }}
   description: ${{ values.description }}
+  annotations:
+    # Diferente dos servicos da demo, este nasce com Deployment rotulado e com
+    # repositorio proprio -- entao as abas Kubernetes, Topology e GitHub tem
+    # conteudo de verdade, especifico deste servico.
+    backstage.io/kubernetes-label-selector: app=${{ values.name }}
+    backstage.io/kubernetes-namespace: ${{ values.namespace }}
+    github.com/project-slug: ${{ values.repoSlug }}
   links:
     - url: https://${{ values.hostname }}
       title: Endpoint

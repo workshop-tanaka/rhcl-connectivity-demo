@@ -148,13 +148,17 @@ if oc get secret rhdh-github-secret -n "$RHDH_NS" >/dev/null 2>&1; then
                       minutes: 3
       - package: ./dynamic-plugins/dist/backstage-plugin-scaffolder-backend-module-github-dynamic
         disabled: false
-      # Frontends do GitHub: abas na pagina da entidade. Community supported,
-      # vindos do ghcr -- a tag amarra o build ao Backstage 1.49.4 do RHDH 1.10.
-      # Dependem da anotacao github.com/project-slug na entidade.
-      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-github-actions:bs_1.49.4__0.22.0!backstage-community-plugin-github-actions
-        disabled: false
-      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-github-issues:bs_1.49.4__0.21.0!backstage-community-plugin-github-issues
-        disabled: false
+      # Aba do GitHub na pagina da entidade. Community supported, vinda do ghcr
+      # -- a tag amarra o build ao Backstage 1.49.4 do RHDH 1.10.
+      #
+      # So o Insights entra. Foi medido: o repo da demo nao tem workflow nem
+      # issue, entao as abas Actions e Issues apareceriam vazias em todo
+      # componente -- e uma aba vazia custa mais credibilidade do que a
+      # ausencia dela. O Insights mostra o README do repositorio DAQUELE
+      # servico, que so existe nos servicos criados pelo software template.
+      # Para religar as outras duas quando houver CI:
+      #   backstage-community-plugin-github-actions:bs_1.49.4__0.22.0
+      #   backstage-community-plugin-github-issues:bs_1.49.4__0.21.0
       - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/roadiehq-backstage-plugin-github-insights:bs_1.49.4__3.5.0!roadiehq-backstage-plugin-github-insights
         disabled: false"
   _log "camada GitHub detectada -- plugins incluidos."

@@ -245,7 +245,6 @@ metadata:
   annotations:
     backstage.io/kubernetes-label-selector: app=travels
     backstage.io/kubernetes-namespace: travel-agency
-    github.com/project-slug: ${DEMO_REPO_SLUG}
 spec:
   type: service
   lifecycle: production
@@ -269,7 +268,6 @@ metadata:
   annotations:
     backstage.io/kubernetes-label-selector: app=flights
     backstage.io/kubernetes-namespace: travel-agency
-    github.com/project-slug: ${DEMO_REPO_SLUG}
 spec:
   type: service
   lifecycle: production
@@ -286,7 +284,6 @@ metadata:
   annotations:
     backstage.io/kubernetes-label-selector: app=hotels
     backstage.io/kubernetes-namespace: travel-agency
-    github.com/project-slug: ${DEMO_REPO_SLUG}
 spec:
   type: service
   lifecycle: production
@@ -303,7 +300,6 @@ metadata:
   annotations:
     backstage.io/kubernetes-label-selector: app=cars
     backstage.io/kubernetes-namespace: travel-agency
-    github.com/project-slug: ${DEMO_REPO_SLUG}
 spec:
   type: service
   lifecycle: production
@@ -320,7 +316,6 @@ metadata:
   annotations:
     backstage.io/kubernetes-label-selector: app=insurances
     backstage.io/kubernetes-namespace: travel-agency
-    github.com/project-slug: ${DEMO_REPO_SLUG}
 spec:
   type: service
   lifecycle: production
@@ -339,7 +334,6 @@ metadata:
   annotations:
     backstage.io/kubernetes-label-selector: app=discounts
     backstage.io/kubernetes-namespace: travel-agency
-    github.com/project-slug: ${DEMO_REPO_SLUG}
 spec:
   type: service
   lifecycle: production
@@ -360,7 +354,6 @@ metadata:
   annotations:
     backstage.io/kubernetes-label-selector: app.kubernetes.io/name=echo-api
     backstage.io/kubernetes-namespace: echo-api
-    github.com/project-slug: ${DEMO_REPO_SLUG}
 spec:
   type: service
   lifecycle: production

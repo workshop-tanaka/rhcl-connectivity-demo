@@ -118,6 +118,9 @@ spec:
           rateLimit: ${{ parameters.rateLimit }}
           rateLimitWindow: ${{ parameters.rateLimitWindow }}
           repoUrl: ${{ parameters.repoUrl }}
+          # Slug calculado aqui, num lugar so: o skeleton nao deve repetir o
+          # filtro. Alimenta a anotacao github.com/project-slug do componente.
+          repoSlug: ${{ (parameters.repoUrl | parseRepoUrl).owner }}/${{ (parameters.repoUrl | parseRepoUrl).repo }}
 
     - id: publish
       name: Publicar no GitHub
