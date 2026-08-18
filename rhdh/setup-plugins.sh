@@ -195,25 +195,43 @@ if [[ "${WITH_KUADRANT:-false}" == "true" ]]; then
                     config:
                       layout:
                         gridColumn: '1 / -1'
+                      # isKind: api sozinho colocaria a aba em TODA entidade
+                      # API -- inclusive as escritas a mao, que nao vem do
+                      # developer portal e renderizariam vazias. A anotacao so
+                      # existe nas entidades que o proprio plugin ingeriu a
+                      # partir de um APIProduct.
                       if:
                         allOf:
                           - isKind: api
+                          - hasAnnotation: kuadrant.io/apiproduct
                   - mountPoint: entity.page.api-product-info/cards
                     importName: EntityKuadrantApiProductInfoContent
                     config:
                       layout:
                         gridColumn: '1 / -1'
+                      # isKind: api sozinho colocaria a aba em TODA entidade
+                      # API -- inclusive as escritas a mao, que nao vem do
+                      # developer portal e renderizariam vazias. A anotacao so
+                      # existe nas entidades que o proprio plugin ingeriu a
+                      # partir de um APIProduct.
                       if:
                         allOf:
                           - isKind: api
+                          - hasAnnotation: kuadrant.io/apiproduct
                   - mountPoint: entity.page.overview/cards
                     importName: EntityKuadrantApiAccessCard
                     config:
                       layout:
                         gridColumn: '1 / -1'
+                      # isKind: api sozinho colocaria a aba em TODA entidade
+                      # API -- inclusive as escritas a mao, que nao vem do
+                      # developer portal e renderizariam vazias. A anotacao so
+                      # existe nas entidades que o proprio plugin ingeriu a
+                      # partir de um APIProduct.
                       if:
                         allOf:
                           - isKind: api
+                          - hasAnnotation: kuadrant.io/apiproduct
               kuadrant.kuadrant-backstage-plugin-frontend: *kuadrantFrontend"
   _warn "plugin Kuadrant incluido (v${_kd_ver}) -- versao de RHDH nao coberta pela doc do projeto."
 fi
