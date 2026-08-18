@@ -62,3 +62,15 @@ patches:
         name: ratelimit-policy-travels
         namespace: travel-agency
       $patch: delete
+
+  # A camada devportal/ introduz um segundo emissor de chave, que grava o plano
+  # como annotation em vez de label -- e o predicate original, que le so o
+  # label, ERRA em CEL e deixa a chave sem limite. O patch faz a leitura
+  # aceitar os dois. Ver o cabecalho do arquivo.
+  - path: patch-planpolicy-plan-id.yaml
+    target:
+      group: extensions.kuadrant.io
+      version: v1alpha1
+      kind: PlanPolicy
+      name: travels-plans
+      namespace: travel-agency

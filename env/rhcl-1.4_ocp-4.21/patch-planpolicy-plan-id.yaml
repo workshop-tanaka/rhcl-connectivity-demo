@@ -1,0 +1,42 @@
+# ===========================================================================
+# PlanPolicy travels-plans: classificar por LABEL ou por ANNOTATION.
+#
+# Por que isto existe nesta camada e nao na base/:
+#
+# No 1.2 havia um unico emissor de chave -- o Secret escrito a mao em
+# base/identity/, que carrega o label 'kuadrant.io/plan-id'. No 1.4.2 entra um
+# SEGUNDO emissor: ao aprovar um APIKey, o controller do developer portal cunha
+# um Secret novo (devportal-<ns>-<apikey>-<hash>) com 'app: partner' -- portanto
+# visivel para o Authorino -- mas grava o plano como ANNOTATION
+# 'secret.kuadrant.io/plan-id'. O predicate original le so o label.
+#
+# O efeito e a armadilha 1 do RUNBOOK alcancada por outro caminho: indexar uma
+# chave ausente em CEL nao devolve false, ERRA, e o erro aborta a classificacao
+# inteira -- inclusive o tier catch-all 'unclassified', cujo predicate e 'true'.
+# Chave aprovada pelo portal = chave sem limite nenhum, respondendo 200.
+#
+# O mesmo vale para qualquer portal externo que emita chave: o
+# rhcl-developer-portal grava a mesma annotation. Corrigir aqui cobre os dois
+# emissores de uma vez, em vez de remendar cada um.
+#
+# A leitura e defensiva nos dois niveis: 'has()' antes de 'in', 'in' antes de
+# indexar. Sem chave reconhecida o resultado e "", que nao casa com nenhum tier
+# nomeado e cai no 'unclassified' -- fail-CLOSED, que era a intencao original do
+# catch-all.
+#
+# JSON 6902 e nao merge: 'plans' e lista em CRD sem schema conhecido pelo
+# kustomize. O indice segue a ordem de base/policies-plans/travels-plans.yaml
+# (0=gold, 1=silver, 2=free); 'unclassified' (3) nao muda -- o predicate dele e
+# 'true'.
+# ===========================================================================
+- op: replace
+  path: /spec/plans/0/predicate
+  value: '(has(auth.identity.metadata.labels) && "kuadrant.io/plan-id" in auth.identity.metadata.labels ? auth.identity.metadata.labels["kuadrant.io/plan-id"] : (has(auth.identity.metadata.annotations) && "secret.kuadrant.io/plan-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] : "")) == "gold"'
+
+- op: replace
+  path: /spec/plans/1/predicate
+  value: '(has(auth.identity.metadata.labels) && "kuadrant.io/plan-id" in auth.identity.metadata.labels ? auth.identity.metadata.labels["kuadrant.io/plan-id"] : (has(auth.identity.metadata.annotations) && "secret.kuadrant.io/plan-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] : "")) == "silver"'
+
+- op: replace
+  path: /spec/plans/2/predicate
+  value: '(has(auth.identity.metadata.labels) && "kuadrant.io/plan-id" in auth.identity.metadata.labels ? auth.identity.metadata.labels["kuadrant.io/plan-id"] : (has(auth.identity.metadata.annotations) && "secret.kuadrant.io/plan-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] : "")) == "free"'
