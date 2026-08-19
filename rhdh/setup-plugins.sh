@@ -86,11 +86,17 @@ K8S_CLUSTER_CA="$(oc get configmap kube-root-ca.crt -n "$RHDH_NS" \
                     -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 | tr -d '\n')"
 [[ -n "$K8S_CLUSTER_CA" ]] || _die "nao consegui ler o CA em kube-root-ca.crt."
 
+# Host do Kiali, para o provider do plugin de Service Mesh. Ausente = plugin
+# carrega e a aba fica sem backend, entao vale avisar em vez de falhar mudo.
+_kiali_host="$(oc get route kiali -n istio-system -o jsonpath='{.spec.host}' 2>/dev/null)"
+[[ -n "$_kiali_host" ]] || _warn "rota do Kiali nao encontrada em istio-system; a aba Kiali ficara sem backend."
+
 oc create secret generic rhdh-kubernetes-secret -n "$RHDH_NS" \
   --from-literal=K8S_CLUSTER_NAME="$K8S_CLUSTER_NAME" \
   --from-literal=K8S_CLUSTER_URL="$K8S_CLUSTER_URL" \
   --from-literal=K8S_CLUSTER_TOKEN="$K8S_TOKEN" \
   --from-literal=K8S_CLUSTER_CA="$K8S_CLUSTER_CA" \
+  --from-literal=KIALI_HOST="$_kiali_host" \
   --dry-run=client -o yaml | oc apply -f - >/dev/null \
   || _die "falha ao criar rhdh-kubernetes-secret."
 _ok "cluster registrado como '${K8S_CLUSTER_NAME}'."
@@ -317,6 +323,14 @@ metadata:
   namespace: ${RHDH_NS}
 data:
   app-config-plugins.yaml: |
+    # O Kiali E o console de Service Mesh -- nao existe plugin separado de
+    # 'Service Mesh'. Reusa o token da ServiceAccount de leitura.
+    kiali:
+      providers:
+        - name: default
+          url: https://\${KIALI_HOST}
+          serviceAccountToken: \${K8S_CLUSTER_TOKEN}
+          skipTLSVerify: true
     kubernetes:
       serviceLocatorMethod:
         type: multiTenant

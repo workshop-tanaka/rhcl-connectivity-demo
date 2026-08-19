@@ -35,6 +35,10 @@ metadata:
 spec:
   profile:
     displayName: Guest
+    # O e-mail NAO e decorativo: o plugin Kuadrant desabilita o botao
+    # 'Request API Access' sem ele e mostra "Email address is required" ao lado.
+    # A chave emitida fica associada a este endereco.
+    email: guest@travel-agency.demo
   memberOf:
     - group:default/platform-team
 ---
@@ -167,54 +171,16 @@ kind: System
 metadata:
   name: travel-agency
   description: Aplicacao de exemplo exposta pelo Gateway prod-web.
+  # Nao ha plugin de Grafana instalavel no RHDH 1.10 -- nem no ghcr (so builds
+  # de PR) nem no npm (o pacote nao traz build dinamico). O link direto ao
+  # dashboard resolve o mesmo problema numa demo: sair do portal para o numero.
+  links:
+    - url: https://${GRAFANA_HOST}/d/rhcl-planos
+      title: Planos comerciais (Grafana)
+      icon: dashboard
 spec:
   owner: group:default/platform-team
   domain: travel
----
-apiVersion: backstage.io/v1alpha1
-kind: API
-metadata:
-  name: travel-agency-api
-  description: API publica do travel-agency, exposta pela HTTPRoute travel-agency.
-  links:
-    - url: https://${DEMO_API_HOST}
-      title: Endpoint
-      icon: web
-spec:
-  type: openapi
-  lifecycle: production
-  owner: group:default/platform-team
-  system: travel-agency
-  definition: |
-    openapi: 3.0.3
-    info:
-      title: Travel Agency API
-      version: "1.0.0"
-      description: >-
-        Exposta pelo Gateway prod-web. A autenticacao e por API key em query
-        string, imposta pela AuthPolicy do RHCL na borda -- o servico travels
-        nao valida credencial nenhuma por conta propria.
-    servers:
-      - url: https://${DEMO_API_HOST}
-    security:
-      - ApiKeyQuery: []
-    paths:
-      /:
-        get:
-          summary: Raiz do servico travels
-          responses:
-            "200":
-              description: OK
-            "401":
-              description: API key ausente ou invalida (AuthPolicy travel-agency-authpolicy)
-            "429":
-              description: Limite excedido (RateLimitPolicy do gateway ou da rota)
-    components:
-      securitySchemes:
-        ApiKeyQuery:
-          type: apiKey
-          in: query
-          name: APIKEY
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Resource
@@ -272,13 +238,25 @@ metadata:
   annotations:
     backstage.io/kubernetes-label-selector: app=travels
     backstage.io/kubernetes-namespace: travel-agency
+    # A aba Kiali usa o mesmo namespace; o provider e o nome do
+    # bloco kiali.providers no app-config.
+    kiali.io/provider: default
+  links:
+    - url: https://${TRACING_HOST}/search?service=travels.travel-agency
+      title: Traces (Tempo)
+      icon: dashboard
 spec:
   type: service
   lifecycle: production
   owner: group:default/platform-team
   system: travel-agency
+  # A entidade travels-api e ingerida pelo plugin Kuadrant a partir do
+  # APIProduct do developer portal -- nao esta neste arquivo. O provider nao le
+  # 'system' de anotacao nenhuma, entao a unica forma de tirar aquela entidade
+  # do isolamento no grafo e declarar a relacao DAQUI: providesApis gera o
+  # apiProvidedBy do outro lado, e a API passa a ser alcancavel pelo System.
   providesApis:
-    - travel-agency-api
+    - travels-api
   dependsOn:
     - component:default/flights
     - component:default/hotels
@@ -295,6 +273,13 @@ metadata:
   annotations:
     backstage.io/kubernetes-label-selector: app=flights
     backstage.io/kubernetes-namespace: travel-agency
+    # A aba Kiali usa o mesmo namespace; o provider e o nome do
+    # bloco kiali.providers no app-config.
+    kiali.io/provider: default
+  links:
+    - url: https://${TRACING_HOST}/search?service=flights.travel-agency
+      title: Traces (Tempo)
+      icon: dashboard
 spec:
   type: service
   lifecycle: production
@@ -311,6 +296,13 @@ metadata:
   annotations:
     backstage.io/kubernetes-label-selector: app=hotels
     backstage.io/kubernetes-namespace: travel-agency
+    # A aba Kiali usa o mesmo namespace; o provider e o nome do
+    # bloco kiali.providers no app-config.
+    kiali.io/provider: default
+  links:
+    - url: https://${TRACING_HOST}/search?service=hotels.travel-agency
+      title: Traces (Tempo)
+      icon: dashboard
 spec:
   type: service
   lifecycle: production
@@ -327,6 +319,13 @@ metadata:
   annotations:
     backstage.io/kubernetes-label-selector: app=cars
     backstage.io/kubernetes-namespace: travel-agency
+    # A aba Kiali usa o mesmo namespace; o provider e o nome do
+    # bloco kiali.providers no app-config.
+    kiali.io/provider: default
+  links:
+    - url: https://${TRACING_HOST}/search?service=cars.travel-agency
+      title: Traces (Tempo)
+      icon: dashboard
 spec:
   type: service
   lifecycle: production
@@ -343,6 +342,13 @@ metadata:
   annotations:
     backstage.io/kubernetes-label-selector: app=insurances
     backstage.io/kubernetes-namespace: travel-agency
+    # A aba Kiali usa o mesmo namespace; o provider e o nome do
+    # bloco kiali.providers no app-config.
+    kiali.io/provider: default
+  links:
+    - url: https://${TRACING_HOST}/search?service=insurances.travel-agency
+      title: Traces (Tempo)
+      icon: dashboard
 spec:
   type: service
   lifecycle: production
@@ -361,6 +367,13 @@ metadata:
   annotations:
     backstage.io/kubernetes-label-selector: app=discounts
     backstage.io/kubernetes-namespace: travel-agency
+    # A aba Kiali usa o mesmo namespace; o provider e o nome do
+    # bloco kiali.providers no app-config.
+    kiali.io/provider: default
+  links:
+    - url: https://${TRACING_HOST}/search?service=discounts.travel-agency
+      title: Traces (Tempo)
+      icon: dashboard
 spec:
   type: service
   lifecycle: production
@@ -375,12 +388,18 @@ metadata:
     Servico de eco em namespace separado, anexado ao mesmo Gateway. Serve para
     mostrar o deny-all da borda: sem AuthPolicy propria, esta rota nao responde.
   links:
+    - url: https://${TRACING_HOST}/search?service=echo-api.echo-api
+      title: Traces (Tempo)
+      icon: dashboard
     - url: https://${DEMO_ECHO_HOST}
       title: Endpoint
       icon: web
   annotations:
     backstage.io/kubernetes-label-selector: app.kubernetes.io/name=echo-api
     backstage.io/kubernetes-namespace: echo-api
+    # A aba Kiali usa o mesmo namespace; o provider e o nome do
+    # bloco kiali.providers no app-config.
+    kiali.io/provider: default
 spec:
   type: service
   lifecycle: production
@@ -407,7 +426,7 @@ spec:
   owner: group:default/platform-team
   system: travel-agency
   consumesApis:
-    - travel-agency-api
+    - travels-api
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Component
@@ -421,7 +440,7 @@ spec:
   owner: group:default/platform-team
   system: travel-agency
   consumesApis:
-    - travel-agency-api
+    - travels-api
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Component
@@ -435,4 +454,4 @@ spec:
   owner: group:default/platform-team
   system: travel-agency
   consumesApis:
-    - travel-agency-api
+    - travels-api

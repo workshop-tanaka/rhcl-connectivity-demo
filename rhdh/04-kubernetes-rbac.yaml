@@ -72,6 +72,25 @@ rules:
   - apiGroups: [devportal.kuadrant.io]
     resources: [apikeys, apikeyrequests, apikeyapprovals]
     verbs: [get, list, watch, create, update, patch, delete]
+  # ATENCAO -- PRIVILEGIO ALTO, e exigido pelo fluxo de chave do plugin.
+  #
+  # O plugin guarda a chave de cada usuario num namespace PROPRIO, criado por
+  # ele: kuadrant-<usuario>-<hash>. Como o nome so existe em runtime, nao da
+  # para restringir por resourceNames -- e create de namespace e escrita de
+  # secret valem para o cluster inteiro.
+  #
+  # Sem isto, o pedido falha com 500 em /api/kuadrant/secrets e a unica pista
+  # fica no log do backend:
+  #   namespaces "kuadrant-guest-..." is forbidden: ... cannot get resource
+  #   "namespaces"
+  #
+  # Aceitavel num cluster de demo. Em producao, revise antes de aplicar.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch, create]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create, update, patch, delete]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

@@ -58,13 +58,23 @@ fi
 # remote do proprio repo: fixa-lo no YAML amarraria o catalogo a um fork.
 DEMO_REPO_SLUG="${DEMO_REPO_SLUG:-$(git -C "${_here}/.." remote get-url origin 2>/dev/null \
   | sed -E 's|.*github\.com[:/]||; s|\.git$||')}"
-export DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_SLUG
+# Hosts de observabilidade, para os links das entidades. Nao ha plugin de
+# Grafana nem de Tempo instalavel no RHDH 1.10 (nenhum build para o Backstage
+# 1.49.4), entao o portal leva ate eles por link em vez de embutir.
+_route_of() { oc get route "$1" -n "$2" -o jsonpath='{.spec.host}' 2>/dev/null; }
+GRAFANA_HOST="${GRAFANA_HOST:-$(_route_of grafana-route monitoring)}"
+TRACING_HOST="${TRACING_HOST:-$(_route_of tempo-tempo-jaegerui tracing-system)}"
+[[ -n "$GRAFANA_HOST" ]] || { GRAFANA_HOST="grafana.example.com"; _warn "rota do Grafana nao encontrada; link com placeholder."; }
+[[ -n "$TRACING_HOST" ]] || { TRACING_HOST="tracing.example.com"; _warn "rota do Tempo nao encontrada; link com placeholder."; }
+_log "observabilidade: ${GRAFANA_HOST} / ${TRACING_HOST}"
+
+export DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_SLUG GRAFANA_HOST TRACING_HOST
 _log "hosts da demo: ${DEMO_API_HOST} / ${DEMO_ECHO_HOST}"
 
 # ----- 2. entidades renderizadas -------------------------------------------
 _rendered="$(mktemp)"
 trap 'rm -f "$_rendered"' EXIT
-envsubst '${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_SLUG}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
+envsubst '${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_SLUG} ${GRAFANA_HOST} ${TRACING_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
   || _die "falha ao renderizar catalog/travel-agency.yaml"
 
 # Sem remote no GitHub a anotacao sairia vazia, e as abas do GitHub falhariam
