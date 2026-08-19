@@ -353,6 +353,16 @@ metadata:
   namespace: ${RHDH_NS}
 data:
   app-config-plugins.yaml: |
+    # TechDocs gerando no proprio pod: a imagem do RHDH ja traz mkdocs em
+    # /opt/techdocs-venv, entao nao precisa de S3 nem de build em CI para uma
+    # demo. Em produção, prefira 'external' com os docs publicados por pipeline.
+    techdocs:
+      builder: local
+      generator:
+        runIn: local
+      publisher:
+        type: local
+
     # O Kiali E o console de Service Mesh -- nao existe plugin separado de
     # 'Service Mesh'. Reusa o token da ServiceAccount de leitura.
     kiali:

@@ -1,0 +1,17 @@
+# TechDocs da demo RHCL.
+#
+# O RHDH gera a documentacao no proprio pod (mkdocs 1.6 vive em
+# /opt/techdocs-venv), buscando este repositorio pela anotacao
+# backstage.io/techdocs-ref da entidade. Sem a anotacao, a secao Docs do portal
+# fica vazia -- o plugin esta ligado por padrao, mas nao tem o que renderizar.
+site_name: RHCL Connectivity Demo
+site_description: Roteiro e provisionamento da demo de Red Hat Connectivity Link
+
+docs_dir: docs
+
+nav:
+  - Roteiro: RUNBOOK.md
+  - Provisionamento 1.4: PROVISIONING-1.4.md
+
+plugins:
+  - techdocs-core
