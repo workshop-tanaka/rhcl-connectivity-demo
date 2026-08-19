@@ -125,6 +125,36 @@ if [[ "${WITH_KIALI:-false}" == "true" ]]; then
   _plugins="${_plugins}
       - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-kiali:${_kiali_tag}!backstage-community-plugin-kiali
         disabled: false
+        # Sem declarar rota e aba, o plugin carrega e a UI fica igual -- foi o
+        # que aconteceu com o Kuadrant. Os nomes vem do README do pacote
+        # upstream, nao do bundle (que esta minificado).
+        pluginConfig:
+          dynamicPlugins:
+            frontend:
+              backstage-community.plugin-kiali:
+                appIcons:
+                  - name: kialiIcon
+                    importName: KialiIcon
+                dynamicRoutes:
+                  - path: /kiali
+                    importName: KialiPage
+                    menuItem:
+                      icon: kialiIcon
+                      text: Kiali
+                entityTabs:
+                  - path: /kiali
+                    title: Kiali
+                    mountPoint: entity.page.kiali
+                mountPoints:
+                  - mountPoint: entity.page.kiali/cards
+                    importName: EntityKialiContent
+                    config:
+                      layout:
+                        gridColumn: '1 / -1'
+                      if:
+                        allOf:
+                          - isKind: component
+                          - hasAnnotation: kiali.io/provider
       - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-kiali-backend:${_kiali_be_tag}!backstage-community-plugin-kiali-backend
         disabled: false"
   _warn "Kiali incluido -- fora do conjunto documentado pela Red Hat, e baixado do ghcr.io."
