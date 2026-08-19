@@ -11,6 +11,33 @@
 # ${DEMO_API_HOST} e ${DEMO_ECHO_HOST} sao substituidos pelo setup-catalog.sh
 # com os hostnames reais lidos das HTTPRoutes do cluster.
 # ===========================================================================
+# ---------------------------------------------------------------------------
+# O usuario 'guest'.
+#
+# O provider guest emite a identidade user:development/guest -- namespace
+# 'development', que vem de auth.environment, e NAO 'default'. Sem esta
+# entidade o portal funciona (dangerouslyAllowSignInWithoutUserInCatalog
+# permite entrar), mas todo consumidor da identity API recebe 404:
+#
+#   GET /api/catalog/entities/by-name/user/development/guest -> 404
+#
+# E o que se suspeita bloquear o fluxo de pedido de API key do plugin Kuadrant,
+# que emite chave por usuario. Criar a entidade e mais barato que ligar RBAC.
+#
+# Ao trocar guest por um IdP real, esta entidade sai junto com o provider.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: guest
+  namespace: development
+  description: Identidade emitida pelo provider guest. Lab apenas.
+spec:
+  profile:
+    displayName: Guest
+  memberOf:
+    - group:default/platform-team
+---
 apiVersion: backstage.io/v1alpha1
 kind: Group
 metadata:
