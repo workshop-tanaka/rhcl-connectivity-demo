@@ -33,7 +33,28 @@ command -v oc >/dev/null       || _die "oc nao encontrado no PATH."
 command -v envsubst >/dev/null || _die "envsubst nao encontrado (brew install gettext)."
 oc whoami >/dev/null 2>&1      || _die "nao autenticado no cluster (oc login)."
 
-RHDH_NS="${RHDH_NS:-rhdh}"
+# ----- qual RHDH e o da demo -----------------------------------------------
+# O cluster pode ja vir com um RHDH proprio em 'rhdh' -- e este cluster vem, com
+# uma instancia de 13 dias que nao e nossa. Assumir o namespace fixo erra de
+# duas maneiras ao mesmo tempo: o preflight aprova o portal errado e depois
+# reclama do catalogo que nao esta la (foi o que aconteceu), e os setup-*.sh
+# escrevem a configuracao da demo POR CIMA da instancia do cluster.
+#
+# O marcador da NOSSA instalacao e o Secret 'rhdh-backend-secret', que so o
+# rhdh/install.sh cria. RHDH_NS no ambiente continua vencendo tudo.
+_discover_rhdh_ns() {
+  local ns
+  for ns in $(oc get backstage -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | sort -u); do
+    oc get secret rhdh-backend-secret -n "$ns" >/dev/null 2>&1 && { printf '%s' "$ns"; return; }
+  done
+  # Ainda nao ha instancia nossa: se 'rhdh' ja e de outro, nao dispute o
+  # namespace com ele -- adotar o CR alheio reconfigura o portal do cluster.
+  if [[ -n "$(oc get backstage -n rhdh --no-headers 2>/dev/null)" ]]; then
+    printf 'rhdh-rhcl'; return
+  fi
+  printf 'rhdh'
+}
+RHDH_NS="${RHDH_NS:-$(_discover_rhdh_ns)}"
 export RHDH_NS
 RHDH_CR="${RHDH_CR:-developer-hub}"
 CATALOG_SVC="rhdh-catalog-server.${RHDH_NS}.svc.cluster.local:8080"
@@ -62,6 +83,12 @@ DEMO_REPO_SLUG="${DEMO_REPO_SLUG:-$(git -C "${_here}/.." remote get-url origin 2
 # Grafana nem de Tempo instalavel no RHDH 1.10 (nenhum build para o Backstage
 # 1.49.4), entao o portal leva ate eles por link em vez de embutir.
 _route_of() { oc get route "$1" -n "$2" -o jsonpath='{.spec.host}' 2>/dev/null; }
+# Dev Spaces. O host vem do STATUS do CheCluster, nao de uma Route pelo nome:
+# o operator cria a rota com nome variavel e so publica o endereco final aqui
+# depois de chegar em Active -- ler antes disso devolve string vazia, que e o
+# caso que o bloco de omissao mais abaixo trata.
+DEVSPACES_HOST="${DEVSPACES_HOST:-$(oc get checluster devspaces -n openshift-devspaces \
+  -o jsonpath='{.status.cheURL}' 2>/dev/null | sed -E 's|^https?://||; s|/$||')}"
 GRAFANA_HOST="${GRAFANA_HOST:-$(_route_of grafana-route monitoring)}"
 TRACING_HOST="${TRACING_HOST:-$(_route_of tempo-tempo-jaegerui tracing-system)}"
 [[ -n "$GRAFANA_HOST" ]] || { GRAFANA_HOST="grafana.example.com"; _warn "rota do Grafana nao encontrada; link com placeholder."; }
@@ -75,13 +102,13 @@ DEMO_REPO_BRANCH="${DEMO_REPO_BRANCH:-$(git -C "${_here}/.." rev-parse --abbrev-
 [[ -n "$DEMO_REPO_BRANCH" ]] || DEMO_REPO_BRANCH="main"
 _log "branch dos TechDocs: ${DEMO_REPO_BRANCH}"
 
-export DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_SLUG GRAFANA_HOST TRACING_HOST DEMO_REPO_BRANCH
+export DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_SLUG GRAFANA_HOST TRACING_HOST DEMO_REPO_BRANCH DEVSPACES_HOST
 _log "hosts da demo: ${DEMO_API_HOST} / ${DEMO_ECHO_HOST}"
 
 # ----- 2. entidades renderizadas -------------------------------------------
 _rendered="$(mktemp)"
 trap 'rm -f "$_rendered"' EXIT
-envsubst '${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_SLUG} ${GRAFANA_HOST} ${TRACING_HOST} ${DEMO_REPO_BRANCH}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
+envsubst '${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_SLUG} ${GRAFANA_HOST} ${TRACING_HOST} ${DEMO_REPO_BRANCH} ${DEVSPACES_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
   || _die "falha ao renderizar catalog/travel-agency.yaml"
 
 # Sem remote no GitHub a anotacao sairia vazia, e as abas do GitHub falhariam
@@ -91,6 +118,16 @@ if [[ -z "$DEMO_REPO_SLUG" ]]; then
   _warn "sem remote github -- abas do GitHub omitidas do catalogo."
 else
   _log "repositorio das abas do GitHub: ${DEMO_REPO_SLUG}"
+fi
+
+# Dev Spaces ausente: o link sairia como 'https:///#...' -- um destino que
+# carrega e nao vai a lugar nenhum, pior que a ausencia do botao. Apaga-se o
+# item inteiro (as tres linhas de url/title/icon) em vez de publica-lo quebrado.
+if [[ -z "$DEVSPACES_HOST" ]]; then
+  sed -i.bak '/^ *- url: https:\/\/\/#/,+2d' "$_rendered" && rm -f "${_rendered}.bak"
+  _warn "CheCluster nao encontrado (ou ainda nao Active) -- link do Dev Spaces omitido."
+else
+  _log "Dev Spaces: ${DEVSPACES_HOST}"
 fi
 
 # ----- 2b. fidelidade: so entra no catalogo o que existe no cluster ---------

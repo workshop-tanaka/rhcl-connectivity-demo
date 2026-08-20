@@ -37,7 +37,28 @@ command -v oc >/dev/null       || _die "oc nao encontrado no PATH."
 command -v envsubst >/dev/null || _die "envsubst nao encontrado (brew install gettext)."
 oc whoami >/dev/null 2>&1      || _die "nao autenticado no cluster (oc login)."
 
-RHDH_NS="${RHDH_NS:-rhdh}"
+# ----- qual RHDH e o da demo -----------------------------------------------
+# O cluster pode ja vir com um RHDH proprio em 'rhdh' -- e este cluster vem, com
+# uma instancia de 13 dias que nao e nossa. Assumir o namespace fixo erra de
+# duas maneiras ao mesmo tempo: o preflight aprova o portal errado e depois
+# reclama do catalogo que nao esta la (foi o que aconteceu), e os setup-*.sh
+# escrevem a configuracao da demo POR CIMA da instancia do cluster.
+#
+# O marcador da NOSSA instalacao e o Secret 'rhdh-backend-secret', que so o
+# rhdh/install.sh cria. RHDH_NS no ambiente continua vencendo tudo.
+_discover_rhdh_ns() {
+  local ns
+  for ns in $(oc get backstage -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | sort -u); do
+    oc get secret rhdh-backend-secret -n "$ns" >/dev/null 2>&1 && { printf '%s' "$ns"; return; }
+  done
+  # Ainda nao ha instancia nossa: se 'rhdh' ja e de outro, nao dispute o
+  # namespace com ele -- adotar o CR alheio reconfigura o portal do cluster.
+  if [[ -n "$(oc get backstage -n rhdh --no-headers 2>/dev/null)" ]]; then
+    printf 'rhdh-rhcl'; return
+  fi
+  printf 'rhdh'
+}
+RHDH_NS="${RHDH_NS:-$(_discover_rhdh_ns)}"
 RHDH_CR="${RHDH_CR:-developer-hub}"
 export RHDH_NS
 
@@ -112,6 +133,31 @@ _plugins=$(cat <<'EOF'
         disabled: false
       - package: ./dynamic-plugins/dist/backstage-community-plugin-topology
         disabled: false
+      # Notifications + Signals. Ambos vem na imagem e o package.json declara
+      # supported-versions 1.49.4, que casa com este RHDH. O Signals entra
+      # junto porque e ele que entrega a notificacao em tempo real -- sem ele a
+      # sineta so atualiza quando a pagina recarrega.
+      - package: ./dynamic-plugins/dist/backstage-plugin-notifications-backend-dynamic
+        disabled: false
+      - package: ./dynamic-plugins/dist/backstage-plugin-signals-backend-dynamic
+        disabled: false
+      - package: ./dynamic-plugins/dist/backstage-plugin-signals
+        disabled: false
+      - package: ./dynamic-plugins/dist/backstage-plugin-notifications
+        disabled: false
+        pluginConfig:
+          dynamicPlugins:
+            frontend:
+              backstage.plugin-notifications:
+                dynamicRoutes:
+                  - path: /notifications
+                    importName: NotificationsPage
+                    menuItem:
+                      importName: NotificationsSidebarItem
+                      config:
+                        props:
+                          titleCounterEnabled: true
+                          webNotificationsEnabled: false
 EOF
 )
 
@@ -362,6 +408,13 @@ data:
         runIn: local
       publisher:
         type: local
+        local:
+          # Caminho ABSOLUTO e garantidamente gravavel. Sem ele o publisher grava no
+          # node_modules do plugin dinamico e o leitor resolve outro caminho --
+          # o build termina, publica, e o sync falha com 'It took too long for
+          # the generated docs to show up in storage', que soa como lentidao e
+          # e descompasso de caminho.
+          publishDirectory: /tmp/techdocs
 
     # O Kiali E o console de Service Mesh -- nao existe plugin separado de
     # 'Service Mesh'. Reusa o token da ServiceAccount de leitura.
@@ -393,6 +446,15 @@ data:
                 - group: route.openshift.io
                   apiVersion: v1
                   plural: routes
+                # Dev Spaces. O Topology so troca o destino do decorator
+                # "edit code" para o IDE se conseguir LER o CheCluster; sem
+                # esta entrada o plugin nao o enxerga e o lapis leva para o
+                # GitHub, sem erro nenhum na tela. Tem de vir junto com a
+                # regra org.eclipse.che do 04-kubernetes-rbac.yaml -- uma sem
+                # a outra falha do mesmo jeito silencioso.
+                - group: org.eclipse.che
+                  apiVersion: v2
+                  plural: checlusters
                 - group: gateway.networking.k8s.io
                   apiVersion: v1
                   plural: httproutes

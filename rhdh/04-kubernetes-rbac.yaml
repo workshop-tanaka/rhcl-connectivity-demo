@@ -52,6 +52,13 @@ rules:
   - apiGroups: [route.openshift.io]
     resources: [routes]
     verbs: [get, list, watch]
+  # Dev Spaces. O Topology le o CheCluster para descobrir a URL do IDE e so
+  # entao troca o destino do decorator "edit code": sem esta regra o plugin nao
+  # ve o CR, o lapis continua aparecendo (as anotacoes vcs-* estao la) e leva
+  # para o GitHub, nao para o Dev Spaces -- falha silenciosa, sem erro na UI.
+  - apiGroups: [org.eclipse.che]
+    resources: [checlusters]
+    verbs: [get, list, watch]
   # Gateway API + RHCL: entram como customResources no app-config, para que as
   # policies aparecam na aba Kubernetes do componente.
   - apiGroups: [gateway.networking.k8s.io]

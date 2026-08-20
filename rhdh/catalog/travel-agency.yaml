@@ -175,7 +175,7 @@ metadata:
     # O que enche a secao Docs do portal. Sem esta anotacao o TechDocs esta
     # ligado e nao tem o que renderizar -- a secao aparece vazia.
     # O mkdocs.yml na raiz do repo define o nav; o RHDH clona e gera no pod.
-    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/main
+    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
   # Nao ha plugin de Grafana instalavel no RHDH 1.10 -- nem no ghcr (so builds
   # de PR) nem no npm (o pacote nao traz build dinamico). O link direto ao
   # dashboard resolve o mesmo problema numa demo: sair do portal para o numero.
@@ -245,10 +245,24 @@ metadata:
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
+    # View Source e View TechDocs no card About: sem estas duas anotacoes os
+    # botoes aparecem desabilitados. source-location termina em / porque
+    # aponta para um diretorio, nao para um arquivo.
+    backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
+    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
   links:
+    # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
+    # clique a partir do componente. E o mesmo destino do decorator "edit code"
+    # da aba Topology, so que visivel na pagina Overview -- o decorator exige
+    # que o workload esteja de pe e que o Topology tenha carregado; o link nao.
+    # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
+    # linhas em vez de publicar um link morto.
+    - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+      title: Abrir no Dev Spaces
+      icon: code
     - url: https://${TRACING_HOST}/search?service=travels.travel-agency
       title: Traces (Tempo)
       icon: dashboard
@@ -282,10 +296,24 @@ metadata:
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
+    # View Source e View TechDocs no card About: sem estas duas anotacoes os
+    # botoes aparecem desabilitados. source-location termina em / porque
+    # aponta para um diretorio, nao para um arquivo.
+    backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
+    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
   links:
+    # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
+    # clique a partir do componente. E o mesmo destino do decorator "edit code"
+    # da aba Topology, so que visivel na pagina Overview -- o decorator exige
+    # que o workload esteja de pe e que o Topology tenha carregado; o link nao.
+    # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
+    # linhas em vez de publicar um link morto.
+    - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+      title: Abrir no Dev Spaces
+      icon: code
     - url: https://${TRACING_HOST}/search?service=flights.travel-agency
       title: Traces (Tempo)
       icon: dashboard
@@ -307,10 +335,24 @@ metadata:
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
+    # View Source e View TechDocs no card About: sem estas duas anotacoes os
+    # botoes aparecem desabilitados. source-location termina em / porque
+    # aponta para um diretorio, nao para um arquivo.
+    backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
+    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
   links:
+    # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
+    # clique a partir do componente. E o mesmo destino do decorator "edit code"
+    # da aba Topology, so que visivel na pagina Overview -- o decorator exige
+    # que o workload esteja de pe e que o Topology tenha carregado; o link nao.
+    # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
+    # linhas em vez de publicar um link morto.
+    - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+      title: Abrir no Dev Spaces
+      icon: code
     - url: https://${TRACING_HOST}/search?service=hotels.travel-agency
       title: Traces (Tempo)
       icon: dashboard
@@ -332,10 +374,24 @@ metadata:
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
+    # View Source e View TechDocs no card About: sem estas duas anotacoes os
+    # botoes aparecem desabilitados. source-location termina em / porque
+    # aponta para um diretorio, nao para um arquivo.
+    backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
+    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
   links:
+    # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
+    # clique a partir do componente. E o mesmo destino do decorator "edit code"
+    # da aba Topology, so que visivel na pagina Overview -- o decorator exige
+    # que o workload esteja de pe e que o Topology tenha carregado; o link nao.
+    # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
+    # linhas em vez de publicar um link morto.
+    - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+      title: Abrir no Dev Spaces
+      icon: code
     - url: https://${TRACING_HOST}/search?service=cars.travel-agency
       title: Traces (Tempo)
       icon: dashboard
@@ -357,10 +413,24 @@ metadata:
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
+    # View Source e View TechDocs no card About: sem estas duas anotacoes os
+    # botoes aparecem desabilitados. source-location termina em / porque
+    # aponta para um diretorio, nao para um arquivo.
+    backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
+    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
   links:
+    # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
+    # clique a partir do componente. E o mesmo destino do decorator "edit code"
+    # da aba Topology, so que visivel na pagina Overview -- o decorator exige
+    # que o workload esteja de pe e que o Topology tenha carregado; o link nao.
+    # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
+    # linhas em vez de publicar um link morto.
+    - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+      title: Abrir no Dev Spaces
+      icon: code
     - url: https://${TRACING_HOST}/search?service=insurances.travel-agency
       title: Traces (Tempo)
       icon: dashboard
@@ -384,10 +454,24 @@ metadata:
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
+    # View Source e View TechDocs no card About: sem estas duas anotacoes os
+    # botoes aparecem desabilitados. source-location termina em / porque
+    # aponta para um diretorio, nao para um arquivo.
+    backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
+    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
   links:
+    # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
+    # clique a partir do componente. E o mesmo destino do decorator "edit code"
+    # da aba Topology, so que visivel na pagina Overview -- o decorator exige
+    # que o workload esteja de pe e que o Topology tenha carregado; o link nao.
+    # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
+    # linhas em vez de publicar um link morto.
+    - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+      title: Abrir no Dev Spaces
+      icon: code
     - url: https://${TRACING_HOST}/search?service=discounts.travel-agency
       title: Traces (Tempo)
       icon: dashboard
@@ -405,6 +489,15 @@ metadata:
     Servico de eco em namespace separado, anexado ao mesmo Gateway. Serve para
     mostrar o deny-all da borda: sem AuthPolicy propria, esta rota nao responde.
   links:
+    # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
+    # clique a partir do componente. E o mesmo destino do decorator "edit code"
+    # da aba Topology, so que visivel na pagina Overview -- o decorator exige
+    # que o workload esteja de pe e que o Topology tenha carregado; o link nao.
+    # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
+    # linhas em vez de publicar um link morto.
+    - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+      title: Abrir no Dev Spaces
+      icon: code
     - url: https://${TRACING_HOST}/search?service=echo-api.echo-api
       title: Traces (Tempo)
       icon: dashboard
@@ -416,6 +509,11 @@ metadata:
     backstage.io/kubernetes-namespace: echo-api
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: echo-api
+    # View Source e View TechDocs no card About: sem estas duas anotacoes os
+    # botoes aparecem desabilitados. source-location termina em / porque
+    # aponta para um diretorio, nao para um arquivo.
+    backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
+    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
