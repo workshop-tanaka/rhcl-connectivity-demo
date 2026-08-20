@@ -1,0 +1,59 @@
+# ===========================================================================
+# Tempo da demo — instancia unica (monolithic), com multitenancy.
+#
+# O 'multitenancy' NAO esta aqui por necessidade de isolar cliente: esta porque
+# o plugin de tracing do console EXIGE. A Jaeger UI que o Tempo serve esta
+# deprecada e avisa na tela:
+#
+#   "Jaeger UI is deprecated and will be removed in a future release. Install
+#    the Cluster Observability Operator and the distributed tracing UI plugin"
+#
+# So que o plugin recusa instancia sem multitenancy, com todas as letras:
+# "TempoStack and TempoMonolithic instances with multi-tenancy are supported.
+#  Instances without multi-tenancy are not supported." Ou seja, o caminho que a
+# mensagem de depreciacao indica custa a mudanca abaixo -- nao e so instalar o
+# operator. Ver a armadilha 13 do RUNBOOK.
+#
+# ---------------------------------------------------------------------------
+# O QUE MUDA NO CLUSTER AO LIGAR ISTO (medido, nao deduzido):
+#
+#   1. sobe um GATEWAY (containers tempo-gateway e tempo-gateway-opa dentro do
+#      pod tempo-tempo-0) e o Service 'tempo-tempo' DESAPARECE. Quem exportava
+#      para ele para de entregar -- e o caso do OpenTelemetryCollector, que
+#      passa a falhar com 'no children to pick from'. Ver otel-collector.yaml.
+#
+#   2. a rota 'tracing-ui' e REMOVIDA pelo operator. Era ela que o preflight e a
+#      folha de acessos usavam, e ela servia a Jaeger UI SEM AUTENTICACAO
+#      nenhuma. A UI passa a ser:
+#
+#        https://<rota tempo-tempo-jaegerui>/dev     <- /<tenant>, com login
+#
+#      A raiz da rota devolve so um indice JSON de caminhos, o que parece
+#      defeito e nao e.
+#
+#   3. leitura e escrita passam a exigir RBAC no tenant. Ver rbac-tenant-dev.yaml.
+#
+# O nome 'dev' e arbitrario e aparece em quatro lugares: aqui, no header
+# X-Scope-OrgID do collector, nos ClusterRoles do tenant e no path da UI.
+# Trocar exige trocar nos quatro.
+# ===========================================================================
+apiVersion: tempo.grafana.com/v1alpha1
+kind: TempoMonolithic
+metadata:
+  name: tempo
+  namespace: tracing-system
+spec:
+  jaegerui:
+    enabled: true
+    route:
+      enabled: true
+  multitenancy:
+    enabled: true
+    mode: openshift
+    authentication:
+      - tenantName: dev
+        tenantId: dev
+  storage:
+    traces:
+      backend: pv
+      size: 5Gi

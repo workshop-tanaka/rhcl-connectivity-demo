@@ -1,0 +1,63 @@
+# ===========================================================================
+# RBAC do tenant 'dev' do Tempo.
+#
+# Com multitenancy em mode: openshift, o gateway nao tem lista de usuarios
+# propria -- ele faz SubjectAccessReview contra a API do cluster, tratando o
+# TENANT como recurso: apiGroup tempo.grafana.com, resource '<tenant>',
+# resourceName 'traces'. 'create' e escrita, 'get' e leitura.
+#
+# Sem estes objetos o sintoma se divide, e nenhum dos dois diz "falta RBAC":
+#
+#   escrita  o collector conecta, exporta, e o dado nao aparece em lugar nenhum
+#   leitura  a aba Observe -> Traces lista a instancia e nao devolve trace algum
+#
+# LEITURA PARA system:authenticated e uma escolha desta demo, nao um padrao de
+# producao: quem loga no cluster ve os traces da travel-agency. Num ambiente
+# real, troque o subject por um grupo especifico.
+# ===========================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tempo-dev-traces-write
+rules:
+  - apiGroups: [tempo.grafana.com]
+    resources: [dev]
+    resourceNames: [traces]
+    verbs: [create]
+---
+# O sujeito e a SA do collector -- e o unico que escreve.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tempo-dev-traces-write
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tempo-dev-traces-write
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector
+    namespace: tracing-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tempo-dev-traces-read
+rules:
+  - apiGroups: [tempo.grafana.com]
+    resources: [dev]
+    resourceNames: [traces]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tempo-dev-traces-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tempo-dev-traces-read
+subjects:
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: system:authenticated

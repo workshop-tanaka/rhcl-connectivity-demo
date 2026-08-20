@@ -1,0 +1,71 @@
+# ===========================================================================
+# Plano de controle da malha — Istio + IstioCNI, e o que liga o Ato 5.
+#
+# Estes CRs nao existiam no repo: viviam como heredoc na secao 3 do
+# PROVISIONING-1.4.md, e o heredoc de la traz SO o basico. As duas pecas que
+# faltavam nele estao aqui embaixo, e sao exatamente as que fazem o Ato 5 ter
+# trace em vez de tela vazia:
+#
+#   1. meshConfig.extensionProviders  -> para onde o proxy manda o span
+#   2. Telemetry/mesh-default         -> a ordem de EMITIR o span
+#
+# Sem (1) o collector nunca e chamado. Sem (2) o provider existe e ninguem o
+# usa: os proxies sobem, a malha funciona, o Kiali desenha o grafo, e
+# 'Observe -> Traces' fica permanentemente vazio. Nao ha erro em lugar nenhum
+# — este e o modo de falha silencioso mais caro do provisionamento, porque so
+# aparece no ensaio.
+#
+# gatewayClassName 'istio' vem daqui: e o CR Istio que registra a GatewayClass
+# que o Gateway prod-web consome. Confira antes de seguir:
+#   oc get gatewayclass istio -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}'
+#
+# VERSAO: o cluster de referencia (w4xtj) rodou Sail v3.4.1 com Istio v1.30.3.
+# 'spec.version' NAO esta fixado aqui de proposito — pinar uma versao que o
+# operator instalado nao publica faz o CR ser rejeitado na admissao. Deixando
+# em branco, o operator escolhe a sua default. Para reproduzir exatamente o
+# cluster de referencia, acrescente 'version: v1.30.3'.
+#
+# POR ISSO O provision.sh NAO DA 'oc apply' CEGO NESTE ARQUIVO. Num cluster que
+# ja tem malha de pe, um apply removeria o 'version' que estiver gravado no CR
+# (o campo nao consta aqui) e dispararia upgrade/downgrade do plano de controle
+# no meio do provisionamento. A etapa 'mesh' entao:
+#   - CR ausente  -> aplica este arquivo inteiro
+#   - CR presente -> aplica so os Namespaces e a Telemetry, e acrescenta o
+#                    extensionProvider por patch se ele nao estiver la
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-system
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-cni
+---
+apiVersion: sailoperator.io/v1
+kind: Istio
+metadata:
+  name: default
+spec:
+  namespace: istio-system
+  updateStrategy:
+    type: InPlace
+  values:
+    meshConfig:
+      # O Service abaixo so passa a existir quando platform-reference/tracing/
+      # for aplicado. Declara-lo antes nao quebra nada: o proxy resolve o
+      # provider por DNS na hora de exportar, e ate la nao ha span para exportar
+      # (a Telemetry abaixo e quem liga a emissao).
+      extensionProviders:
+        - name: otel-tracing
+          opentelemetry:
+            service: otel-collector.tracing-system.svc.cluster.local
+            port: 4317
+---
+apiVersion: sailoperator.io/v1
+kind: IstioCNI
+metadata:
+  name: default
+spec:
+  namespace: istio-cni

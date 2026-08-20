@@ -1,0 +1,63 @@
+# ===========================================================================
+# Aba 'Observe -> Traces' no console do OpenShift.
+#
+# Fecha o argumento do roteiro: o Ato 3 abre na aba Connectivity Link, o Ato 5
+# no Traffic Graph da aba Service Mesh, e o trace passa a abrir no MESMO
+# console -- em vez da Jaeger UI, que era a unica janela fora dele. A Jaeger UI
+# segue existindo como plano B, deprecada, em <rota>/dev.
+#
+# Quem entrega a aba e o Cluster Observability Operator (COO): o operator do
+# RHCL nao tem nada com isso. Instalado do canal 'stable' de redhat-operators;
+# no cluster de referencia, v1.5.1 sobre OCP 4.21.
+#
+# ---------------------------------------------------------------------------
+# DEPENDE DE MULTITENANCY NO TEMPO. O plugin recusa instancia sem, e diz isso
+# em texto na propria pagina. O custo dessa exigencia esta em
+# platform-reference/tracing/ -- gateway, RBAC de tenant e reconfiguracao do
+# collector. Instalar so este arquivo deixa uma aba morta no console.
+#
+# ARMADILHA: o backend do plugin descobre as instancias e monta as rotas de
+# proxy a partir do que existia quando subiu. Ligar multitenancy DEPOIS deixa
+# a aba consultando um tenant que nao existe mais ('single-tenant'), e o
+# gateway responde 'tenant not found, have you registered it?'. Reinicie:
+#
+#   oc rollout restart deploy/distributed-tracing -n openshift-cluster-observability-operator
+#
+# Ordem correta num cluster novo: Tempo com multitenancy -> RBAC -> collector
+# -> este arquivo.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-cluster-observability-operator
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-cluster-observability-operator
+  namespace: openshift-cluster-observability-operator
+spec: {}
+---
+# O COO so instala em AllNamespaces -- OwnNamespace/SingleNamespace nao sao
+# suportados pelo bundle (installModes do packagemanifest).
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: cluster-observability-operator
+  namespace: openshift-cluster-observability-operator
+spec:
+  channel: stable
+  name: cluster-observability-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+---
+# O UIPlugin cria o ConsolePlugin E se habilita sozinho no console operator --
+# ao contrario do plugin do RHCL, que precisa do patch manual (ver ossmconsole.yaml
+# e a secao 7 do PROVISIONING-1.4).
+apiVersion: observability.openshift.io/v1alpha1
+kind: UIPlugin
+metadata:
+  name: distributed-tracing
+spec:
+  type: DistributedTracing

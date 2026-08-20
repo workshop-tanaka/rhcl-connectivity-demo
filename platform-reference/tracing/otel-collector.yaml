@@ -1,0 +1,68 @@
+# ===========================================================================
+# Collector que recebe os spans dos proxies do Istio e entrega ao Tempo.
+#
+# O 'extensionProviders' da malha aponta para otel-collector:4317
+# (oc get istio default -o jsonpath='{.spec.values.meshConfig.extensionProviders}'),
+# entao o caminho inteiro do Ato 5 e:
+#
+#   proxies Istio -> otel-collector:4317 -> gateway do Tempo -> Tempo
+#
+# ---------------------------------------------------------------------------
+# POR QUE NAO E MAIS 'tempo-tempo:4317' COM TLS INSECURE:
+#
+# Ligar multitenancy no TempoMonolithic apaga o Service 'tempo-tempo' e poe um
+# gateway na frente. O export passa a exigir TRES coisas, e a falta de qualquer
+# uma derruba a ingestao inteira sem erro no lado da malha -- o sintoma fica
+# escondido no log do collector:
+#
+#   Exporting failed. ... "rpc error: code = Unavailable desc = no children to
+#   pick from"                      <- Service que sumiu, DNS sem endpoint
+#
+#   1. TLS de verdade contra a service CA (o gateway serve certificado da CA
+#      interna; 'insecure: true' nao passa mais).
+#   2. token da ServiceAccount, via extensao bearertokenauth.
+#   3. header do tenant. O gateway le 'x-scope-orgid' (--traces.tenant-header).
+#
+# E RBAC: sem o ClusterRole de escrita no tenant, o gateway aceita a conexao e
+# recusa o dado. Ver rbac-tenant-dev.yaml.
+#
+# A porta 4317 do Service do gateway aponta para o container em 8090
+# (grpc-public) -- use 4317, que e o nome estavel do Service.
+# ===========================================================================
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel
+  namespace: tracing-system
+spec:
+  mode: deployment
+  config:
+    extensions:
+      bearertokenauth:
+        filename: /var/run/secrets/kubernetes.io/serviceaccount/token
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      batch: {}
+    exporters:
+      otlp:
+        endpoint: tempo-tempo-gateway.tracing-system.svc.cluster.local:4317
+        tls:
+          insecure: false
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
+        auth:
+          authenticator: bearertokenauth
+        headers:
+          X-Scope-OrgID: dev
+    service:
+      extensions: [bearertokenauth]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [otlp]
