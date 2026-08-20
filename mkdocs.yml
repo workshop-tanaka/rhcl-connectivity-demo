@@ -10,6 +10,7 @@ site_description: Roteiro e provisionamento da demo de Red Hat Connectivity Link
 docs_dir: docs
 
 nav:
+  - Inicio: index.md
   - Roteiro: RUNBOOK.md
   - Provisionamento 1.4: PROVISIONING-1.4.md
 

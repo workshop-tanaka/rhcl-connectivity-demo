@@ -1,0 +1,26 @@
+# Demo — Red Hat Connectivity Link
+
+Esta é a documentação da demo, servida pelo TechDocs dentro do próprio portal.
+
+O MkDocs exige uma página inicial: sem `docs/index.md`, o build roda, publica e
+o leitor falha com *"Are you sure the docs project is generating an
+`index.html` file?"* — erro que aponta para armazenamento, mas cuja causa é a
+ausência desta página.
+
+## Por onde começar
+
+- **[Roteiro da demo](RUNBOOK.md)** — os atos, na ordem em que são apresentados,
+  e as armadilhas encontradas neste cluster.
+- **[Provisionamento 1.4](PROVISIONING-1.4.md)** — como o ambiente é montado.
+
+## O portal
+
+O Developer Hub reúne, sobre a mesma demo:
+
+| Onde | O que mostra |
+| --- | --- |
+| Catálogo | serviços, parceiros e as policies do RHCL como recursos |
+| Aba Kubernetes | HTTPRoute, AuthPolicy, RateLimitPolicy e PlanPolicy do serviço |
+| Aba Kiali | a malha, no contexto daquele serviço |
+| Kuadrant | API Products, planos comerciais e o fluxo de chave |
+| Links | traces no Tempo, dashboard de planos no Grafana |
