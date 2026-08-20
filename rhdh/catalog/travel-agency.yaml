@@ -176,6 +176,9 @@ metadata:
     # ligado e nao tem o que renderizar -- a secao aparece vazia.
     # O mkdocs.yml na raiz do repo define o nav; o RHDH clona e gera no pod.
     backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
+    # componente, entao a aba Actions passa a ter conteudo proprio.
+    github.com/project-slug: ${DEMO_REPO_SLUG}
   # Nao ha plugin de Grafana instalavel no RHDH 1.10 -- nem no ghcr (so builds
   # de PR) nem no npm (o pacote nao traz build dinamico). O link direto ao
   # dashboard resolve o mesmo problema numa demo: sair do portal para o numero.
@@ -250,6 +253,9 @@ metadata:
     # aponta para um diretorio, nao para um arquivo.
     backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
     backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
+    # componente, entao a aba Actions passa a ter conteudo proprio.
+    github.com/project-slug: ${DEMO_REPO_SLUG}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
@@ -304,6 +310,9 @@ metadata:
     # aponta para um diretorio, nao para um arquivo.
     backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
     backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
+    # componente, entao a aba Actions passa a ter conteudo proprio.
+    github.com/project-slug: ${DEMO_REPO_SLUG}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
@@ -346,6 +355,9 @@ metadata:
     # aponta para um diretorio, nao para um arquivo.
     backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
     backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
+    # componente, entao a aba Actions passa a ter conteudo proprio.
+    github.com/project-slug: ${DEMO_REPO_SLUG}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
@@ -388,6 +400,9 @@ metadata:
     # aponta para um diretorio, nao para um arquivo.
     backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
     backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
+    # componente, entao a aba Actions passa a ter conteudo proprio.
+    github.com/project-slug: ${DEMO_REPO_SLUG}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
@@ -430,6 +445,9 @@ metadata:
     # aponta para um diretorio, nao para um arquivo.
     backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
     backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
+    # componente, entao a aba Actions passa a ter conteudo proprio.
+    github.com/project-slug: ${DEMO_REPO_SLUG}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
@@ -474,6 +492,9 @@ metadata:
     # aponta para um diretorio, nao para um arquivo.
     backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
     backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
+    # componente, entao a aba Actions passa a ter conteudo proprio.
+    github.com/project-slug: ${DEMO_REPO_SLUG}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
@@ -535,6 +556,9 @@ metadata:
     # aponta para um diretorio, nao para um arquivo.
     backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
     backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
+    # componente, entao a aba Actions passa a ter conteudo proprio.
+    github.com/project-slug: ${DEMO_REPO_SLUG}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
