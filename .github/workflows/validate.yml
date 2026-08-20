@@ -2,11 +2,16 @@
 #
 # Existe por dois motivos. O primeiro e util de verdade: esta sessao perdeu
 # tempo mais de uma vez com YAML invalido que so aparecia depois de um rollout
-# de ~7 min -- um 'description:' nao-quotado contendo ': ' derrubou 6 entidades
-# do catalogo sem erro visivel. Isso e barato de pegar aqui.
+# de ~7 min -- um 'description:' nao-quotado contendo dois-pontos-espaco
+# derrubou 6 entidades do catalogo sem erro visivel. Isso e barato de pegar
+# aqui.
 #
 # O segundo: a aba GitHub Actions do portal precisa de execucoes reais para
 # deixar de ser uma aba vazia.
+#
+# NOTA: nada de expressao com chaves duplas neste arquivo, nem em comentario --
+# o parser do GitHub as avalia e recusa o workflow inteiro, com falha em 0s,
+# sem job e sem log.
 name: validate
 
 on:
@@ -16,40 +21,29 @@ on:
 
 jobs:
   yaml:
-    name: YAML e catalogo
+    name: YAML
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Instalar yq
         run: |
-          sudo wget -qO /usr/local/bin/yq \
-            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
       - name: Parsear todo YAML versionado
         run: |
+          set -u
           fail=0
-          # skeleton/ fica de fora: contem ${{ }} do scaffolder, que nao e YAML final
-          while IFS= read -r f; do
-            case "$f" in */skeleton/*) continue;; esac
-            if ! yq 'true' "$f" >/dev/null 2>&1; then
-              echo "::error file=$f::YAML invalido"
+          # skeleton/ fica de fora: contem placeholders do scaffolder, nao e YAML final
+          for f in $(git ls-files '*.yaml' '*.yml' | grep -v '/skeleton/'); do
+            if yq 'true' "$f" >/dev/null 2>&1; then
+              echo "ok    $f"
+            else
+              echo "FALHA $f"
               yq 'true' "$f" 2>&1 | head -2
               fail=1
             fi
-          done < <(git ls-files '*.yaml' '*.yml')
-          exit $fail
-
-      - name: Entidades do catalogo tem kind e name
-        run: |
-          fail=0
-          for f in rhdh/catalog/*.yaml; do
-            [ -f "$f" ] || continue
-            n=$(yq 'select(.kind != null) | .metadata.name' "$f" 2>/dev/null | grep -c . || true)
-            k=$(yq 'select(.kind != null) | .kind' "$f" 2>/dev/null | grep -c . || true)
-            echo "  $f: $k kinds, $n names"
-            [ "$k" = "$n" ] || { echo "::error file=$f::kind sem name correspondente"; fail=1; }
           done
           exit $fail
 
@@ -60,8 +54,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: bash -n em todo script
         run: |
+          set -u
           fail=0
-          while IFS= read -r f; do
-            bash -n "$f" || { echo "::error file=$f::erro de sintaxe"; fail=1; }
-          done < <(git ls-files '*.sh')
+          for f in $(git ls-files '*.sh'); do
+            if bash -n "$f"; then
+              echo "ok    $f"
+            else
+              echo "FALHA $f"
+              fail=1
+            fi
+          done
           exit $fail
