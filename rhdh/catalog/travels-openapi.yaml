@@ -1,0 +1,52 @@
+# OpenAPI da travel-agency, servido pelo httpd interno (03-catalog-server.yaml).
+#
+# POR QUE ESTE ARQUIVO EXISTE: o APIProduct apontava openAPISpecURL para
+# travels-api-v1-travel-agency.../q/openapi -- um endpoint Quarkus que nao
+# existe neste cluster. A rota responde 503 e o portal mostra
+# "OpenAPI specification not yet synced".
+#
+# O servico travels e a imagem de demo do Kiali; ela nao publica OpenAPI. Entao
+# o spec e escrito aqui e servido junto das entidades do catalogo -- o host ja
+# esta em backend.reading.allow, e quem busca e o backend do RHDH.
+openapi: 3.0.3
+info:
+  title: Travels API
+  version: "1.0.0"
+  description: >-
+    API da agencia de viagens, exposta pelo Gateway prod-web e governada pelo
+    Red Hat Connectivity Link. A autenticacao e por API key na query string,
+    imposta na borda pela AuthPolicy -- o servico travels nao valida credencial
+    por conta propria. O limite depende do plano da chave, classificado pelo
+    PlanPolicy travels-plans.
+servers:
+  - url: https://api.travels.sandbox.opentlc.com
+    description: Substituido pelo host real do ambiente
+security:
+  - ApiKeyQuery: []
+paths:
+  /:
+    get:
+      summary: Raiz do servico travels
+      description: >-
+        Agrega os servicos de voos, hoteis, carros e seguros. Toda chamada passa
+        pela AuthPolicy e pelo PlanPolicy antes de chegar ao backend.
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: >-
+            API key ausente ou invalida. Vem da AuthPolicy
+            travel-agency-authpolicy, nao do servico.
+        "429":
+          description: >-
+            Limite do plano excedido. gold 30/10s, silver 10/10s, free 3/10s;
+            chave sem plano cai no catch-all de 1/60s.
+components:
+  securitySchemes:
+    ApiKeyQuery:
+      type: apiKey
+      in: query
+      name: APIKEY
+      description: >-
+        Chave emitida pelo developer portal do RHCL. O tier vem do label
+        kuadrant.io/plan-id no Secret da chave.

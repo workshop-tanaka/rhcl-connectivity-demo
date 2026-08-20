@@ -42,6 +42,21 @@ spec:
     - travel
     - partners
     - rate-limited
+  # Sem este bloco o operator DEFAULTA as URLs por convencao, montando
+  # travels-api-v1-travel-agency.../q/openapi -- um endpoint Quarkus que nao
+  # existe aqui (o servico travels e a imagem de demo do Kiali, que nao publica
+  # OpenAPI). A rota responde 503 e o portal mostra
+  # "OpenAPI specification not yet synced".
+  #
+  # O spec vive em rhdh/catalog/travels-openapi.yaml e e servido pelo httpd
+  # interno do RHDH, cujo host ja esta em backend.reading.allow. Quem busca e o
+  # backend, entao a URL interna serve.
+  #
+  # docsURL/swaggerUI ficam de fora de proposito: nao ha Swagger UI implantado,
+  # e link quebrado no portal e pior que link ausente -- a aba Definition da
+  # entidade ja renderiza o spec.
+  documentation:
+    openAPISpecURL: http://rhdh-catalog-server.rhdh-rhcl.svc.cluster.local:8080/travels-openapi.yaml
   targetRef:
     group: gateway.networking.k8s.io
     kind: HTTPRoute

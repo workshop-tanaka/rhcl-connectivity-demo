@@ -170,7 +170,11 @@ fi
 cat "$_filtered" > "$_rendered"
 
 _log "publicando as entidades..."
+# O spec OpenAPI vai no mesmo ConfigMap: o httpd serve os dois, e o APIProduct
+# aponta openAPISpecURL para ele. Sem isso o portal mostra
+# 'OpenAPI specification not yet synced'.
 oc create configmap rhdh-catalog-entities -n "$RHDH_NS" \
+  --from-file=travels-openapi.yaml="${_here}/catalog/travels-openapi.yaml" \
   --from-file=travel-agency.yaml="$_rendered" \
   --dry-run=client -o yaml | oc apply -f - >/dev/null \
   || _die "falha ao criar o ConfigMap rhdh-catalog-entities."
