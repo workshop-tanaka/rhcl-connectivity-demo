@@ -68,13 +68,20 @@ TRACING_HOST="${TRACING_HOST:-$(_route_of tempo-tempo-jaegerui tracing-system)}"
 [[ -n "$TRACING_HOST" ]] || { TRACING_HOST="tracing.example.com"; _warn "rota do Tempo nao encontrada; link com placeholder."; }
 _log "observabilidade: ${GRAFANA_HOST} / ${TRACING_HOST}"
 
-export DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_SLUG GRAFANA_HOST TRACING_HOST
+# A branch importa: fixar 'main' faz o TechDocs clonar um estado antigo, gerar
+# um mkdocs.yml default (site_name = nome da entidade) e publicar so o que
+# existia la -- sem erro, com conteudo errado.
+DEMO_REPO_BRANCH="${DEMO_REPO_BRANCH:-$(git -C "${_here}/.." rev-parse --abbrev-ref HEAD 2>/dev/null)}"
+[[ -n "$DEMO_REPO_BRANCH" ]] || DEMO_REPO_BRANCH="main"
+_log "branch dos TechDocs: ${DEMO_REPO_BRANCH}"
+
+export DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_SLUG GRAFANA_HOST TRACING_HOST DEMO_REPO_BRANCH
 _log "hosts da demo: ${DEMO_API_HOST} / ${DEMO_ECHO_HOST}"
 
 # ----- 2. entidades renderizadas -------------------------------------------
 _rendered="$(mktemp)"
 trap 'rm -f "$_rendered"' EXIT
-envsubst '${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_SLUG} ${GRAFANA_HOST} ${TRACING_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
+envsubst '${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_SLUG} ${GRAFANA_HOST} ${TRACING_HOST} ${DEMO_REPO_BRANCH}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
   || _die "falha ao renderizar catalog/travel-agency.yaml"
 
 # Sem remote no GitHub a anotacao sairia vazia, e as abas do GitHub falhariam
@@ -161,6 +168,31 @@ _allow="          - host: ${CATALOG_SVC}"
 # singular, continua funcionando: e o que versoes antigas do setup-github.sh
 # exportavam.
 _tpl_urls="${TEMPLATE_LOCATION_URLS:-${TEMPLATE_LOCATION_URL:-}}"
+
+# ---------------------------------------------------------------------------
+# PRESERVAR O QUE JA ESTA REGISTRADO -- este script perdia os templates.
+#
+# 'catalog.locations' e um array, e arrays nao se somam entre arquivos de
+# app-config: a lista inteira vive aqui. A consequencia so aparece na
+# reexecucao: rodar 'setup-catalog.sh' sozinho (para recarregar o catalogo
+# depois de mexer em catalog/) reescrevia a lista SEM os templates, porque a
+# variavel nao estava no ambiente. Nenhum erro, nenhum log -- so um 'Create'
+# vazio no portal, que e indistinguivel de "o template nunca foi registrado".
+#
+# Encontrado neste cluster: o app-config-rhdh-catalog tinha uma unica location
+# (o servidor de catalogo) enquanto o setup-github.sh ja tinha rodado.
+#
+# Sem a variavel, agora as locations de template existentes sao relidas do
+# ConfigMap e mantidas. Com a variavel, ela manda -- e o caminho do
+# setup-github.sh, que sabe quais templates devem estar la.
+# ---------------------------------------------------------------------------
+if [[ -z "$_tpl_urls" ]]; then
+  _tpl_urls="$(oc get configmap app-config-rhdh-catalog -n "$RHDH_NS" \
+      -o jsonpath='{.data.app-config-catalog\.yaml}' 2>/dev/null \
+      | awk '$1 == "target:" {print $2}' \
+      | grep -vF "http://${CATALOG_SVC}/" || true)"
+  [[ -n "$_tpl_urls" ]] && _log "locations de template preservadas do ConfigMap atual"
+fi
 _seen_hosts=""
 for _u in $_tpl_urls; do
   _locations="${_locations}
