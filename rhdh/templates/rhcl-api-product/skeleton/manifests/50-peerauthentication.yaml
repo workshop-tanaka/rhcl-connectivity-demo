@@ -1,0 +1,47 @@
+# ===========================================================================
+# PeerAuthentication -- mTLS no namespace inteiro (sem selector).
+{%- if values.mtlsStrict %}
+#
+# STRICT: a partir daqui um pod sem sidecar nao fala com nada aqui dentro. O
+# Envoy do lado servidor exige certificado de cliente emitido pela CA da malha.
+#
+# O CONTRASTE QUE FAZ O PONTO NA DEMO -- sem ele o STRICT parece redundante,
+# porque o cadeado do Kiali aparece nos dois casos (auto-mTLS ja cifra por
+# padrao). A diferenca e que sem STRICT o servidor AINDA ACEITA texto claro:
+#
+#   STRICT      sonda de fora da malha -> HTTP=000 exit=56 (conexao resetada)
+#   PERMISSIVE  a mesma sonda          -> HTTP=403 exit=0  (quem recusa e a
+#                                        AuthorizationPolicy, ja sem identidade)
+#
+#   oc run mtls-probe -n default --image=registry.access.redhat.com/ubi9/ubi-minimal \
+#     --restart=Never --rm -i -- curl -s -m 6 -o /dev/null \
+#     -w 'HTTP=%{http_code} exit=%{exitcode}\n' \
+#     http://${{ values.name }}.${{ values.namespace }}:${{ values.port }}/
+#
+# O QUE STRICT NAO QUEBRA: o Gateway prod-web (e um gateway Istio, esta na malha
+# e apresenta certificado como qualquer sidecar), o scrape do Prometheus (porta
+# 15020, isenta por construcao) e as probes do kubelet (reescritas para a 15021).
+#
+# ROLLBACK: mode: PERMISSIVE devolve o comportamento anterior sem remover nada.
+{%- else %}
+#
+# PERMISSIVE -- escolhido no formulario. O trafego continua cifrado pelo
+# auto-mTLS, mas o servidor AINDA ACEITA texto claro, e uma AuthorizationPolicy
+# por principal nao tem o que comparar numa conexao sem certificado.
+#
+# Enquanto estiver assim, o movimento 1 do Ato 7 nao tem o que mostrar neste
+# servico. Troque para STRICT quando quiser a fronteira de verdade.
+{%- endif %}
+# ===========================================================================
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: ${{ values.name }}-mtls
+  namespace: ${{ values.namespace }}
+spec:
+  mtls:
+{%- if values.mtlsStrict %}
+    mode: STRICT
+{%- else %}
+    mode: PERMISSIVE
+{%- endif %}

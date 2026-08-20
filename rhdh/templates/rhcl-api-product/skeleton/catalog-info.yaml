@@ -1,0 +1,74 @@
+# ===========================================================================
+# Entidades deste servico no Red Hat Developer Hub.
+#
+# ATENCAO A UMA DUPLICIDADE QUE E PROPOSITAL: se o plugin @kuadrant/* estiver
+# ligado no portal, ele ingere o APIProduct do cluster como uma SEGUNDA entidade
+# API, chamada '${{ values.name }}' (esta aqui e '${{ values.name }}-api'). Nao e
+# erro nem conflito -- sao coisas diferentes, e vale dizer isso na demo:
+#
+#   ${{ values.name }}-api   a API como CODIGO   -- nasce deste repo, tem a spec
+#                            versionada, existe mesmo com o cluster desligado
+#   ${{ values.name }}       a API como PRODUTO  -- nasce do cluster, traz as abas
+#                            API Keys e API Product Info, os planos descobertos
+#                            do PlanPolicy e o fluxo de aprovacao de chave
+#
+# 'system' fica de fora de proposito: declarar um System aqui faria cada servico
+# gerado declarar a MESMA entidade a partir de uma location diferente, e o
+# catalogo rejeita a segunda com conflito de entityRef.
+# ===========================================================================
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{ values.name }}
+  description: ${{ values.description }}
+  annotations:
+    # Sem estas duas as abas Kubernetes e Topology nao aparecem -- e nao ha erro,
+    # a aba simplesmente nao existe. O seletor casa o label que 11-deployment.yaml
+    # poe no Deployment E nos pods, entao a aba mostra a cadeia inteira: pods,
+    # service, deployment e os CRs de policy (HTTPRoute, AuthPolicy, PlanPolicy),
+    # que sao rotulados com o mesmo 'app'.
+    backstage.io/kubernetes-label-selector: app=${{ values.name }}
+    backstage.io/kubernetes-namespace: ${{ values.namespace }}
+    github.com/project-slug: ${{ values.repoSlug }}
+    # Lida pelo plugin de techdocs quando houver; inofensiva sem ele.
+    backstage.io/source-location: url:https://github.com/${{ values.repoSlug }}/
+  tags:
+    - rhcl
+    - golden-path
+{%- if values.mtlsStrict %}
+    - mtls-strict
+{%- endif %}
+  links:
+    - url: https://${{ values.hostname }}
+      title: Endpoint
+      icon: web
+    - url: https://github.com/${{ values.repoSlug }}/blob/main/manifests/31-planpolicy.yaml
+      title: Planos (PlanPolicy)
+      icon: docs
+spec:
+  type: service
+  lifecycle: experimental
+  owner: ${{ values.owner }}
+  providesApis:
+    - ${{ values.name }}-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: ${{ values.name }}-api
+  description: >-
+    ${{ values.description }} Exposta pelo Gateway prod-web, protegida por
+    AuthPolicy e limitada por plano.
+  annotations:
+    github.com/project-slug: ${{ values.repoSlug }}
+  tags:
+    - rhcl
+    - golden-path
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: ${{ values.owner }}
+  # $text carrega o arquivo do repositorio na ingestao -- a spec fica num lugar
+  # so, e nao duplicada entre o openapi.yaml e esta entidade.
+  definition:
+    $text: ./openapi.yaml

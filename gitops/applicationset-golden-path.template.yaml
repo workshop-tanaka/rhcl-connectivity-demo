@@ -1,0 +1,89 @@
+# ===========================================================================
+# ApplicationSet do golden path — o que faz um repositorio virar servico sem
+# ninguem aplicar nada.
+#
+# TEMPLATE: '__GITHUB_ORG__' e substituido por 'scripts/provision.sh gitops',
+# que le a org do rhdh-github-secret ou da variavel GITHUB_ORG. Nao aplique
+# este arquivo direto -- o placeholder viraria uma org literal.
+#
+# ---------------------------------------------------------------------------
+# COMO A DESCOBERTA FUNCIONA, e onde ela falha em silencio:
+#
+#   labelMatch  no gerador SCM do GitHub casa TOPIC do repositorio, nao label do
+#               Kubernetes. O template rhcl-api-product cria os repos com o
+#               topic 'rhcl-golden-path' (input 'topics' da action publish:github).
+#               Repo sem o topic simplesmente nao e descoberto -- nao ha erro,
+#               nao ha Application, e o servico nunca sobe.
+#
+#   pathsExist  segunda trava: repo com o topic mas sem 'manifests/' e ignorado.
+#               Evita que um repo marcado por engano vire um Application vazio.
+#
+#   requeueAfterSeconds  o gerador consulta a API do GitHub nesse intervalo. E
+#               por isso que o servico novo demora ate ~3 min para aparecer --
+#               nao e o Argo estar lento, e o ciclo de descoberta.
+#
+# O token precisa de escopo de leitura dos repositorios da org. Repositorio
+# privado sem token no secret nao aparece na listagem, e o sintoma e o mesmo de
+# 'topic ausente': silencio.
+# ---------------------------------------------------------------------------
+# POR QUE ISTO NAO GOVERNA A PLATAFORMA.
+#
+# O cluster 1.2 desta demo tinha 16 Applications com selfHeal cobrindo metade do
+# cluster, e por causa disso todo 'oc apply' manual era revertido em segundos --
+# e a razao de este repo separar base/ de platform-reference/. Aqui o Argo
+# governa SO os repositorios gerados pelo golden path: o servico do
+# desenvolvedor. A plataforma continua sendo provisionada por provision.sh, e a
+# camada de demo por 'oc apply -k'. A fronteira e a mesma; muda quem tem GitOps.
+# ===========================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: rhcl-golden-path
+  namespace: openshift-gitops
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - scmProvider:
+        github:
+          organization: __GITHUB_ORG__
+          tokenRef:
+            secretName: golden-path-github-token
+            key: token
+        filters:
+          # labelMatch = topic do GitHub.
+          - labelMatch: rhcl-golden-path
+            pathsExist: [manifests]
+        requeueAfterSeconds: 180
+  template:
+    metadata:
+      name: '{{ .repository }}'
+      labels:
+        app.kubernetes.io/part-of: rhcl-golden-path
+    spec:
+      project: default
+      source:
+        repoURL: '{{ .url }}'
+        targetRevision: '{{ .branch }}'
+        path: .
+        # 'directory' e nao 'kustomize': assim uma assinatura nova
+        # (consumers/<parceiro>.yaml, aberta por pull request pelo template
+        # rhcl-api-subscription) entra no cluster sem editar lista de resources.
+        # O include depende da convencao de nome dos manifests -- ver o
+        # cabecalho de gitops/application.yaml no repositorio gerado.
+        directory:
+          recurse: true
+          include: '{manifests/[0-9]*.yaml,consumers/*.yaml}'
+      destination:
+        server: https://kubernetes.default.svc
+        # Fallback apenas: todo manifesto do golden path declara o proprio
+        # namespace, e o namespace e criado por 00-namespace.yaml (com o label
+        # de injecao da malha, sem o qual o servico nasce fora do mesh).
+        namespace: '{{ .repository }}'
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        syncOptions:
+          - SkipDryRunOnMissingResource=true
+          - ServerSideApply=true

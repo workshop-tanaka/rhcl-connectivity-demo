@@ -1,6 +1,6 @@
 # Red Hat Developer Hub
 
-Portal de desenvolvedor sobre a demo RHCL: catalogado, com as policies do Connectivity Link modeladas como recursos, e um software template que cria uma API nova já exposta e protegida.
+Portal de desenvolvedor sobre a demo RHCL: catalogado, com as policies do Connectivity Link modeladas como recursos, e um **golden path** de três templates que cria uma API nova já dentro da malha, exposta, limitada por plano e publicada como produto.
 
 ## Instalar
 
@@ -12,7 +12,7 @@ bash rhdh/setup-catalog.sh   # 2. catálogo da demo RHCL                (sem cre
 bash rhdh/setup-plugins.sh   # 3. Kubernetes + Topology                (cluster-admin)
 
 GITHUB_TOKEN=ghp_xxx \
-  bash rhdh/setup-github.sh <org> <repo>   # 4. integração GitHub + software template
+  bash rhdh/setup-github.sh <org> <repo>   # 4. integração GitHub + os 3 templates
 ```
 
 As duas primeiras já entregam um portal utilizável. A quarta chama a terceira sozinha, então `setup-github.sh` também habilita os plugins do GitHub.
@@ -22,7 +22,7 @@ As duas primeiras já entregam um portal utilizável. A quarta chama a terceira 
 | `install.sh` | Subscription (`fast-1.9`), CR `Backstage`, PostgreSQL local, Route com host fixo, `BACKEND_SECRET` |
 | `setup-catalog.sh` | Renderiza `catalog/` com os hostnames reais do cluster, serve por HTTP interno, registra a location |
 | `setup-plugins.sh` | ServiceAccount + RBAC de leitura, `dynamic-plugins-rhdh`, config do plugin Kubernetes |
-| `setup-github.sh` | `integrations.github`, descoberta da org, plugins de GitHub, registra o software template |
+| `setup-github.sh` | `integrations.github`, descoberta da org, plugins de GitHub, registra os 3 templates do golden path |
 
 `install.sh` **não** rotaciona o `BACKEND_SECRET` em re-execuções — rotacionar invalidaria as sessões ativas e os tokens de acesso externo já emitidos.
 
@@ -82,18 +82,77 @@ Entity domain:default/travel ... is not of an allowed kind for that location
 
 O default do Backstage não inclui `Domain`, `Group`, `User` nem `Template`. A lista em `02-instance.template.yaml` já cobre os nove kinds usados aqui — ao adicionar um kind novo, inclua-o lá também.
 
-## Software template
+## Golden path — os três software templates
 
-`templates/rhcl-exposed-api/` cria um serviço **já exposto e protegido**: Deployment, Service, HTTPRoute anexada ao `prod-web`, AuthPolicy por API key e RateLimitPolicy por identidade — mais `catalog-info.yaml` e README. Publica no GitHub e registra no catálogo.
+`templates/` traz um golden path em três etapas, e não um formulário único. Cada
+um é uma `Template` registrada como location própria:
 
-O ponto da demo é esse: a policy nasce com o serviço, em vez de virar um ticket para a plataforma depois.
+| | O que faz | Como entrega |
+| --- | --- | --- |
+| **1. `rhcl-api-product`** | o projeto inteiro: namespace já na malha, workload com ServiceAccount própria, HTTPRoute no `prod-web`, `AuthPolicy`, `PlanPolicy`, `APIProduct` do developer portal, `PeerAuthentication`, `AuthorizationPolicy` e o par `DestinationRule`/`VirtualService` pronto para canary | cria o repositório no GitHub |
+| **2. `rhcl-api-subscription`** | um consumidor pede acesso: gera o `APIKey` do developer portal em `consumers/` | *pull request* no repo da API |
+| **3. `rhcl-api-canary`** | sobe a v2 ao lado da v1 e desloca uma fração do tráfego pelo `VirtualService` | *pull request* no repo da API |
 
-Requer `setup-github.sh` (a action `publish:github` vem de um plugin desabilitado por padrão) e que este repositório esteja no GitHub — a location do template é lida de lá por URL.
+O ponto da demo continua sendo o mesmo, agora com os três escopos juntos: **a
+policy nasce com o serviço** — de borda *e* de malha —, e mudar exposição ou
+quem consome passa a ser uma revisão de código, não um ticket para a plataforma.
 
-Dois detalhes que o template já resolve, e que costumam custar tempo quando feitos à mão:
+Requer `setup-github.sh` (a action `publish:github` vem de um plugin desabilitado
+por padrão) e que este repositório esteja no GitHub — as locations são lidas de
+lá por URL.
 
-- **A API key vai para `kuadrant-system`**, não para o namespace da aplicação. É o que `allNamespaces: false` significa: o Authorino procura no namespace *dele*. Criar o Secret junto do Deployment dá 401 em tudo, sem erro no status da AuthPolicy.
-- **O label `authorino.kuadrant.io/managed-by: authorino` é obrigatório.** Sem ele o Secret é ignorado, mesmo no namespace certo e com o label `app` correto.
+### O que o template resolve e custaria tempo à mão
+
+Cada item abaixo foi medido neste cluster, não deduzido do manual:
+
+- **O namespace precisa do label `istio-injection=enabled`.** A annotation
+  `sidecar.istio.io/inject` no pod **não injeta nada**: o webhook decide olhando
+  *label* (de namespace ou de pod). Pod só com a annotation nasce sem
+  `istio-proxy`, o serviço funciona, e a malha simplesmente não o vê.
+- **A `AuthPolicy` tem que usar `spec.rules`, não `spec.defaults.rules`.** O
+  controlador do `APIProduct` ignora o wrapper de defaults, fica sem
+  `discoveredAuthScheme`, e todo pedido de chave morre em `AuthSchemeNotFound`.
+- **Não pode haver `RateLimitPolicy` plana na rota.** No RHCL 1.4 ela sobrepõe a
+  que o `PlanPolicy` gera e os planos somem — sem erro, com o caminho de dados
+  continuando a responder 200.
+- **A API key vai para `kuadrant-system`**, não para o namespace da aplicação —
+  é o que `allNamespaces: false` significa.
+- **O label `authorino.kuadrant.io/managed-by: authorino` é obrigatório**, e o
+  `devportal.kuadrant.io/apiproduct` é o que impede a chave de um produto de
+  abrir outro.
+- **`backstage.io/owner` no `APIProduct`**, sem o qual o plugin do Kuadrant lê,
+  conta como publicado e não sincroniza — catálogo vazio, log silencioso.
+
+### Entrega: Argo CD com escopo estreito
+
+O repositório gerado nasce com o topic `rhcl-golden-path`, e o `ApplicationSet`
+instalado por `bash scripts/provision.sh gitops` o descobre sozinho — nada a
+aplicar. Os outros dois modos (`gitops/application.yaml` no repo, ou
+`oc apply -k manifests/`) continuam disponíveis no formulário.
+
+O Argo governa **apenas** os repositórios do golden path, com `selfHeal: false`.
+Os porquês estão em [gitops/README.md](../gitops/README.md).
+
+### Duplicidade proposital no catálogo
+
+Com o plugin `@kuadrant/*` ligado, cada serviço gerado aparece **duas vezes**, e
+vale dizer isso na demo em vez de deixar a pergunta no ar:
+
+- `<nome>-api` — a API como **código**: vem do `catalog-info.yaml` do repositório,
+  com a spec versionada em `openapi.yaml`. Existe com o cluster desligado.
+- `<nome>` — a API como **produto**: vem do `APIProduct` no cluster, traz as abas
+  *API Keys* e *API Product Info*, os planos descobertos do `PlanPolicy` e o
+  fluxo de aprovação.
+
+### O repositório privado quebra duas coisas
+
+O template cria o repo como **público** de propósito. Privado:
+
+- o `APIProduct` não consegue buscar `openapi.yaml` no `raw.githubusercontent`
+  (`OpenAPISpecReady=False`, e o controlador **não repete** — só uma mudança no
+  campo dispara nova tentativa);
+- o gerador SCM do `ApplicationSet` só o enxerga se o token tiver escopo para
+  ele.
 
 ## Por que o host da rota é fixo
 

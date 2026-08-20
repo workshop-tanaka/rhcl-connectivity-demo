@@ -1,0 +1,71 @@
+# ===========================================================================
+# Argo CD Application deste servico.
+#
+# QUANDO ISTO E NECESSARIO: so no modo 'application' (ou como plano B). No modo
+# 'applicationset' o cluster ja tem um ApplicationSet que descobre repositorios
+# pelo topic 'rhcl-golden-path' e cria o Application sozinho -- aplicar este
+# arquivo por cima criaria um SEGUNDO Application disputando os mesmos recursos.
+#
+#   oc apply -f gitops/application.yaml
+#
+# ---------------------------------------------------------------------------
+# POR QUE 'directory' E NAO 'kustomize', se existe um kustomization.yaml.
+#
+# Porque assim uma assinatura nova (consumers/<parceiro>.yaml, criada pelo
+# template rhcl-api-subscription por pull request) entra no cluster SEM que
+# ninguem precise editar a lista de resources do kustomize. Um arquivo novo no
+# diretorio ja e, por si, um recurso a sincronizar.
+#
+# O include depende da CONVENCAO DE NOME dos manifests: 'manifests/[0-9]*.yaml'
+# pega 00- a 53- e deixa o kustomization.yaml de fora (ele nao e um recurso; se
+# entrasse, o sync falharia com 'kind not set'). Renomear um manifesto para algo
+# que nao comece com digito o remove do sync, em silencio.
+#
+# O kustomization.yaml continua valendo para quem aplica na mao:
+#   oc apply -k manifests/
+# ---------------------------------------------------------------------------
+# selfHeal: false E prune: false, DE PROPOSITO.
+#
+# Nao e "GitOps pela metade": e a licao do cluster 1.2 desta demo, onde 16
+# Applications com selfHeal ligado reverteram todo 'oc apply' manual em
+# segundos -- e varios movimentos do roteiro sao exatamente isso (trocar o
+# PeerAuthentication para PERMISSIVE e voltar, mexer num limite ao vivo). Com
+# selfHeal, o Argo desfaz o movimento no meio da explicacao.
+#
+# Sem selfHeal a divergencia nao some: ela fica VISIVEL como OutOfSync na tela do
+# Argo, o que e um momento melhor de demo do que a correcao silenciosa.
+# Em producao, inverta os dois.
+#
+# CreateNamespace NAO esta ligado: o namespace e um recurso do proprio repo
+# (00-namespace.yaml), com o label de injecao da malha. Delegar a criacao ao
+# Argo produziria um namespace sem label -- e um servico sem sidecar.
+# ===========================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${{ values.name }}
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/part-of: rhcl-golden-path
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/${{ values.repoSlug }}.git
+    targetRevision: main
+    path: .
+    directory:
+      recurse: true
+      include: '{manifests/[0-9]*.yaml,consumers/*.yaml}'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${{ values.namespace }}
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: false
+    syncOptions:
+      # O APIProduct e o PlanPolicy sao CRs de CRDs que podem nao estar prontas
+      # num cluster recem-provisionado; sem isto o primeiro sync falha por
+      # validacao contra um schema que ainda nao existe.
+      - SkipDryRunOnMissingResource=true
+      - ServerSideApply=true

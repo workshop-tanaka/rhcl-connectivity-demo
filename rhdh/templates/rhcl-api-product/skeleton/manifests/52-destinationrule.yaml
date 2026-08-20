@@ -1,0 +1,34 @@
+{%- if values.canaryReady -%}
+# ===========================================================================
+# DestinationRule -- nomeia os subsets. E metade do canary; a outra e o
+# VirtualService ao lado.
+#
+# Hoje existe so a v1, e este arquivo NAO muda trafego nenhum: ele declara que
+# existem grupos e como distingui-los (o label 'version', que o Deployment ja
+# carrega). Separar do VirtualService parece burocracia e nao e -- o subset e
+# propriedade do DESTINO (existe independente de quem chama), o peso e decisao
+# de ROTEAMENTO.
+#
+# Declarar isso no dia 1 e o que permite ao template de canary mudar SO os pesos
+# por pull request no dia 2.
+#
+# NAO declare trafficPolicy.tls aqui: 'DISABLE' desligaria o mTLS do
+# PeerAuthentication STRICT e a chamada passaria a falhar. Ausente, vale o
+# auto-mTLS.
+# ===========================================================================
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: ${{ values.name }}
+  namespace: ${{ values.namespace }}
+spec:
+  host: ${{ values.name }}.${{ values.namespace }}.svc.cluster.local
+  subsets:
+    - name: v1
+      labels:
+        version: v1
+{%- else %}
+# Canary nao habilitado no formulario -- arquivo fora do kustomization.yaml.
+# Para habilitar: declare os subsets por label 'version' e um VirtualService com
+# os pesos. Ver base/mesh/ nesta demo.
+{%- endif %}

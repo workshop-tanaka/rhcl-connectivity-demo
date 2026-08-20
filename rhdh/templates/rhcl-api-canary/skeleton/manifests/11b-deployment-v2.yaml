@@ -1,0 +1,56 @@
+# ===========================================================================
+# v2 do servico -- sobe ao lado da v1, nao no lugar dela.
+#
+# O label 'version: v2' e o que a DestinationRule usa para nomear o subset. Sem
+# ele o pod entra no mesmo balde da v1 e nao ha canary nenhum: o Service
+# seleciona por 'app' e faria round-robin cego entre as duas versoes.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ values.name }}-v2
+  namespace: ${{ values.namespace }}
+  labels:
+    app: ${{ values.name }}
+    app.kubernetes.io/name: ${{ values.name }}
+    app.kubernetes.io/part-of: rhcl-golden-path
+    version: v2
+spec:
+  replicas: ${{ values.replicasV2 }}
+  selector:
+    matchLabels:
+      app: ${{ values.name }}
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: ${{ values.name }}
+        version: v2
+        sidecar.istio.io/inject: "true"
+    spec:
+      serviceAccountName: ${{ values.name }}
+      containers:
+        - name: ${{ values.name }}
+          image: ${{ values.imageV2 }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PORT
+              value: "${{ values.port }}"
+          ports:
+            - name: http
+              containerPort: ${{ values.port }}
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault

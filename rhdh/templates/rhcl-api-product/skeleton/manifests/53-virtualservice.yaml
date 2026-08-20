@@ -1,0 +1,43 @@
+{%- if values.canaryReady -%}
+# ===========================================================================
+# VirtualService -- 100% na v1 hoje, e o lugar onde o canary acontece amanha.
+#
+# TIMEOUT E RETRIES sao config de producao que a aplicacao nao declara e passa a
+# ter de graca. Mas NAO tente demonstra-los com fault injection: os dois testes
+# obvios falham, e os dois foram medidos nesta demo.
+#
+#   delay de 5s + timeout de 3s   -> HTTP 200 em 5.03s. O timeout da rota mede a
+#                                    chamada UPSTREAM; o delay injetado acontece
+#                                    antes dela e nao entra na conta.
+#   abort 503 em 50% + attempts:2 -> ~55% de falha. O Envoy gera a recusa como
+#                                    local reply e nao re-tenta a propria injecao.
+#
+# Fault injection serve para PROVOCAR o cenario de falha, nao para exercitar a
+# resiliencia configurada. Armadilha 12 do runbook.
+#
+# COMO OBSERVAR A DIVISAO quando houver v2: nao pelo corpo da resposta (se as
+# duas versoes forem a mesma imagem, e identico), e sim no Kiali em 'Versioned
+# app graph' ou em istio_requests_total{destination_version=...}.
+# ===========================================================================
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: ${{ values.name }}
+  namespace: ${{ values.namespace }}
+spec:
+  hosts:
+    - ${{ values.name }}.${{ values.namespace }}.svc.cluster.local
+  http:
+    - route:
+        - destination:
+            host: ${{ values.name }}.${{ values.namespace }}.svc.cluster.local
+            subset: v1
+          weight: 100
+      timeout: 3s
+      retries:
+        attempts: 2
+        perTryTimeout: 1s
+        retryOn: 5xx,reset,connect-failure
+{%- else %}
+# Canary nao habilitado no formulario -- arquivo fora do kustomization.yaml.
+{%- endif %}

@@ -2,7 +2,8 @@
 # setup-github.sh — liga a integracao GitHub no RHDH.
 #
 # O que isto habilita:
-#   - software template 'rhcl-exposed-api' registrado a partir do repo
+#   - os tres software templates do golden path registrados a partir do repo
+#     (rhcl-api-product, rhcl-api-subscription, rhcl-api-canary)
 #   - action publish:github (o template cria o repositorio de verdade)
 #   - descoberta automatica: qualquer repo da org com catalog-info.yaml na raiz
 #     entra no catalogo sozinho
@@ -70,15 +71,24 @@ _user="$(curl -sf -H "Authorization: Bearer ${GITHUB_TOKEN}" \
 [[ -n "$_user" ]] || _die "o GitHub recusou o token (verifique validade e escopos)."
 _ok "token valido (usuario ${_user})."
 
-_tpl_path="rhdh/templates/rhcl-exposed-api/template.yaml"
-_tpl_api="https://api.github.com/repos/${GITHUB_ORG}/${GITHUB_REPO}/contents/${_tpl_path}?ref=${GITHUB_BRANCH}"
-if curl -sf -o /dev/null -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-     -H "Accept: application/vnd.github+json" "$_tpl_api" 2>/dev/null; then
-  _ok "template encontrado em ${GITHUB_ORG}/${GITHUB_REPO}@${GITHUB_BRANCH}."
-else
-  _warn "nao achei ${_tpl_path} em ${GITHUB_ORG}/${GITHUB_REPO}@${GITHUB_BRANCH}."
-  _warn "a location sera registrada mesmo assim; commite o arquivo e o RHDH pega no proximo ciclo."
-fi
+# Os tres templates do golden path. Cada um e uma location propria no catalogo:
+#   1. produto     cria o projeto inteiro (namespace na malha, policies, produto)
+#   2. assinatura  pede chave por pull request no repo da API
+#   3. canary      publica a v2 e move peso, tambem por pull request
+_tpl_paths="rhdh/templates/rhcl-api-product/template.yaml
+rhdh/templates/rhcl-api-subscription/template.yaml
+rhdh/templates/rhcl-api-canary/template.yaml"
+
+for _p in $_tpl_paths; do
+  _tpl_api="https://api.github.com/repos/${GITHUB_ORG}/${GITHUB_REPO}/contents/${_p}?ref=${GITHUB_BRANCH}"
+  if curl -sf -o /dev/null -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+       -H "Accept: application/vnd.github+json" "$_tpl_api" 2>/dev/null; then
+    _ok "template encontrado: ${_p}"
+  else
+    _warn "nao achei ${_p} em ${GITHUB_ORG}/${GITHUB_REPO}@${GITHUB_BRANCH}."
+    _warn "a location sera registrada mesmo assim; commite o arquivo e o RHDH pega no proximo ciclo."
+  fi
+done
 
 # ----- 2. credenciais ------------------------------------------------------
 # GITHUB_ORG/GITHUB_URL entram como env porque varios plugins do RHDH os
@@ -91,7 +101,11 @@ oc create secret generic rhdh-github-secret -n "$RHDH_NS" \
   --dry-run=client -o yaml | oc apply -f - >/dev/null \
   || _die "falha ao criar rhdh-github-secret."
 else
-_tpl_path="rhdh/templates/rhcl-exposed-api/template.yaml"
+# Reexecucao com o secret ja existente: os caminhos ainda precisam ser montados
+# para o passo 5, so nao ha token novo a validar.
+_tpl_paths="rhdh/templates/rhcl-api-product/template.yaml
+rhdh/templates/rhcl-api-subscription/template.yaml
+rhdh/templates/rhcl-api-canary/template.yaml"
 fi
 
 # ----- 3. app-config da camada GitHub --------------------------------------
@@ -138,10 +152,17 @@ GITHUB_BRANCH="${GITHUB_BRANCH}" bash "${_here}/setup-plugins.sh" \
 # ----- 5. registrar o template e recarregar --------------------------------
 # Delegado ao setup-catalog.sh: ele detecta o app-config-rhdh-github, monta a
 # lista de appConfig na ordem certa e faz o restart.
-_log "registrando o software template..."
-TEMPLATE_LOCATION_URL="https://github.com/${GITHUB_ORG}/${GITHUB_REPO}/blob/${GITHUB_BRANCH}/${_tpl_path}" \
+_log "registrando os software templates..."
+_tpl_urls=""
+for _p in $_tpl_paths; do
+  _tpl_urls="${_tpl_urls} https://github.com/${GITHUB_ORG}/${GITHUB_REPO}/blob/${GITHUB_BRANCH}/${_p}"
+done
+TEMPLATE_LOCATION_URLS="${_tpl_urls}" \
   bash "${_here}/setup-catalog.sh" || _die "falha ao registrar o catalogo."
 
 _ok "integracao GitHub ativa (org ${GITHUB_ORG})."
 _log "o init container instala os plugins no boot -- o primeiro start demora mais."
-_log "template em: Create -> 'API exposta pelo Red Hat Connectivity Link'."
+_log "templates em Create ->"
+_log "  1. API como produto — projeto, malha e Connectivity Link"
+_log "  2. Assinar uma API — pedido de chave por pull request"
+_log "  3. Publicar uma v2 — canary por pull request"

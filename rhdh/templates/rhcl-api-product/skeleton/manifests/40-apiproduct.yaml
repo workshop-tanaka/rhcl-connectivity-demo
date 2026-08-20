@@ -1,0 +1,58 @@
+# ===========================================================================
+# APIProduct -- a API como item de catalogo do developer portal.
+#
+# Requer 'components.developerPortal.enabled: true' no CR Kuadrant (vem
+# desligado) e as CRDs devportal.kuadrant.io, que so existem a partir do RHCL
+# 1.4.2. O controlador descobre sozinho o que importa a partir da rota:
+#
+#   status.discoveredPlans       os tiers, com limite e cota, lidos do PlanPolicy
+#   status.discoveredAuthScheme  o esquema de API key, lido do AuthPolicy
+#
+# Nada disso e digitado aqui -- so os metadados comerciais.
+#
+# ---------------------------------------------------------------------------
+# A ANOTACAO backstage.io/owner NAO E OPCIONAL. Sem ela o plugin @kuadrant/* le
+# o APIProduct, conta como publicado e NAO sincroniza:
+#   "has no backstage.io/owner annotation, skipping catalog sync"
+# O catalogo fica vazio sem nenhum erro. O valor precisa ser uma entidade que
+# exista no catalogo.
+# ---------------------------------------------------------------------------
+# openAPISpecURL aponta para o openapi.yaml DESTE REPOSITORIO, servido pelo
+# raw.githubusercontent. E por isso que o template cria o repo como PUBLICO: em
+# repo privado o fetch devolve 404 e o produto fica com OpenAPISpecReady=False,
+# sem aba Definition no portal. O plugin do RHDH propaga esta URL como
+# annotation kuadrant.io/openapi-spec-url na entidade sincronizada.
+#
+# Se o controlador nao conseguir buscar a spec, ele NAO REPETE:
+#   "Controller will not retry; the spec needs to change"
+# Consertar a URL exige editar o campo (qualquer mudanca serve como gatilho).
+# ===========================================================================
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIProduct
+metadata:
+  name: ${{ values.name }}
+  namespace: ${{ values.namespace }}
+  labels:
+    app: ${{ values.name }}
+  annotations:
+    backstage.io/owner: ${{ values.owner }}
+spec:
+  displayName: ${{ values.name }}
+  description: >-
+    ${{ values.description }}
+  version: ${{ values.productVersion }}
+  approvalMode: ${{ values.approvalMode }}
+  publishStatus: Published
+  tags:
+    - golden-path
+    - rate-limited
+{%- if values.planPreset == 'three-tier' %}
+    - partners
+{%- endif %}
+  documentation:
+    openAPISpecURL: https://raw.githubusercontent.com/${{ values.repoSlug }}/main/openapi.yaml
+    gitRepository: https://github.com/${{ values.repoSlug }}
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: ${{ values.name }}

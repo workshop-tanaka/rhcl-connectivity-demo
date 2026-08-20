@@ -1,0 +1,37 @@
+# ===========================================================================
+# Namespace do servico -- e o unico lugar onde a MALHA e ligada.
+#
+# 'istio-injection: enabled' nao e enfeite nem redundancia com a annotation do
+# pod: o webhook de injecao decide se roda OLHANDO LABEL, tanto do namespace
+# quanto do pod. MEDIDO NESTE CLUSTER, em namespace sem label:
+#
+#   pod com ANNOTATION sidecar.istio.io/inject: "true"  -> initContainers: []
+#   pod com LABEL      sidecar.istio.io/inject: "true"  -> istio-validation, istio-proxy
+#
+# Ou seja: a annotation sozinha nao injeta nada. O servico sobe, a rota
+# funciona, o Ato 1 passa -- e o Kiali fica sem o servico, o mTLS nao existe e a
+# AuthorizationPolicy do lado leste-oeste nunca casa, porque nao ha principal
+# SPIFFE para comparar. Falha silenciosa, e cara: so aparece no ensaio do Ato 7.
+#
+# O selector do webhook, para conferir no cluster:
+#   oc get mutatingwebhookconfiguration istio-sidecar-injector \
+#     -o jsonpath='{range .webhooks[*]}{.name}{"\n  ns: "}{.namespaceSelector}{"\n  obj: "}{.objectSelector}{"\n"}{end}'
+#
+# Os labels de Pod Security sao os mesmos que os namespaces da demo carregam.
+# Nao copie de platform-reference/namespaces/: aqueles trazem faixas de UID/SCC
+# do cluster onde foram capturados.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${{ values.namespace }}
+  labels:
+    istio-injection: enabled
+    kubernetes.io/metadata.name: ${{ values.namespace }}
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    # Lido pelo ApplicationSet/Argo e pelo verify.sh para saber que este
+    # namespace nasceu de um golden path.
+    app.kubernetes.io/part-of: rhcl-golden-path

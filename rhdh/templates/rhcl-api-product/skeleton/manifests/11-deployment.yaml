@@ -1,0 +1,71 @@
+# ===========================================================================
+# Deployment.
+#
+# Tres detalhes que existem por causa de coisas medidas neste cluster:
+#
+# 1. LABEL (nao annotation) sidecar.istio.io/inject. Cinto e suspensorio: o
+#    namespace ja tem istio-injection=enabled, mas se alguem mover este
+#    Deployment para um namespace sem o label, o LABEL do pod ainda faz o
+#    webhook rodar. A annotation, nao. Ver 00-namespace.yaml.
+#
+# 2. LABELS NO PROPRIO DEPLOYMENT, e nao so no selector. O plugin Kubernetes do
+#    RHDH desenha a aba Topology a partir do Deployment: os workloads do
+#    travel-agency nao tem labels proprios e por isso aparecem com a visao
+#    reduzida (pods, services, replicasets -- sem deployment). Aqui a aba nasce
+#    completa.
+#
+# 3. version: v1. E o label que a DestinationRule usa para nomear subsets. Sem
+#    ele o canary do dia 2 nao tem como distinguir uma versao da outra, e o
+#    Kiali nao consegue desenhar o 'Versioned app graph'.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ values.name }}
+  namespace: ${{ values.namespace }}
+  labels:
+    app: ${{ values.name }}
+    app.kubernetes.io/name: ${{ values.name }}
+    app.kubernetes.io/part-of: rhcl-golden-path
+    version: v1
+spec:
+  replicas: ${{ values.replicas }}
+  selector:
+    matchLabels:
+      app: ${{ values.name }}
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: ${{ values.name }}
+        version: v1
+        sidecar.istio.io/inject: "true"
+    spec:
+      serviceAccountName: ${{ values.name }}
+      containers:
+        - name: ${{ values.name }}
+          image: ${{ values.image }}
+          imagePullPolicy: IfNotPresent
+          env:
+            # O talker-api le PORT; imagens que ignoram a variavel precisam que
+            # 'port' no formulario case com a porta que elas escutam de verdade.
+            - name: PORT
+              value: "${{ values.port }}"
+          ports:
+            - name: http
+              containerPort: ${{ values.port }}
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault

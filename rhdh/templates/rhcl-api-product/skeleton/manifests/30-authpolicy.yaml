@@ -1,0 +1,56 @@
+# ===========================================================================
+# AuthPolicy -- quem entra.
+#
+# Sem ela a rota herda o deny-all do Gateway prod-web e responde 403 a tudo.
+# Esse e o default seguro da borda: uma rota nova nasce fechada, e anexar esta
+# policy e o que a "abre". Nenhuma linha da aplicacao trata autenticacao.
+#
+# ---------------------------------------------------------------------------
+# 'rules' DIRETO, NAO 'defaults.rules'.
+#
+# As duas formas sao equivalentes para o Authorino. Mas a descoberta do
+# developer portal le 'spec.rules' e IGNORA o wrapper de defaults: com ele, o
+# APIProduct fica sem status.discoveredAuthScheme e TODO APIKey criado contra
+# este produto morre em 'Failed=True reason=AuthSchemeNotFound'. Medido neste
+# cluster; e a mesma razao pela qual base/policies-security/ e o echo-api usam
+# 'rules'.
+# ---------------------------------------------------------------------------
+# DOIS LABELS NO SELECTOR, e o segundo e o que isola o produto.
+#
+# So 'app: ${{ values.apiKeyGroup }}' faria qualquer chave de parceiro ja
+# existente no cluster abrir tambem esta API -- e o portal deixaria de
+# significar "assinei ESTE produto". O label devportal.kuadrant.io/apiproduct e
+# o mesmo que o controlador do portal grava nas chaves que ele emite, entao a
+# chave aprovada aqui vale aqui e so aqui.
+#
+# NAMESPACE DAS CHAVES: allNamespaces: false significa que o Authorino procura
+# os Secrets NO NAMESPACE DELE (kuadrant-system) -- nunca no namespace da
+# aplicacao. Secret criado junto do Deployment resulta em 401 para tudo, sem
+# nenhum erro no status desta policy.
+# ===========================================================================
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: ${{ values.name }}-authpolicy
+  namespace: ${{ values.namespace }}
+  labels:
+    app: ${{ values.name }}
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: ${{ values.name }}
+  rules:
+    authentication:
+      api-key-authn:
+        apiKey:
+          allNamespaces: false
+          selector:
+            matchLabels:
+              app: ${{ values.apiKeyGroup }}
+              devportal.kuadrant.io/apiproduct: ${{ values.name }}
+        credentials:
+          queryString:
+            name: APIKEY
+        metrics: false
+        priority: 0

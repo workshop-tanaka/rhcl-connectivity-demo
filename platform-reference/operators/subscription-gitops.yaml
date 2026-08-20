@@ -1,0 +1,33 @@
+# ===========================================================================
+# OpenShift GitOps — o Argo CD que governa os servicos do golden path.
+#
+# Arquivo proprio, e nao mais uma entrada em subscriptions-optional.yaml, por
+# um motivo pratico: a etapa 'gitops' do provision.sh precisa poder instalar SO
+# isto quando roda sozinha, sem arrastar Kiali, Tempo e Grafana junto.
+#
+# ESCOPO. Este Argo nao governa a plataforma nem a camada de demo -- so os
+# repositorios que o software template do RHDH gera. A separacao e a mesma que
+# este repo faz entre base/ e platform-reference/, e existe pela mesma razao:
+# no cluster 1.2, 16 Applications com selfHeal reverteram todo 'oc apply'
+# manual em segundos. Ver gitops/README.md.
+#
+# NAMESPACE. Vai para 'openshift-operators', que ja tem OperatorGroup global --
+# assim a etapa nao precisa criar um. O operator instala a instancia default em
+# 'openshift-gitops', e e la que o ApplicationSet e os Applications vivem.
+#
+# CANAL. 'latest' e o canal que a Red Hat mantem para o GitOps 1.x. Confira
+# antes num cluster com catalogo diferente:
+#   oc get packagemanifest openshift-gitops-operator -n openshift-marketplace \
+#     -o jsonpath='{range .status.channels[*]}{.name}{"\t"}{.currentCSV}{"\n"}{end}'
+# ===========================================================================
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: openshift-gitops-operator
+  namespace: openshift-operators
+spec:
+  channel: latest
+  name: openshift-gitops-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

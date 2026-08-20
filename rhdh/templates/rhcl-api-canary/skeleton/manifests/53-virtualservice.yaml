@@ -1,0 +1,37 @@
+# ===========================================================================
+# VirtualService -- ${{ values.weightV1 }}/${{ values.weightV2 }} entre v1 e v2.
+#
+# ANTES: o Service seleciona por 'app' e faz round-robin cego -- com um pod de
+# cada versao, a v2 receberia ~50% do trafego so por existir. DEPOIS:
+# ${{ values.weightV2 }}%, declarados, independentes do numero de replicas. O
+# Kubernetes so sabe balancear por pod, e "quantos pods de cada versao" e uma
+# unidade grosseira demais para decidir exposicao.
+#
+# COMO OBSERVAR: Kiali em 'Versioned app graph' (duas arestas, com percentual em
+# cada uma) ou istio_requests_total{destination_version=...}. Se as duas versoes
+# forem a mesma imagem, o corpo da resposta e identico e nao ha como contar a
+# divisao pelo payload.
+# ===========================================================================
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: ${{ values.name }}
+  namespace: ${{ values.namespace }}
+spec:
+  hosts:
+    - ${{ values.name }}.${{ values.namespace }}.svc.cluster.local
+  http:
+    - route:
+        - destination:
+            host: ${{ values.name }}.${{ values.namespace }}.svc.cluster.local
+            subset: v1
+          weight: ${{ values.weightV1 }}
+        - destination:
+            host: ${{ values.name }}.${{ values.namespace }}.svc.cluster.local
+            subset: v2
+          weight: ${{ values.weightV2 }}
+      timeout: 3s
+      retries:
+        attempts: 2
+        perTryTimeout: 1s
+        retryOn: 5xx,reset,connect-failure

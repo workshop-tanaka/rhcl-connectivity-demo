@@ -1,6 +1,6 @@
 # Roteiro de execução da demo — RHCL como plataforma de API
 
-**Duração:** 20 min (Atos 1–5), 30 min com o Ato 6 (RHDH), 38 min com o Ato 7
+**Duração:** 20 min (Atos 1–5), 32 min com o Ato 6 (RHDH + golden path), 40 min com o Ato 7
 (Service Mesh). Os dois últimos são independentes entre si.
 **Público:** plataforma, arquitetura, e quem decide sobre gateway de API.
 **Tese:** a mesma API servida em três planos comerciais, sem uma linha de
@@ -34,7 +34,7 @@ Provisionar um cluster novo do zero: [PROVISIONING-1.4.md](PROVISIONING-1.4.md).
   - [Ato 3 — Precedência é explícita](#ato-3--precedência-de-policies-é-explícita-4-min)
   - [Ato 4 — Isso vira número de negócio](#ato-4--isso-vira-número-de-negócio-4-min)
   - [Ato 5 — O caminho todo é rastreável](#ato-5--o-caminho-todo-é-rastreável-3-min)
-  - [Ato 6 — A policy nasce com o serviço](#ato-6--a-policy-nasce-com-o-serviço-8-min-opcional)
+  - [Ato 6 — A policy nasce com o serviço](#ato-6--a-policy-nasce-com-o-serviço-10-min-opcional)
   - [Ato 7 — A borda não é a única fronteira](#ato-7--a-borda-não-é-a-única-fronteira-8-min-opcional)
 - [Se algo falhar no palco](#se-algo-falhar-no-palco)
 - [Reset entre apresentações](#reset-entre-apresentações)
@@ -77,8 +77,14 @@ Para o Ato 6, uma vez por cluster:
 ```bash
 bash rhdh/install.sh                          # ~10 min (operator + PostgreSQL)
 bash rhdh/setup-catalog.sh                    # catálogo
-GITHUB_TOKEN=ghp_xxx bash rhdh/setup-github.sh <org> <repo>   # scaffolding
+GITHUB_TOKEN=ghp_xxx bash rhdh/setup-github.sh <org> <repo>   # os 3 templates
+GITHUB_TOKEN=ghp_xxx bash scripts/provision.sh gitops         # Argo + ApplicationSet
 ```
+
+A última linha é o que faz um repositório gerado virar serviço **sem ninguém
+aplicar nada**. Sem ela o ato continua possível — cada repo traz um
+`gitops/application.yaml` para um `oc apply -f` —, mas o momento "não fiz nada e
+subiu" se perde. Ver [gitops/README.md](../gitops/README.md).
 
 ---
 
@@ -128,12 +134,13 @@ fica sem força — mas um Ato 2 morto custa mais caro que um gráfico chato.
 | **Terminal 1** | grande, fonte alta — é onde tudo acontece |
 | Terminal 2 | `soak` rodando (pode ficar minimizado) |
 | Aba 1 | Grafana → dashboard **RHCL — planos comerciais** (`rhcl-planos`) |
-| Aba 2 | Console do OpenShift — **Connectivity Link → Policy Topology** (Ato 3) e **Service Mesh → Traffic Graph** (Ato 5) |
-| Aba 3 | Tempo (Jaeger UI) |
-| Aba 4 | RHDH (só se for fazer o Ato 6) |
+| Aba 2 | Console do OpenShift — **Connectivity Link → Policy Topology** (Ato 3), **Service Mesh → Traffic Graph** e **Observe → Traces** (Ato 5) |
+| Aba 3 | livre — a Jaeger UI virou plano B, e os traces moram na Aba 2 |
+| Aba 4 | RHDH (só se for fazer o Ato 6) — o `rhcl-portal`, **não** o do namespace `rhdh` |
+| Aba 5 | Argo CD, em *Applications* filtrado por `rhcl-golden-path` (só no Ato 6) |
 | Editor | repo aberto, `base/policies-plans/travels-plans.yaml` já visível |
 
-Aba 2 serve dois atos porque as duas telas moram no mesmo console — e é o
+Aba 2 serve dois atos porque as três telas moram no mesmo console — e é o
 console que o time do cliente já abre todo dia, o que economiza a explicação de
 "esta é outra ferramenta". Se as consoles não estiverem ligadas neste cluster,
 ver [PROVISIONING-1.4 seção 7](PROVISIONING-1.4.md#7-consoles-integradas); o
@@ -145,7 +152,7 @@ URLs saem do próprio preflight, ou:
 oc whoami --show-console                          # + /kuadrant/policy-topology e /ossmconsole/graph
 oc get route grafana-route -n monitoring          -o jsonpath='{.spec.host}{"\n"}'
 oc get route kiali         -n istio-system        -o jsonpath='{.spec.host}{"\n"}'
-oc get route tracing-ui    -n tracing-system      -o jsonpath='{.spec.host}{"\n"}'
+oc get route tempo-tempo-jaegerui -n tracing-system -o jsonpath='{.spec.host}{"/dev\n"}'   # plano B
 oc get route backstage-developer-hub -n rhdh      -o jsonpath='{.spec.host}{"\n"}'
 ```
 
@@ -407,21 +414,35 @@ prod-web (ingress-gateway)
               └─ insurances ─┴─ mysqldb (travel-db)
 ```
 
-**Tempo (Jaeger UI)** — busque o serviço `prod-web-istio.ingress-gateway` e
-abra um trace: a decisão do gateway e a chamada de aplicação no mesmo timeline,
+**Traces** — console → **Observe → Traces**, instância `tempo` (namespace
+`tracing-system`). Busque o serviço `prod-web-istio.ingress-gateway` e abra um
+trace: a decisão do gateway e a chamada de aplicação no mesmo timeline,
 seguindo até `travels.travel-agency` e os microserviços abaixo.
+
+Vale dizer em voz alta que esta é a terceira tela do console na mesma
+apresentação — Policy Topology, Traffic Graph e Traces. Nenhuma ferramenta
+nova entrou na conversa.
+
+> A Jaeger UI que o Tempo serve continua no ar como plano B, **deprecada** e
+> avisando isso na tela. Ela mudou de endereço: agora é `<rota>/dev` — o `dev`
+> é o tenant — e pede login do cluster. A raiz da rota devolve só um índice
+> JSON de caminhos, o que parece defeito e não é. O que a aba do console custou
+> para existir está na [armadilha 13](#13-o-plugin-de-tracing-do-console-exige-multitenancy-no-tempo).
 
 Amarre ao Ato 3: a policy não é opaca na borda — ela é observável no mesmo
 lugar que o resto do tráfego.
 
 ---
 
-### Ato 6 — A policy nasce com o serviço *(8 min, opcional)*
+### Ato 6 — A policy nasce com o serviço *(10 min, opcional)*
 
 Este ato responde à objeção que sempre vem depois do Ato 2: *"ok, mas quem
-escreve esse YAML?"*
+escreve esse YAML?"* — e a resposta é **ninguém**: um serviço novo nasce com
+tudo o que os Atos 1 a 5 e 7 mostraram, sem que o desenvolvedor precise saber
+que qualquer uma dessas policies existe.
 
-Abra o **RHDH**.
+Abra o **RHDH** (`rhcl-portal`, não o do namespace `rhdh` — aquele é do
+workshop do AAP).
 
 **a) O catálogo.** As policies estão modeladas como recursos, separadas pelo
 escopo do `targetRef` — que é o que decide o alcance de cada uma:
@@ -430,37 +451,110 @@ escopo do `targetRef` — que é o que decide o alcance de cada uma:
   (`prod-web-deny-all`, `ingress-gateway-rlp-lowlimits`, `prod-web-dnspolicy`,
   `prod-web-tls-policy`, `prod-web-telemetry`). Valem para **toda** rota anexada.
 - **`travel-agency`** — a aplicação e as policies que miram a HTTPRoute
-  (`travel-agency-authpolicy`, `travels-plans`, `ratelimit-policy-travels`).
-  Valem só para essa API.
+  (`travel-agency-authpolicy`, `travels-plans`). Valem só para essa API.
 
 Os três parceiros do Ato 2 aparecem como consumidores, um por API key — o
 portal mostra **quem consome a API e em qual tier**.
 
-**b) O software template.** *Create → API exposta pelo Red Hat Connectivity
-Link*. Preencha nome, namespace, hostname e imagem. O template gera um
-repositório no GitHub com Deployment, Service, HTTPRoute anexada ao `prod-web`,
-`AuthPolicy` por API key e `RateLimitPolicy` — e registra o componente no
-catálogo.
+**b) O golden path.** *Create* tem três templates, e a ordem deles é a jornada:
 
-> "A policy nasce com o serviço, em vez de virar um ticket para a plataforma
-> depois."
+| | |
+| --- | --- |
+| **1. API como produto** | o produtor cria o projeto inteiro |
+| **2. Assinar uma API** | o consumidor pede a chave, por pull request |
+| **3. Publicar uma v2** | o dia 2: canary, também por pull request |
 
-Dois detalhes que o template já resolve e que custam tempo quando feitos à mão
-— vale mencionar, porque é onde a plateia técnica se reconhece:
+Abra o **1** e preencha nome, domínio de apps e imagem — o resto tem default. Ao
+submeter, o template cria um repositório **público** no GitHub com:
 
-- a API key vai para `kuadrant-system`, **não** para o namespace da aplicação
-  (é o que `allNamespaces: false` significa: o Authorino procura no namespace
-  *dele*). Criar o Secret junto do Deployment dá 401 em tudo, sem erro no
-  status da AuthPolicy;
-- o label `authorino.kuadrant.io/managed-by: authorino` é **obrigatório** —
-  sem ele o Secret é ignorado, mesmo no namespace certo.
+```
+manifests/  00 namespace já na malha        10-12 workload com SA própria
+            20 HTTPRoute no prod-web        30 AuthPolicy    31 PlanPolicy
+            40 APIProduct                   50 mTLS  51 quem pode chamar
+            52-53 subsets e pesos (canary pronto)
+consumers/  as assinaturas entram aqui (template 2)
+gitops/     Application do Argo             openapi.yaml  verify.sh
+```
+
+> "Um formulário de cinco campos, e o serviço nasce fechado por padrão, dentro
+> da malha, com plano comercial e publicado no portal. A equipe de aplicação não
+> escreveu nenhuma dessas policies — e também não pode esquecê-las."
+
+**c) O Argo pega sozinho.** O repositório nasce com o topic `rhcl-golden-path`,
+e o `ApplicationSet` do cluster descobre repos por esse topic. Não há nada a
+aplicar — deixe esta tela aberta enquanto fala:
+
+```bash
+oc get application -n openshift-gitops -l app.kubernetes.io/part-of=rhcl-golden-path -w
+```
+
+> Leva até ~3 min (`requeueAfterSeconds: 180`). Use o tempo para o item **d**.
+
+**d) O que o template impediu de dar errado.** É onde a plateia técnica se
+reconhece — e cada um destes foi medido neste cluster, não deduzido do manual:
+
+- **o namespace precisa do label `istio-injection=enabled`** — a annotation
+  `sidecar.istio.io/inject` no pod **não injeta nada**, porque o webhook decide
+  olhando *label*. Pod com a annotation e sem o label nasce sem `istio-proxy`, e
+  o serviço funciona: só não existe para a malha, para o Kiali nem para o Ato 7;
+- **a `AuthPolicy` precisa usar `spec.rules`**, não `spec.defaults.rules`, ou o
+  `APIProduct` fica sem `discoveredAuthScheme` e todo pedido de chave morre em
+  `AuthSchemeNotFound`;
+- **não pode haver `RateLimitPolicy` plana na rota** — no 1.4 ela sobrepõe a que
+  o `PlanPolicy` gera, e os planos somem sem erro nenhum (armadilha 5);
+- **a chave vai para `kuadrant-system`**, com `authorino.kuadrant.io/managed-by`
+  *e* `devportal.kuadrant.io/apiproduct` — o primeiro para o Authorino enxergar,
+  o segundo para a chave de um produto não abrir outro.
+
+**e) O campo que vale a demo inteira.** No formulário, *"Como o plano é lido da
+chave"*. Escolha **simples** numa segunda execução e abra o
+`manifests/31-planpolicy.yaml` gerado: o predicate indexa o label direto, e o
+arquivo vem com o aviso de que uma chave sem `kuadrant.io/plan-id` faz a
+expressão CEL **errar** — e erro em predicate não é `false`, é abortar a
+classificação inteira, catch-all incluído. Chave sem plano = chave **sem limite**.
+
+> "O golden path não é sobre digitar menos. É sobre não conseguir escolher a
+> opção que falha aberto sem ser avisado."
+
+**f) Provar que subiu.** No repositório gerado:
+
+```bash
+bash verify.sh
+```
+
+Percorre a mesma cadeia do `preflight.sh`, para o serviço novo: namespace e
+sidecar → rota aceita → policies `Enforced` → produto descoberto → 401 sem
+chave → 200 com chave → 429 acima do plano → mTLS e chamadores autorizados.
+
+```bash
+bash verify.sh key        # emite uma chave 'free' e imprime o curl de teste
+```
+
+**g) Fechar nos atos anteriores.** O serviço criado há cinco minutos já está:
+
+- no **Kiali**, dentro da malha, com cadeado (Ato 7 vale para ele sem nada a
+  mais — o namespace nasceu com injeção);
+- em **Observe → Traces** (a `Telemetry` é mesh-wide, 100% de amostragem);
+- no dashboard **RHCL — planos comerciais**, com o rótulo `plan` correto desde a
+  primeira requisição — porque a `TelemetryPolicy` é de escopo *Gateway* e vale
+  para toda rota anexada, e porque o serviço nasceu **com** `PlanPolicy`. Uma
+  rota sem plano apareceria com `plan` vazio, indistinguível do fail-open do
+  item **e**.
+
+**h) O outro lado, se houver tempo.** *Create → 2. Assinar uma API*: um
+consumidor pede acesso e o template abre um **pull request** no repositório da
+API com o `APIKey`. O merge coloca o pedido no cluster; a aprovação acontece em
+*Connectivity Link → API Key Approvals*.
+
+> Aqui **pode** aprovar — diferente dos três pedidos do Ato 2, que ficam
+> `Pending` de propósito. Os projetos do golden path nascem com leitura
+> defensiva do plano, que aceita tanto o label quanto a annotation que o portal
+> grava ao aprovar. É a armadilha 11 resolvida na origem.
 
 > O portal usa login `guest`. Se a plateia perguntar de produção, a resposta e
 > os dois caminhos reais estão em [rhdh/README.md](../rhdh/README.md#sair-do-guest)
 > — incluindo por que o OAuth embutido do OpenShift **não** serve como IdP do
 > Backstage.
-
----
 
 ### Ato 7 — A borda não é a única fronteira *(8 min, opcional)*
 
@@ -900,6 +994,19 @@ Defesa: `bash scripts/traffic.sh reset` reinicia o Limitador; os contadores são
 in-memory e voltam a zero, cota diária inclusive. Leva ~30s. A ordem correta no
 aquecimento é **soak → reset → tiers**, e não o contrário.
 
+E agora dá para saber *antes* de subir ao palco, com número exato em vez de
+dedução: o `preflight.sh` lê os contadores diários do Limitador (`/counters`, a
+API HTTP dele — a cota restante não existe em métrica nenhuma) e **reprova** com
+o `free` zerado, em vez de acusar `tier free: nenhuma requisição servida`, que
+mandava investigar o lado errado. `bash scripts/traffic.sh metrics` mostra a
+mesma leitura:
+
+```
+cota diaria restante
+  gold     4985/5000
+  free     38/50
+```
+
 Não é específico do 1.4 — as cotas estão em `base/policies-plans/`, então o
 mesmo valia no 1.2.1. Só não aparecia porque ninguém rodava soak longo antes de
 conferir os tiers.
@@ -1034,8 +1141,33 @@ oc delete secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true
 oc delete apikeyapproval --all -n travel-agency
 ```
 
-Fechar de verdade seria fazer o `PlanPolicy` ler a annotation, ou guardar o
-predicado com `has()` — as duas coisas mexem no centro do Ato 2 e ficaram fora.
+**Fechado.** O predicado agora faz as duas coisas — guarda com `has()` e cai
+para a annotation quando o label falta:
+
+```
+(has(...labels) && "kuadrant.io/plan-id" in ...labels
+   ? ...labels["kuadrant.io/plan-id"]
+   : (has(...annotations) && "secret.kuadrant.io/plan-id" in ...annotations
+        ? ...annotations["secret.kuadrant.io/plan-id"] : "")) == "silver"
+```
+
+A ordem é deliberada: **label primeiro** (é o que a demo cria), annotation
+depois (é o que o produto cria). Medido depois da mudança, com uma chave
+aprovada no portal em `silver`:
+
+```
+200 200 200 200 200 200 200 200 429 429 429 429 200 200 200
+```
+
+Classificada e limitada — antes eram dez de dez servidas. O predicado está em
+[base/policies-plans/travels-plans.yaml](../base/policies-plans/travels-plans.yaml).
+
+Isso muda o que o `preflight.sh` pode afirmar: chave sem label **não é mais
+sinônimo de fail-open**. Ele passou a ler os predicados do `PlanPolicy` antes de
+julgar — se há fallback para a annotation, a chave do portal é aprovada como
+classificada; se não há, continua reprovando. A checagem antiga sugeria
+`oc label secret … plan-id=free`, o que **rebaixaria um parceiro silver para
+free** numa chave que já estava correta.
 
 ---
 
@@ -1071,3 +1203,57 @@ Vale dizer isso na demo se alguém perguntar, porque muito tutorial encadeia as
 duas coisas como se compusessem. Os campos estão em
 [base/mesh/virtualservice-discounts.yaml](../base/mesh/virtualservice-discounts.yaml)
 e são config legítima de produção — só não são demonstráveis por esse caminho.
+
+---
+
+### 13. O plugin de tracing do console exige multitenancy no Tempo
+
+A Jaeger UI avisa, ao abrir, que está deprecada:
+
+> *Jaeger UI is deprecated and will be removed in a future release. Install the
+> Cluster Observability Operator and the distributed tracing UI plugin to search
+> and visualize traces in the OpenShift Console.*
+
+O caminho indicado funciona — os traces passam a abrir em **Observe → Traces**,
+ao lado do Policy Topology e do Traffic Graph, o que fecha o argumento de "é o
+console que o cliente já abre". Mas a mensagem esconde o preço. O plugin recusa
+instância sem multitenancy, e diz isso na própria página:
+
+> *TempoStack and TempoMonolithic instances with multi-tenancy are supported.
+> Instances without multi-tenancy are not supported.*
+
+Ligar `multitenancy` no `TempoMonolithic` **mexe na ingestão**, não só na
+leitura. Medido neste cluster, na ordem em que apareceu:
+
+1. **O Service `tempo-tempo` desaparece** e um gateway toma o lugar. O
+   `OpenTelemetryCollector` apontava para ele e passou a repetir
+   `Exporting failed ... no children to pick from` — a malha continuava
+   produzindo spans e nada mais chegava ao Tempo. Nenhum ato quebra na tela: o
+   trace some, e trace vazio se lê como "não houve tráfego".
+2. **A rota `tracing-ui` é apagada pelo operator.** Era a que o `preflight.sh`
+   e a folha de acessos usavam — e ela servia a Jaeger UI **sem autenticação
+   nenhuma**. A UI passa a ser `<rota do gateway>/dev`, com login do cluster.
+   A raiz da rota devolve um índice JSON, que parece erro e não é.
+3. **Escrita e leitura passam a exigir RBAC**, com o tenant como recurso
+   (`apiGroups: tempo.grafana.com`, `resources: [dev]`,
+   `resourceNames: [traces]`). Sem o de escrita, o collector conecta e o dado
+   não aparece; sem o de leitura, a aba lista a instância e não devolve trace.
+4. **O backend do plugin descobre as instâncias quando sobe.** Ligar
+   multitenancy depois deixa a aba consultando `single-tenant`, e o gateway
+   responde `tenant not found, have you registered it?`. Um
+   `oc rollout restart deploy/distributed-tracing -n openshift-cluster-observability-operator`
+   resolve.
+
+O nome do tenant (`dev`) aparece em quatro lugares e tem de ser o mesmo nos
+quatro: no `TempoMonolithic`, no header `X-Scope-OrgID` do collector, nos
+`ClusterRole`s e no path da UI.
+
+Tudo em [platform-reference/tracing/](../platform-reference/tracing/) e
+[platform-reference/consoles/uiplugin-distributed-tracing.yaml](../platform-reference/consoles/uiplugin-distributed-tracing.yaml).
+O `preflight.sh` passou a checar os dois pontos que somem em silêncio — se o
+collector está entregando (`Exporting failed` no log) e se a consulta por tenant
+responde — porque pod `Running` e rota no ar não dizem nada sobre nenhum dos dois.
+
+**Se for apresentar amanhã e o cluster ainda estiver sem isso:** não ligue na
+véspera. A Jaeger UI deprecada funciona, o aviso é de fim de vida e não de
+defeito, e a migração toca a tubulação do Ato 5.

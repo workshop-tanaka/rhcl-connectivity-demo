@@ -1,0 +1,58 @@
+{%- if values.allowedCallers | length -%}
+# ===========================================================================
+# AuthorizationPolicy -- o par LESTE-OESTE do AuthPolicy do RHCL.
+#
+# O AuthPolicy decide quem entra pela BORDA. Esta decide quem pode falar com
+# este servico DENTRO da malha, e a diferenca de escopo e o argumento inteiro do
+# Ato 7: uma chave de API valida abre a porta da rua, nao abre todas as portas
+# internas.
+#
+# IDENTIDADE, NAO ENDERECO: o principal e o SPIFFE ID que o mTLS provou -- nao e
+# IP, nao e header, nao e label de pod, nada que o chamador possa forjar. Por
+# isso esta policy DEPENDE do STRICT do arquivo anterior: sem mTLS nao ha
+# principal para comparar, e a regra nunca casaria.
+#
+# ACTION: ALLOW cria negacao implicita. Havendo qualquer regra ALLOW no
+# workload, o que nao casa recebe 403 'RBAC: access denied'. Nao ha deny-all a
+# escrever.
+#
+# O default do formulario libera SO o Gateway compartilhado
+# (ingress-gateway/prod-web-istio): o servico nasce alcancavel pela borda e por
+# mais ninguem. Acrescentar um chamador interno e acrescentar uma linha aqui.
+#
+# Confira o SA real do gateway antes de duvidar de um 403:
+#   oc get pods -n ingress-gateway -o custom-columns='POD:.metadata.name,SA:.spec.serviceAccountName'
+# ===========================================================================
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: ${{ values.name }}-callers
+  namespace: ${{ values.namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: ${{ values.name }}
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+{%- for caller in values.allowedCallers %}
+              # <namespace>/<serviceaccount> do formulario vira o SPIFFE ID do
+              # trust domain da malha (cluster.local, confirmado em cm/istio).
+              - cluster.local/ns/${{ caller | replace("/", "/sa/") }}
+{%- endfor %}
+{%- else %}
+# ===========================================================================
+# Sem AuthorizationPolicy -- a lista de chamadores ficou vazia no formulario.
+#
+# Consequencia: qualquer workload da malha alcanca este servico. A borda
+# continua protegida pelo AuthPolicy, mas a fronteira leste-oeste nao existe, e
+# o movimento 2 do Ato 7 nao tem o que mostrar aqui.
+#
+# Este arquivo esta fora do kustomization.yaml de proposito. Para ligar depois,
+# regere pelo template ou escreva a policy com o principal do chamador:
+#
+#   principals: ["cluster.local/ns/ingress-gateway/sa/prod-web-istio"]
+# ===========================================================================
+{%- endif %}

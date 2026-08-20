@@ -1,0 +1,122 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: rhcl-api-canary
+  title: 3. Publicar uma v2 — canary por pull request
+  description: >-
+    O dia 2 do golden path. Sobe a v2 do servico ao lado da v1 e desloca uma
+    fracao do trafego para ela pelo VirtualService da malha -- proporcao
+    declarada, independente do numero de replicas. Vai como pull request: a
+    mudanca de exposicao passa por revisao, como codigo.
+  tags:
+    - rhcl
+    - service-mesh
+    - canary
+    - golden-path
+spec:
+  type: service
+  owner: group:default/platform-team
+
+  parameters:
+    - title: Qual servico
+      required: [name, namespace, port, repoUrl]
+      properties:
+        name:
+          title: Nome do servico
+          type: string
+          pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+          ui:autofocus: true
+        namespace:
+          title: Namespace
+          type: string
+          pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+        port:
+          title: Porta
+          type: integer
+          default: 8000
+        repoUrl:
+          title: Repositorio do servico
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts:
+              - github.com
+
+    - title: A v2
+      required: [imageV2, weightV2, replicasV2]
+      properties:
+        imageV2:
+          title: Imagem da v2
+          type: string
+          description: >-
+            Pode ser a MESMA imagem da v1. Nesta demo isso e ate util: prova que
+            a divisao acontece na malha e nao no payload -- so o Kiali e a
+            metrica istio_requests_total{destination_version} mostram a diferenca.
+          default: quay.io/kuadrant/authorino-examples:talker-api
+        replicasV2:
+          title: Replicas da v2
+          type: integer
+          default: 1
+        weightV2:
+          title: Percentual de trafego para a v2
+          type: integer
+          description: >-
+            O ponto do ato: sem VirtualService o Service faz round-robin cego e
+            a v2 receberia ~50% so por existir um pod. Aqui a proporcao e
+            declarada e independe de replicas.
+          default: 10
+
+  steps:
+    - id: fetch
+      name: Gerar a v2 e os pesos
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{ parameters.name }}
+          namespace: ${{ parameters.namespace }}
+          port: ${{ parameters.port }}
+          imageV2: ${{ parameters.imageV2 }}
+          replicasV2: ${{ parameters.replicasV2 }}
+          weightV2: ${{ parameters.weightV2 }}
+          weightV1: ${{ 100 - parameters.weightV2 }}
+
+    - id: pr
+      name: Abrir o pull request
+      action: publish:github:pull-request
+      input:
+        repoUrl: ${{ parameters.repoUrl }}
+        branchName: canary-v2-${{ parameters.weightV2 }}pct
+        title: "canary: v2 com ${{ parameters.weightV2 }}% do trafego"
+        description: |
+          Sobe `${{ parameters.name }}-v2` e desloca **${{ parameters.weightV2 }}%**
+          do tráfego para ela.
+
+          | | v1 | v2 |
+          | --- | --- | --- |
+          | peso | ${{ 100 - parameters.weightV2 }}% | ${{ parameters.weightV2 }}% |
+          | imagem | (inalterada) | `${{ parameters.imageV2 }}` |
+
+          Arquivos: `manifests/11b-deployment-v2.yaml` (novo),
+          `manifests/52-destinationrule.yaml` e `manifests/53-virtualservice.yaml`
+          (pesos).
+
+          **Como conferir depois do merge** — não pelo corpo da resposta, que é
+          idêntico se as duas versões forem a mesma imagem:
+
+          ```bash
+          # Kiali: Graph -> Versioned app graph, namespace ${{ parameters.namespace }}
+          # ou o número:
+          oc exec -n ${{ parameters.namespace }} deploy/${{ parameters.name }} -c istio-proxy -- \
+            curl -s localhost:15000/stats/prometheus | grep destination_version
+          ```
+
+          ⚠️ Não tente exercitar o `retry`/`timeout` desta rota com fault
+          injection: `delay` acontece antes da chamada upstream e não entra no
+          timeout; `abort` é local reply e o Envoy não re-tenta a própria
+          injeção. Ambos medidos — armadilha 12 do runbook.
+
+  output:
+    links:
+      - title: Pull request
+        url: ${{ steps.pr.output.remoteUrl }}

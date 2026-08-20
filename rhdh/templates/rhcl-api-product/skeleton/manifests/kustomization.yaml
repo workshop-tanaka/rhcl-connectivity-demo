@@ -1,0 +1,36 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# A ordem dos arquivos e a ordem em que as coisas passam a existir para quem
+# assiste -- o kustomize nao ordena por isso, mas quem le o repo, sim:
+#
+#   00  namespace ja na malha        <- sem isto, nada abaixo tem sidecar
+#   10-12  workload com identidade propria
+#   20  a rota, anexada ao gateway compartilhado
+#   30  quem entra          (AuthPolicy)
+#   31  quanto passa POR TIER (PlanPolicy)
+#   40  a vitrine           (APIProduct do developer portal)
+#   50-53 a fronteira de dentro (Service Mesh)
+#
+# NAO ha RateLimitPolicy: no RHCL 1.4 uma RLP plana na mesma rota sobrepoe a que
+# o PlanPolicy gera e apaga os planos. Ver 31-planpolicy.yaml.
+# ===========================================================================
+
+resources:
+  - 00-namespace.yaml
+  - 10-serviceaccount.yaml
+  - 11-deployment.yaml
+  - 12-service.yaml
+  - 20-httproute.yaml
+  - 30-authpolicy.yaml
+  - 31-planpolicy.yaml
+  - 40-apiproduct.yaml
+  - 50-peerauthentication.yaml
+{%- if values.allowedCallers | length %}
+  - 51-authorizationpolicy.yaml
+{%- endif %}
+{%- if values.canaryReady %}
+  - 52-destinationrule.yaml
+  - 53-virtualservice.yaml
+{%- endif %}

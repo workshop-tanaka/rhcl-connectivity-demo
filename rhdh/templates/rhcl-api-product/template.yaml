@@ -1,0 +1,279 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: rhcl-api-product
+  title: 1. API como produto — projeto, malha e Connectivity Link
+  description: >-
+    Golden path completo: cria o namespace ja na malha, o workload com
+    ServiceAccount proprio, a rota no Gateway compartilhado, as policies do RHCL
+    (AuthPolicy + PlanPolicy), o APIProduct do developer portal e o par
+    leste-oeste do Service Mesh (mTLS STRICT + AuthorizationPolicy + canary
+    pronto). Publica no GitHub e entrega ao Argo CD.
+  tags:
+    - rhcl
+    - kuadrant
+    - service-mesh
+    - gateway-api
+    - gitops
+    - golden-path
+spec:
+  type: service
+  owner: group:default/platform-team
+
+  parameters:
+    # -----------------------------------------------------------------------
+    - title: Identidade do servico
+      required: [name, owner]
+      properties:
+        name:
+          title: Nome
+          type: string
+          description: >-
+            Vira o nome do componente, do Deployment, do Service, da HTTPRoute e
+            do primeiro rotulo do hostname. Um rotulo DNS, minusculo.
+          pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+          maxLength: 40
+          ui:autofocus: true
+        description:
+          title: Descricao
+          type: string
+          description: Aparece no catalogo e na descricao do APIProduct.
+          default: API de exemplo criada pelo golden path do RHCL.
+        owner:
+          title: Dono
+          type: string
+          description: Time responsavel pelo produto.
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: [Group, User]
+          default: group:default/platform-team
+
+    # -----------------------------------------------------------------------
+    - title: Exposicao no gateway
+      required: [appsDomain, image, port]
+      properties:
+        namespace:
+          title: Namespace
+          type: string
+          description: >-
+            Vazio = usa o nome do servico. O namespace e CRIADO pelo manifesto,
+            ja com istio-injection=enabled -- sem esse label o pod nasce sem
+            sidecar e o servico fica fora da malha, sem erro nenhum.
+          pattern: '^$|^[a-z]([-a-z0-9]*[a-z0-9])?$'
+        appsDomain:
+          title: Dominio de apps do cluster
+          type: string
+          description: >-
+            O hostname sera <nome>.<dominio>. Precisa casar com o listener do
+            Gateway prod-web, que serve o wildcard *.apps.<cluster> -- e wildcard
+            de Gateway API casa UM rotulo so, entao nada de subdominio extra.
+            Descubra com: oc get ingresses.config cluster -o jsonpath='{.spec.domain}'
+          pattern: '^apps\.[a-z0-9.-]+$'
+          default: apps.cluster-w4xtj.dyn.redhatworkshops.io
+        image:
+          title: Imagem do container
+          type: string
+          description: >-
+            O default e o talker-api do proprio Kuadrant: devolve em JSON o
+            request que recebeu, entao da para provar na tela que a AuthPolicy
+            resolveu a identidade e qual plano o PlanPolicy atribuiu.
+          default: quay.io/kuadrant/authorino-examples:talker-api
+        port:
+          title: Porta do container
+          type: integer
+          default: 8000
+        replicas:
+          title: Replicas
+          type: integer
+          default: 1
+
+    # -----------------------------------------------------------------------
+    - title: O produto (Connectivity Link)
+      required: [productVersion, approvalMode, planPreset, planReading]
+      properties:
+        productVersion:
+          title: Versao do produto
+          type: string
+          default: v1
+        approvalMode:
+          title: Emissao de chave
+          type: string
+          description: >-
+            manual = todo pedido cai em API Key Approvals e alguem aprova.
+            automatic = a chave sai sozinha.
+          enum: [manual, automatic]
+          enumNames:
+            - manual (o dono aprova no portal)
+            - automatica
+          default: manual
+        planPreset:
+          title: Planos comerciais
+          type: string
+          description: >-
+            Os tres tiers reproduzem o Ato 2 no servico novo. Plano unico serve
+            para API interna que precisa de limite mas nao de vitrine comercial.
+          enum: [three-tier, single]
+          enumNames:
+            - tres tiers (free / silver / gold) + catch-all
+            - plano unico (predicate true)
+          default: three-tier
+        planReading:
+          title: Como o plano e lido da chave
+          type: string
+          description: >-
+            MEDIDO NESTE CLUSTER, e o momento mais forte da demo tecnica.
+            'simples' indexa o label direto: se a chave nao tiver o label, a
+            expressao CEL ERRA, nenhum plano e atribuido, o Limitador nao e
+            chamado e a requisicao passa SEM LIMITE (fail-open) -- inclusive
+            furando o catch-all. 'defensivo' usa has()/in e ainda aceita a
+            annotation que o developer portal grava ao aprovar uma chave.
+          enum: [defensivo, simples]
+          enumNames:
+            - defensivo (has/in + annotation do portal) — recomendado
+            - simples (indexa o label — falha ABERTO)
+          default: defensivo
+        apiKeyGroup:
+          title: Grupo de chaves
+          type: string
+          description: >-
+            Primeiro label do selector da AuthPolicy. O segundo e sempre
+            devportal.kuadrant.io/apiproduct=<nome>, e e ele que impede que a
+            chave de outro produto abra esta API.
+          default: partner
+
+    # -----------------------------------------------------------------------
+    - title: Malha de servicos
+      required: [mtlsStrict, allowedCallers]
+      properties:
+        mtlsStrict:
+          title: Exigir mTLS no namespace (PeerAuthentication STRICT)
+          type: boolean
+          description: >-
+            Sem STRICT o servidor AINDA ACEITA texto claro -- o cadeado do Kiali
+            aparece nos dois casos, e so o STRICT derruba a conexao sem
+            certificado.
+          default: true
+        allowedCallers:
+          title: Quem pode chamar este servico (namespace/serviceaccount)
+          type: array
+          description: >-
+            Vira AuthorizationPolicy por principal SPIFFE -- identidade provada
+            pelo mTLS, nao IP nem header. ALLOW cria negacao implicita: o que
+            nao estiver aqui recebe 403 'RBAC: access denied'. Deixe vazio para
+            nao criar a policy.
+          items:
+            type: string
+          default:
+            - ingress-gateway/prod-web-istio
+        canaryReady:
+          title: Ja declarar subsets e VirtualService (v1 100%)
+          type: boolean
+          description: >-
+            Nao muda o trafego hoje; deixa a rota pronta para o template de
+            canary mudar peso por pull request, e adiciona timeout e retry que a
+            aplicacao nao declara.
+          default: true
+
+    # -----------------------------------------------------------------------
+    - title: Repositorio e GitOps
+      required: [repoUrl, gitopsMode]
+      properties:
+        repoUrl:
+          title: Destino no GitHub
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts:
+              - github.com
+        gitopsMode:
+          title: Como o cluster recebe estes manifestos
+          type: string
+          description: >-
+            applicationset = o repo nasce com o topic rhcl-golden-path e o
+            ApplicationSet do cluster cria o Application sozinho, sem ninguem
+            aplicar nada. application = o repo traz gitops/application.yaml para
+            um 'oc apply -f' unico. manual = so 'oc apply -k manifests/'.
+          enum: [applicationset, application, manual]
+          enumNames:
+            - ApplicationSet descobre pelo topic (nada a aplicar)
+            - Application no repo (um oc apply)
+            - manual (oc apply -k)
+          default: applicationset
+
+  steps:
+    - id: fetch
+      name: Gerar o projeto
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          # Namespace vazio no formulario = namespace com o nome do servico.
+          # Calculado UMA vez aqui; o skeleton nunca repete a regra.
+          namespace: ${{ parameters.namespace or parameters.name }}
+          appsDomain: ${{ parameters.appsDomain }}
+          hostname: ${{ parameters.name }}.${{ parameters.appsDomain }}
+          image: ${{ parameters.image }}
+          port: ${{ parameters.port }}
+          replicas: ${{ parameters.replicas }}
+          productVersion: ${{ parameters.productVersion }}
+          approvalMode: ${{ parameters.approvalMode }}
+          planPreset: ${{ parameters.planPreset }}
+          planReading: ${{ parameters.planReading }}
+          apiKeyGroup: ${{ parameters.apiKeyGroup }}
+          mtlsStrict: ${{ parameters.mtlsStrict }}
+          allowedCallers: ${{ parameters.allowedCallers }}
+          canaryReady: ${{ parameters.canaryReady }}
+          gitopsMode: ${{ parameters.gitopsMode }}
+          repoUrl: ${{ parameters.repoUrl }}
+          repoSlug: ${{ (parameters.repoUrl | parseRepoUrl).owner }}/${{ (parameters.repoUrl | parseRepoUrl).repo }}
+
+    - id: publish
+      name: Publicar no GitHub
+      action: publish:github
+      input:
+        repoUrl: ${{ parameters.repoUrl }}
+        description: ${{ parameters.description }}
+        defaultBranch: main
+        # PUBLICO de proposito, e nao por descuido: o APIProduct manda o
+        # controlador do developer portal BUSCAR o openapi.yaml em
+        # raw.githubusercontent.com. Repositorio privado devolve 404 e o produto
+        # fica com OpenAPISpecReady=False -- sem aba Definition no portal.
+        repoVisibility: public
+        # O topic e o que o ApplicationSet procura. Sem ele, no modo
+        # applicationset, o repo e criado e nunca sincroniza.
+        topics:
+          - rhcl-golden-path
+          - ${{ parameters.name }}
+
+    - id: register
+      name: Registrar no catalogo
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+  output:
+    links:
+      - title: Repositorio
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: Abrir no catalogo
+        icon: catalog
+        entityRef: ${{ steps.register.output.entityRef }}
+      - title: Endpoint (401 ate existir chave)
+        url: https://${{ parameters.name }}.${{ parameters.appsDomain }}/
+    text:
+      - title: Falta so o Argo sincronizar
+        content: |
+          O repositorio esta criado. Conforme o modo escolhido:
+
+          - **applicationset**: nada a fazer. O ApplicationSet do cluster
+            descobre o topic `rhcl-golden-path` no proximo ciclo (~3 min).
+          - **application**: `oc apply -f gitops/application.yaml`
+          - **manual**: `oc apply -k manifests/`
+
+          Depois, no repositorio: `bash verify.sh` — ele percorre a mesma cadeia
+          do `preflight.sh`, so que para este servico.

@@ -1,0 +1,56 @@
+# ===========================================================================
+# HTTPRoute -- anexa ao Gateway compartilhado prod-web, que vive em outro
+# namespace. So funciona porque o listener declara allowedRoutes.namespaces.from: All
+# (confira: oc get gateway prod-web -n ingress-gateway -o yaml).
+#
+# ---------------------------------------------------------------------------
+# O HOSTNAME E UM ROTULO SO SOB O DOMINIO DE APPS. Nao e estilo: e o que o
+# listener deste cluster serve, e wildcard de Gateway API casa exatamente UM
+# rotulo. Ou seja:
+#
+#   ${{ values.name }}.${{ values.appsDomain }}          casa com *.${{ values.appsDomain }}
+#   ${{ values.name }}.travels.${{ values.appsDomain }}  NAO casa -- rotulo a mais
+#
+# Rota com hostname fora do wildcard e ACEITA pelo controlador e nunca recebe
+# trafego. Nao ha erro: ha silencio. Confira sempre pelo status, nao pelo apply:
+#
+#   oc get httproute ${{ values.name }} -n ${{ values.namespace }} \
+#     -o jsonpath='{range .status.parents[*].conditions[*]}{.type}={.status}{"\n"}{end}'
+#
+# O motivo de o dominio ser plano (e nao *.travels.<dominio>, como no cluster
+# 1.2) esta na armadilha 6 do runbook: emitir certificado por DNS01 para um
+# subdominio quebra a resolucao do proprio host do gateway.
+# ---------------------------------------------------------------------------
+#
+# O label 'app' nao e lido por nenhum controlador do Kuadrant. Serve ao portal:
+# e por ele que o RHDH liga esta rota (e as policies abaixo) ao componente na
+# aba Kubernetes.
+# ===========================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ${{ values.name }}
+  namespace: ${{ values.namespace }}
+  labels:
+    app: ${{ values.name }}
+    service: ${{ values.name }}
+spec:
+  hostnames:
+    - ${{ values.hostname }}
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: prod-web
+      namespace: ingress-gateway
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: ${{ values.name }}
+          namespace: ${{ values.namespace }}
+          port: ${{ values.port }}
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /

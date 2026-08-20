@@ -1,0 +1,135 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: rhcl-api-subscription
+  title: 2. Assinar uma API — pedido de chave por pull request
+  description: >-
+    O outro lado do golden path: um consumidor pede acesso a um produto
+    publicado. Abre um pull request no repositorio da API com o APIKey do
+    developer portal; o merge coloca o pedido no cluster, e a aprovacao acontece
+    no portal. O contrato fica em git, com autor e data.
+  tags:
+    - rhcl
+    - kuadrant
+    - developer-portal
+    - golden-path
+spec:
+  type: subscription
+  owner: group:default/platform-team
+
+  parameters:
+    - title: Qual API
+      required: [apiName, apiNamespace, repoUrl]
+      properties:
+        apiName:
+          title: Nome do APIProduct
+          type: string
+          description: >-
+            O nome do APIProduct no cluster -- que e tambem o nome do servico
+            gerado pelo template 1. Confira em: oc get apiproduct -A
+          pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+          ui:autofocus: true
+        apiNamespace:
+          title: Namespace do APIProduct
+          type: string
+          description: O namespace onde o produto foi publicado.
+          pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+        repoUrl:
+          title: Repositorio da API
+          type: string
+          description: >-
+            E onde o pull request sera aberto. E o repo que o template 1 criou.
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts:
+              - github.com
+
+    - title: Quem esta pedindo
+      required: [consumer, email, planTier, useCase]
+      properties:
+        consumer:
+          title: Consumidor
+          type: string
+          description: Identificador do parceiro ou time (vira o nome do APIKey).
+          pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+        email:
+          title: E-mail de contato
+          type: string
+        planTier:
+          title: Plano
+          type: string
+          description: >-
+            Precisa existir no PlanPolicy da rota. Tier inexistente deixa o
+            pedido preso em Pending sem explicacao obvia. Veja os tiers
+            publicados em: oc get apiproduct <nome> -n <ns>
+            -o jsonpath='{.status.discoveredPlans[*].tier}'
+          default: free
+        useCase:
+          title: Caso de uso
+          type: string
+          description: Aparece na tela de aprovacao — e o que o dono da API le antes de decidir.
+          ui:widget: textarea
+
+  steps:
+    - id: fetch
+      name: Gerar o pedido
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          apiName: ${{ parameters.apiName }}
+          apiNamespace: ${{ parameters.apiNamespace }}
+          consumer: ${{ parameters.consumer }}
+          email: ${{ parameters.email }}
+          planTier: ${{ parameters.planTier }}
+          useCase: ${{ parameters.useCase }}
+
+    - id: pr
+      name: Abrir o pull request
+      action: publish:github:pull-request
+      input:
+        repoUrl: ${{ parameters.repoUrl }}
+        branchName: subscription-${{ parameters.consumer }}-${{ parameters.planTier }}
+        title: "assinatura: ${{ parameters.consumer }} no plano ${{ parameters.planTier }}"
+        description: |
+          Pedido de acesso a **${{ parameters.apiName }}** no plano
+          `${{ parameters.planTier }}`, aberto pelo portal.
+
+          **Caso de uso:** ${{ parameters.useCase }}
+          **Contato:** ${{ parameters.email }}
+
+          ---
+
+          Ao dar merge, o Argo aplica o `APIKey` (o `Application` sincroniza
+          `consumers/*.yaml`, entao nao ha lista a editar). O CR nasce
+          `Pending=True reason=AwaitingApproval` e aparece em **Connectivity
+          Link -> API Key Approvals**.
+
+          Antes do merge, crie o Secret que o `secretRef` aponta — ele guarda a
+          chave e **nao** vai para o git:
+
+          ```bash
+          oc create secret generic apikey-${{ parameters.consumer }}-${{ parameters.apiName }} \
+            -n kuadrant-system --from-literal=api_key="$(openssl rand -hex 16)"
+
+          oc label secret apikey-${{ parameters.consumer }}-${{ parameters.apiName }} \
+            -n kuadrant-system \
+            app=partner \
+            devportal.kuadrant.io/apiproduct=${{ parameters.apiName }} \
+            kuadrant.io/plan-id=${{ parameters.planTier }} \
+            authorino.kuadrant.io/managed-by=authorino
+          ```
+
+  output:
+    links:
+      - title: Pull request
+        url: ${{ steps.pr.output.remoteUrl }}
+    text:
+      - title: Depois do merge
+        content: |
+          O pedido aparece em **Connectivity Link → API Key Approvals**.
+
+          ⚠️ Na demo do travel-agency os três pedidos ficam `Pending` **de
+          propósito** — aprovar cunha um Secret com o plano em *annotation*, e o
+          `PlanPolicy` do Ato 2 lê o *label*. Aqui pode aprovar: os projetos do
+          golden path nascem com leitura defensiva, que aceita os dois.

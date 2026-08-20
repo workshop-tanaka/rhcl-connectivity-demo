@@ -10,7 +10,7 @@
 #
 # Uso:
 #   bash setup-catalog.sh
-#   TEMPLATE_LOCATION_URL=https://github.com/org/repo/blob/main/rhdh/templates/rhcl-exposed-api/template.yaml \
+#   TEMPLATE_LOCATION_URLS='https://github.com/org/repo/blob/main/rhdh/templates/rhcl-api-product/template.yaml ...' \
 #     bash setup-catalog.sh     # registra tambem o software template (setup-github.sh faz isso)
 #
 # Pre-requisitos: oc (autenticado), envsubst.
@@ -155,16 +155,29 @@ _locations="        - type: url
 # criada, nem falha visivel. O sintoma e um 'Create' sem nenhum template.
 _allow="          - host: ${CATALOG_SVC}"
 
-if [[ -n "${TEMPLATE_LOCATION_URL:-}" ]]; then
+# TEMPLATE_LOCATION_URLS aceita VARIAS urls (separadas por espaco ou quebra de
+# linha) porque o golden path virou tres templates -- produtor, assinatura e
+# canary -- e cada um e uma location propria. TEMPLATE_LOCATION_URL, no
+# singular, continua funcionando: e o que versoes antigas do setup-github.sh
+# exportavam.
+_tpl_urls="${TEMPLATE_LOCATION_URLS:-${TEMPLATE_LOCATION_URL:-}}"
+_seen_hosts=""
+for _u in $_tpl_urls; do
   _locations="${_locations}
         - type: url
-          target: ${TEMPLATE_LOCATION_URL}"
-  _tpl_host="$(printf '%s' "$TEMPLATE_LOCATION_URL" | sed -E 's|^[a-z]+://([^/]+)/.*|\1|')"
-  _allow="${_allow}
+          target: ${_u}"
+  _tpl_host="$(printf '%s' "$_u" | sed -E 's|^[a-z]+://([^/]+)/.*|\1|')"
+  # backend.reading.allow com host repetido nao quebra, mas polui o diagnostico
+  # de "por que esta location nao carregou" -- entao entra uma vez so.
+  case " ${_seen_hosts} " in
+    *" ${_tpl_host} "*) ;;
+    *) _allow="${_allow}
           - host: ${_tpl_host}"
-  _log "software template incluido: ${TEMPLATE_LOCATION_URL}"
-  _log "host liberado para leitura: ${_tpl_host}"
-fi
+       _seen_hosts="${_seen_hosts} ${_tpl_host}" ;;
+  esac
+  _log "software template incluido: ${_u}"
+done
+[[ -n "${_seen_hosts// /}" ]] && _log "hosts liberados para leitura:${_seen_hosts}"
 
 # backend.reading.allow: sem liberar o host, o leitor de URL recusa o Service
 # interno e a location falha com 'Reading from ... is not allowed'.

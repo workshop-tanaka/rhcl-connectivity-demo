@@ -1,0 +1,45 @@
+# ===========================================================================
+# Assinatura de ${{ values.consumer }} em ${{ values.apiName }} — plano ${{ values.planTier }}.
+#
+# Gerado pelo template rhcl-api-subscription. O merge deste arquivo e o que
+# coloca o pedido no cluster; a aprovacao acontece depois, no portal
+# (Connectivity Link -> API Key Approvals), porque o produto foi publicado com
+# approvalMode: manual.
+#
+# NAMESPACE: kuadrant-system, e nao o namespace da API. 'secretRef' nao tem
+# campo de namespace, entao o APIKey precisa estar no mesmo namespace do Secret
+# -- e o Secret esta onde o Authorino procura, que e o namespace DELE
+# (allNamespaces: false na AuthPolicy da rota).
+#
+# O SECRET NAO ESTA NESTE ARQUIVO, de proposito: ele guarda a credencial. Crie
+# antes do merge (o comando esta na descricao do pull request) ou deixe o
+# controlador cunhar o dele na aprovacao.
+#
+# ENQUANTO PENDENTE, isto e inofensivo: o controlador nao toca no Secret
+# referenciado ate a aprovacao. Verificado com snapshot antes/depois.
+# ===========================================================================
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIKey
+metadata:
+  # O nome carrega o PRODUTO porque todo APIKey do cluster vive no mesmo
+  # namespace (kuadrant-system): '<consumidor>-<plano>' colide entre produtos --
+  # e a colisao nao aparece como erro, aparece como 'configured' sobrescrevendo
+  # o pedido de outra API. Descoberto com 'oc apply --dry-run=server' contra os
+  # APIKeys que a demo do travel-agency ja tem.
+  name: ${{ values.consumer }}-${{ values.apiName }}-${{ values.planTier }}
+  namespace: kuadrant-system
+  labels:
+    app.kubernetes.io/part-of: rhcl-golden-path
+    devportal.kuadrant.io/apiproduct: ${{ values.apiName }}
+spec:
+  apiProductRef:
+    name: ${{ values.apiName }}
+    namespace: ${{ values.apiNamespace }}
+  planTier: ${{ values.planTier }}
+  useCase: >-
+    ${{ values.useCase }}
+  requestedBy:
+    userId: ${{ values.consumer }}
+    email: ${{ values.email }}
+  secretRef:
+    name: apikey-${{ values.consumer }}-${{ values.apiName }}
