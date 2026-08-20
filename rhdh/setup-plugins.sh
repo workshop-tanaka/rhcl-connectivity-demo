@@ -451,7 +451,10 @@ data:
                 # esta entrada o plugin nao o enxerga e o lapis leva para o
                 # GitHub, sem erro nenhum na tela. Tem de vir junto com a
                 # regra org.eclipse.che do 04-kubernetes-rbac.yaml -- uma sem
-                # a outra falha do mesmo jeito silencioso.
+                # a outra falha do mesmo jeito silencioso. As duas juntas
+                # ainda NAO bastam para acender o lapis: ver
+                # platform-reference/devspaces/README.md. O caminho ligado e o
+                # link "Abrir no Dev Spaces" das entidades do catalogo.
                 - group: org.eclipse.che
                   apiVersion: v2
                   plural: checlusters

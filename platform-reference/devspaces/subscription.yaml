@@ -1,7 +1,10 @@
 # ===========================================================================
 # OpenShift Dev Spaces — o IDE em container que o portal abre a partir do
 # componente. Opcional como os de subscriptions-optional.yaml: sem ele a demo
-# roda inteira, o que se perde e o botao "Edit source code" na aba Topology.
+# roda inteira; o que se perde e o link "Abrir no Dev Spaces" no card About de
+# cada componente, que o setup-catalog.sh omite quando nao ha CheCluster. O
+# decorator "edit code" da aba Topology NAO muda: ele aponta para o GitHub com
+# ou sem Dev Spaces -- ver devspaces/README.md.
 #
 # AllNamespaces e o UNICO installMode suportado pelo bundle (conferido em
 # 'oc get packagemanifest devspaces -o json'), entao vai para

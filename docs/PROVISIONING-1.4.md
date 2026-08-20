@@ -143,6 +143,13 @@ Kiali e a aba **Service Mesh** dentro do console — ver [secao 7](#7-consoles-i
 Nenhuma das duas nasce com metrica: o Kiali ainda precisa da CA e do RBAC para
 ler o Thanos, e a malha precisa de PodMonitor — [secao 7.1](#71-o-que-cr-kiali-saudavel-quer-dizer).
 
+Junto dos opcionais vai o **Dev Spaces**, que a etapa `operators` aplica de
+[platform-reference/devspaces/](../platform-reference/devspaces/) — em arquivo
+próprio porque leva um CR atrás: a Subscription sozinha não levanta IDE nenhum,
+e o `CheCluster` só pode ser aplicado depois que a CRD existe. É ele que dá o
+link **Abrir no Dev Spaces** nos componentes do portal; sem ele o
+`setup-catalog.sh` omite o link e a demo segue inteira.
+
 ---
 
 ## 3. Malha

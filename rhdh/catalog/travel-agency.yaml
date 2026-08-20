@@ -255,9 +255,12 @@ metadata:
     kiali.io/provider: default
   links:
     # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
-    # clique a partir do componente. E o mesmo destino do decorator "edit code"
-    # da aba Topology, so que visivel na pagina Overview -- o decorator exige
-    # que o workload esteja de pe e que o Topology tenha carregado; o link nao.
+    # clique a partir do componente. Nao confundir com o decorator "edit code"
+    # da aba Topology: o destino e o mesmo repositorio, mas o lapis leva ao
+    # GitHub, nunca ao IDE -- o fetch do plugin Kubernetes e restrito ao
+    # kubernetes-namespace da entidade e o CheCluster vive em
+    # openshift-devspaces. Medido; ver platform-reference/devspaces/README.md.
+    # Este link e o caminho que esta ligado, e nao depende do Topology carregar.
     # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
     # linhas em vez de publicar um link morto.
     - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
@@ -306,9 +309,12 @@ metadata:
     kiali.io/provider: default
   links:
     # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
-    # clique a partir do componente. E o mesmo destino do decorator "edit code"
-    # da aba Topology, so que visivel na pagina Overview -- o decorator exige
-    # que o workload esteja de pe e que o Topology tenha carregado; o link nao.
+    # clique a partir do componente. Nao confundir com o decorator "edit code"
+    # da aba Topology: o destino e o mesmo repositorio, mas o lapis leva ao
+    # GitHub, nunca ao IDE -- o fetch do plugin Kubernetes e restrito ao
+    # kubernetes-namespace da entidade e o CheCluster vive em
+    # openshift-devspaces. Medido; ver platform-reference/devspaces/README.md.
+    # Este link e o caminho que esta ligado, e nao depende do Topology carregar.
     # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
     # linhas em vez de publicar um link morto.
     - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
@@ -345,9 +351,12 @@ metadata:
     kiali.io/provider: default
   links:
     # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
-    # clique a partir do componente. E o mesmo destino do decorator "edit code"
-    # da aba Topology, so que visivel na pagina Overview -- o decorator exige
-    # que o workload esteja de pe e que o Topology tenha carregado; o link nao.
+    # clique a partir do componente. Nao confundir com o decorator "edit code"
+    # da aba Topology: o destino e o mesmo repositorio, mas o lapis leva ao
+    # GitHub, nunca ao IDE -- o fetch do plugin Kubernetes e restrito ao
+    # kubernetes-namespace da entidade e o CheCluster vive em
+    # openshift-devspaces. Medido; ver platform-reference/devspaces/README.md.
+    # Este link e o caminho que esta ligado, e nao depende do Topology carregar.
     # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
     # linhas em vez de publicar um link morto.
     - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
@@ -384,9 +393,12 @@ metadata:
     kiali.io/provider: default
   links:
     # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
-    # clique a partir do componente. E o mesmo destino do decorator "edit code"
-    # da aba Topology, so que visivel na pagina Overview -- o decorator exige
-    # que o workload esteja de pe e que o Topology tenha carregado; o link nao.
+    # clique a partir do componente. Nao confundir com o decorator "edit code"
+    # da aba Topology: o destino e o mesmo repositorio, mas o lapis leva ao
+    # GitHub, nunca ao IDE -- o fetch do plugin Kubernetes e restrito ao
+    # kubernetes-namespace da entidade e o CheCluster vive em
+    # openshift-devspaces. Medido; ver platform-reference/devspaces/README.md.
+    # Este link e o caminho que esta ligado, e nao depende do Topology carregar.
     # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
     # linhas em vez de publicar um link morto.
     - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
@@ -423,9 +435,12 @@ metadata:
     kiali.io/provider: default
   links:
     # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
-    # clique a partir do componente. E o mesmo destino do decorator "edit code"
-    # da aba Topology, so que visivel na pagina Overview -- o decorator exige
-    # que o workload esteja de pe e que o Topology tenha carregado; o link nao.
+    # clique a partir do componente. Nao confundir com o decorator "edit code"
+    # da aba Topology: o destino e o mesmo repositorio, mas o lapis leva ao
+    # GitHub, nunca ao IDE -- o fetch do plugin Kubernetes e restrito ao
+    # kubernetes-namespace da entidade e o CheCluster vive em
+    # openshift-devspaces. Medido; ver platform-reference/devspaces/README.md.
+    # Este link e o caminho que esta ligado, e nao depende do Topology carregar.
     # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
     # linhas em vez de publicar um link morto.
     - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
@@ -464,9 +479,12 @@ metadata:
     kiali.io/provider: default
   links:
     # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
-    # clique a partir do componente. E o mesmo destino do decorator "edit code"
-    # da aba Topology, so que visivel na pagina Overview -- o decorator exige
-    # que o workload esteja de pe e que o Topology tenha carregado; o link nao.
+    # clique a partir do componente. Nao confundir com o decorator "edit code"
+    # da aba Topology: o destino e o mesmo repositorio, mas o lapis leva ao
+    # GitHub, nunca ao IDE -- o fetch do plugin Kubernetes e restrito ao
+    # kubernetes-namespace da entidade e o CheCluster vive em
+    # openshift-devspaces. Medido; ver platform-reference/devspaces/README.md.
+    # Este link e o caminho que esta ligado, e nao depende do Topology carregar.
     # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
     # linhas em vez de publicar um link morto.
     - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
@@ -490,9 +508,12 @@ metadata:
     mostrar o deny-all da borda: sem AuthPolicy propria, esta rota nao responde.
   links:
     # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
-    # clique a partir do componente. E o mesmo destino do decorator "edit code"
-    # da aba Topology, so que visivel na pagina Overview -- o decorator exige
-    # que o workload esteja de pe e que o Topology tenha carregado; o link nao.
+    # clique a partir do componente. Nao confundir com o decorator "edit code"
+    # da aba Topology: o destino e o mesmo repositorio, mas o lapis leva ao
+    # GitHub, nunca ao IDE -- o fetch do plugin Kubernetes e restrito ao
+    # kubernetes-namespace da entidade e o CheCluster vive em
+    # openshift-devspaces. Medido; ver platform-reference/devspaces/README.md.
+    # Este link e o caminho que esta ligado, e nao depende do Topology carregar.
     # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
     # linhas em vez de publicar um link morto.
     - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}

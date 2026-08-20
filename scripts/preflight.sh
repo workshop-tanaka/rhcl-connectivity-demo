@@ -390,6 +390,27 @@ print(int(float(r[0]['value'][1])) if r else 0)
   fi
 fi
 
+# Dev Spaces. A checagem NAO e a rota nem o pod: e o campo status.cheURL do
+# CheCluster, porque so ele fica preenchido depois que o operator termina de
+# subir tudo -- e e exatamente esse campo que o setup-catalog.sh le para montar
+# o link "Abrir no Dev Spaces" das entidades. Rota de pe com cheURL vazio
+# significa catalogo publicado com link morto, que e o caso silencioso.
+if oc get crd checlusters.org.eclipse.che >/dev/null 2>&1; then
+  _ds_url="$(oc get checluster devspaces -n openshift-devspaces \
+               -o jsonpath='{.status.cheURL}' 2>/dev/null)"
+  _ds_phase="$(oc get checluster devspaces -n openshift-devspaces \
+                 -o jsonpath='{.status.chePhase}' 2>/dev/null)"
+  if [[ -n "$_ds_url" ]]; then
+    _ok "Dev Spaces (${_ds_phase}): ${_ds_url}"
+  else
+    _warn "CheCluster sem status.cheURL (fase: ${_ds_phase:-ausente})" \
+          "o link 'Abrir no Dev Spaces' sai do catalogo — oc get checluster devspaces -n openshift-devspaces"
+  fi
+else
+  _warn "Dev Spaces nao instalado (sem CRD checlusters)" \
+        "oc apply -f platform-reference/devspaces/ — os componentes ficam sem o link do IDE"
+fi
+
 for r in "grafana-route:monitoring:Grafana" "kiali:istio-system:Kiali" "tempo-tempo-jaegerui:tracing-system:Tempo (Jaeger UI, deprecada)"; do
   _n="${r%%:*}"; _rest="${r#*:}"; _ns="${_rest%%:*}"; _label="${_rest##*:}"
   _h="$(oc get route "$_n" -n "$_ns" -o jsonpath='{.spec.host}' 2>/dev/null)"

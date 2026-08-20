@@ -206,8 +206,22 @@ st_operators() {
   _apply platform-reference/operators/subscriptions.yaml
   if [[ "${OPTIONAL:-1}" == "1" ]]; then
     _apply platform-reference/operators/subscriptions-optional.yaml
+    # Dev Spaces vai junto dos opcionais, mas em arquivo proprio porque leva o
+    # CheCluster atras: a Subscription sozinha nao levanta IDE nenhum. O CR so
+    # e aplicado depois que a CRD existe -- por isso o _wait_crd no meio.
+    _apply platform-reference/devspaces/subscription.yaml
+    # NAO usa _wait_crd aqui: aquele helper chama _die, e derrubar o
+    # provisionamento inteiro porque um operator OPCIONAL demorou seria trocar
+    # a demo por um IDE. Espera com teto e segue com aviso.
+    if [[ $DRY_RUN -eq 1 ]]; then
+      _cmd "aguardar CRD checlusters.org.eclipse.che e aplicar o CheCluster"
+    elif oc wait --for=condition=Established crd/checlusters.org.eclipse.che --timeout=180s >/dev/null 2>&1; then
+      _apply platform-reference/devspaces/checluster.yaml
+    else
+      _warn "CRD checlusters nao apareceu em 180s — Dev Spaces fica de fora; rode 'oc apply -f platform-reference/devspaces/' quando o CSV subir"
+    fi
   else
-    _log "OPTIONAL=0 — pulando kiali-ossm, tempo, otel e grafana-operator"
+    _log "OPTIONAL=0 — pulando kiali-ossm, tempo, otel, grafana-operator e Dev Spaces"
   fi
 
   _wait_csv openshift-operators servicemeshoperator3

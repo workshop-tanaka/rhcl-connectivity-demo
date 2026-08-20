@@ -154,6 +154,7 @@ está em documento não é diffável contra o cluster nem alcançável pelo
 | `operators/subscriptions-optional.yaml` | Kiali, Tempo, OpenTelemetry e Grafana: cada um acende uma tela, nenhum impede a demo |
 | `mesh-control-plane/istio.yaml` | o CR que registra a `GatewayClass` istio, **com** o `extensionProvider` do tracing |
 | `mesh-control-plane/telemetry-tracing.yaml` | a ordem de emitir span (100% de amostragem) |
+| `devspaces/` | OpenShift Dev Spaces: a Subscription e o `CheCluster`. É o que dá o link **Abrir no Dev Spaces** nos componentes do portal — ver `devspaces/README.md`, que também explica por que o decorator do Topology **não** aponta para o IDE |
 
 Os dois arquivos da malha estão separados por uma razão operacional: o CR
 `Istio` não pode levar `oc apply` cego num cluster que já tem malha de pé — o

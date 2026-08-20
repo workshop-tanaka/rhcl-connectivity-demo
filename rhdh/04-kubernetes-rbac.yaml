@@ -55,7 +55,11 @@ rules:
   # Dev Spaces. O Topology le o CheCluster para descobrir a URL do IDE e so
   # entao troca o destino do decorator "edit code": sem esta regra o plugin nao
   # ve o CR, o lapis continua aparecendo (as anotacoes vcs-* estao la) e leva
-  # para o GitHub, nao para o Dev Spaces -- falha silenciosa, sem erro na UI.
+  # para o GitHub -- falha silenciosa, sem erro na UI. Necessaria, mas NAO
+  # suficiente: com as anotacoes de hoje (kubernetes-namespace: travel-agency)
+  # o CR fica fora do fetch de qualquer jeito. Fica aqui porque e barata e
+  # porque e pre-requisito do diagnostico em
+  # platform-reference/devspaces/README.md.
   - apiGroups: [org.eclipse.che]
     resources: [checlusters]
     verbs: [get, list, watch]
