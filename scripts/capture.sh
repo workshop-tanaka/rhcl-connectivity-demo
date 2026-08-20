@@ -18,6 +18,15 @@
 # versa), a próxima captura move o arquivo sozinha e avisa na saída. Uma tabela
 # estática envelheceria em silêncio. Ver platform-reference/README.md.
 #
+# CLUSTER SEM ARGO: o criterio acima depende de haver Argo. Sem ele todo recurso
+# volta sem anotacao e o script classificaria a plataforma inteira como camada
+# de demo -- medido no cluster 1.4: 29 arquivos para base/, zero para
+# platform-reference/, apagando a arvore de referencia no caminho. Por isso a
+# ausencia do CRD applications.argoproj.io desliga o roteamento: os arquivos
+# ficam ONDE JA ESTAO e so o conteudo e atualizado. A fronteira foi estabelecida
+# quando havia tracking-id para consultar; sem esse sinal, preserva-se em vez
+# de adivinhar.
+#
 # SANITIZAÇÃO: a base/ é portável, então valores específicos do cluster não
 # podem vazar para dentro dela na captura. Antes de gravar, o script troca o
 # domínio real pelo placeholder e remove o label de geo-code — os valores reais
@@ -91,6 +100,7 @@ REF_TREE="${OUTPUT_DIR}/platform-reference"
 
 # Recursos que mudaram de dono desde a ultima captura, para o relatorio final.
 declare -a MOVED=()
+declare -a NEW_UNCLASSIFIED=()
 
 # ----- sanitização: o que é de ambiente não entra na base -----
 SANITIZE="${SANITIZE:-true}"
@@ -151,7 +161,8 @@ maybe_sanitize() {
 # Formato: "kind|name|namespace|subdir"   (namespace vazio = cluster-scoped)
 #
 # O 'subdir' e so o nome da pasta. A ARVORE (base/ ou platform-reference/) e
-# escolhida em runtime pelo tracking-id do Argo, nao por esta tabela.
+# escolhida em runtime pelo tracking-id do Argo -- ou, sem Argo, pelo lugar em
+# que o arquivo ja esta no repo. Nunca por esta tabela.
 # ----------------------------------------------------------------------------
 RESOURCES=(
   "namespace|ingress-gateway||namespaces"
@@ -195,6 +206,24 @@ SECRETS=(
 # com o que esta no cluster perderia os comentarios e o agrupamento.
 
 # ----------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# HA ARGO NESTE CLUSTER?
+#
+# O roteamento por tracking-id so faz sentido onde existe Argo. Sem ele TODO
+# recurso volta sem anotacao, e o script classificaria a plataforma inteira --
+# Gateway, namespaces, CR Kuadrant, workloads -- como camada de demo: medido no
+# cluster 1.4, 29 arquivos para base/ e ZERO para platform-reference/. Como o
+# roteamento tambem apaga o arquivo do lado oposto, uma unica execucao esvaziava
+# a arvore de referencia. O script era destrutivo justamente no cluster atual.
+#
+# Com Argo ausente a resposta certa nao e adivinhar, e sim NAO REORGANIZAR:
+# preserva-se a arvore que ja esta no repo (que foi construida quando havia
+# tracking-id para consultar) e so se atualiza o conteudo dos arquivos.
+HAS_ARGO=false
+if oc get crd applications.argoproj.io >/dev/null 2>&1; then
+  HAS_ARGO=true
+fi
+
 # Quem governa este recurso? Vazio = demo (base/), preenchido = Argo (referência).
 tracking_id_of() {
   local kind="$1" name="$2" ns="$3"
@@ -221,20 +250,56 @@ capture_resource() {
   # em vez de a divergencia so aparecer quando um 'oc apply' for revertido pelo
   # selfHeal sem explicacao.
   local tracking dest tree_label
-  tracking="$(tracking_id_of "$kind" "$name" "$ns")"
-  if [[ -n "$tracking" ]]; then
-    dest="${REF_TREE}/${subdir}"; tree_label="platform-reference"
+  if [[ "$HAS_ARGO" == "true" ]]; then
+    tracking="$(tracking_id_of "$kind" "$name" "$ns")"
+    if [[ -n "$tracking" ]]; then
+      dest="${REF_TREE}/${subdir}"; tree_label="platform-reference"
+    else
+      dest="${DEMO_TREE}/${subdir}"; tree_label="base"
+    fi
   else
-    dest="${DEMO_TREE}/${subdir}"; tree_label="base"
+    # Sem Argo: manda o LUGAR ONDE O ARQUIVO JA ESTA. Preserva a fronteira que
+    # foi estabelecida com evidencia, em vez de recria-la a partir de um sinal
+    # que este cluster nao emite.
+    if [[ -n "$(find "${REF_TREE}/${subdir}" -maxdepth 1 -type f -name "*${safe_name}.yaml" 2>/dev/null)" ]]; then
+      dest="${REF_TREE}/${subdir}"; tree_label="platform-reference"
+    elif [[ -n "$(find "${DEMO_TREE}/${subdir}" -maxdepth 1 -type f -name "*${safe_name}.yaml" 2>/dev/null)" ]]; then
+      dest="${DEMO_TREE}/${subdir}"; tree_label="base"
+    else
+      # Recurso novo, sem precedente no repo: decide pelo subdiretorio, que ja
+      # carrega a semantica (routes/identity/policies-* sao da demo; gateway,
+      # namespaces, issuers, workloads e afins sao da plataforma).
+      case "$subdir" in
+        routes|identity|policies-security|policies-traffic|policies-plans|policies-telemetry|mesh)
+          dest="${DEMO_TREE}/${subdir}"; tree_label="base" ;;
+        *)
+          dest="${REF_TREE}/${subdir}"; tree_label="platform-reference"
+          NEW_UNCLASSIFIED+=("${kind}/${name} -> platform-reference/${subdir}/") ;;
+      esac
+    fi
   fi
-  local file="${dest}/${safe_name}.yaml"
+  # NOME DO ARQUIVO: o repo prefixa o kind em alguns casos
+  # (routes/httproute-travel-agency.yaml, gateway/httproute-echo-api.yaml),
+  # enquanto a captura nomeia pelo nome do recurso. Escrever ${safe_name}.yaml
+  # as cegas criava uma DUPLICATA -- httproute-travel-agency.yaml continuava no
+  # kustomization e travel-agency.yaml aparecia do lado, ambos com o mesmo
+  # recurso. Se ja existe um arquivo cujo nome termina no nome do recurso,
+  # reusa-o: a convencao do repo ganha da convencao do script.
+  local file existing
+  existing="$(find "$dest" -maxdepth 1 -type f -name "*${safe_name}.yaml" 2>/dev/null | head -1)"
+  if [[ -n "$existing" ]]; then
+    file="$existing"
+  else
+    file="${dest}/${safe_name}.yaml"
+  fi
   mkdir -p "$dest"
 
   # Sobrou na outra arvore? Entao o dono mudou desde a ultima captura.
-  local other
-  [[ "$tree_label" == "base" ]] && other="${REF_TREE}/${subdir}/${safe_name}.yaml" \
-                                || other="${DEMO_TREE}/${subdir}/${safe_name}.yaml"
-  if [[ -f "$other" ]]; then
+  local other_dir other
+  [[ "$tree_label" == "base" ]] && other_dir="${REF_TREE}/${subdir}" \
+                                || other_dir="${DEMO_TREE}/${subdir}"
+  other="$(find "$other_dir" -maxdepth 1 -type f -name "*${safe_name}.yaml" 2>/dev/null | head -1)"
+  if [[ "$HAS_ARGO" == "true" && -n "$other" && -f "$other" ]]; then
     rm -f "$other"
     MOVED+=("${kind}/${name} -> ${tree_label}/${subdir}/")
   fi
@@ -329,7 +394,11 @@ _log "== backend travel-agency (deployments/services/configmaps/sa) =="
 _is_generated() {
   case "$1" in
     builder|default|deployer|builder-*|default-*|deployer-*) return 0 ;;
-    kube-root-ca.crt|openshift-service-ca.crt|istio-ca-root-cert) return 0 ;;
+    kube-root-ca.crt|openshift-service-ca.crt) return 0 ;;
+    # Injetados pelo Istio. O 'istio-ca-crl' e novo no Service Mesh 3.4 -- nao
+    # existia no 3.1 do cluster 1.2, e apareceu como arquivo espurio na
+    # primeira captura feita no cluster 1.4. Prefixo, para o proximo nao passar.
+    istio-ca-*) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -361,6 +430,17 @@ fi
 
 # Mudanca de dono e a informacao mais acionavel desta saida: ela explica por
 # que um apply que funcionava parou de funcionar (ou vice-versa).
+if [[ "$HAS_ARGO" != "true" ]]; then
+  _warn "sem Argo neste cluster: roteamento por tracking-id DESLIGADO."
+  _warn "os arquivos foram atualizados onde ja estavam; nenhum mudou de arvore."
+fi
+
+if [[ ${#NEW_UNCLASSIFIED[@]} -gt 0 ]]; then
+  _warn "recurso(s) sem precedente no repo, classificado(s) por heuristica (${#NEW_UNCLASSIFIED[@]}):"
+  printf '    %s\n' "${NEW_UNCLASSIFIED[@]}" >&2
+  _warn "confira se a arvore escolhida esta certa antes de commitar."
+fi
+
 if [[ ${#MOVED[@]} -gt 0 ]]; then
   echo
   _warn "OWNERSHIP MUDOU desde a ultima captura (${#MOVED[@]}):"

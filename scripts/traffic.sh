@@ -10,6 +10,7 @@
 #   bash traffic.sh burst gold       # rajada de um tier só
 #   bash traffic.sh soak             # tráfego contínuo, para assistir no Grafana
 #   bash traffic.sh mesh             # fan-out real, para o grafo do Kiali (Ato 5)
+#   bash traffic.sh all              # todas as APIs e tiers, ate mandarem parar
 #   bash traffic.sh mesh-split       # divisão de tráfego v1/v2 do canary (Ato 7)
 #   bash traffic.sh anon             # sem chave e com chave inválida (401)
 #   bash traffic.sh metrics          # contadores do Limitador, por plano
@@ -19,6 +20,7 @@
 #   DURATION=0  segundos no modo soak; 0 = até Ctrl-C (default 0)
 #   PATH_=/travels   caminho da API (default /travels; 'mesh' ignora e usa /travels/<cidade>)
 #   MESH_USER=theonlyuser  usuario enviado no modo mesh; e o que aciona o discounts
+#   FAILS=15    falhas duras seguidas (000/5xx) que encerram o modo 'all' (default 15)
 #   REQS=20     requisições no modo mesh-split (default 20; cada uma vira 4 em discounts)
 
 set -uo pipefail
@@ -42,6 +44,31 @@ API_PATH="${PATH_:-/travels}"
 RATE="${RATE:-8}"
 DURATION="${DURATION:-0}"
 
+# ----- descoberta: qual overlay serve ESTE cluster ---------------------------
+# Antes isto era a string fixa 'overlays/provisioned' espalhada pelas dicas de
+# correcao. Depois que o ambiente virou RHCL 1.4, cada uma dessas dicas passou
+# a mandar aplicar o overlay do cluster 1.2 -- que reescreve o hostname da
+# HTTPRoute para um sandbox morto E readiciona a RateLimitPolicy plana, que no
+# 1.4 sobrepoe o PlanPolicy e apaga os tiers. Ou seja: o conserto sugerido
+# causava uma falha pior que a original.
+#
+# A release sai do CSV do operator, que e a mesma fonte que decide o regime de
+# precedencia -- se um dia divergirem, e sinal de que o overlay esta errado.
+_overlay() {
+  local v
+  v="$(oc get csv -A --no-headers 2>/dev/null | grep -i 'rhcl-operator' \
+        | awk '{print $2}' | head -1 | sed 's/.*\.v//')"
+  case "$v" in
+    1.4*|1.5*|1.6*|2.*) printf 'overlays/rhcl-1.4' ;;
+    1.2*|1.3*)          printf 'overlays/provisioned' ;;
+    # Sem CSV legivel (RBAC restrito, operator instalado fora do OLM) o palpite
+    # seguro e o ambiente atual: errar para o 1.4 estraga menos que mandar
+    # aplicar o overlay do sandbox expirado.
+    *)                  printf 'overlays/rhcl-1.4' ;;
+  esac
+}
+OVERLAY="$(_overlay)"
+
 # ----- descoberta: hostname real da rota ------------------------------------
 # Sai do HTTPRoute e nao do Gateway: o listener e wildcard ('*.travels...'),
 # a rota tem o host concreto.
@@ -62,7 +89,16 @@ _load_keys() {
   done < <(oc get secrets -n "$ns" -l app=partner \
              -o jsonpath='{range .items[*]}{.metadata.labels.kuadrant\.io/plan-id}{"\t"}{.data.api_key}{"\n"}{end}' 2>/dev/null \
            | awk -F'\t' '!seen[$1]++')
-  [[ ${#TIERS[@]} -gt 0 ]] || _die "nenhum Secret com 'app: partner' em ${ns}. Aplicou 'oc apply -k overlays/provisioned'?"
+  [[ ${#TIERS[@]} -gt 0 ]] || _die "nenhum Secret com 'app: partner' em ${ns}. Aplicou 'oc apply -k ${OVERLAY}'?"
+}
+
+# Chave de um tier, pelo nome. Usado pelos modos que escolhem tier a tier em
+# vez de percorrer todos.
+_key_of() {
+  local i
+  for i in "${!TIERS[@]}"; do
+    [[ "${TIERS[$i]}" == "$1" ]] && { printf '%s' "${KEYS[$i]}"; return; }
+  done
 }
 
 # Limite configurado para um tier, lido do PlanPolicy — para o cabeçalho
@@ -216,8 +252,20 @@ except Exception: pass' 2>/dev/null)
   # recebe uma requisicao. No grafo isso custa o nivel mais profundo da
   # topologia e, junto com ele, o unico servico com duas versoes (v1 e v2), que
   # e justamente o que mostra roteamento por versao na malha.
-  # 'portal', 'device' e 'travel' nao mudam o fan-out: alimentam as custom_tags
-  # de tracing declaradas nos Deployments, e aparecem no Tempo no mesmo ato.
+  # 'portal' e 'device' nao mudam o fan-out: alimentam as custom_tags de tracing
+  # declaradas nos Deployments, e aparecem no Tempo no mesmo ato.
+  #
+  # NAO mande o header 'travel'. Ele esta declarado nas mesmas custom_tags e
+  # parece inofensivo, mas o travels o trata como filtro: com ele presente a
+  # resposta traz so 'hotels' e 'insurances', e o flights e o cars NAO SAO
+  # CHAMADOS. Medido neste cluster, com uma unica variavel de diferenca:
+  #
+  #   sem 'travel' -> flights hotels cars insurances   (flights recebe a chamada)
+  #   com 'travel' -> hotels insurances                (flights recebe zero)
+  #
+  # No grafo isso custa dois dos quatro servicos do fan-out, e some sem erro
+  # nenhum: os campos voltam null dentro de um 200, e os dois nos ficam
+  # pendurados sem aresta de entrada -- o que na tela se le como servico morto.
   local -a HDRS=(
     -H "user: ${MESH_USER:-theonlyuser}"
     -H "portal: travel-portal"
@@ -225,7 +273,11 @@ except Exception: pass' 2>/dev/null)
   )
 
   _log "alvo: ${_BLD}${base}/travels/<cidade>${_RST}  (${#CITIES[@]} cidades)"
-  _log "tier ${_BLD}gold${_RST} (30/10s, 5000/dia) a ~${rate} req/s por ${dur}s"
+  if [[ "$dur" == "0" ]]; then
+    _log "tier ${_BLD}gold${_RST} (30/10s, 5000/dia) a ~${rate} req/s, ${_BLD}continuo${_RST} (Ctrl-C para parar)"
+  else
+    _log "tier ${_BLD}gold${_RST} (30/10s, 5000/dia) a ~${rate} req/s por ${dur}s"
+  fi
   _log "cada requisicao atravessa: prod-web -> travels -> {flights,hotels,cars,insurances}"
   _log "                           -> discounts (v1/v2) -> mysqldb.travel-db"
 
@@ -235,9 +287,21 @@ except Exception: pass' 2>/dev/null)
   curl -sk -o /dev/null --max-time 15 "${HDRS[@]}" \
     "${base}/travels/${CITIES[0]}?APIKEY=${gold}" 2>/dev/null || true
   echo
-  # A cota diaria do gold e o teto real deste modo: a ~2 req/s ela dura ~40min.
-  local est=$(( rate * dur ))
-  (( est > 2500 )) && _warn "estimativa de ${est} requisicoes -- metade da cota diaria do gold (5000)."
+  # A cota diaria do gold (5000) e o teto real deste modo, e nao a janela de
+  # 30/10s -- esta o trafego nunca encosta. Quando a diaria estoura, TUDO vira
+  # 429; como 429 e recusado na borda e nunca entra na malha, o grafo esvazia
+  # de uma vez e parece que a coleta caiu.
+  if [[ "$dur" == "0" ]]; then
+    # Continuo: o aviso por volume nao serve (nao ha duracao), entao diz em
+    # quanto tempo a cota acaba nesta taxa. Sem isto o modo mais arriscado era
+    # justamente o unico que nao avisava nada.
+    local horas; horas="$(python3 -c "print(f'{5000/max($rate,1)/3600:.1f}')" 2>/dev/null || echo '?')"
+    _warn "modo continuo: a ${rate} req/s a cota diaria do gold (5000) dura ~${horas}h a partir de zero."
+    _warn "consumo ja acumulado: bash scripts/traffic.sh metrics   |   zerar: bash scripts/traffic.sh reset"
+  else
+    local est=$(( rate * dur ))
+    (( est > 2500 )) && _warn "estimativa de ${est} requisicoes -- metade da cota diaria do gold (5000)."
+  fi
 
   local sleep_s; sleep_s="$(python3 -c "print(1/max($rate,1))" 2>/dev/null || echo 0.5)"
   local start n=0 rl=0 city code
@@ -248,7 +312,7 @@ except Exception: pass' 2>/dev/null)
     # cada chamada e o que permite contar 429 -- o 'soak' descarta essa
     # informacao, e por isso nao percebe quando esta so gerando recusa.
     code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 \
-              "${HDRS[@]}" -H "travel: ${city}" \
+              "${HDRS[@]}" \
               "${base}/travels/${city}?APIKEY=${gold}")"
     n=$((n+1)); [[ "$code" == "429" ]] && rl=$((rl+1))
     (( n % 20 == 0 )) && printf '%s  %s%d requisicoes, %d limitadas%s\n' \
@@ -267,6 +331,130 @@ except Exception: pass' 2>/dev/null)
   _log "o grafo leva ~1min para encher: PodMonitor raspa a cada 30s."
 }
 
+# ----- modo all: todas as APIs e todos os tiers, ate mandarem parar ---------
+# Diferente do 'mesh' (gold-only, para o grafo do Ato 5) e do 'soak' (round-robin
+# cego em /travels, que nem atravessa a malha). Aqui o objetivo e manter TODOS os
+# paineis vivos ao mesmo tempo: as tres faixas do PlanPolicy e as duas rotas
+# anexadas ao prod-web.
+#
+# O ciclo e ponderado, e a proporcao nao e estetica -- ela mantem cada tier
+# abaixo da propria janela, senao o painel vira uma parede de 429:
+#
+#   gold silver gold free gold silver gold echo   (8 fatias)
+#
+# A ~2 req/s isso da gold ~1/s (limite 30/10s), silver ~0.5/s (10/10s) e free
+# ~0.25/s (3/10s). O free fica de proposito colado no teto: e o unico que
+# encosta no limite, entao o dashboard mostra authorized_calls E limited_calls
+# sem precisar de rajada manual.
+#
+# O echo entra sabendo que NENHUMA requisicao dele sera servida. Ele tem
+# AuthPolicy propria (echo-api-authpolicy), que exige Secret com DOIS labels:
+#
+#   app: partner
+#   devportal.kuadrant.io/apiproduct: echo-api
+#
+# Nenhum Secret em kuadrant-system carrega o segundo -- as chaves dos parceiros
+# do travel so tem 'app: partner' e o plan-id. Resultado: 401 'credential not
+# found' em toda chamada, inclusive com a chave gold. Isso e estado correto do
+# ambiente, nao falha: a rota esta protegida e ninguem foi habilitado nela
+# ainda. Serve ao painel de recusa da borda, e por isso 401/403 NAO contam como
+# indisponibilidade.
+#
+# Se um dia o echo precisar responder 200, o que falta e uma chave com o label
+# do apiproduct -- nao mexer na AuthPolicy.
+mode_all() {
+  _load_keys
+  local rate="${RATE:-2}" fails="${FAILS:-15}"
+  local travels_host="$HOST"
+  local echo_host; echo_host="$(oc get httproute echo-api -n echo-api \
+                                 -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null)"
+
+  local -a CITIES=()
+  local gold; gold="$(_key_of gold)"
+  [[ -n "$gold" ]] || _die "chave do tier 'gold' nao encontrada."
+  while IFS= read -r c; do [[ -n "$c" ]] && CITIES+=("$c"); done < <(
+    curl -sk --max-time 10 "https://${travels_host}/travels?APIKEY=${gold}" \
+      | python3 -c 'import json,sys
+try: print("\n".join(d["city"] for d in json.load(sys.stdin)))
+except Exception: pass' 2>/dev/null)
+  [[ ${#CITIES[@]} -gt 0 ]] || _die "nao consegui ler a lista de cidades."
+
+  # Mesma razao do modo mesh: sem o header 'user' o discounts nao e chamado, e
+  # NUNCA mande 'travel' -- ele faz o travels pular flights e cars.
+  local -a HDRS=(-H "user: ${MESH_USER:-theonlyuser}" -H "portal: travel-portal" -H "device: desktop")
+
+  local -a CYCLE=(gold silver gold free gold silver gold echo)
+
+  _log "alvo 1: ${_BLD}https://${travels_host}/travels/<cidade>${_RST}  (${#CITIES[@]} cidades, 3 tiers)"
+  if [[ -n "$echo_host" ]]; then
+    _log "alvo 2: ${_BLD}https://${echo_host}/${_RST}  (AuthPolicy propria; nenhuma chave"
+    _log "        tem o label devportal.kuadrant.io/apiproduct=echo-api -- 401 esperado)"
+  else
+    _warn "HTTPRoute do echo-api nao encontrada; seguindo so com travel-agency."
+  fi
+  _log "ciclo: ${CYCLE[*]}  a ~${rate} req/s, ${_BLD}ate mandarem parar${_RST}"
+  _log "para quando o AMBIENTE cair: ${fails} falhas duras seguidas (000 ou 5xx)."
+  _log "401/403/429 sao respostas de POLICY -- ambiente de pe, nao contam."
+  echo
+
+  local sleep_s; sleep_s="$(python3 -c "print(1/max($rate,1))" 2>/dev/null || echo 0.5)"
+  local n=0 c2xx=0 c401=0 c403=0 c429=0 c5xx=0 c000=0 cother=0 hard=0
+  local slot key code url city
+  # Warm-up: a primeira chamada de cada servico ao discounts as vezes estoura o
+  # timeout e volta null dentro de um 200. Fora da contagem, de proposito.
+  curl -sk -o /dev/null --max-time 15 "${HDRS[@]}" \
+    "https://${travels_host}/travels/${CITIES[0]}?APIKEY=${gold}" 2>/dev/null || true
+
+  while :; do
+    slot="${CYCLE[$(( n % ${#CYCLE[@]} ))]}"
+    if [[ "$slot" == "echo" ]]; then
+      [[ -n "$echo_host" ]] || { n=$((n+1)); continue; }
+      url="https://${echo_host}/"
+      code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "$url")"
+    else
+      key="$(_key_of "$slot")"
+      if [[ -z "$key" ]]; then n=$((n+1)); continue; fi
+      city="${CITIES[$(( RANDOM % ${#CITIES[@]} ))]}"
+      url="https://${travels_host}/travels/${city}?APIKEY=${key}"
+      code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "${HDRS[@]}" "$url")"
+    fi
+    n=$((n+1))
+
+    # 'hard' conta so o que indica ambiente fora: recusa de conexao, timeout
+    # (000) e erro de servidor (5xx). Qualquer resposta HTTP de policy zera o
+    # contador -- um 429 prova que o gateway esta vivo e decidindo.
+    case "$code" in
+      2*)  c2xx=$((c2xx+1)); hard=0 ;;
+      401) c401=$((c401+1)); hard=0 ;;
+      403) c403=$((c403+1)); hard=0 ;;
+      429) c429=$((c429+1)); hard=0 ;;
+      5*)  c5xx=$((c5xx+1)); hard=$((hard+1)) ;;
+      000) c000=$((c000+1)); hard=$((hard+1)) ;;
+      *)   cother=$((cother+1)); hard=0 ;;
+    esac
+
+    if (( hard >= fails )); then
+      echo
+      _warn "${hard} falhas duras seguidas -- ambiente considerado INDISPONIVEL."
+      _warn "ultimo codigo: ${code}"
+      break
+    fi
+
+    (( n % 60 == 0 )) && printf '%s%s%s  %d req  %s2xx=%d%s 401=%d 403=%d %s429=%d%s 5xx=%d 000=%d\n' \
+      "$_DIM" "$(date +%H:%M:%S)" "$_RST" "$n" \
+      "$_GRN" "$c2xx" "$_RST" "$c401" "$c403" "$_RED" "$c429" "$_RST" "$c5xx" "$c000"
+
+    sleep "$sleep_s"
+  done
+
+  echo
+  _ok "${n} requisicoes: 2xx=${c2xx} 401=${c401} 403=${c403} 429=${c429} 5xx=${c5xx} 000=${c000} outros=${cother}"
+  if (( hard >= fails )); then
+    _warn "encerrado por indisponibilidade do ambiente, nao por pedido."
+    return 1
+  fi
+}
+
 # Métricas do Limitador. Ele expõe /metrics numa porta que não tem Route e o
 # pod não tem curl/wget — port-forward é o caminho confiável.
 mode_metrics() {
@@ -282,6 +470,33 @@ mode_metrics() {
   printf '%s\n' "$out" | grep '^authorized_calls' | sed 's/^/  /'
   printf '\n%slimitadas (429) por plano%s\n' "$_BLD" "$_RST"
   printf '%s\n' "$out" | grep '^limited_calls' | sed 's/^/  /' || echo "  (nenhuma ainda)"
+
+  # A COTA DO DIA nao esta em metrica nenhuma: authorized_calls conta
+  # requisicao, nao o que resta da janela de 24h. E e a cota -- nao a rajada --
+  # que derruba o Ato 2 depois de um ensaio (free tem 50/dia). O numero exato
+  # so existe na API do Limitador; o painel do Grafana so aproxima.
+  local ns counters
+  ns="$(oc get planpolicy travels-plans -n travel-agency \
+         -o jsonpath='{.metadata.namespace}/{.spec.targetRef.name}' 2>/dev/null)"
+  if [[ -n "$ns" && "$ns" != "/" ]]; then
+    counters="$(curl -s --max-time 5 "localhost:${port}/counters/${ns//\//%2F}" 2>/dev/null)"
+    if [[ -z "$counters" ]]; then
+      _warn "nao consegui ler os contadores do Limitador (cota do dia sem leitura)"
+    else
+      printf '\n%scota diaria restante%s\n' "$_BLD" "$_RST"
+      printf '%s' "$counters" | python3 -c "
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(0)
+q=[(c['limit'].get('name'), c.get('remaining'), c['limit'].get('max_value'))
+   for c in d if c.get('limit',{}).get('seconds')==86400]
+for n,r,m in sorted(q, key=lambda t: -(t[2] or 0)):
+    print('  %-8s %s/%s%s' % (n, r, m, '   <- esgotada' if r==0 else ''))
+if not q:
+    print('  (nenhum plano consumiu cota hoje)')
+" 2>/dev/null
+    fi
+  fi
   echo
   _log "o label 'plan' vem de base/policies-telemetry/prod-web-telemetry.yaml"
   _log "series sem 'plan' sao anteriores a TelemetryPolicy -- nao sao erro."
@@ -396,6 +611,7 @@ case "${1:-tiers}" in
   anon)    mode_anon ;;
   soak)    mode_soak ;;
   mesh)    mode_mesh ;;
+  all)     mode_all ;;
   mesh-split) mode_mesh_split ;;
   metrics) mode_metrics ;;
   reset)   mode_reset ;;

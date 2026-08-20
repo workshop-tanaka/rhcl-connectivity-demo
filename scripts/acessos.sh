@@ -186,7 +186,7 @@ done < <(oc get users -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'
 CATALOGO=(
   "Observabilidade|Grafana|monitoring/grafana-route|monitoring/grafana-admin-credentials||Ato 4 — dashboard de planos; o botão de OAuth aceita o usuário do cluster"
   "Observabilidade|Kiali|istio-system/kiali|-||Atos 3 e 7 — OAuth do cluster"
-  "Observabilidade|Tempo (tracing UI)|tracing-system/tracing-ui|-||Ato 5 — OAuth do cluster"
+  "Observabilidade|Traces (console)|-|-||Ato 5 — aba Observe > Traces, no console; a tela do ato"
   "Observabilidade|Thanos Querier|openshift-monitoring/thanos-querier|-||Atos 4 e 5 — PromQL cru, OAuth do cluster"
   "Portais|Red Hat Developer Hub|rhdh/backstage-developer-hub|-|guest|Ato 6 — login guest, sem senha"
   "Portais|RHDH — instância RHCL|rhdh-rhcl/backstage-developer-hub|-|guest|developer portal do RHCL — login guest"
@@ -203,7 +203,7 @@ CATALOGO_AMBIENTE=(
   "Ambiente (fora da demo)|NooBaa (ODF)|openshift-storage/noobaa-mgmt|openshift-storage/noobaa-admin||console de object storage"
   "Ambiente (fora da demo)|Prometheus|openshift-monitoring/prometheus-k8s|-||OAuth do cluster"
   "Ambiente (fora da demo)|Alertmanager|openshift-monitoring/alertmanager-main|-||OAuth do cluster"
-  "Ambiente (fora da demo)|Jaeger UI (Tempo)|tracing-system/tempo-tempo-jaegerui|-||o mesmo Tempo, UI direta sem a route do OAuth"
+  "Ambiente (fora da demo)|Jaeger UI (Tempo)|tracing-system/tempo-tempo-jaegerui|-||plano B do Ato 5, deprecada; a UI fica em /dev (o tenant), a raiz devolve so JSON"
 )
 $TODAS && CATALOGO+=("${CATALOGO_AMBIENTE[@]}")
 
