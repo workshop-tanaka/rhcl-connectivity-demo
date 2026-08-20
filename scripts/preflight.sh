@@ -32,6 +32,31 @@ _warn() { printf '  %s!%s %s\n' "$_YEL" "$_RST" "$1"; [[ -n "${2:-}" ]] && print
 
 MODE="${1:-full}"
 
+# ----- descoberta: qual overlay serve ESTE cluster ---------------------------
+# Antes isto era a string fixa 'overlays/provisioned' espalhada pelas dicas de
+# correcao. Depois que o ambiente virou RHCL 1.4, cada uma dessas dicas passou
+# a mandar aplicar o overlay do cluster 1.2 -- que reescreve o hostname da
+# HTTPRoute para um sandbox morto E readiciona a RateLimitPolicy plana, que no
+# 1.4 sobrepoe o PlanPolicy e apaga os tiers. Ou seja: o conserto sugerido
+# causava uma falha pior que a original.
+#
+# A release sai do CSV do operator, que e a mesma fonte que decide o regime de
+# precedencia -- se um dia divergirem, e sinal de que o overlay esta errado.
+_overlay() {
+  local v
+  v="$(oc get csv -A --no-headers 2>/dev/null | grep -i 'rhcl-operator' \
+        | awk '{print $2}' | head -1 | sed 's/.*\.v//')"
+  case "$v" in
+    1.4*|1.5*|1.6*|2.*) printf 'overlays/rhcl-1.4' ;;
+    1.2*|1.3*)          printf 'overlays/provisioned' ;;
+    # Sem CSV legivel (RBAC restrito, operator instalado fora do OLM) o palpite
+    # seguro e o ambiente atual: errar para o 1.4 estraga menos que mandar
+    # aplicar o overlay do sandbox expirado.
+    *)                  printf 'overlays/rhcl-1.4' ;;
+  esac
+}
+OVERLAY="$(_overlay)"
+
 # ---------------------------------------------------------------------------
 _sec "acesso ao cluster"
 if ! command -v oc >/dev/null; then
@@ -82,7 +107,7 @@ HOST="$(oc get httproute travel-agency -n travel-agency -o jsonpath='{.spec.host
 if [[ -n "$HOST" ]]; then
   _ok "HTTPRoute travel-agency -> ${HOST}"
 else
-  _bad "HTTPRoute travel-agency ausente" "oc apply -k overlays/provisioned"
+  _bad "HTTPRoute travel-agency ausente" "oc apply -k ${OVERLAY}"
 fi
 
 # ---------------------------------------------------------------------------
@@ -91,14 +116,26 @@ _sec "policies"
 _cond() { oc get "$1" "$2" -n "$3" -o jsonpath="{.status.conditions[?(@.type==\"$4\")].status}" 2>/dev/null; }
 
 _check_policy() { # kind name ns  (espera Accepted=True e Enforced=True)
-  local got_a got_e
+  local got_a got_e msg
   got_a="$(_cond "$1" "$2" "$3" Accepted)"; got_e="$(_cond "$1" "$2" "$3" Enforced)"
   if [[ -z "$got_a" ]]; then
-    _bad "$1/$2 não existe" "oc apply -k overlays/provisioned"
+    _bad "$1/$2 não existe" "oc apply -k ${OVERLAY}"
   elif [[ "$got_a" == "True" && "$got_e" == "True" ]]; then
     _ok "$1/$2 Accepted+Enforced"
   else
-    _bad "$1/$2 Accepted=$got_a Enforced=$got_e" "oc describe $1 $2 -n $3"
+    # Enforced=False tem DOIS significados opostos, e só a mensagem separa:
+    # policy quebrada, ou policy de Gateway coberta pelas de rota. A segunda é
+    # a precedência do Ato 3 funcionando -- o deny-all do Gateway fica
+    # 'overridden' assim que toda rota atrás dele ganha AuthPolicy própria, e
+    # segue valendo para a próxima rota que nascer sem uma. Reprovar isso
+    # ensina a ignorar o preflight, que é o pior resultado possível.
+    msg="$(oc get "$1" "$2" -n "$3" \
+            -o jsonpath='{.status.conditions[?(@.type=="Enforced")].message}' 2>/dev/null)"
+    if [[ "$got_a" == "True" && "$msg" == *overridden* ]]; then
+      _ok "$1/$2 sobreposta pelas policies de rota (precedência, não defeito)"
+    else
+      _bad "$1/$2 Accepted=$got_a Enforced=$got_e" "oc describe $1 $2 -n $3"
+    fi
   fi
 }
 
@@ -148,25 +185,39 @@ _sec "identidades (API keys)"
 # A checagem mais importante deste script. Uma chave com 'app: partner' e SEM
 # 'kuadrant.io/plan-id' faz o predicate CEL do PlanPolicy errar em runtime --
 # silenciosamente, sem plano atribuído e SEM rate limit. Ver docs/RUNBOOK.md.
+# O veredito sobre chave sem label depende do PLANO DE LEITURA do PlanPolicy:
+# predicado que só indexa label falha ABERTO quando o label falta (armadilha 1);
+# predicado com has() + fallback para a annotation classifica a chave do
+# developer portal corretamente. Uma coisa não se descobre olhando o Secret.
+_PLAN_READS_ANNOTATION=0
+oc get planpolicy travels-plans -n travel-agency \
+  -o jsonpath='{range .spec.plans[*]}{.predicate}{"\n"}{end}' 2>/dev/null \
+  | grep -q 'secret.kuadrant.io/plan-id' && _PLAN_READS_ANNOTATION=1
+
 _keys="$(oc get secrets -n kuadrant-system -l app=partner \
           -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.labels.kuadrant\.io/plan-id}{"\n"}{end}' 2>/dev/null)"
 if [[ -z "$_keys" ]]; then
-  _bad "nenhum Secret com 'app: partner' em kuadrant-system" "oc apply -k overlays/provisioned"
+  _bad "nenhum Secret com 'app: partner' em kuadrant-system" "oc apply -k ${OVERLAY}"
 else
   _orphan=0
   while IFS=$'\t' read -r n tier; do
     [[ -z "$n" ]] && continue
     if [[ -z "$tier" ]]; then
-      # Duas origens, correcoes opostas. Chave cunhada pelo developer portal na
-      # aprovacao de um APIKey grava o plano em ANNOTATION
-      # (secret.kuadrant.io/plan-id) e nao no label -- rotular a mao mascara o
-      # problema em vez de resolver. Armadilha 11 do RUNBOOK.
-      if [[ -n "$(oc get secret "$n" -n kuadrant-system \
-                   -o jsonpath='{.metadata.labels.devportal\.kuadrant\.io/enforcement}' 2>/dev/null)" ]]; then
-        _bad "chave '${n}' foi CUNHADA pelo developer portal e está sem plano" \
-             "alguém aprovou um APIKey: fail-open (armadilha 11). oc delete secret ${n} -n kuadrant-system; oc delete apikeyapproval --all -n travel-agency"
+      # Label ausente NAO e mais sinonimo de fail-open: depende do que os
+      # predicados do PlanPolicy leem. Chave cunhada pelo developer portal grava
+      # o plano em ANNOTATION (secret.kuadrant.io/plan-id), e o predicado
+      # endurecido cai para ela quando o label falta -- ai a chave esta
+      # classificada e rotular a mao REBAIXA o parceiro. Sem esse fallback no
+      # predicado, a mesma chave passa sem limite nenhum. Armadilha 11.
+      _ann="$(oc get secret "$n" -n kuadrant-system \
+               -o jsonpath='{.metadata.annotations.secret\.kuadrant\.io/plan-id}' 2>/dev/null)"
+      if [[ -n "$_ann" && "$_PLAN_READS_ANNOTATION" == "1" ]]; then
+        _ok "chave '${n}' sem label, classificada como '${_ann}' pela annotation (predicado com fallback)"
+      elif [[ -n "$_ann" ]]; then
+        _bad "chave '${n}' tem plano só em annotation ('${_ann}') e o PlanPolicy lê label" \
+             "fail-open: o CEL erra e NENHUM plano é atribuído, nem o catch-all (armadilha 11). Endureça o predicado ou: oc delete secret ${n} -n kuadrant-system"
       else
-        _bad "chave '${n}' SEM label kuadrant.io/plan-id" \
+        _bad "chave '${n}' sem plano em label nem em annotation" \
              "fail-open: essa chave passa sem limite nenhum. oc label secret ${n} -n kuadrant-system kuadrant.io/plan-id=free"
       fi
       _orphan=1
@@ -174,6 +225,38 @@ else
   done <<< "$_keys"
   [[ "$_orphan" == "0" ]] && _ok "$(printf '%s\n' "$_keys" | grep -c .) chaves, todas com tier: $(printf '%s\n' "$_keys" | cut -f2 | sort -u | tr '\n' ' ')"
 fi
+
+# ---------------------------------------------------------------------------
+# Contadores DIÁRIOS do Limitador, com número exato.
+#
+# Não sai de métrica: o Limitador exporta authorized_calls/limited_calls e mais
+# nada -- quanto RESTA da janela de 24h só existe na API HTTP dele, que não tem
+# Route. O Grafana só consegue aproximar (increase[24h]), e a aproximação erra
+# depois de um restart. Aqui a leitura é a do próprio contador.
+#
+# O namespace do Limitador é '<ns>/<nome do alvo>' e sai do PlanPolicy -- nada
+# de string fixa, que muda quando a rota muda de nome.
+_limitador_counters() {
+  local port=18098 pf ns out
+  ns="$(oc get planpolicy travels-plans -n travel-agency \
+         -o jsonpath='{.metadata.namespace}/{.spec.targetRef.name}' 2>/dev/null)"
+  [[ -n "$ns" && "$ns" != "/" ]] || return 1
+  oc port-forward -n kuadrant-system deploy/limitador-limitador "${port}:8080" >/dev/null 2>&1 &
+  pf=$!
+  sleep 4
+  out="$(curl -s --max-time 5 "localhost:${port}/counters/${ns//\//%2F}" 2>/dev/null)"
+  kill "$pf" 2>/dev/null
+  [[ -n "$out" ]] || return 1
+  printf '%s' "$out" | python3 -c "
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(1)
+for c in d:
+    l=c.get('limit',{})
+    if l.get('seconds')==86400:                 # so as cotas do dia
+        print('%s\t%s\t%s' % (l.get('name'), c.get('remaining'), l.get('max_value')))
+" 2>/dev/null
+}
 
 # ---------------------------------------------------------------------------
 _sec "caminho de dados (o que a plateia vê)"
@@ -188,11 +271,47 @@ if [[ -n "$HOST" ]]; then
     _bad "sem chave -> ${_anon}, esperado 401" "AuthPolicy da rota não está barrando"
   fi
 
+  # A COTA DIÁRIA é o que mais derruba o Ato 2, e ela não aparece em tela
+  # nenhuma: free tem 50/dia, e ~25s de soak queimam os 50. Lido ANTES da
+  # medição de propósito -- com a cota zerada, oito 429 seguidos se leem como
+  # "rate limit funcionando" ou "app fora do ar", e o diagnóstico é outro.
+  # Armadilha 8 do RUNBOOK. O próprio preflight gasta 8 do que sobrou.
+  # Contador ausente nao e falha: o Limitador guarda contador in-memory e so
+  # cria um quando o plano recebe a primeira requisicao do dia. Lista vazia
+  # depois de um restart significa cota INTEIRA, nao coleta quebrada -- por
+  # isso os dois casos sao separados aqui.
+  _free_rem=""; _quota=""
+  if ! _counters="$(_limitador_counters)"; then
+    _warn "não consegui ler os contadores do Limitador" \
+          "a cota do dia fica sem verificação — oc get pods -n kuadrant-system | grep limitador"
+  elif [[ -z "$_counters" ]]; then
+    _ok "cota diária intacta (nenhum contador ativo desde o último restart do Limitador)"
+  else
+    while IFS=$'\t' read -r _p _rem _max; do
+      [[ -z "$_p" ]] && continue
+      _quota+="${_p} ${_rem}/${_max}, "
+      [[ "$_p" == "free" ]] && _free_rem="$_rem"
+    done <<< "$_counters"
+    if [[ -z "$_free_rem" ]]; then
+      _ok "cota diária do free intacta (${_quota%, })"
+    elif [[ "$_free_rem" == "0" ]]; then
+      _bad "cota diária do free ESGOTADA (${_quota%, })" \
+           "o Ato 2 mostra três linhas de 429 e parece rate limit — bash scripts/traffic.sh reset"
+    elif [[ "$_free_rem" -lt 20 ]]; then
+      _warn "cota diária do free em ${_free_rem} (${_quota%, })" \
+            "o preflight gasta 8 e o Ato 2 pede ~14 — bash scripts/traffic.sh reset"
+    else
+      _ok "cota diária: ${_quota%, }"
+    fi
+  fi
+
   # Tier free: 3/10s. Janela limpa antes de medir, senão o contador da
   # verificação anterior contamina o resultado.
   _key="$(oc get secrets -n kuadrant-system -l kuadrant.io/plan-id=free \
             -o jsonpath='{.items[0].data.api_key}' 2>/dev/null | base64 -d)"
-  if [[ -n "$_key" ]]; then
+  if [[ "$_free_rem" == "0" ]]; then
+    printf '      %s… medição do tier free pulada: com a cota do dia zerada o resultado seria 8/8 em 429%s\n' "$_DIM" "$_RST"
+  elif [[ -n "$_key" ]]; then
     sleep 11
     _ok200=0; _ok429=0
     for _i in $(seq 1 8); do
@@ -210,7 +329,7 @@ if [[ -n "$HOST" ]]; then
       _bad "tier free: nenhuma requisição servida" "oc get pods -n travel-agency"
     fi
   else
-    _bad "não achei chave do tier free" "oc apply -k overlays/provisioned"
+    _bad "não achei chave do tier free" "oc apply -k ${OVERLAY}"
   fi
 fi
 
@@ -242,7 +361,36 @@ else
   _warn "route do thanos-querier não encontrada" "o Ato 4 via Grafana pode não funcionar"
 fi
 
-for r in "grafana-route:monitoring:Grafana" "kiali:istio-system:Kiali" "tracing-ui:tracing-system:Tempo"; do
+# Dashboards do Grafana. Os tres de fabrica (Business User, App Developer,
+# Platform Engineer) NAO vem do operator -- o CSV do RHCL nao tem sequer RBAC
+# sobre grafana.* -- e, uma vez instalados, dependem das metricas gatewayapi_*,
+# que tambem nao sao do RHCL: quem as emite e o kube-state-metrics de
+# platform-reference/monitoring/. Sem elas os paineis sobem VAZIOS, e vazio no
+# palco parece defeito de coleta. O 'rhcl-planos' nao depende disso -- ele le
+# authorized_calls/limited_calls, e tem checagem propria logo abaixo.
+# (o 'rhcl-planos' em si tem checagem propria mais abaixo, incluindo sync)
+_dashlist="$(oc get grafanadashboards -n monitoring -o jsonpath='{range .items[*]}{.metadata.name}{" "}{end}' 2>/dev/null)"
+if [[ "$_dashlist" == *business-user* || "$_dashlist" == *platform-engineer* || "$_dashlist" == *app-developer* ]]; then
+  if [[ -n "$_thanos" ]]; then
+    _gapi="$(curl -sk --max-time 10 -H "Authorization: Bearer $(oc whoami -t)" \
+              "https://${_thanos}/api/v1/query" \
+              --data-urlencode 'query=count(gatewayapi_httproute_labels)' 2>/dev/null \
+            | python3 -c "
+import json,sys
+try: d=json.load(sys.stdin); r=d.get('data',{}).get('result',[])
+except Exception: r=[]
+print(int(float(r[0]['value'][1])) if r else 0)
+" 2>/dev/null)"
+    if [[ "${_gapi:-0}" -gt 0 ]]; then
+      _ok "dashboards de fábrica com métrica: gatewayapi_httproute_labels em ${_gapi} série(s)"
+    else
+      _warn "dashboards de fábrica instalados, mas gatewayapi_* não chega ao Thanos — eles abrem VAZIOS" \
+            "oc apply -f platform-reference/monitoring/kube-state-metrics-kuadrant.yaml; oc get pod -n monitoring -l app.kubernetes.io/name=kube-state-metrics-kuadrant"
+    fi
+  fi
+fi
+
+for r in "grafana-route:monitoring:Grafana" "kiali:istio-system:Kiali" "tempo-tempo-jaegerui:tracing-system:Tempo (Jaeger UI, deprecada)"; do
   _n="${r%%:*}"; _rest="${r#*:}"; _ns="${_rest%%:*}"; _label="${_rest##*:}"
   _h="$(oc get route "$_n" -n "$_ns" -o jsonpath='{.spec.host}' 2>/dev/null)"
   if [[ -n "$_h" ]]; then
@@ -251,6 +399,39 @@ for r in "grafana-route:monitoring:Grafana" "kiali:istio-system:Kiali" "tracing-
     _warn "${_label}: route ausente em ${_ns}" "o ato correspondente fica sem tela"
   fi
 done
+
+# Métrica no Thanos e Grafana no ar ainda não são o Ato 4: falta o painel que
+# quebra por 'plan'. Dashboard é objeto do operator e falha em dois pontos que
+# não aparecem na tela até o palco -- o instanceSelector pode não casar Grafana
+# nenhuma, e o datasource que o painel referencia pode não existir (aí o painel
+# abre "No data", que se lê como "não houve tráfego").
+_graf="$(oc get route grafana-route -n monitoring -o jsonpath='{.spec.host}' 2>/dev/null)"
+if oc get crd grafanadashboards.grafana.integreatly.org >/dev/null 2>&1; then
+  # O painel referencia o datasource pelo NOME ('Thanos', via variável de
+  # dashboard) -- é o nome que precisa existir, não o UID, que é gerado por
+  # cluster. Ver o cabeçalho de grafana-dashboard-plans.yaml.
+  _dsok="$(oc get grafanadatasource -n monitoring             -o jsonpath='{range .items[?(@.spec.datasource.name=="Thanos")]}{.status.conditions[?(@.type=="DatasourceSynchronized")].status}{end}' 2>/dev/null)"
+  if [[ "$_dsok" == *"True"* ]]; then
+    _ok "datasource 'Thanos' aplicado no Grafana"
+  else
+    _warn "datasource 'Thanos' não confirmado no Grafana" \
+          "os painéis do Ato 4 abrem sem dado — docs/PROVISIONING-1.4.md"
+  fi
+
+  _dash="$(oc get grafanadashboard rhcl-planos -n monitoring             -o jsonpath='{.status.conditions[?(@.type=="DashboardSynchronized")].status}' 2>/dev/null)"
+  if [[ "$_dash" == "True" ]]; then
+    _ok "dashboard do Ato 4: https://${_graf}/d/rhcl-planos"
+  elif [[ -z "$_dash" ]]; then
+    _warn "dashboard 'rhcl-planos' não está no cluster" \
+          "oc apply -f platform-reference/monitoring/grafana-dashboard-plans.yaml"
+  else
+    _warn "dashboard 'rhcl-planos' não sincronizou com nenhuma Grafana" \
+          "oc describe grafanadashboard rhcl-planos -n monitoring"
+  fi
+else
+  _warn "grafana-operator ausente (sem CRD grafanadashboards)" \
+        "o Ato 4 fica sem tela — docs/PROVISIONING-1.4.md"
+fi
 
 # Route existir não diz nada sobre o Kiali. Ele pode estar Running, com o CR em
 # 'prometheus.enabled: true', e ainda assim abrir a aba Service Mesh com
@@ -296,13 +477,72 @@ print(r[0]['value'][1] if r else '')
   fi
 fi
 
+# A emissão do span começa na malha, e é a metade que costuma faltar: o CR Istio
+# declara PARA ONDE mandar (extensionProvider) e a Telemetry manda EMITIR. Com
+# uma das duas ausente, tudo o que vem depois -- collector, gateway do Tempo,
+# plugin do console -- continua saudável, e nenhum trace nasce. Checado antes do
+# Tempo de propósito: é a causa que explica o sintoma seguinte.
+if oc get crd telemetries.telemetry.istio.io >/dev/null 2>&1; then
+  _prov="$(oc get istio default -o jsonpath='{.spec.values.meshConfig.extensionProviders}' 2>/dev/null)"
+  _tel="$(oc get telemetry -n istio-system \
+            -o jsonpath='{range .items[*]}{.spec.tracing[*].providers[*].name}{"\n"}{end}' 2>/dev/null)"
+  if [[ "$_prov" == *otel-tracing* && "$_tel" == *otel-tracing* ]]; then
+    _ok "malha emitindo span (extensionProvider + Telemetry)"
+  elif [[ "$_prov" != *otel-tracing* ]]; then
+    _warn "CR Istio sem extensionProvider de tracing: nenhum span sai da malha" \
+          "platform-reference/mesh-control-plane/istio.yaml — ou 'bash scripts/provision.sh mesh'"
+  else
+    _warn "nenhuma Telemetry aponta para 'otel-tracing': o provider existe e ninguém emite" \
+          "oc apply -f platform-reference/mesh-control-plane/telemetry-tracing.yaml"
+  fi
+fi
+
 # Tempo só tem o gateway se houve tráfego recente com tracing ligado.
-_tempo="$(oc get route tracing-ui -n tracing-system -o jsonpath='{.spec.host}' 2>/dev/null)"
-if [[ -n "$_tempo" ]]; then
-  if curl -sk --max-time 10 "https://${_tempo}/api/services" 2>/dev/null | grep -q 'ingress-gateway'; then
+#
+# A consulta mudou de forma quando o Tempo ganhou multitenancy (exigência do
+# plugin de tracing do console -- armadilha 13): a rota 'tracing-ui', que servia
+# a Jaeger UI SEM autenticação, foi apagada pelo operator, e a leitura agora é
+# por tenant e com token:
+#
+#   antes   https://tracing-ui/api/services
+#   agora   https://<rota do gateway>/api/traces/v1/dev/api/services   + Bearer
+_tempo="$(oc get route tempo-tempo-jaegerui -n tracing-system -o jsonpath='{.spec.host}' 2>/dev/null)"
+if [[ -z "$_tempo" ]]; then
+  _warn "route do Tempo não encontrada em tracing-system" \
+        "o Ato 5 fica sem tela — platform-reference/tracing/tempo-monolithic.yaml"
+else
+  _svcs="$(curl -sk --max-time 15 -H "Authorization: Bearer $(oc whoami -t)" \
+            "https://${_tempo}/api/traces/v1/${TEMPO_TENANT:-dev}/api/services" 2>/dev/null)"
+  if grep -q 'ingress-gateway' <<< "$_svcs"; then
     _ok "Tempo tem traces do gateway (Ato 5)"
+  elif grep -q 'tenant not found' <<< "$_svcs"; then
+    # Tenant do PlanPolicy do tracing: o nome no CR, no header do collector e
+    # aqui têm de ser o mesmo. Ver platform-reference/tracing/.
+    _bad "tenant '${TEMPO_TENANT:-dev}' não existe no gateway do Tempo" \
+         "confira spec.multitenancy.authentication no TempoMonolithic — platform-reference/tracing/tempo-monolithic.yaml"
+  elif [[ -z "$_svcs" ]]; then
+    _warn "não consegui consultar o Tempo" "oc get pods -n tracing-system"
   else
     _warn "Tempo ainda não tem traces do prod-web" "gere tráfego e aguarde ~20s"
+  fi
+fi
+
+# Ingestão: com multitenancy o collector fala com o GATEWAY, e o que quebra
+# nessa borda não aparece no Ato 5 como erro -- aparece como grafo/trace vazio,
+# que se lê como "não houve tráfego". O log do collector é quem sabe.
+#
+# JANELA, e não tail: o Tempo reiniciando derruba o export por ~1 minuto
+# ('connection refused' até o gateway subir) e o collector se recupera sozinho.
+# Um 'tail -50' pega essa cicatriz horas depois e reprova uma demo saudável --
+# aconteceu aqui. O que interessa é se está falhando AGORA.
+if oc get deploy otel-collector -n tracing-system >/dev/null 2>&1; then
+  _experr="$(oc logs deploy/otel-collector -n tracing-system --since=10m 2>/dev/null \
+             | grep -c 'Exporting failed')"
+  if [[ "${_experr:-0}" -gt 0 ]]; then
+    _bad "collector falhando ao entregar spans ao Tempo (${_experr} nos últimos 10 min)" \
+         "token/tenant ou RBAC do tenant — platform-reference/tracing/. Se o Tempo acabou de reiniciar, aguarde 1 min e repita"
+  else
+    _ok "collector entregando spans ao Tempo (sem falha nos últimos 10 min)"
   fi
 fi
 
@@ -318,7 +558,7 @@ _sec "consoles integradas (Atos 3 e 5)"
 # Passo a passo em docs/PROVISIONING-1.4.md seção 7.
 _plugins="$(oc get console.operator.openshift.io cluster -o jsonpath='{.spec.plugins}' 2>/dev/null)"
 
-for p in "kuadrant-console-plugin:Connectivity Link" "ossmconsole:Service Mesh"; do
+for p in "kuadrant-console-plugin:Connectivity Link" "ossmconsole:Service Mesh" "distributed-tracing-console-plugin:Traces"; do
   _p="${p%%:*}"; _plabel="${p#*:}"
 
   # O Service do backend sai do próprio CR -- nada de nome de namespace fixo.
@@ -328,6 +568,9 @@ for p in "kuadrant-console-plugin:Connectivity Link" "ossmconsole:Service Mesh";
     if [[ "$_p" == "ossmconsole" ]]; then
       _warn "${_plabel}: sem aba no console (ConsolePlugin ausente)" \
             "oc apply -f platform-reference/consoles/ossmconsole.yaml — precisa do operator kiali-ossm"
+    elif [[ "$_p" == "distributed-tracing-console-plugin" ]]; then
+      _warn "${_plabel}: sem aba no console (ConsolePlugin ausente)" \
+            "oc apply -f platform-reference/consoles/uiplugin-distributed-tracing.yaml — precisa do Cluster Observability Operator"
     else
       _warn "${_plabel}: sem aba no console (ConsolePlugin ausente)" \
             "quem cria é o rhcl-operator: oc get pods -n kuadrant-system"
@@ -386,7 +629,34 @@ if [[ "$_plugins" == *'"kuadrant-console-plugin"'* ]]; then
       _warn "APIProduct travels-api sem discoveredAuthScheme" \
             "AuthPolicy com wrapper 'defaults'? o portal ignora e todo APIKey falha; ver base/policies-security/travel-agency-authpolicy.yaml"
     else
-      _ok "developer portal: ${_prod%%=*} pronto, $(oc get apikey -A --no-headers 2>/dev/null | grep -c .) APIKey pendente(s), esquema descoberto"
+      # Aprovacao e o unico estado PERIGOSO aqui -- e ate agora ninguem a via.
+      # O comentario no topo desta secao delega a deteccao para a secao de
+      # identidades ("e quem reprova"). Isso ERA verdade: a chave cunhada pela
+      # aprovacao nascia sem o label 'kuadrant.io/plan-id' e a secao reprovava.
+      # Depois do patch-planpolicy-plan-id.yaml, que ensinou o predicado a ler
+      # tambem a annotation, a mesma chave passa VERDE por la -- vide a linha
+      # 'sem label, classificada pela annotation (predicado com fallback)'.
+      # O fallback consertou o caminho de dados e, de quebra, cegou o detector.
+      #
+      # Dai a checagem direta, que nao depende do predicado:
+      #   Secret com devportal.kuadrant.io/enforcement=true -> alguem aprovou
+      #   APIKey fora de Pending                            -> idem, mais cedo
+      #
+      # Contar APIKey (o que esta linha fazia) nunca serviu: aprovar nao muda o
+      # total, entao o numero seguia igual e a linha seguia verde.
+      _kmint="$(oc get secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true \
+                  --no-headers 2>/dev/null | grep -c .)"
+      _ktot="$(oc get apikey -A -o name 2>/dev/null | grep -c .)"
+      _kpend="$(oc get apikey -A -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Pending")].status}{"\n"}{end}' 2>/dev/null | grep -c '^True$')"
+      if [[ "${_kmint:-0}" -gt 0 ]]; then
+        _bad "${_kmint} Secret cunhado por aprovacao no portal (armadilha 11)" \
+             "o plano vai em annotation, nao em label; oc delete secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true && oc delete apikeyapproval --all -n travel-agency"
+      elif [[ "${_kpend:-0}" -ne "${_ktot:-0}" ]]; then
+        _bad "APIKey fora de Pending (${_kpend}/${_ktot}) -- alguem aprovou um pedido" \
+             "Pending e o estado correto (approvalMode: manual); ver env/rhcl-1.4_ocp-4.21/devportal/apikeys.yaml"
+      else
+        _ok "developer portal: ${_prod%%=*} pronto, ${_kpend} APIKey Pending (correto -- ninguem aprovou), esquema descoberto"
+      fi
     fi
   fi
 fi
@@ -394,10 +664,28 @@ fi
 # ---------------------------------------------------------------------------
 _sec "Red Hat Developer Hub (Ato 6)"
 
-# RHDH_NS: o namespace da instancia DA DEMO. Um cluster de workshop pode ja ter
-# outro RHDH rodando em 'rhdh' -- olhar so o namespace fixo faria o preflight
-# aprovar o portal errado e depois reclamar de catalogo ausente nele.
-_rhdh_ns="${RHDH_NS:-rhdh}"
+# ----- qual RHDH e o da demo -----------------------------------------------
+# O cluster pode ja vir com um RHDH proprio em 'rhdh' -- e este cluster vem, com
+# uma instancia de 13 dias que nao e nossa. Assumir o namespace fixo erra de
+# duas maneiras ao mesmo tempo: o preflight aprova o portal errado e depois
+# reclama do catalogo que nao esta la (foi o que aconteceu), e os setup-*.sh
+# escrevem a configuracao da demo POR CIMA da instancia do cluster.
+#
+# O marcador da NOSSA instalacao e o Secret 'rhdh-backend-secret', que so o
+# rhdh/install.sh cria. RHDH_NS no ambiente continua vencendo tudo.
+_discover_rhdh_ns() {
+  local ns
+  for ns in $(oc get backstage -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | sort -u); do
+    oc get secret rhdh-backend-secret -n "$ns" >/dev/null 2>&1 && { printf '%s' "$ns"; return; }
+  done
+  # Ainda nao ha instancia nossa: se 'rhdh' ja e de outro, nao dispute o
+  # namespace com ele -- adotar o CR alheio reconfigura o portal do cluster.
+  if [[ -n "$(oc get backstage -n rhdh --no-headers 2>/dev/null)" ]]; then
+    printf 'rhdh-rhcl'; return
+  fi
+  printf 'rhdh'
+}
+_rhdh_ns="${RHDH_NS:-$(_discover_rhdh_ns)}"
 _rhdh="$(oc get route backstage-developer-hub -n "$_rhdh_ns" -o jsonpath='{.spec.host}' 2>/dev/null)"
 if [[ -z "$_rhdh" ]]; then
   _warn "RHDH não instalado" "bash rhdh/install.sh — ou pule o Ato 6"
@@ -422,7 +710,111 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-_sec "governança (Argo CD)"
+# Ato 7 e OPCIONAL: sem a camada de malha aplicada isto avisa e segue. O que
+# nao pode e ela existir quebrada -- os tres modos de falha abaixo sao todos
+# SILENCIOSOS no caminho de dados, e dois deles sao residuo da propria demo
+# anterior (PERMISSIVE e fault injection nao revertidos).
+_sec "malha leste-oeste (Ato 7)"
+
+_pa_mode="$(oc get peerauthentication travel-agency-mtls -n travel-agency \
+             -o jsonpath='{.spec.mtls.mode}' 2>/dev/null)"
+_ap="$(oc get authorizationpolicy discounts-only-sellers -n travel-agency \
+         -o name 2>/dev/null)"
+_vs="$(oc get virtualservice discounts -n travel-agency -o name 2>/dev/null)"
+
+if [[ -z "$_pa_mode" && -z "$_ap" && -z "$_vs" ]]; then
+  _warn "camada de malha não aplicada — Ato 7 indisponível" \
+        "oc apply -k overlays/rhcl-1.4 (os outros atos não dependem dela)"
+else
+  # mTLS. PERMISSIVE nao e erro de configuracao: e o estado em que o ato fica
+  # se alguem demonstrar o contraste ao vivo e esquecer de voltar. A sonda
+  # passa a devolver 403 em vez de 000, e o movimento 1 perde o argumento.
+  case "$_pa_mode" in
+    STRICT)     _ok "PeerAuthentication STRICT" ;;
+    PERMISSIVE) _bad "PeerAuthentication em PERMISSIVE" \
+                     "resíduo da demonstração do contraste: oc patch peerauthentication travel-agency-mtls -n travel-agency --type=merge -p '{\"spec\":{\"mtls\":{\"mode\":\"STRICT\"}}}'" ;;
+    "")         _bad "PeerAuthentication travel-agency-mtls ausente" "oc apply -k overlays/rhcl-1.4" ;;
+    *)          _bad "PeerAuthentication em ${_pa_mode}" "esperado STRICT" ;;
+  esac
+
+  # AuthorizationPolicy: teste FUNCIONAL, nao de existencia. Ela falha ABERTA
+  # -- sumindo a policy, todo mundo volta a 200 sem erro, evento ou status
+  # degradado, que e o mesmo modo de falha da armadilha 1. So o caminho de
+  # dados denuncia.
+  if [[ -z "$_ap" ]]; then
+    _bad "AuthorizationPolicy discounts-only-sellers ausente" \
+         "fail-open: todo serviço volta a acessar o discounts. oc apply -k overlays/rhcl-1.4"
+  else
+    _pt="$(oc get pod -n travel-agency -l app=travels -o name 2>/dev/null | head -1)"
+    _pc="$(oc get pod -n travel-agency -l app=cars    -o name 2>/dev/null | head -1)"
+    if [[ -n "$_pt" && -n "$_pc" ]]; then
+      _deny="$(oc exec -n travel-agency "$_pt" -c travels -- curl -s -m 5 -o /dev/null \
+                 -w '%{http_code}' http://discounts.travel-agency:8000/discounts/travels 2>/dev/null)"
+      _allow="$(oc exec -n travel-agency "$_pc" -c cars -- curl -s -m 5 -o /dev/null \
+                 -w '%{http_code}' http://discounts.travel-agency:8000/discounts/cars 2>/dev/null)"
+      if [[ "$_deny" == "403" && "$_allow" == "200" ]]; then
+        _ok "autorização por identidade: travels 403, cars 200"
+      elif [[ "$_deny" == "200" ]]; then
+        _bad "travels alcança o discounts (esperado 403)" \
+             "a policy existe mas não está valendo — oc describe authorizationpolicy discounts-only-sellers -n travel-agency"
+      else
+        _bad "matriz de acesso inesperada: travels=${_deny:-?}, cars=${_allow:-?}" \
+             "esperado 403 e 200 — oc get pods -n travel-agency"
+      fi
+    else
+      _warn "pods de travels/cars ausentes — não deu para testar a autorização" \
+            "oc get pods -n travel-agency"
+    fi
+  fi
+
+  # Canary. Duas falhas distintas: peso errado (ou VS ausente => round-robin
+  # ~50/50) e fault injection esquecida do encerramento do ato.
+  if [[ -z "$_vs" ]]; then
+    _bad "VirtualService discounts ausente" \
+         "sem ela o Service faz round-robin e o canary do movimento 3 dá ~50/50"
+  else
+    _fault="$(oc get virtualservice discounts -n travel-agency \
+                -o jsonpath='{.spec.http[0].fault}' 2>/dev/null)"
+    _w="$(oc get virtualservice discounts -n travel-agency \
+            -o jsonpath='{.spec.http[0].route[*].weight}' 2>/dev/null)"
+    if [[ -n "$_fault" ]]; then
+      _bad "VirtualService com fault injection ativa (${_fault})" \
+           "resíduo do encerramento do Ato 7: oc apply -f base/mesh/virtualservice-discounts.yaml"
+    elif [[ "$_w" == "90 10" ]]; then
+      _ok "canary 90/10 declarado (medir: bash scripts/traffic.sh mesh-split)"
+    else
+      _warn "pesos do canary: '${_w}' (o roteiro conta 90/10)" \
+            "não é erro se foi mudado de propósito — base/mesh/virtualservice-discounts.yaml"
+    fi
+  fi
+
+  # DestinationRule com subset que nao casa pod nenhum: o Envoy fica sem
+  # endpoint para aquele subset e o peso vira 503, nao redistribuicao.
+  for _v in v1 v2; do
+    if [[ -z "$(oc get pod -n travel-agency -l "app=discounts,version=${_v}" \
+                  -o name 2>/dev/null | head -1)" ]]; then
+      _bad "subset '${_v}' da DestinationRule não casa nenhum pod" \
+           "o peso apontado para ele vira 503 — oc get pods -n travel-agency -l app=discounts --show-labels"
+    fi
+  done
+fi
+
+# ---------------------------------------------------------------------------
+_sec "governança (ownership dos recursos)"
+
+# Este bloco existe por causa do cluster 1.2, onde o Argo governava metade dos
+# recursos e um 'oc apply' num deles era revertido pelo selfHeal em segundos.
+#
+# No cluster 1.4 NAO HA Argo -- e ai mora um problema pior que a ausencia do
+# check: ele passava vazio. "camada de demo continua fora do controle do Argo"
+# e verdade vacua quando nao existe Argo nenhum, e o verde escondia justamente
+# o efeito colateral perigoso disso, que e o capture.sh classificar TUDO como
+# camada de demo (29 arquivos para base/, zero para platform-reference/) e
+# apagar a arvore de referencia. Ver o cabecalho de scripts/capture.sh.
+if ! oc get crd applications.argoproj.io >/dev/null 2>&1; then
+  _ok "sem Argo CD neste cluster: nada disputa os recursos da demo"
+  printf '      %s… capture.sh detecta isso e preserva a arvore atual em vez de rotear por tracking-id%s\n' "$_DIM" "$_RST"
+else
 
 # Não é sobre a demo funcionar, é sobre ela continuar funcionando: um apply em
 # recurso rastreado é revertido pelo selfHeal.
@@ -437,6 +829,7 @@ for r in "authpolicy:travel-agency-authpolicy:travel-agency" \
   fi
 done
 [[ "$_drift" == "0" ]] && _ok "camada de demo continua fora do controle do Argo"
+fi
 
 # ---------------------------------------------------------------------------
 printf '\n'
