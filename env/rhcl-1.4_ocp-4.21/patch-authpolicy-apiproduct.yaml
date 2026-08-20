@@ -1,0 +1,26 @@
+# ===========================================================================
+# AuthPolicy travel-agency: aceitar so a chave DESTE produto.
+#
+# No 1.2 havia um emissor unico e um produto unico -- 'app: partner' bastava
+# para dizer "e um parceiro". No 1.4.2 o catalogo tem mais de um produto
+# (travels e echo), e sem um segundo criterio a chave assinada para um deles
+# abre o outro: "assinar um produto" deixa de significar qualquer coisa.
+#
+# O label e o mesmo que o controller do developer portal carimba no Secret que
+# ele cunha ao aprovar um APIKey, e que o portal externo tambem grava. Nao e
+# convencao nossa -- e a que o produto ja usa.
+#
+# CONTRAPARTIDA: as quatro chaves estaticas de base/identity/ precisam do label,
+# senao param de autenticar e o Ato 2 morre. Isso esta em
+# patch-identity-apiproduct.yaml.
+#
+# NAO mexemos em allNamespaces (segue false). Isto foi verificado, e nao
+# suposto: mesmo quando o APIKey e pedido pelo console/RHDH e nasce num
+# namespace por consumidor (kuadrant-guest-<hash>, label
+# devportal.kuadrant.io/consumer-namespace), o Secret que vale para o Authorino
+# e cunhado em kuadrant-system -- 'devportal-<ns>-<apikey>-<hash>'. O namespace
+# do consumidor guarda o CR, nao a credencial.
+# ===========================================================================
+- op: add
+  path: /spec/rules/authentication/api-key-authn/apiKey/selector/matchLabels/devportal.kuadrant.io~1apiproduct
+  value: travels-api

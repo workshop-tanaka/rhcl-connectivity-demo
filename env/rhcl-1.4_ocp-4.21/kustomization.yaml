@@ -74,3 +74,21 @@ patches:
       kind: PlanPolicy
       name: travels-plans
       namespace: travel-agency
+
+  # Isolamento entre produtos: a chave do travels nao abre o echo, e vice-versa.
+  - path: patch-authpolicy-apiproduct.yaml
+    target:
+      group: kuadrant.io
+      version: v1
+      kind: AuthPolicy
+      name: travel-agency-authpolicy
+      namespace: travel-agency
+
+  # Contrapartida do patch acima: as chaves estaticas ganham o label de produto
+  # que o selector passou a exigir.
+  - path: patch-identity-apiproduct.yaml
+    target:
+      version: v1
+      kind: Secret
+      namespace: kuadrant-system
+      labelSelector: app=partner

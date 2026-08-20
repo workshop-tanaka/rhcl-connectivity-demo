@@ -1,0 +1,11 @@
+# Label de produto nas chaves estaticas.
+#
+# Passa a ser exigido pelo selector do AuthPolicy nesta release (ver
+# patch-authpolicy-allnamespaces.yaml). Sem ele as quatro chaves de
+# base/identity/ deixariam de autenticar e o Ato 2 morreria.
+#
+# Na base/ o label nao entra: la o selector nao o exige, e o 1.2 nem tem o
+# conceito de APIProduct para o nome fazer sentido.
+- op: add
+  path: /metadata/labels/devportal.kuadrant.io~1apiproduct
+  value: travels-api

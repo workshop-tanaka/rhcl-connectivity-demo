@@ -1,0 +1,112 @@
+# ===========================================================================
+# echo-api como SEGUNDO produto do catalogo.
+#
+# Por que os tres recursos moram juntos aqui, e nao espalhados como os do
+# travel-agency: o echo-api nao faz parte do roteiro original -- ele entra
+# inteiro como item de catalogo, e um APIProduct so existe se a rota tiver
+# AuthPolicy (identidade) e PlanPolicy (planos) para o controller descobrir.
+# Separar em base/ nao serviria: APIProduct e CRD de 1.4, e a base tem de
+# continuar aplicavel no cluster 1.2.
+#
+# Antes disto o echo-api respondia 403 a todos: sem AuthPolicy propria, a rota
+# herda o prod-web-deny-all do Gateway.
+# ---------------------------------------------------------------------------
+# ISOLAMENTO ENTRE PRODUTOS -- a diferenca deliberada em relacao ao travels.
+#
+# O selector aqui exige DOIS labels: 'app: partner' E
+# 'devportal.kuadrant.io/apiproduct: echo-api'. Sem o segundo, qualquer chave
+# de parceiro do travels abriria tambem o echo -- e o portal deixaria de
+# significar "assinei ESTE produto".
+#
+# A rota do travels continua so com 'app: partner', de proposito: apertar o
+# selector la invalidaria as chaves estaticas de base/identity/, que nao
+# carregam o label de produto, e quebraria o Ato 2.
+# ===========================================================================
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: echo-api-authpolicy
+  namespace: echo-api
+spec:
+  # 'rules' e nao 'defaults.rules': o controller do APIProduct ignora o wrapper
+  # de defaults e ficaria sem discoveredAuthScheme, reprovando todo APIKey com
+  # 'AuthSchemeNotFound'. Mesma armadilha do travel-agency-authpolicy.
+  rules:
+    authentication:
+      api-key-authn:
+        apiKey:
+          allNamespaces: false
+          selector:
+            matchLabels:
+              app: partner
+              devportal.kuadrant.io/apiproduct: echo-api
+        credentials:
+          queryString:
+            name: APIKEY
+        metrics: false
+        priority: 0
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: echo-api
+---
+# UM plano so, e o predicate e 'true'.
+#
+# O PlanPolicy nao esta aqui para contar a historia de tiers -- isso e o Ato 2,
+# no travels. Ele esta aqui porque sem ele NAO SE EMITE CHAVE: 'spec.planTier' e
+# obrigatorio no CRD do APIKey e tem de resolver para um tier existente na rota.
+# Sem PlanPolicy o APIProduct continua Ready, mas todo APIKey fica preso em
+# 'Pending=AwaitingApproval' e o produto vira vitrine sem assinatura possivel.
+# Medido neste cluster.
+#
+# Com um unico tier de predicate 'true' nao existe o fail-open do plan-id: nao
+# ha indexacao de label para errar em CEL, e nao ha identidade sem plano. Por
+# isso tambem nao ha catch-all -- este plano JA e o catch-all.
+apiVersion: extensions.kuadrant.io/v1alpha1
+kind: PlanPolicy
+metadata:
+  name: echo-plans
+  namespace: echo-api
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: echo-api
+  plans:
+    - tier: default
+      predicate: 'true'
+      limits:
+        daily: 2000
+        custom:
+          - limit: 20
+            window: 10s
+---
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIProduct
+metadata:
+  annotations:
+    backstage.io/owner: group:default/platform-team
+  name: echo-api
+  namespace: echo-api
+spec:
+  displayName: Echo API
+  # O workload por tras e um httpd (ubi9/httpd-24) servindo a pagina de teste
+  # padrao do RHEL -- que o proprio httpd entrega com status 403, pelo
+  # welcome.conf. Nao e um echo: nao devolve o request. A descricao diz o que a
+  # coisa e, para ninguem no catalogo esperar 200 com o payload de volta.
+  description: >-
+    Endpoint de teste da plataforma. Serve uma pagina estatica atras do mesmo
+    Gateway das APIs de negocio -- util para validar chave, rota e limite de
+    ponta a ponta antes de integrar com a API real. Responde 403 por design
+    (pagina de boas-vindas do httpd); o que importa aqui e o 401 sem chave e o
+    429 acima do limite.
+  version: v1
+  approvalMode: automatic
+  publishStatus: Published
+  tags:
+    - utility
+    - diagnostics
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: echo-api

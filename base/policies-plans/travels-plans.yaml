@@ -55,6 +55,12 @@
 #
 # Ao mexer nestes numeros: mexa nas TRES diarias juntas. A razao entre elas e
 # o argumento; o valor absoluto e so folga de ensaio.
+#
+# E RODE 'bash scripts/traffic.sh reset' DEPOIS DE APLICAR. O Limitador guarda
+# o contador com o max_value vigente no momento em que ele foi criado, entao
+# um contador ja existente continua com o teto ANTIGO ate a janela virar --
+# 24h, no caso da diaria. Aplicar o YAML e conferir com o preflight sem
+# reiniciar mostra o limite velho e parece que a edicao nao pegou.
 # ---------------------------------------------------------------------------
 # ===========================================================================
 apiVersion: extensions.kuadrant.io/v1alpha1
@@ -75,9 +81,27 @@ spec:
     name: travel-agency
 
   plans:
+    # -- O PREDICADO E GUARDADO, e as duas guardas tem motivos diferentes:
+    #
+    #    has(...) && "chave" in ...   indexar chave ausente em CEL nao devolve
+    #                                 false: ERRA. E o erro aborta a
+    #                                 classificacao inteira, inclusive o
+    #                                 catch-all 'unclassified' abaixo -- a
+    #                                 requisicao passa SEM LIMITE. Armadilha 1.
+    #
+    #    fallback para a annotation   chave aprovada no developer portal nasce
+    #                                 com o plano em annotation
+    #                                 (secret.kuadrant.io/plan-id) e SEM o
+    #                                 label. Sem este ramo, aprovar uma chave
+    #                                 no portal cunha uma chave sem limite.
+    #                                 Armadilha 11.
+    #
+    #    Ordem importa: label primeiro (e o que a demo cria), annotation depois
+    #    (e o que o produto cria). Verificado no cluster: chave do portal em
+    #    'silver' bate 429 na nona requisicao da janela de 10s.
     # -- gold: parceiro integrado, cota de negocio (diaria) e nao de rajada.
     - tier: gold
-      predicate: 'auth.identity.metadata.labels["kuadrant.io/plan-id"] == "gold"'
+      predicate: '(has(auth.identity.metadata.labels) && "kuadrant.io/plan-id" in auth.identity.metadata.labels ? auth.identity.metadata.labels["kuadrant.io/plan-id"] : (has(auth.identity.metadata.annotations) && "secret.kuadrant.io/plan-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] : "")) == "gold"'
       limits:
         daily: 100000
         custom:
@@ -86,7 +110,7 @@ spec:
 
     # -- silver: contrato menor, mesma API.
     - tier: silver
-      predicate: 'auth.identity.metadata.labels["kuadrant.io/plan-id"] == "silver"'
+      predicate: '(has(auth.identity.metadata.labels) && "kuadrant.io/plan-id" in auth.identity.metadata.labels ? auth.identity.metadata.labels["kuadrant.io/plan-id"] : (has(auth.identity.metadata.annotations) && "secret.kuadrant.io/plan-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] : "")) == "silver"'
       limits:
         daily: 10000
         custom:
@@ -95,7 +119,7 @@ spec:
 
     # -- free: avaliacao. O 429 aqui e o argumento de upgrade.
     - tier: free
-      predicate: 'auth.identity.metadata.labels["kuadrant.io/plan-id"] == "free"'
+      predicate: '(has(auth.identity.metadata.labels) && "kuadrant.io/plan-id" in auth.identity.metadata.labels ? auth.identity.metadata.labels["kuadrant.io/plan-id"] : (has(auth.identity.metadata.annotations) && "secret.kuadrant.io/plan-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] : "")) == "free"'
       limits:
         daily: 1000
         custom:
