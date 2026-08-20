@@ -301,7 +301,7 @@ if [[ -n "$HOST" ]]; then
   # cria um quando o plano recebe a primeira requisicao do dia. Lista vazia
   # depois de um restart significa cota INTEIRA, nao coleta quebrada -- por
   # isso os dois casos sao separados aqui.
-  _free_rem=""; _quota=""
+  _free_rem=""; _quota=""; _maxes=""
   if ! _counters="$(_limitador_counters)"; then
     _warn "não consegui ler os contadores do Limitador" \
           "a cota do dia fica sem verificação — oc get pods -n kuadrant-system | grep limitador"
@@ -311,6 +311,7 @@ if [[ -n "$HOST" ]]; then
     while IFS=$'\t' read -r _p _rem _max; do
       [[ -z "$_p" ]] && continue
       _quota+="${_p} ${_rem}/${_max}, "
+      _maxes+="${_p}=${_max} "
       [[ "$_p" == "free" ]] && _free_rem="$_rem"
     done <<< "$_counters"
     if [[ -z "$_free_rem" ]]; then
@@ -323,6 +324,36 @@ if [[ -n "$HOST" ]]; then
             "o preflight gasta 8 e o Ato 2 pede ~14 — bash scripts/traffic.sh reset"
     else
       _ok "cota diária: ${_quota%, }"
+    fi
+
+    # Teto DECLARADO contra teto EFETIVO.
+    #
+    # O max_value impresso acima sai do CONTADOR, nao do PlanPolicy. O Limitador
+    # congela o teto vigente no instante em que cria o contador e so o revisita
+    # quando a janela vira -- 24h, na diaria. Editar a cota no YAML e aplicar
+    # sem 'traffic.sh reset' deixa o contador com o teto ANTIGO, e como esta
+    # secao le justamente o contador, ela imprimia o numero velho em verde, sem
+    # correspondencia com nada no repo.
+    #
+    # E a mesma cegueira do detector de aprovacao de APIKey: a checagem lia do
+    # artefato que carrega o defeito, entao o defeito era invisivel. Aqui a
+    # fonte da verdade e o CR, e so ele.
+    _declared="$(oc get planpolicy travels-plans -n travel-agency \
+                   -o jsonpath='{range .spec.plans[*]}{.tier}={.limits.daily};{end}' 2>/dev/null)"
+    if [[ -n "$_declared" ]]; then
+      _stale=""
+      for _pair in $_maxes; do
+        _t="${_pair%%=*}"; _m="${_pair##*=}"
+        _d="${_declared#*${_t}=}"; _d="${_d%%;*}"
+        # tier sem diaria declarada (o unclassified so tem rajada) nao entra
+        [[ -n "$_d" && "$_d" != "$_m" ]] && _stale+="${_t} declara ${_d} mas aplica ${_m}; "
+      done
+      if [[ -n "$_stale" ]]; then
+        _bad "cota editada que nao pegou: ${_stale%; }" \
+             "o contador guarda o teto de quando nasceu — bash scripts/traffic.sh reset"
+      else
+        _ok "teto efetivo bate com o PlanPolicy (edicao de cota pegou)"
+      fi
     fi
   fi
 
@@ -810,9 +841,14 @@ else
     _pt="$(oc get pod -n travel-agency -l app=travels -o name 2>/dev/null | head -1)"
     _pc="$(oc get pod -n travel-agency -l app=cars    -o name 2>/dev/null | head -1)"
     if [[ -n "$_pt" && -n "$_pc" ]]; then
-      _deny="$(oc exec -n travel-agency "$_pt" -c travels -- curl -s -m 5 -o /dev/null \
+      # -m 10, nao 5: o PRIMEIRO 'oc exec' num pod paga cold start e estourava
+      # os 5s, devolvendo string vazia. A matriz saia como 'travels=?, cars=200'
+      # e o preflight reprovava uma malha correta -- falso [X] dez minutos antes
+      # de apresentar. Reexecutar passava, que e a assinatura de timeout e nao
+      # de policy.
+      _deny="$(oc exec -n travel-agency "$_pt" -c travels -- curl -s -m 10 -o /dev/null \
                  -w '%{http_code}' http://discounts.travel-agency:8000/discounts/travels 2>/dev/null)"
-      _allow="$(oc exec -n travel-agency "$_pc" -c cars -- curl -s -m 5 -o /dev/null \
+      _allow="$(oc exec -n travel-agency "$_pc" -c cars -- curl -s -m 10 -o /dev/null \
                  -w '%{http_code}' http://discounts.travel-agency:8000/discounts/cars 2>/dev/null)"
       if [[ "$_deny" == "403" && "$_allow" == "200" ]]; then
         _ok "autorização por identidade: travels 403, cars 200"
