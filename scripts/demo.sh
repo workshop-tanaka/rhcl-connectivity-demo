@@ -55,7 +55,7 @@ AUTO="${AUTO:-0}"
 MESH_SECS="${MESH_SECS:-240}"
 SOAK_SECS="${SOAK_SECS:-180}"
 
-STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 falha reset)
+STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 falha reset pos)
 # O default e o nucleo da tese. Ato 6 e 7 sao opcionais e longos; 'aquece',
 # 'falha' e 'reset' mudam estado e nunca devem entrar sem alguem pedir.
 STEPS_DEFAULT=(ato1 ato2 ato3 ato4 ato5)
@@ -87,6 +87,8 @@ Depois:
 
   falha    fault injection no discounts e o revert (opcional, muda estado)
   reset    zera as cotas para reapresentar
+  pos      pos-sessao: procura o que a demo deixou para tras, ajusta, e
+           revalida. E o que se roda DEPOIS de apresentar, nao antes.
 
 Cada passo pausa antes de executar (Enter segue, 'p' pula, Ctrl-C sai).
 EOF
@@ -575,6 +577,127 @@ step_reset() {
   _log  "voltar ao estado 'plano', sem tiers, para reapresentar do zero:"
   _log  "  oc delete planpolicy travels-plans -n travel-agency"
   _log  "  oc apply -k \$(bash scripts/preflight.sh core >/dev/null && echo overlays/rhcl-1.4)"
+}
+
+# ---------------------------------------------------------------------------
+# pos-sessao
+# ---------------------------------------------------------------------------
+# Roda DEPOIS de apresentar. Existe porque tres coisas que a demo faz
+# sobrevivem a ela e o preflight NAO reprova por nenhuma das tres -- ele checa
+# se a demo pode ser apresentada, e nos tres casos ela pode; o que muda e o que
+# ela vai mostrar:
+#
+#   PERMISSIVE no PeerAuthentication   o Ato 7 vira 403 onde deveria ser exit=56
+#   fault injection no VirtualService  o canary mede 100/0 e o discounts fica fora
+#   RLP plana de volta na rota         o PlanPolicy e sobreposto e os tiers somem
+#
+# Por isso ele AJUSTA em vez de so avisar: o proximo ensaio comeca limpo, e o
+# relatorio diz o que mudou. O que ele nao faz sozinho e apagar chave -- chave
+# cunhada pelo portal pode ser assinatura legitima do golden path, e essa
+# decisao e de quem apresentou.
+step_pos() {
+  _title "Pos-sessao — revalidar e ajustar" "2 min"
+  _why "O preflight responde 'a demo pode ser apresentada?'. Este passo responde"
+  _why "outra pergunta: 'o que a sessao de hoje deixou para tras?' — que o"
+  _why "preflight nao faz, porque nenhum dos restos impede a demo de rodar."
+  _pause || return 0
+
+  local mudou=0
+
+  # 1. mTLS de volta a STRICT. O contraste PERMISSIVE do Ato 7 e uma edicao ao
+  #    vivo, e quem a faz esta no meio de uma explicacao -- esquecer de voltar e
+  #    o desfecho normal, nao a excecao.
+  local mode
+  mode="$(oc get peerauthentication travel-agency-mtls -n travel-agency \
+            -o jsonpath='{.spec.mtls.mode}' 2>/dev/null)"
+  if [[ -z "$mode" ]]; then
+    _warn "PeerAuthentication travel-agency-mtls ausente (Ato 7 nao roda sem ela)"
+  elif [[ "$mode" != "STRICT" ]]; then
+    _warn "mTLS em ${mode} — a sonda do Ato 7 devolveria 403 em vez de exit=56"
+    _do oc patch peerauthentication travel-agency-mtls -n travel-agency \
+        --type=merge -p '{"spec":{"mtls":{"mode":"STRICT"}}}'
+    mudou=1
+  else
+    _ok "mTLS STRICT"
+  fi
+
+  # 2. Fault injection fora. 'oc apply' do arquivo e idempotente: sem injecao
+  #    ele nao muda nada, com injecao ele a remove junto com o resto do spec.
+  local fault
+  fault="$(oc get virtualservice discounts -n travel-agency \
+             -o jsonpath='{.spec.http[*].fault}' 2>/dev/null)"
+  if [[ -n "$fault" ]]; then
+    _warn "fault injection ainda ativa no discounts — o canary mediria 100/0"
+    _do oc apply -f base/mesh/virtualservice-discounts.yaml
+    mudou=1
+  else
+    _ok "VirtualService do discounts sem fault injection"
+  fi
+
+  # 3. A camada de demo intacta. As duas checagens sao o mesmo defeito visto de
+  #    dois lados: RLP plana presente OU PlanPolicy ausente => sem tiers no Ato 2.
+  local rlp plan
+  rlp="$(oc get ratelimitpolicy ratelimit-policy-travels -n travel-agency \
+           --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+  plan="$(oc get planpolicy travels-plans -n travel-agency --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "$rlp" != "0" || "$plan" == "0" ]]; then
+    _warn "camada de demo fora do lugar (RLP plana presente, ou PlanPolicy ausente)"
+    _log  "reaplicando o overlay desta release"
+    _do oc apply -k overlays/rhcl-1.4
+    mudou=1
+  else
+    _ok "camada de demo intacta (PlanPolicy no comando, RLP plana fora)"
+  fi
+
+  # 4. Chaves cunhadas pelo portal: reporta, nao apaga. Ver o cabecalho.
+  local portal
+  portal="$(oc get secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true \
+              --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "$portal" != "0" ]]; then
+    _warn "${portal} chave(s) cunhada(s) pelo developer portal em kuadrant-system"
+    _why  "  Nao apago sozinho: pode ser assinatura legitima do golden path. Se"
+    _why  "  foi aprovacao acidental durante a demo, o comando e"
+    _why  "  oc delete secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true"
+  else
+    _ok "nenhuma chave cunhada pelo portal"
+  fi
+
+  # 5. Cota do dia. Reinicia so quando algum plano ficou abaixo de 1/4 -- um
+  #    rollout do Limitador por sessao e barulho, e a cota nao e escassa desde
+  #    que as diarias subiram 20x.
+  local baixa=0 linha
+  while read -r linha; do
+    local tier rem max
+    tier="$(awk '{print $1}' <<<"$linha")"
+    rem="$(awk '{print $2}'  <<<"$linha" | cut -d/ -f1)"
+    max="$(awk '{print $2}'  <<<"$linha" | cut -d/ -f2)"
+    [[ "$rem" =~ ^[0-9]+$ && "$max" =~ ^[0-9]+$ ]] || continue
+    printf '    %-9s %s/%s\n' "$tier" "$rem" "$max"
+    (( rem * 4 < max )) && baixa=1
+  done < <(bash scripts/traffic.sh metrics 2>/dev/null \
+             | awk '/cota diaria restante/{f=1;next} f&&NF>=2{print $1" "$2}')
+  if [[ $baixa -eq 1 ]]; then
+    _warn "algum plano abaixo de 1/4 da cota diaria — reiniciando o Limitador"
+    _do bash scripts/traffic.sh reset
+    mudou=1
+  else
+    _ok "cota diaria com folga para o proximo ensaio"
+  fi
+
+  # 6. O veredito, depois dos ajustes -- e nao antes, senao ele julga o estado
+  #    que este passo acabou de consertar.
+  echo
+  _log "revalidando"
+  _do bash scripts/preflight.sh
+  local rc=$?
+  echo
+  if [[ $rc -eq 0 && $mudou -eq 0 ]]; then
+    _ok "nada a ajustar: a sessao nao deixou resto, e a demo segue pronta."
+  elif [[ $rc -eq 0 ]]; then
+    _ok "ajustes aplicados e demo revalidada."
+  else
+    _warn "o preflight ainda reprova — a correcao esta na linha vermelha acima."
+  fi
 }
 
 # ---------------------------------------------------------------------------

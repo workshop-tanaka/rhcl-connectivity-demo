@@ -411,6 +411,15 @@ de uma API:
 > *"A policy nasce com o serviço, em vez de virar um ticket para a plataforma
 > depois."*
 
+**c) Do portal ao IDE.** Em qualquer componente, no card *About*, o link **Abrir
+no Dev Spaces** sobe um IDE em container já com este repositório aberto — as
+policies que a plateia acabou de ver nos passos 1 a 3. Fecha a volta sem sair do
+navegador e sem pedir nada instalado na máquina de ninguém.
+
+> Se o link não estiver lá, o Dev Spaces não está instalado neste cluster: o
+> `setup-catalog.sh` omite o item em vez de publicar um destino morto. Instale
+> com `oc apply -f platform-reference/devspaces/` e republique o catálogo.
+
 O ponto não é digitar menos: é que um serviço novo **não consegue nascer** sem
 namespace na malha, sem policy de borda, sem plano comercial e sem fronteira
 leste-oeste. As armadilhas que custaram tempo neste cluster estão fechadas na
@@ -516,6 +525,21 @@ bash scripts/demo.sh reset          # zera as cotas para reapresentar
 Os contadores do Limitador são in-memory: a janela de 10s se resolve sozinha em
 segundos, **a cota diária não**. Entre duas apresentações no mesmo dia, é este o
 comando que importa.
+
+Depois da última sessão do dia, o passo que fecha a conta:
+
+```bash
+bash scripts/demo.sh pos             # procura o que a demo deixou para trás, ajusta e revalida
+```
+
+Ele existe porque três restos sobrevivem à apresentação **sem** o `preflight.sh`
+reprovar — ele responde "a demo pode ser apresentada?", e nos três casos ela
+pode; o que muda é o que ela vai *mostrar*: `PERMISSIVE` esquecido no
+`PeerAuthentication` (o Ato 7 vira `403` onde devia ser `exit=56`), fault
+injection viva no `discounts` (o canary mede 100/0) e a RLP plana de volta na
+rota (o `PlanPolicy` é sobreposto e os tiers somem). O passo **corrige** os três
+e roda o preflight no fim. Chave cunhada pelo portal ele só reporta — pode ser
+assinatura legítima do golden path, e apagá-la é decisão de quem apresentou.
 
 Para voltar ao estado "plano", sem tiers, e reapresentar do zero:
 
