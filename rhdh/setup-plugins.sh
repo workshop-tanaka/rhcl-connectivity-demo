@@ -362,6 +362,14 @@ if [[ "${WITH_ANSIBLE:-false}" == "true" ]]; then
                       text: Ansible
       - package: http://plugin-registry:8080/ansible-plugin-scaffolder-backend-module-backstage-rhaap-dynamic-${_aap_ver}.tgz
         integrity: ${_aap_be_hash}
+        disabled: false
+      # http:backstage:request -- e a acao que o template gerado pelo
+      # rhdh/sync-survey.sh usa para disparar o job template do AAP. Ja vem na
+      # imagem (nada e baixado), mas nao vem ligada. Entra junto da camada
+      # Ansible porque e a unica coisa da demo que a usa; o modulo do Ansible
+      # so traz ansible:content:create, ansible:create:ee e
+      # ansible:prepare:publish -- nao ha acao de launch.
+      - package: ./dynamic-plugins/dist/roadiehq-scaffolder-backend-module-http-request-dynamic
         disabled: false"
   _log "plugins do Ansible incluidos (v${_aap_ver})."
 fi
@@ -461,6 +469,44 @@ data:
         baseUrl: \${RHAAP_BASE_URL}
         token: \${RHAAP_TOKEN}
         checkSSL: false
+      # creator-service -- quem gera o esqueleto do projeto na acao
+      # 'ansible:content:create'. Roda como sidecar do proprio pod do RHDH
+      # (bloco deployment.patch la embaixo), entao o endereco e 127.0.0.1: o
+      # plugin monta 'http://<baseUrl>:<port>/', sem TLS e sem descoberta de
+      # servico.
+      #
+      # Sem estas duas chaves o template APARECE em Create e morre no primeiro
+      # passo com 'Missing required configuration: ansible.creatorService.
+      # baseUrl' -- o modulo de scaffolder valida as duas antes de rodar.
+      #
+      # A porta e string DE PROPOSITO: o plugin faz
+      # Number(config.getString('...port')). Escrita como 8000 sem aspas, o
+      # getString recebe numero e estoura antes de chegar no Number.
+      creatorService:
+        baseUrl: 127.0.0.1
+        port: '8000'
+
+    # Proxy para a API do controller do AAP. Existe para o template gerado pelo
+    # rhdh/sync-survey.sh disparar o job sem carregar credencial nenhuma: quem
+    # injeta o token e o proxy, e a chave nunca chega ao navegador nem ao
+    # registro da tarefa do scaffolder.
+    proxy:
+      endpoints:
+        '/aap':
+          target: \${RHAAP_BASE_URL}
+          # Mesmo motivo do checkSSL do bloco ansible: a rota do gateway usa
+          # certificado do cluster, que o pod nao confia por padrao.
+          secure: false
+          changeOrigin: true
+          headers:
+            Authorization: Bearer \${RHAAP_TOKEN}
+          # O default do proxy do Backstage so deixa passar metodo seguro. Sem
+          # POST aqui, o launch volta 405 -- que parece rota errada no
+          # controller, e nao politica do proxy.
+          allowedMethods: ['GET', 'POST']
+          # Sem liberar o content-type, o proxy o descarta e o controller
+          # recebe um POST sem tipo: responde 415 e o job nunca dispara.
+          allowedHeaders: ['content-type']
 
     # O Kiali E o console de Service Mesh -- nao existe plugin separado de
     # 'Service Mesh'. Reusa o token da ServiceAccount de leitura.
@@ -558,6 +604,24 @@ if oc get configmap app-config-rhdh-github -n "$RHDH_NS" >/dev/null 2>&1; then
   _secrets="${_secrets},{\"name\":\"rhdh-github-secret\"}"
 fi
 
+# creator-service como sidecar, e nao como Deployment proprio: o plugin monta a
+# URL do servico como 'http://<baseUrl>:<port>/' -- http puro, sem CA e sem
+# nome de Service. 127.0.0.1 e o caminho que a doc documenta, e evita publicar
+# no cluster um endpoint sem autenticacao que devolve tarballs.
+#
+# spec.deployment.patch e um strategic merge patch, e a chave de merge da lista
+# de containers e 'name': este bloco ACRESCENTA o sidecar, nao substitui o
+# container do backstage. Fica fora do bloco spec.application de proposito --
+# sao irmaos debaixo de spec, e aninhar um no outro e ignorado sem erro.
+_deploy_patch=""
+if oc get secret rhdh-ansible-secret -n "$RHDH_NS" >/dev/null 2>&1; then
+  # rhel9 e a linha do AAP 2.6; a 2.5 usava rhel8, e o nome com a versao errada
+  # falha o pull sem dizer que o repositorio nao existe.
+  _adt_image="${ANSIBLE_DEV_TOOLS_IMAGE:-registry.redhat.io/ansible-automation-platform-26/ansible-dev-tools-rhel9:latest}"
+  _deploy_patch=",\"deployment\":{\"patch\":{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"ansible-devtools-server\",\"image\":\"${_adt_image}\",\"command\":[\"adt\",\"server\"],\"ports\":[{\"containerPort\":8000,\"protocol\":\"TCP\"}],\"resources\":{\"requests\":{\"cpu\":\"50m\",\"memory\":\"256Mi\"},\"limits\":{\"cpu\":\"1\",\"memory\":\"1Gi\"}}}]}}}}}"
+  _log "creator-service entra como sidecar (${_adt_image})."
+fi
+
 _log "atualizando a instancia..."
 oc patch backstage "$RHDH_CR" -n "$RHDH_NS" --type=merge -p "{
   \"spec\": {\"application\": {
@@ -571,7 +635,7 @@ oc patch backstage "$RHDH_CR" -n "$RHDH_NS" --type=merge -p "{
       \"secrets\": [${_secrets}],
       \"envs\": [{\"name\": \"NODE_EXTRA_CA_CERTS\", \"value\": \"${CA_MOUNT}/ca.crt\"}]
     }
-  }}
+  }${_deploy_patch}}
 }" >/dev/null || _die "falha ao aplicar o patch no CR."
 
 _log "reiniciando (o init container instala os plugins -- demora mais)..."

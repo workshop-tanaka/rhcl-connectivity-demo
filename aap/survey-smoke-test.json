@@ -1,0 +1,54 @@
+{
+  "name": "Smoke test do parceiro",
+  "description": "Dispara N requisicoes contra a API do parceiro pelo gateway do RHCL e confere o limite do plano.",
+  "spec": [
+    {
+      "question_name": "Hostname do gateway",
+      "question_description": "Sem esquema. O default vem da HTTPRoute travel-agency deste cluster.",
+      "variable": "api_host",
+      "type": "text",
+      "required": true,
+      "min": 1,
+      "max": 253,
+      "default": "${DEMO_API_HOST}"
+    },
+    {
+      "question_name": "Chave do parceiro",
+      "question_description": "Vai na query string APIKEY -- e o que o AuthPolicy da rota espera.",
+      "variable": "api_key",
+      "type": "password",
+      "required": true,
+      "min": 1,
+      "max": 128,
+      "default": ""
+    },
+    {
+      "question_name": "Endpoint",
+      "question_description": "Qual servico do travel-agency exercitar.",
+      "variable": "endpoint_path",
+      "type": "multiplechoice",
+      "required": true,
+      "choices": ["/travels", "/flights", "/hotels", "/cars", "/insurances", "/discounts"],
+      "default": "/travels"
+    },
+    {
+      "question_name": "Numero de requisicoes",
+      "question_description": "Para ver o 429, peca mais que o limite do tier (free 3, silver 10, gold 30 por janela de 10s).",
+      "variable": "request_count",
+      "type": "integer",
+      "required": true,
+      "min": 1,
+      "max": 60,
+      "default": 12
+    },
+    {
+      "question_name": "Plano esperado",
+      "question_description": "O playbook confere se o numero de 200 bate com o limite deste tier no PlanPolicy travels-plans.",
+      "variable": "expected_tier",
+      "type": "multiplechoice",
+      "required": true,
+      "choices": ["free", "silver", "gold", "unclassified"],
+      "default": "free"
+    }
+  ]
+}

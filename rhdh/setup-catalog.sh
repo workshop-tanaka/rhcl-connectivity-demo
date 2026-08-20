@@ -173,9 +173,27 @@ _log "publicando as entidades..."
 # O spec OpenAPI vai no mesmo ConfigMap: o httpd serve os dois, e o APIProduct
 # aponta openAPISpecURL para ele. Sem isso o portal mostra
 # 'OpenAPI specification not yet synced'.
+#
+# Os arquivos entram por DIRETORIO e nao por --from-file repetido: o conteudo
+# servido cresce conforme as camadas opcionais (o template do AAP so existe
+# depois do rhdh/sync-survey.sh), e montar a lista de flags condicionalmente
+# esbarra em array vazio sob 'set -u' no bash 3.2 que o macOS ainda traz.
+_cmdir="$(mktemp -d)"
+trap 'rm -f "$_rendered" "$_present" "$_filtered" "$_dropped"; rm -rf "$_cmdir"' EXIT
+cp "${_here}/catalog/travels-openapi.yaml" "${_cmdir}/travels-openapi.yaml"
+cp "$_rendered" "${_cmdir}/travel-agency.yaml"
+
+# Template do job template do AAP, se o sync do survey ja rodou. Ele vem pelo
+# httpd interno em vez do git porque a entidade nao tem skeleton nenhum -- so
+# dispara o job pela API -- e assim regenerar o survey nao exige um push.
+_aap_tpl="${_here}/catalog/aap-smoke-test.yaml"
+if [[ -f "$_aap_tpl" ]]; then
+  cp "$_aap_tpl" "${_cmdir}/aap-smoke-test.yaml"
+  _log "template do AAP incluido (gerado por sync-survey.sh)."
+fi
+
 oc create configmap rhdh-catalog-entities -n "$RHDH_NS" \
-  --from-file=travels-openapi.yaml="${_here}/catalog/travels-openapi.yaml" \
-  --from-file=travel-agency.yaml="$_rendered" \
+  --from-file="$_cmdir" \
   --dry-run=client -o yaml | oc apply -f - >/dev/null \
   || _die "falha ao criar o ConfigMap rhdh-catalog-entities."
 
@@ -195,6 +213,14 @@ _ok "entidades sendo servidas em http://${CATALOG_SVC}/travel-agency.yaml"
 # um app-config proprio.
 _locations="        - type: url
           target: http://${CATALOG_SVC}/travel-agency.yaml"
+
+# Mesma condicao do bloco que copiou o arquivo acima: servir sem registrar
+# deixaria o YAML acessivel pelo httpd e invisivel no portal.
+if [[ -f "${_here}/catalog/aap-smoke-test.yaml" ]]; then
+  _locations="${_locations}
+        - type: url
+          target: http://${CATALOG_SVC}/aap-smoke-test.yaml"
+fi
 
 # backend.reading.allow e uma ALLOWLIST: host que nao esta nela e recusado, e
 # ter 'integrations.github' configurado NAO isenta. Cada location adicionada
@@ -234,6 +260,42 @@ if [[ -z "$_tpl_urls" ]]; then
       | grep -vF "http://${CATALOG_SVC}/" || true)"
   [[ -n "$_tpl_urls" ]] && _log "locations de template preservadas do ConfigMap atual"
 fi
+
+# ---------------------------------------------------------------------------
+# TEMPLATES DO ANSIBLE -- nao vem no bundle de plugins.
+#
+# O ansible-rhdh-plugins 2.1.6 traz dois pacotes: o frontend e o modulo de
+# scaffolder. Nenhum dos dois carrega template. A pagina Create do item Ansible
+# tambem NAO lista os templates do portal: ela filtra o catalogo por
+# 'metadata.tags=ansible', e os unicos com essa tag sao os dois do repositorio
+# ansible/ansible-rhdh-templates -- playbook e collection. Os tres templates
+# rhcl-* daqui nao tem a tag, entao nao aparecem la (nem deveriam).
+#
+# Sem esta location a aba fica vazia sem nenhum sinal de erro. Verificado neste
+# cluster, no log do backend:
+#   GET /api/catalog/entities?filter=metadata.tags%3Dansible  200  contentLength=2
+# ou seja, '[]' -- 200, resposta valida, catalogo vazio.
+#
+# all.yaml e uma Location cujos alvos sao relativos (./templates/*.yaml); eles
+# resolvem contra a url dela, entao registrar este arquivo basta pelos dois.
+#
+# A ref e 'main' porque e a que a doc da Red Hat manda usar e o repositorio nao
+# tem branch da 2.1 -- release-2.0 e main tem playbooks.yaml e collections.yaml
+# byte a byte iguais (conferido).
+# ---------------------------------------------------------------------------
+if oc get secret rhdh-ansible-secret -n "$RHDH_NS" >/dev/null 2>&1; then
+  _aap_tpl="${ANSIBLE_TEMPLATES_URL:-https://github.com/ansible/ansible-rhdh-templates/blob/main/all.yaml}"
+  # Na reexecucao esta url volta pelo caminho de preservacao acima, entao entra
+  # so se ainda nao estiver na lista -- location repetida nao quebra o RHDH,
+  # mas polui o app-config e o diagnostico.
+  _aap_seen=false
+  for _u in $_tpl_urls; do [[ "$_u" == "$_aap_tpl" ]] && _aap_seen=true; done
+  if [[ "$_aap_seen" == "false" ]]; then
+    _tpl_urls="${_tpl_urls} ${_aap_tpl}"
+    _log "camada Ansible detectada -- templates de playbook/collection incluidos."
+  fi
+fi
+
 _seen_hosts=""
 for _u in $_tpl_urls; do
   _locations="${_locations}

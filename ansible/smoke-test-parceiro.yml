@@ -1,0 +1,128 @@
+---
+# smoke-test-parceiro.yml -- exercita a API do parceiro pelo gateway do RHCL e
+# reporta o que passou e o que o rate limit barrou.
+#
+# Existe para dar ao AAP um job template com survey que MEXE em alguma coisa da
+# demo: as respostas do survey viram as variaveis abaixo, e o resultado do job
+# e a mesma evidencia do ato de rate limit (200 ate o limite do tier, 429
+# depois) -- so que disparada do portal, por quem nao tem kubectl.
+#
+# Roda no EE, contra um endpoint HTTP: nao ha maquina alvo, entao 'localhost'
+# com connection local. O inventario do job template so existe porque o AAP
+# exige um.
+#
+# Variaveis (todas vem do survey -- ver aap/survey-smoke-test.json):
+#   api_host        hostname do gateway, sem esquema
+#   api_key         chave do parceiro
+#   endpoint_path   caminho a exercitar (/travels, /flights, ...)
+#   request_count   quantas requisicoes disparar
+#   expected_tier   plano esperado, para conferir o limite observado
+- name: Smoke test da API do parceiro
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # Limites do PlanPolicy travels-plans. Ficam aqui porque o playbook nao le
+    # o cluster -- ele so confere se o que observou bate com o plano que o
+    # operador declarou no survey. Divergiu, ou a chave esta em outro plano ou
+    # a policy mudou, e as duas hipoteses interessam.
+    tier_limits:
+      gold: 30
+      silver: 10
+      free: 3
+      unclassified: 1
+
+  tasks:
+    - name: Conferir que o survey preencheu tudo
+      ansible.builtin.assert:
+        that:
+          - api_host is defined and api_host | length > 0
+          - api_key is defined and api_key | length > 0
+          - endpoint_path is defined
+          - request_count is defined
+          - expected_tier in tier_limits
+        fail_msg: >-
+          Faltou variavel do survey (api_host, api_key, endpoint_path,
+          request_count, expected_tier) ou o tier nao existe no PlanPolicy.
+        quiet: true
+
+    # A chave vai na QUERY STRING, nao em header: o AuthPolicy da rota declara
+    # 'credentials.queryString.name: APIKEY'. Mandada como header, a requisicao
+    # volta 401 e parece chave invalida.
+    #
+    # status_code aceita 401/403/429 porque sao RESULTADOS do teste, nao falhas
+    # do playbook -- sem isso o uri aborta na primeira recusa e o relatorio
+    # nunca sai, que e justamente o numero que interessa.
+    #
+    # Sem pausa entre as requisicoes: o limite e por janela de 10s, e espacar
+    # as chamadas esconderia o 429.
+    - name: Disparar as requisicoes
+      ansible.builtin.uri:
+        url: "https://{{ api_host }}{{ endpoint_path }}?APIKEY={{ api_key }}"
+        method: GET
+        status_code: [200, 401, 403, 429]
+        # O gateway responde com o certificado wildcard do cluster, que o EE
+        # nao tem na store. Verificar aqui so trocaria o resultado do teste por
+        # um erro de TLS que nao diz nada sobre a policy.
+        validate_certs: false
+        timeout: 10
+      register: _respostas
+      loop: "{{ range(1, (request_count | int) + 1) | list }}"
+      loop_control:
+        label: "req {{ item }}"
+
+    - name: Contar por codigo
+      ansible.builtin.set_fact:
+        _codigos: "{{ _respostas.results | map(attribute='status') | list }}"
+
+    - name: Resumo
+      ansible.builtin.set_fact:
+        _resumo:
+          total: "{{ request_count | int }}"
+          passaram: "{{ _codigos | select('equalto', 200) | list | length }}"
+          barradas_429: "{{ _codigos | select('equalto', 429) | list | length }}"
+          recusadas_401: "{{ _codigos | select('equalto', 401) | list | length }}"
+          proibidas_403: "{{ _codigos | select('equalto', 403) | list | length }}"
+          limite_do_tier: "{{ tier_limits[expected_tier] }}"
+
+    - name: Relatorio
+      ansible.builtin.debug:
+        msg:
+          - "alvo             https://{{ api_host }}{{ endpoint_path }}"
+          - "tier declarado   {{ expected_tier }} (limite {{ _resumo.limite_do_tier }} por janela)"
+          - "requisicoes      {{ _resumo.total }}"
+          - "200 OK           {{ _resumo.passaram }}"
+          - "429 rate limit   {{ _resumo.barradas_429 }}"
+          - "401 sem chave    {{ _resumo.recusadas_401 }}"
+          - "403 negado       {{ _resumo.proibidas_403 }}"
+
+    # 401 e conclusivo: a chave nao autenticou, e nenhuma conta sobre limite faz
+    # sentido depois disso. Falha aqui, antes da conferencia do tier, para o
+    # erro no portal dizer o que de fato aconteceu.
+    - name: A chave precisa autenticar
+      ansible.builtin.assert:
+        that:
+          - _resumo.recusadas_401 | int == 0
+        fail_msg: >-
+          {{ _resumo.recusadas_401 }} de {{ _resumo.total }} requisicoes
+          voltaram 401 -- a chave nao foi aceita pelo AuthPolicy. Confira se o
+          Secret existe, tem o label 'app: partner' e ja foi aprovado.
+        quiet: true
+
+    # So confere o limite quando o teste passou do limite: disparar 3 chamadas
+    # num tier de 30 nao prova nada, e falhar ali seria falso negativo.
+    - name: O limite observado bate com o tier declarado
+      when: _resumo.total | int > _resumo.limite_do_tier | int
+      ansible.builtin.assert:
+        that:
+          - _resumo.passaram | int == _resumo.limite_do_tier | int
+          - _resumo.barradas_429 | int > 0
+        fail_msg: >-
+          Passaram {{ _resumo.passaram }} requisicoes, mas o tier
+          '{{ expected_tier }}' permite {{ _resumo.limite_do_tier }}. Ou a chave
+          esta em outro plano, ou o PlanPolicy mudou.
+        success_msg: >-
+          {{ _resumo.passaram }} passaram e {{ _resumo.barradas_429 }} levaram
+          429 -- o limite do tier '{{ expected_tier }}' esta valendo.
+        quiet: true
