@@ -1233,6 +1233,32 @@ classificada; se não há, continua reprovando. A checagem antiga sugeria
 `oc label secret … plan-id=free`, o que **rebaixaria um parceiro silver para
 free** numa chave que já estava correta.
 
+Duas consequências disso demoraram a aparecer, e as duas foram medidas neste
+cluster depois que o golden path entrou em uso:
+
+**A aprovação deixou de ser falha e virou aviso** — mas só onde o predicado tem
+o fallback. Enquanto ele lia apenas o label, aprovar cunhava chave sem limite e
+reprovar estava certo. Agora o **template 2 do golden path existe justamente
+para produzir esse fluxo**: o Ato 6 termina com um pedido aprovado no portal.
+Manter a reprovação significava que apresentar o Ato 6 reprovava o preflight do
+dia seguinte — e o custo real disso não é o vermelho na tela, é treinar quem
+apresenta a ignorar linha vermelha. Sem o fallback no predicado, continua sendo
+falha, com a mesma frase e outra cor.
+
+**A leitura dos predicados não podia falhar em silêncio.** A detecção era
+`oc get planpolicy … | grep -q … && VAR=1`: qualquer erro transitório do `oc`
+— throttle, timeout, um segundo de indisponibilidade da API — era
+indistinguível de *"não há fallback"*, e o efeito era o pior possível. **Toda**
+chave do portal virava linha vermelha anunciando *fail-open*, com a sugestão de
+apagar chave legítima ao lado. Visto aqui: duas rodadas seguidas do mesmo
+comando, uma verde e uma vermelha, sem nada ter mudado no cluster — e a
+vermelha veio antes de uma apresentação.
+
+A defesa é ter **três** estados em vez de dois: lê a annotation, não lê, e
+*não foi possível saber*. O terceiro tenta a leitura mais uma vez e, se ainda
+falhar, emite aviso e **não julga** as chaves — porque um detector que grita
+sem ter lido nada é pior que não ter detector.
+
 ---
 
 ### 12. Fault injection não exercita retry nem timeout

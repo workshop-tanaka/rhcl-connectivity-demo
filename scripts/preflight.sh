@@ -189,10 +189,28 @@ _sec "identidades (API keys)"
 # predicado que só indexa label falha ABERTO quando o label falta (armadilha 1);
 # predicado com has() + fallback para a annotation classifica a chave do
 # developer portal corretamente. Uma coisa não se descobre olhando o Secret.
+#
+# E a leitura desses predicados nao pode falhar em silencio. Na forma antiga
+# ('oc get ... | grep -q ... && VAR=1') um erro transitorio do oc -- throttle,
+# timeout, um segundo de indisponibilidade da API -- era indistinguivel de
+# "nao ha fallback", e o efeito era o pior possivel: TODA chave do portal
+# virava linha vermelha dizendo 'fail-open', com a sugestao de apagar chave
+# legitima. Visto neste cluster: duas rodadas seguidas do mesmo comando, uma
+# verde e uma vermelha, sem nada ter mudado no cluster.
+#
+# Agora sao tres estados, e o terceiro e 'nao sei'.
 _PLAN_READS_ANNOTATION=0
-oc get planpolicy travels-plans -n travel-agency \
-  -o jsonpath='{range .spec.plans[*]}{.predicate}{"\n"}{end}' 2>/dev/null \
-  | grep -q 'secret.kuadrant.io/plan-id' && _PLAN_READS_ANNOTATION=1
+_plan_preds="$(oc get planpolicy travels-plans -n travel-agency \
+                 -o jsonpath='{range .spec.plans[*]}{.predicate}{"\n"}{end}' 2>/dev/null)"
+# Uma segunda tentativa antes de desistir: o custo e uma chamada, e o beneficio
+# e nao acusar fail-open por causa de um soluco da API.
+[[ -z "$_plan_preds" ]] && _plan_preds="$(oc get planpolicy travels-plans -n travel-agency \
+                 -o jsonpath='{range .spec.plans[*]}{.predicate}{"\n"}{end}' 2>/dev/null)"
+if [[ -z "$_plan_preds" ]]; then
+  _PLAN_READS_ANNOTATION="?"
+elif grep -q 'secret.kuadrant.io/plan-id' <<<"$_plan_preds"; then
+  _PLAN_READS_ANNOTATION=1
+fi
 
 _keys="$(oc get secrets -n kuadrant-system -l app=partner \
           -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.labels.kuadrant\.io/plan-id}{"\n"}{end}' 2>/dev/null)"
@@ -213,6 +231,9 @@ else
                -o jsonpath='{.metadata.annotations.secret\.kuadrant\.io/plan-id}' 2>/dev/null)"
       if [[ -n "$_ann" && "$_PLAN_READS_ANNOTATION" == "1" ]]; then
         _ok "chave '${n}' sem label, classificada como '${_ann}' pela annotation (predicado com fallback)"
+      elif [[ -n "$_ann" && "$_PLAN_READS_ANNOTATION" == "?" ]]; then
+        _warn "chave '${n}' com plano só em annotation ('${_ann}') e o PlanPolicy não pôde ser lido" \
+              "não julgo esta chave sem saber o que o predicado lê; repita o preflight, e se persistir: oc get planpolicy travels-plans -n travel-agency"
       elif [[ -n "$_ann" ]]; then
         _bad "chave '${n}' tem plano só em annotation ('${_ann}') e o PlanPolicy lê label" \
              "fail-open: o CEL erra e NENHUM plano é atribuído, nem o catch-all (armadilha 11). Endureça o predicado ou: oc delete secret ${n} -n kuadrant-system"
@@ -669,12 +690,32 @@ if [[ "$_plugins" == *'"kuadrant-console-plugin"'* ]]; then
                   --no-headers 2>/dev/null | grep -c .)"
       _ktot="$(oc get apikey -A -o name 2>/dev/null | grep -c .)"
       _kpend="$(oc get apikey -A -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Pending")].status}{"\n"}{end}' 2>/dev/null | grep -c '^True$')"
-      if [[ "${_kmint:-0}" -gt 0 ]]; then
-        _bad "${_kmint} Secret cunhado por aprovacao no portal (armadilha 11)" \
-             "o plano vai em annotation, nao em label; oc delete secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true && oc delete apikeyapproval --all -n travel-agency"
+      #
+      # A GRAVIDADE DEPENDE DO PREDICADO, e nao do fato de alguem ter aprovado.
+      # Enquanto o predicado lia so o label, aprovar cunhava uma chave SEM
+      # LIMITE e reprovar era correto. Com o fallback para a annotation a mesma
+      # chave nasce classificada -- e, mais que isso, o template 2 do golden
+      # path (assinar uma API) EXISTE para produzir exatamente esse fluxo: o
+      # Ato 6 termina com um pedido aprovado no portal. Manter a reprovacao
+      # significava que apresentar o Ato 6 reprovava o preflight do dia
+      # seguinte, o que treina quem apresenta a ignorar linha vermelha.
+      #
+      # Sem o fallback, continua sendo falha -- e a mesma linha, com outra cor.
+      # O terceiro estado vale aqui tambem: sem ter lido o predicado nao da
+      # para dizer se estas chaves passam sem limite. Acusar fail-open no
+      # escuro e o defeito que a leitura em tres estados existe para evitar.
+      if [[ "${_kmint:-0}" -gt 0 && "$_PLAN_READS_ANNOTATION" == "?" ]]; then
+        _warn "${_kmint} Secret cunhado por aprovacao no portal, e o PlanPolicy nao pode ser lido" \
+              "nao julgo estas chaves sem saber o que o predicado le; repita o preflight, e se persistir: oc get planpolicy travels-plans -n travel-agency"
+      elif [[ "${_kmint:-0}" -gt 0 && "$_PLAN_READS_ANNOTATION" != "1" ]]; then
+        _bad "${_kmint} Secret cunhado por aprovacao no portal, e o predicado le so o label (armadilha 11)" \
+             "essas chaves passam SEM LIMITE; aplique env/rhcl-1.4_ocp-4.21/patch-planpolicy-plan-id.yaml, ou: oc delete secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true && oc delete apikeyapproval --all -n travel-agency"
+      elif [[ "${_kmint:-0}" -gt 0 ]]; then
+        _warn "${_kmint} Secret cunhado por aprovacao no portal -- classificado pela annotation, nao e fail-open" \
+              "esperado depois do Ato 6; para voltar ao estado 'ninguem aprovou': oc delete secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true && oc delete apikeyapproval --all -n travel-agency"
       elif [[ "${_kpend:-0}" -ne "${_ktot:-0}" ]]; then
-        _bad "APIKey fora de Pending (${_kpend}/${_ktot}) -- alguem aprovou um pedido" \
-             "Pending e o estado correto (approvalMode: manual); ver env/rhcl-1.4_ocp-4.21/devportal/apikeys.yaml"
+        _warn "APIKey fora de Pending (${_kpend}/${_ktot}) -- alguem aprovou um pedido" \
+              "Pending e o estado inicial (approvalMode: manual); ver env/rhcl-1.4_ocp-4.21/devportal/apikeys.yaml"
       else
         _ok "developer portal: ${_prod%%=*} pronto, ${_kpend} APIKey Pending (correto -- ninguem aprovou), esquema descoberto"
       fi
