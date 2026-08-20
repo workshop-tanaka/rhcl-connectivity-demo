@@ -55,6 +55,17 @@ spec:
   # docsURL/swaggerUI ficam de fora de proposito: nao ha Swagger UI implantado,
   # e link quebrado no portal e pior que link ausente -- a aba Definition da
   # entidade ja renderiza o spec.
+  # ATENCAO ao trocar a URL: quem busca o spec e o OPERATOR, nao o plugin. Ele
+  # grava o conteudo em status.openapi.raw, e e DAI que o Backstage monta a
+  # definition -- o plugin nunca acessa a URL.
+  #
+  # E o operator nao reprocessa sozinho: em falha ele registra
+  #   OpenAPISpecReady=False :: failed to fetch ... unexpected status code 404.
+  #   Controller will not retry; the spec needs to change
+  # Se a URL passou a funcionar depois do primeiro erro, e preciso ALTERAR o
+  # spec para destravar (ex: gravar outra URL e voltar). Conferir com:
+  #   oc get apiproduct travels-api -n travel-agency \
+  #     -o jsonpath='{.status.conditions[?(@.type=="OpenAPISpecReady")].message}'
   documentation:
     openAPISpecURL: http://rhdh-catalog-server.rhdh-rhcl.svc.cluster.local:8080/travels-openapi.yaml
   targetRef:
