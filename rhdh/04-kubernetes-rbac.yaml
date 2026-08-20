@@ -73,6 +73,7 @@ rules:
     verbs: [get, list, watch]
   - apiGroups: [extensions.kuadrant.io]
     resources: [planpolicies, telemetrypolicies]
+    verbs: [get, list, watch]
 
   # Malha. Sem estes dois grupos o plugin Kubernetes ate LISTA os kinds
   # declarados em customResources, mas recebe forbidden e a aba fica
@@ -81,6 +82,7 @@ rules:
   # sao um par, e um sem o outro nao produz sintoma, produz ausencia.
   - apiGroups: [security.istio.io]
     resources: [peerauthentications, authorizationpolicies]
+    verbs: [get, list, watch]
 
   - apiGroups: [networking.istio.io]
     resources: [destinationrules, virtualservices]
