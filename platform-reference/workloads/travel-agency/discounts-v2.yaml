@@ -1,6 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  annotations:
+    # Dev Spaces: este par e o UNICO gatilho do decorator "edit code" na aba
+    # Topology do RHDH -- sem ele o no aparece igual, so que sem o lapis, e nao
+    # ha erro em lugar nenhum. Ver platform-reference/devspaces/README.md.
+    app.openshift.io/vcs-uri: https://github.com/devhub-tanaka/rhcl-connectivity-demo
+    app.openshift.io/vcs-ref: rhcl-1.4-ocp-4.21
   name: discounts-v2
   namespace: travel-agency
 spec:

@@ -1,0 +1,44 @@
+# ===========================================================================
+# A instancia do Dev Spaces. O operator so age depois que este CR existe:
+# aplicar a Subscription sozinha nao levanta workspace nenhum, e o item de menu
+# do console nunca aparece.
+#
+# O namespace e 'openshift-devspaces' porque e o que o produto assume por
+# padrao em todo lugar -- a rota sai como 'devspaces.<apps-domain>' e o console
+# do OpenShift procura o CR ali. Mudar o namespace funciona, mas obriga a
+# reescrever a URL em cada ponto que a referencia (aqui: o RHDH).
+#
+# O spec e propositalmente curto: o operator preenche o resto com os defaults
+# do produto. So esta aqui o que a demo precisa que seja diferente do default,
+# e a autenticacao NAO esta -- o Dev Spaces usa o OAuth do proprio OpenShift
+# sem configuracao nenhuma, entao quem entra e o mesmo usuario do console.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-devspaces
+---
+apiVersion: org.eclipse.che/v2
+kind: CheCluster
+metadata:
+  name: devspaces
+  namespace: openshift-devspaces
+spec:
+  components:
+    metrics:
+      enable: true
+  devEnvironments:
+    # Teto por usuario. Numa demo isso e protecao real: quem abre o segundo
+    # componente sem fechar o primeiro nao fica com dois IDEs disputando CPU
+    # num cluster de lab. O segundo start avisa que precisa parar o anterior,
+    # em vez de ficar pendurado em Pending sem explicacao.
+    maxNumberOfWorkspacesPerUser: 3
+    maxNumberOfRunningWorkspacesPerUser: 1
+    defaultNamespace:
+      # '<username>' e substituido pelo operator na criacao.
+      template: <username>-devspaces
+      autoProvision: true
+    storage:
+      # Um PVC por usuario, nao por workspace -- default do produto, e o que
+      # gasta menos num cluster de lab com storage limitado.
+      pvcStrategy: per-user

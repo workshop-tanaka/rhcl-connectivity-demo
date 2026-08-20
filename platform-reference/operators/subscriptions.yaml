@@ -1,0 +1,66 @@
+# ===========================================================================
+# OPERADORES OBRIGATORIOS — os dois sem os quais nao ha demo.
+#
+# Este arquivo nao existia: as Subscriptions so viviam como heredoc na secao 2
+# do PROVISIONING-1.4.md, o que significa que a unica forma de reproduzi-las
+# era copiar do texto. Agora sao manifest, e o scripts/provision.sh as aplica.
+#
+# O que NAO esta aqui, de proposito:
+#   - kiali-ossm, tempo-product, opentelemetry-product, grafana-operator ->
+#     subscriptions-optional.yaml, ao lado (degradam atos, nao impedem a demo)
+#   - cluster-observability-operator -> ja vem em
+#     ../consoles/uiplugin-distributed-tracing.yaml, junto do UIPlugin que ele
+#     serve, porque um sem o outro nao tem uso
+#
+# Os canais e sources sao os do cluster de referencia (w4xtj), conferidos com
+# 'oc get subscription -A'. Cluster com catalogo diferente (disconnected,
+# ImageContentSourcePolicy) precisa ajustar 'source' — e ai o provision.sh
+# falha cedo, no wait do CSV, em vez de tarde e sem explicacao.
+# ===========================================================================
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: servicemeshoperator3
+  namespace: openshift-operators
+spec:
+  channel: stable
+  name: servicemeshoperator3
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+---
+# O RHCL vai para 'kuadrant-system' com OperatorGroup proprio. Mesmo o bundle
+# sendo AllNamespaces, e nesse namespace que o preflight.sh procura o
+# controller (deploy/kuadrant-operator-controller-manager) e onde o operator
+# mantem o ConfigMap 'topology' que a Policy Topology do console desenha.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kuadrant-system
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: kuadrant-system
+  namespace: kuadrant-system
+spec:
+  upgradeStrategy: Default
+---
+# ATENCAO A RELEASE. O overlay da demo e escolhido pela versao que este CSV
+# instalar:
+#   1.4.x  -> overlays/rhcl-1.4  (PlanPolicy no comando; RLP plana fora)
+#   1.2.x  -> overlays/provisioned
+# O canal 'stable' publicava 1.4.2 quando isto foi escrito. Confira antes:
+#   oc get packagemanifest rhcl-operator -n openshift-marketplace \
+#     -o jsonpath='{range .status.channels[*]}{.name}{"\t"}{.currentCSV}{"\n"}{end}'
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: rhcl-operator
+  namespace: kuadrant-system
+spec:
+  channel: stable
+  name: rhcl-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

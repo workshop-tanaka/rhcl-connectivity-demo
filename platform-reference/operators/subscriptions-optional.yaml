@@ -1,0 +1,81 @@
+# ===========================================================================
+# OPERADORES OPCIONAIS — cada um acende uma tela do roteiro.
+#
+# Nenhum deles impede a demo: sem todos, o preflight.sh termina em
+# '[OK] demo pode ser apresentada' com avisos. O que se perde:
+#
+#   kiali-ossm             Ato 5 (grafo da malha) + aba Service Mesh no console
+#   tempo-product          Ato 5 (traces)
+#   opentelemetry-product  o collector que leva os spans da malha ao Tempo
+#   grafana-operator       Ato 4 (o dashboard 'RHCL - planos comerciais')
+#
+# O grafana-operator vem de 'community-operators', nao de 'redhat-operators' —
+# e o unico deste repo que nao e produto suportado. Num cluster que so habilita
+# o catalogo da Red Hat ele nao instala, e o Ato 4 passa a depender de um
+# Grafana ja existente (ou da consulta direta ao Thanos, que o README mostra).
+#
+# O OperatorGroup de 'monitoring' e SingleNamespace de proposito: o
+# grafana-operator v5 reconcilia por namespace, e a demo so tem dashboards ali.
+# ===========================================================================
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: kiali-ossm
+  namespace: openshift-operators
+spec:
+  channel: stable
+  name: kiali-ossm
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: tempo-product
+  namespace: openshift-operators
+spec:
+  channel: stable
+  name: tempo-product
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: opentelemetry-product
+  namespace: openshift-operators
+spec:
+  channel: stable
+  name: opentelemetry-product
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: monitoring
+  namespace: monitoring
+spec:
+  targetNamespaces:
+    - monitoring
+  upgradeStrategy: Default
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: grafana-operator
+  namespace: monitoring
+spec:
+  channel: v5
+  name: grafana-operator
+  source: community-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

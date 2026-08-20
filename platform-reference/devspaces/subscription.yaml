@@ -1,0 +1,27 @@
+# ===========================================================================
+# OpenShift Dev Spaces — o IDE em container que o portal abre a partir do
+# componente. Opcional como os de subscriptions-optional.yaml: sem ele a demo
+# roda inteira, o que se perde e o botao "Edit source code" na aba Topology.
+#
+# AllNamespaces e o UNICO installMode suportado pelo bundle (conferido em
+# 'oc get packagemanifest devspaces -o json'), entao vai para
+# openshift-operators -- que e tambem o suggested-namespace do proprio bundle.
+# Nao ha OperatorGroup aqui de proposito: openshift-operators ja tem o seu, e
+# um segundo no mesmo namespace poe TODOS os operators dali em
+# "MultipleOperatorGroupsFound" e para a reconciliacao do cluster inteiro.
+#
+# O devworkspace-operator NAO precisa de Subscription propria: o bundle do
+# Dev Spaces o declara como dependencia e o OLM resolve sozinho, criando a
+# Subscription 'devworkspace-operator-...' em openshift-operators.
+# ===========================================================================
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: devspaces
+  namespace: openshift-operators
+spec:
+  channel: stable
+  name: devspaces
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
