@@ -2,3 +2,4 @@ downloads/
 *.generated.yaml
 ACESSOS.md
 acessos.local
+.claude/settings.local.json

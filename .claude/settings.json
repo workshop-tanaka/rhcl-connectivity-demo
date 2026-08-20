@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(bash scripts/demo.sh --list:*)",
+      "Bash(bash scripts/demo.sh --dry-run:*)",
+      "Bash(bash scripts/demo.sh telas:*)",
+      "Bash(bash scripts/demo.sh check:*)",
+      "Bash(bash scripts/demo.sh ato1:*)",
+      "Bash(bash scripts/demo.sh ato2:*)",
+      "Bash(bash scripts/demo.sh ato3:*)",
+      "Bash(bash scripts/demo.sh ato4:*)",
+      "Bash(bash scripts/demo.sh ato5:*)",
+      "Bash(bash scripts/demo.sh ato6:*)",
+      "Bash(bash scripts/demo.sh ato7:*)",
+      "Bash(bash scripts/preflight.sh:*)",
+      "Bash(bash scripts/traffic.sh tiers:*)",
+      "Bash(bash scripts/traffic.sh anon:*)",
+      "Bash(bash scripts/traffic.sh burst:*)",
+      "Bash(bash scripts/traffic.sh mesh:*)",
+      "Bash(bash scripts/traffic.sh mesh-split:*)",
+      "Bash(bash scripts/traffic.sh metrics:*)",
+      "Bash(oc get:*)",
+      "Bash(oc describe:*)",
+      "Bash(oc logs:*)",
+      "Bash(oc whoami:*)",
+      "Bash(oc explain:*)"
+    ]
+  }
+}
