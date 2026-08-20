@@ -176,6 +176,56 @@ data:
                 path: [status, supportedFeatures]
                 labelsFromPath:
                   features: []
+        # -- APIKey do developer portal: a solicitacao de chave, como serie.
+        #
+        # O controller NAO emite Event ao criar a solicitacao (verificado:
+        # 'oc get events -A --field-selector involvedObject.kind=APIKey' volta
+        # vazio), entao nao ha como notificar por evento. O estado so existe no
+        # CR -- e e por isso que ele precisa virar metrica para render alerta.
+        #
+        # A condicao que interessa e Pending/AwaitingApproval: status "True"
+        # enquanto ninguem aprovou. O KSM converte "True"/"False" em 1/0.
+        - groupVersionKind:
+            group: devportal.kuadrant.io
+            kind: "APIKey"
+            version: "v1alpha1"
+          metricNamePrefix: devportal_apikey
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+            plan:
+            - spec
+            - planTier
+            api:
+            - spec
+            - apiProductRef
+            - name
+            requested_by:
+            - spec
+            - requestedBy
+            - userId
+          metrics:
+          - name: "created"
+            help: "quando a solicitacao entrou -- serve para medir ha quanto tempo espera"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "status_condition"
+            help: "condicoes do APIKey (Pending, Failed, ...). 1 = True"
+            each:
+              type: Gauge
+              gauge:
+                path: [status, conditions]
+                labelsFromPath:
+                  type: ["type"]
+                  reason: ["reason"]
+                valueFrom: ["status"]
+
         - groupVersionKind:
             group: gateway.networking.k8s.io
             kind: "HTTPRoute"
@@ -979,6 +1029,19 @@ rules:
   verbs:
   - list
   - watch
+# Developer portal: sem este rule o KSM nao lista os APIKey, a entrada de
+# CustomResourceState e aceita EM SILENCIO e a serie devportal_apikey_* nunca
+# existe -- o alerta de aprovacao pendente fica pronto e nunca dispara.
+- apiGroups:
+  - "devportal.kuadrant.io"
+  resources:
+  - apikeys
+  - apikeyrequests
+  - apikeyapprovals
+  - apiproducts
+  verbs:
+  - list
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -1066,13 +1129,44 @@ spec:
         - /custom-resource-state/custom-resource-state.yaml
         image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.9.2
         name: kube-state-metrics
+        # AUMENTADO. Os valores originais (100m / 250Mi) estrangulavam o
+        # exporter neste cluster: medido em 101m de CPU contra teto de 100m e
+        # 249Mi de 250Mi, com 3 restarts. O processo subia, registrava as
+        # familias no log, e ficava incapaz de servir /metrics -- as duas
+        # portas devolviam connection reset.
+        #
+        # O efeito e silencioso e de longo alcance: SEM readinessProbe (ver
+        # abaixo) o pod se declara ready=true sem responder nada, e a familia
+        # gatewayapi_* inteira some do Prometheus. Como os tres dashboards de
+        # fabrica fazem join contra gatewayapi_httproute_*, os tres abrem
+        # vazios -- inclusive os paineis de istio_requests_total, cuja metrica
+        # esta perfeitamente coletada. Parece falta de trafego e e falta de CPU.
+        #
+        # Ele lista e observa TODO Gateway API + CRs do Kuadrant no cluster; o
+        # ListAndWatch inicial levou 20-23s aqui.
         resources:
           limits:
-            cpu: 100m
-            memory: 250Mi
+            cpu: 500m
+            memory: 512Mi
           requests:
-            cpu: 10m
-            memory: 190Mi
+            cpu: 100m
+            memory: 256Mi
+        # Sem isto o Kubernetes nunca descobre que o exporter parou de servir.
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

@@ -697,8 +697,8 @@ data:
           {
             "current": {
               "selected": false,
-              "text": "Kuadrant-Thanos-Hub",
-              "value": "Kuadrant-Thanos-Hub"
+              "text": "Thanos",
+              "value": "thanos"
             },
             "hide": 0,
             "includeAll": false,
@@ -713,7 +713,11 @@ data:
             "type": "datasource"
           },
           {
-            "current": {},
+            "current": {
+              "selected": true,
+              "text": "All",
+              "value": "$__all"
+            },
             "datasource": {
               "type": "prometheus",
               "uid": "${datasource}"
@@ -737,7 +741,11 @@ data:
             "type": "query"
           },
           {
-            "current": {},
+            "current": {
+              "selected": true,
+              "text": "All",
+              "value": "$__all"
+            },
             "datasource": {
               "type": "prometheus",
               "uid": "${datasource}"

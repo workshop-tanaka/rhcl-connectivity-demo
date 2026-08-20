@@ -1,0 +1,140 @@
+# ===========================================================================
+# Dashboard 'RHCL — onboarding de parceiro'.
+#
+# O 'rhcl-planos' mostra CONSUMO: quem esta usando e quem bate no teto. Este
+# mostra DEMANDA: quem esta pedindo acesso, para qual plano, e ha quanto tempo
+# espera resposta. Sao as duas metades da conversa comercial, e nenhuma
+# ferramenta do produto mostra a segunda -- o developer portal cria a
+# solicitacao como CR e nao notifica nem contabiliza nada.
+#
+# Fonte: devportal_apikey_* , da entrada de CustomResourceState em
+# kube-state-metrics-kuadrant.yaml. O alerta que acompanha esta em
+# prometheusrule-devportal.yaml.
+#
+# ---------------------------------------------------------------------------
+# NO PALCO (fecha o arco do Ato 6, em ~40s):
+#   1. alguem pede uma chave no developer portal
+#   2. 'na fila' sobe e o painel de tempo de espera comeca a contar
+#   3. o alerta APIKeyAguardandoAprovacao dispara em Observe -> Alerting
+#   4. voce aprova no console -> a fila cai, o alerta resolve
+#
+# ---------------------------------------------------------------------------
+# DETALHES QUE CUSTARAM TEMPO:
+#
+#   exported_namespace   o namespace do CR NAO chega em 'namespace': o user
+#                        workload monitoring reserva esse label para o alvo do
+#                        scrape (o pod do KSM, em monitoring) e desloca o do
+#                        dado. Consultar por 'namespace' devolve vazio.
+#
+#   idade                'created' e um gauge com o timestamp de criacao, entao
+#                        a espera e time() - created, cruzada com a condicao
+#                        Pending por 'and on (exported_namespace, name)'.
+#
+#   datasource           por variavel, nao por spec.datasources do operator --
+#                        aquele campo substitui o NOME e nao o UID, e o painel
+#                        fica sem datasource valido. Ver grafana-dashboard-plans.yaml.
+# ===========================================================================
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: rhcl-onboarding
+  namespace: monitoring
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  json: >
+    {
+      "title": "RHCL — onboarding de parceiro",
+      "uid": "rhcl-onboarding",
+      "timezone": "browser",
+      "refresh": "10s",
+      "time": {"from": "now-6h", "to": "now"},
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {"text": "Thanos", "value": "Thanos", "selected": false},
+            "options": [],
+            "refresh": 1,
+            "hide": 0,
+            "includeAll": false,
+            "multi": false
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Solicitacoes na fila",
+          "description": "APIKey com condicao Pending. Cai para zero quando o time de plataforma aprova.",
+          "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "count(devportal_apikey_status_condition{type=\"Pending\"} == 1) or vector(0)", "instant": true}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Espera da mais antiga",
+          "description": "Ha quanto tempo a solicitacao mais velha aguarda. E o numero que vira SLA de onboarding.",
+          "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 3600}, {"color": "red", "value": 86400}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "max((time() - devportal_apikey_created) and on (exported_namespace, name) (devportal_apikey_status_condition{type=\"Pending\"} == 1)) or vector(0)", "instant": true}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Chaves em falha",
+          "description": "APIKey com condicao Failed. O caso classico e AuthSchemeNotFound: AuthPolicy da rota com spec.defaults.rules em vez de spec.rules.",
+          "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "count(devportal_apikey_status_condition{type=\"Failed\"} == 1) or vector(0)", "instant": true}
+          ]
+        },
+        {
+          "type": "piechart",
+          "title": "Demanda por plano",
+          "description": "Para qual tier as solicitacoes pendentes apontam. Leitura comercial: quanto da fila quer o plano caro.",
+          "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "count by (plan) (devportal_apikey_status_condition{type=\"Pending\"} == 1)", "legendFormat": "{{plan}}", "instant": true}
+          ]
+        },
+        {
+          "type": "table",
+          "title": "A fila, nominal",
+          "description": "Quem pediu, para qual API, em qual plano, e ha quanto tempo espera. O valor e a espera em segundos.",
+          "gridPos": {"h": 9, "w": 14, "x": 0, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "s"}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "(time() - devportal_apikey_created) and on (exported_namespace, name) (devportal_apikey_status_condition{type=\"Pending\"} == 1)", "instant": true, "format": "table"}
+          ],
+          "transformations": [
+            {"id": "organize", "options": {"excludeByName": {"Time": true, "__name__": true, "container": true, "endpoint": true, "instance": true, "job": true, "namespace": true, "pod": true, "service": true, "prometheus": true, "customresource_group": true, "customresource_kind": true, "customresource_version": true},
+             "indexByName": {"requested_by": 0, "plan": 1, "api": 2, "name": 3, "exported_namespace": 4, "Value": 5}, "renameByName": {"name": "solicitacao", "exported_namespace": "namespace", "requested_by": "pedido por", "plan": "plano", "api": "API", "Value": "espera"}}},
+            {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "espera", "desc": true}]}}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Tamanho da fila ao longo do tempo",
+          "description": "Sobe quando alguem pede, cai quando alguem aprova. E a demonstracao do ciclo inteiro em um painel so.",
+          "gridPos": {"h": 9, "w": 10, "x": 14, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 20}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "count(devportal_apikey_status_condition{type=\"Pending\"} == 1) or vector(0)", "legendFormat": "pendentes"}
+          ]
+        }
+      ]
+    }

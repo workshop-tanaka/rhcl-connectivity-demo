@@ -31,11 +31,37 @@
 # E o CR fica DashboardSynchronized=True o tempo todo -- o sync so diz que o
 # JSON entrou, nao que o painel tem de onde ler.
 #
-# O que funciona (e o que os tres dashboards de fabrica em kuadrant-dashboards/
-# fazem, vindos do upstream): uma VARIAVEL de dashboard do tipo 'datasource'.
-# O nome vira UID no front-end, na hora de montar a consulta. 'current' aponta
-# para 'Thanos'; se o datasource nao existir com esse nome, o seletor cai no
-# default do Grafana em vez de quebrar.
+# A VARIAVEL de dashboard do tipo 'datasource' NAO resolve isso sozinha, ao
+# contrario do que este comentario afirmava. Nao ha conversao nome->UID no
+# front-end, e nao ha queda para o default: o que estiver em 'current.value' vai
+# cru para o campo uid da consulta. Medido neste cluster, no /api/ds/query:
+#
+#   uid="Thanos"               -> {"message":"Data source not found"}
+#   uid="Kuadrant-Thanos-Hub"  -> {"message":"Data source not found"}
+#   uid="<uuid real>"          -> 200, com dados
+#
+# Foi assim que os quatro dashboards ficaram mudos com trafego perfeito: os tres
+# de fabrica vinham do upstream com 'Kuadrant-Thanos-Hub', que nao existe aqui,
+# e este apontava para 'Thanos', que e o NOME e nao o UID. A tela nao acusa: o
+# painel abre, o CR fica DashboardSynchronized=True, e o grafico fica vazio --
+# o que no palco se le como "nao ha trafego".
+#
+# O que funciona e um UID ESTAVEL, declarado nos dois lados:
+#
+#   - no GrafanaDatasource:  spec.datasource.uid: thanos
+#   - em cada dashboard:     "current": {"text":"Thanos","value":"thanos"}
+#
+# Estavel importa porque o UID que o operator gera sozinho e um uuid diferente
+# a cada cluster -- fixar o gerado resolveria hoje e quebraria no proximo
+# provisionamento, que e exatamente o modo de falha que este repo existe para
+# evitar.
+#
+# ATENCAO: o GrafanaDatasource NAO esta neste repo. Ele foi aplicado a mao, como
+# o CR do Kiali, e so sobrevive no cluster. Enquanto nao for capturado, o UID
+# estavel precisa ser reaplicado a cada cluster novo:
+#
+#   oc patch grafanadatasource thanos -n monitoring --type=merge \
+#     -p '{"spec":{"datasource":{"uid":"thanos"}}}'
 #
 # ---------------------------------------------------------------------------
 # O PAINEL DE COTA e uma aproximacao, e o roteiro precisa saber disso:
@@ -75,7 +101,7 @@ spec:
             "name": "datasource",
             "type": "datasource",
             "query": "prometheus",
-            "current": {"text": "Thanos", "value": "Thanos", "selected": false},
+            "current": {"text": "Thanos", "value": "thanos", "selected": true},
             "options": [],
             "refresh": 1,
             "hide": 0,

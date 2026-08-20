@@ -1,0 +1,79 @@
+# ===========================================================================
+# Alerta: solicitacao de API key parada esperando aprovacao.
+#
+# POR QUE ISTO EXISTE: o developer portal do RHCL 1.4 cria a solicitacao como
+# CR (APIKey, devportal.kuadrant.io) e NAO notifica ninguem. O controller nao
+# emite nem Event -- verificado:
+#
+#   oc get events -A --field-selector involvedObject.kind=APIKey   # vazio
+#
+# Ou seja: sem isto aqui, uma solicitacao de cliente fica parada ate alguem
+# lembrar de abrir a aba do console. A serie vem do kube-state-metrics deste
+# diretorio (entrada CustomResourceState de APIKey).
+#
+# ---------------------------------------------------------------------------
+# DOIS DETALHES DE ROTEAMENTO DE LABEL, os dois medidos neste cluster:
+#
+# 1. A regra mora em 'monitoring' porque o user workload monitoring FORCA o
+#    label 'namespace' da regra sobre a consulta. As series sao expostas pelo
+#    pod do KSM, que vive em monitoring -- entao regra em outro namespace
+#    avalia vazio, sem erro nenhum que denuncie.
+#
+# 2. O namespace do CR nao fica em 'namespace': fica em 'exported_namespace'.
+#    O UWM reserva 'namespace' para o alvo do scrape e desloca o do dado.
+#
+# ---------------------------------------------------------------------------
+# ESCOPO: so os namespaces 'kuadrant-guest-*', que e onde o portal cria a
+# solicitacao de um usuario de verdade. As tres chaves de exemplo da demo
+# (acme/globex/initech, em kuadrant-system) ficam Pending DE PROPOSITO -- e o
+# que povoa as abas do console, ver armadilha 11 -- e alertar sobre elas
+# deixaria o alerta ligado para sempre, que e a melhor forma de ensinar a
+# plateia a ignorar alerta.
+#
+# 'for: 2m' e escolha de PALCO: rapido o suficiente para o alerta aparecer
+# durante a demo. Em producao, 15m-1h conversa melhor com um SLA de aprovacao.
+# ===========================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: devportal-apikey
+  namespace: monitoring
+  labels:
+    app: kuadrant-devportal
+spec:
+  groups:
+    - name: devportal-apikey
+      interval: 30s
+      rules:
+        - alert: APIKeyAguardandoAprovacao
+          expr: |
+            max by (exported_namespace, name, plan, api, requested_by) (
+              devportal_apikey_status_condition{type="Pending", exported_namespace=~"kuadrant-guest-.*"}
+            ) == 1
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Solicitacao de API key aguardando aprovacao ({{ $labels.name }})"
+            description: >-
+              {{ $labels.requested_by }} pediu uma chave do plano {{ $labels.plan }}
+              para a API {{ $labels.api }} e ninguem aprovou ainda.
+              Aprovar em: console -> Connectivity Link -> API Catalog.
+
+        # Chave que FALHOU e outro problema, e nao aparece em lugar nenhum:
+        # o caso classico e AuthSchemeNotFound, quando o AuthPolicy da rota usa
+        # spec.defaults.rules em vez de spec.rules. O preflight pega isso antes
+        # da demo; este alerta pega depois dela, em uso real.
+        - alert: APIKeyFalhou
+          expr: |
+            max by (exported_namespace, name, plan, api) (
+              devportal_apikey_status_condition{type="Failed"}
+            ) == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "APIKey {{ $labels.name }} falhou ({{ $labels.exported_namespace }})"
+            description: >-
+              Provavel AuthSchemeNotFound: o AuthPolicy da rota precisa declarar
+              spec.rules, nao spec.defaults.rules. oc get apikey -A -o wide

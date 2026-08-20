@@ -1600,8 +1600,8 @@ data:
           {
             "current": {
               "selected": false,
-              "text": "Kuadrant-Thanos-Hub",
-              "value": "Kuadrant-Thanos-Hub"
+              "text": "Thanos",
+              "value": "thanos"
             },
             "hide": 0,
             "includeAll": false,

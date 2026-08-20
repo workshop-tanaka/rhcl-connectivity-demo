@@ -1,0 +1,143 @@
+# ===========================================================================
+# O Grafana em que o Ato 4 acontece — instancia, RBAC e datasource do Thanos.
+#
+# Este arquivo nao existia, e a falta dele era um buraco de reprodutibilidade
+# inteiro: grafana-dashboard-plans.yaml e kuadrant-dashboards/ declaram
+# GrafanaDashboard com 'instanceSelector: {dashboards: grafana}', e NAO HAVIA
+# no repo nada que criasse a instancia com esse label nem o datasource que os
+# paineis consultam. Num cluster novo os dashboards seriam aceitos pelo
+# operator e ficariam eternamente 'NO MATCHING INSTANCES' — ou, pior, casariam
+# com a instancia e abririam com "Datasource thanos was not found" em todos os
+# paineis. Capturado do cluster de referencia (w4xtj), Grafana 13.0.1.
+#
+# ---------------------------------------------------------------------------
+# O TOKEN NAO ESTA AQUI, E ISSO E DELIBERADO.
+#
+# O datasource que estava no cluster carregava um bearer token de service
+# account literal dentro de 'secureJsonData' — capturar assim publicaria no git
+# uma credencial de leitura de TODAS as metricas do cluster. Aqui ele e
+# resolvido em tempo de apply, pelo 'valuesFrom' do grafana-operator v5: o
+# Secret 'grafana-sa-token' e populado pelo proprio controlador de tokens do
+# Kubernetes, e o operator substitui '${token}' pelo conteudo dele.
+#
+# Consequencia pratica: este arquivo pode ser aplicado em qualquer cluster e
+# NAO precisa de edicao. O Secret de token nasce vazio e e preenchido em
+# segundos; o provision.sh espera por isso antes de seguir.
+#
+# ---------------------------------------------------------------------------
+# CREDENCIAIS DE DEMO. 'admin/admin' e login anonimo com papel Admin sao o que
+# o cluster de referencia tinha, e o que o scripts/acessos.sh reporta (ele le o
+# Secret 'grafana-admin-credentials', que o operator deriva de spec.config).
+# E instancia descartavel de demonstracao, publicada por Route com TLS edge —
+# nao reaproveite este arquivo para nada que dure.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+# A SA tambem e criada pelo operator (<instancia>-sa). Declarada aqui para que
+# o Secret de token abaixo tenha a quem se referir mesmo se este arquivo for
+# aplicado antes de o operator reconciliar o CR — ordem que acontece sempre num
+# provisionamento do zero.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana-sa
+  namespace: monitoring
+---
+# Sem isto o datasource conecta e o Thanos devolve 403 em toda query: o
+# thanos-querier autoriza por SubjectAccessReview, e e o ClusterRole
+# 'cluster-monitoring-view' que concede a leitura.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-monitoring-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-monitoring-view
+subjects:
+  - kind: ServiceAccount
+    name: grafana-sa
+    namespace: monitoring
+---
+# Token de vida longa, criado explicitamente. O Kubernetes 1.34 nao gera mais
+# Secret de token automaticamente para SA (LegacyServiceAccountTokenNoAutoGeneration),
+# mas continua PREENCHENDO um Secret deste tipo criado a mao — que e o caminho
+# suportado para credencial de longa duracao. Um token projetado (TokenRequest)
+# nao serviria: expira, e o datasource guarda uma copia estatica.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-sa-token
+  namespace: monitoring
+  annotations:
+    kubernetes.io/service-account.name: grafana-sa
+type: kubernetes.io/service-account-token
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: Grafana
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    # E ESTE label que os GrafanaDashboard procuram no instanceSelector.
+    # Trocar aqui sem trocar la deixa todo dashboard orfao.
+    dashboards: grafana
+spec:
+  config:
+    auth:
+      disable_login_form: "false"
+    auth.anonymous:
+      enabled: "true"
+      org_role: Admin
+    security:
+      admin_user: admin
+      admin_password: admin
+  route:
+    spec:
+      tls:
+        termination: edge
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDatasource
+metadata:
+  name: thanos
+  namespace: monitoring
+spec:
+  allowCrossNamespaceImport: false
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  valuesFrom:
+    - targetPath: secureJsonData.httpHeaderValue1
+      valueFrom:
+        secretKeyRef:
+          name: grafana-sa-token
+          key: token
+  datasource:
+    name: Thanos
+    # O uid e referenciado por TODO painel dos dashboards deste repo
+    # (grafana-dashboard-plans.yaml e kuadrant-dashboards/). Mudar aqui quebra
+    # os quatro dashboards de uma vez, sem erro visivel alem de painel vazio.
+    uid: thanos
+    type: prometheus
+    access: proxy
+    isDefault: true
+    # Porta 9091 = endpoint com autorizacao por token. A 9090 nao exige token e
+    # SO ve as metricas de plataforma: as series da demo (authorized_calls,
+    # istio_requests_total) sao de user workload e nao apareceriam.
+    url: https://thanos-querier.openshift-monitoring.svc.cluster.local:9091
+    jsonData:
+      httpHeaderName1: Authorization
+      # O certificado do thanos-querier vem da service CA do OpenShift, que o
+      # Grafana nao carrega. Mesma raiz do problema que o Kiali tem em
+      # kiali.yaml — ali resolvido por CA bundle, aqui por skip, porque o
+      # trafego nao sai do cluster.
+      tlsSkipVerify: true
+      timeInterval: 5s
+    secureJsonData:
+      # '${token}' e substituido pelo valuesFrom acima. O nome dentro das
+      # chaves e a CHAVE do Secret, nao o nome do Secret.
+      httpHeaderValue1: "Bearer ${token}"
