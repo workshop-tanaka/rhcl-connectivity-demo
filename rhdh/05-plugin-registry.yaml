@@ -1,0 +1,70 @@
+# ===========================================================================
+# plugin-registry — serve os .tgz dos plugins do Ansible por HTTP interno.
+#
+# POR QUE NAO E ConfigMap: os dois pacotes somam ~11 MB, muito acima do limite
+# de 1 MB de um ConfigMap. E por que nao e OCI: a Red Hat NAO publica esses
+# plugins em registry.redhat.io nem no npm -- eles vem num bundle baixado do
+# Customer Portal (ansible-rhdh-plugins-<versao>.tar.gz), e o caminho
+# documentado e justamente construir uma imagem httpd com eles dentro:
+#
+#   oc new-build httpd --name=plugin-registry --binary -n <ns>
+#   oc start-build plugin-registry --from-dir=<dir-com-os-tgz> --wait -n <ns>
+#
+# Este arquivo so implanta o resultado do build. O BuildConfig e a ImageStream
+# sao criados pelos comandos acima -- ficam fora daqui porque dependem de um
+# diretorio local, que nao e versionavel.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plugin-registry
+  namespace: ${RHDH_NS}
+  labels:
+    app: plugin-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: plugin-registry
+  template:
+    metadata:
+      labels:
+        app: plugin-registry
+    spec:
+      containers:
+        - name: httpd
+          image: image-registry.openshift-image-registry.svc:5000/${RHDH_NS}/plugin-registry:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          # Probe TCP, nao HTTP: o httpd serve os .tgz mas devolve 403 em '/'
+          # (sem index.html), e um probe HTTP na raiz deixaria o pod eterno em
+          # 0/1 -- o Service nao roteia, e a busca do plugin falha com um
+          # timeout que parece problema de rede.
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: plugin-registry
+  namespace: ${RHDH_NS}
+  labels:
+    app: plugin-registry
+spec:
+  type: ClusterIP
+  selector:
+    app: plugin-registry
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

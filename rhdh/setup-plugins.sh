@@ -331,6 +331,41 @@ if [[ "${WITH_KUADRANT:-false}" == "true" ]]; then
   _warn "plugin Kuadrant incluido (v${_kd_ver}) -- versao de RHDH nao coberta pela doc do projeto."
 fi
 
+# Ansible / AAP. Os pacotes NAO vem de OCI nem do npm: sao servidos pelo
+# plugin-registry interno (ver 05-plugin-registry.yaml), construido a partir do
+# bundle baixado do Customer Portal. Integrity vem dos .integrity do bundle --
+# sem ele o init container aborta em Init:CrashLoopBackOff.
+if [[ "${WITH_ANSIBLE:-false}" == "true" ]]; then
+  _aap_ver="${ANSIBLE_PLUGIN_VERSION:-2.1.6}"
+  _aap_fe_hash="${ANSIBLE_FE_INTEGRITY:-}"
+  _aap_be_hash="${ANSIBLE_BE_INTEGRITY:-}"
+  [[ -n "$_aap_fe_hash" && -n "$_aap_be_hash" ]] \
+    || _die "defina ANSIBLE_FE_INTEGRITY e ANSIBLE_BE_INTEGRITY (conteudo dos .integrity do bundle)."
+  oc get secret rhdh-ansible-secret -n "$RHDH_NS" >/dev/null 2>&1 \
+    || _die "rhdh-ansible-secret ausente: precisa de RHAAP_BASE_URL e RHAAP_TOKEN."
+  _plugins="${_plugins}
+      - package: http://plugin-registry:8080/ansible-plugin-backstage-rhaap-dynamic-${_aap_ver}.tgz
+        integrity: ${_aap_fe_hash}
+        disabled: false
+        pluginConfig:
+          dynamicPlugins:
+            frontend:
+              ansible.plugin-backstage-rhaap:
+                appIcons:
+                  - importName: AnsibleLogo
+                    name: AnsibleLogo
+                dynamicRoutes:
+                  - importName: AnsiblePage
+                    path: /ansible
+                    menuItem:
+                      icon: AnsibleLogo
+                      text: Ansible
+      - package: http://plugin-registry:8080/ansible-plugin-scaffolder-backend-module-backstage-rhaap-dynamic-${_aap_ver}.tgz
+        integrity: ${_aap_be_hash}
+        disabled: false"
+  _log "plugins do Ansible incluidos (v${_aap_ver})."
+fi
+
 # Camada GitHub: se o Secret existe, os plugins dela entram nesta mesma lista.
 if oc get secret rhdh-github-secret -n "$RHDH_NS" >/dev/null 2>&1; then
   _gh_branch="${GITHUB_BRANCH:-main}"
@@ -415,6 +450,17 @@ data:
           # the generated docs to show up in storage', que soa como lentidao e
           # e descompasso de caminho.
           publishDirectory: /tmp/techdocs
+
+    # AAP. baseUrl e token vem do Secret rhdh-ansible-secret; checkSSL fica
+    # falso porque a rota do gateway usa certificado do cluster, que o pod nao
+    # confia por padrao.
+    ansible:
+      analytics:
+        enabled: false
+      rhaap:
+        baseUrl: \${RHAAP_BASE_URL}
+        token: \${RHAAP_TOKEN}
+        checkSSL: false
 
     # O Kiali E o console de Service Mesh -- nao existe plugin separado de
     # 'Service Mesh'. Reusa o token da ServiceAccount de leitura.
@@ -504,6 +550,9 @@ EOF
 # Merge patch substitui arrays: as listas vao completas.
 _cms='{"name":"app-config-rhdh"},{"name":"app-config-rhdh-catalog"},{"name":"app-config-rhdh-plugins"}'
 _secrets='{"name":"rhdh-backend-secret"},{"name":"rhdh-kubernetes-secret"}'
+if oc get secret rhdh-ansible-secret -n "$RHDH_NS" >/dev/null 2>&1; then
+  _secrets="${_secrets},{\"name\":\"rhdh-ansible-secret\"}"
+fi
 if oc get configmap app-config-rhdh-github -n "$RHDH_NS" >/dev/null 2>&1; then
   _cms="${_cms},{\"name\":\"app-config-rhdh-github\"}"
   _secrets="${_secrets},{\"name\":\"rhdh-github-secret\"}"
