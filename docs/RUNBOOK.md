@@ -740,6 +740,7 @@ quando quebra*. Nenhuma linha de aplicação mudou em nenhum dos dois.
 | `429` onde era pra ser `200` | contador da janela anterior ainda aberto | espere 11s e repita — é o motivo da pausa no script |
 | **`free` com zero `200`**, gold e silver normais | **cota diária exaurida** (1000/dia) por ensaio ou `soak` | `bash scripts/traffic.sh reset` — 30s, e é o modo de falha mais provável |
 | Tudo `401`, inclusive com chave | Secret sem `authorino.kuadrant.io/managed-by`, ou no namespace errado | `oc get secrets -n kuadrant-system -l app=partner` |
+| **`500` em vez de `401`** | Authorino fora do ar. Num SNO isso é quase sempre despejo por `DiskPressure`: o taint `node.kubernetes.io/disk-pressure` impede o pod de reagendar, e a AuthPolicy fica `Enforced=False (waiting for … [Authorino])` | `oc get node -o jsonpath='{.items[*].spec.taints}'` — o taint costuma cair em ~1 min depois que o disco desafoga; confirme com `oc get pods -n kuadrant-system -l authorino-resource=authorino` |
 | `000` no meio da rajada | timeout de rede do sandbox | repita; se persistir, `oc get pods -n ingress-gateway` |
 | `404` com chave válida | auth e rate limit passaram; quem devolveu foi a app. Ela só responde em `/travels` — `/`, `/flights` e `/hotels` dão 404 | não mexa nas policies; volte ao default (`PATH_` não definido) |
 | Grafana com linha achatada | sem tráfego de fundo | suba o `soak` e dê ~1 min |

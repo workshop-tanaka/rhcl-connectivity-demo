@@ -559,6 +559,7 @@ bash scripts/preflight.sh core
 | `429` onde era pra ser `200` | janela do contador anterior ainda aberta | espere 11s e repita |
 | **`free` com zero `200`**, gold normal | cota diária exaurida | `bash scripts/demo.sh reset` |
 | Tudo `401`, inclusive com chave | Secret sem `authorino.kuadrant.io/managed-by`, ou no namespace errado | `oc get secrets -n kuadrant-system -l app=partner` |
+| `500` em vez de `401` | Authorino fora do ar — no SNO, despejado por `DiskPressure` no nó | `oc get node -o jsonpath='{.items[*].spec.taints}'`; o taint cai sozinho em ~1 min, e a AuthPolicy volta a `Enforced=True` |
 | `404` com chave válida | auth e rate limit passaram; a app só responde em `/travels` | não mexa nas policies |
 | `200` com corpo `[]` | o MySQL do fan-out sumiu | `oc apply -f platform-reference/workloads/travel-db/` |
 | Grafana com linha achatada | sem tráfego de fundo | `bash scripts/traffic.sh soak` e ~1 min |
