@@ -220,6 +220,7 @@ Dos plugins normalmente pedidos para uma demo de conectividade, metade **não ex
 | Tempo · Jaeger | Não existem. Neste cluster "Jaeger" é a UI do Tempo (`tempo-tempo-jaegerui`) |
 | Grafana | Não consta no doc; no ghcr só há builds de PR (`pr_*`), nenhum `bs_*` |
 | Connectivity Link | **Existe**: `@kuadrant/*` no npm público, v0.4.0. Fora do catálogo da Red Hat — ver abaixo |
+| Ansible · AAP | **Existe**, mas não vem de OCI nem do npm: bundle do Customer Portal (`ansible-rhdh-plugins-2.1.6.tar.gz`), servido pelo `plugin-registry` interno — ver abaixo |
 | Dev Spaces | **Não existe plugin** — conferido no npm, no ghcr de overlays e na imagem 1.10.3. A integração nativa é o decorator "edit code" do Topology, que nesta demo **não** acende (ver abaixo); o portal chega ao IDE por link no catálogo |
 
 Para o RHCL, o caminho nativo mais próximo é `customResources` do plugin Kubernetes: HTTPRoute, AuthPolicy, RateLimitPolicy e PlanPolicy aparecem na aba Kubernetes do componente. Não é um plugin, mas mostra a policy no lugar certo.
@@ -264,6 +265,57 @@ Os serviços da demo **não** recebem `github.com/project-slug`: o código deles
 curl -sk -X POST "$URL/api/scaffolder/v2/dry-run" -H "Authorization: Bearer $TOKEN" ...
 # -> github.com/project-slug: devhub-tanaka/nova-api
 ```
+
+### Ansible e AAP
+
+Ligado por `WITH_ANSIBLE=true`, com os hashes dos `.integrity` do bundle:
+
+```bash
+WITH_ANSIBLE=true \
+  ANSIBLE_FE_INTEGRITY="$(cat ansible-plugin-backstage-rhaap-dynamic-2.1.6.tgz.integrity)" \
+  ANSIBLE_BE_INTEGRITY="$(cat ansible-plugin-scaffolder-backend-module-backstage-rhaap-dynamic-2.1.6.tgz.integrity)" \
+  bash rhdh/setup-plugins.sh
+```
+
+#### O bundle não traz template nenhum
+
+A aba **Create** da página `/ansible` não lista os templates do portal: ela filtra o catálogo por `metadata.tags=ansible`, e o bundle 2.1.6 tem só o frontend e o módulo de scaffolder. Sem registrar a location dos templates, o filtro volta `[]` — e no log isso é um **200 com corpo vazio**, indistinguível de "ainda não carregou":
+
+```
+GET /api/catalog/entities?filter=metadata.tags%3Dansible  200  contentLength=2
+```
+
+Os templates vivem em `ansible/ansible-rhdh-templates`. O `setup-catalog.sh` registra `blob/main/all.yaml` quando a camada Ansible existe — `all.yaml` é uma Location cujos alvos são relativos, então o arquivo sozinho traz playbook e collection. Não há branch da 2.1: `main` e `release-2.0` têm os dois templates idênticos.
+
+#### O creator-service é obrigatório, e é sidecar
+
+Sem ele os templates aparecem e morrem no primeiro passo:
+
+```
+Missing required configuration: ansible.creatorService.baseUrl
+```
+
+Vai como sidecar do pod do RHDH (`adt server`, porta 8000, imagem `ansible-automation-platform-26/ansible-dev-tools-rhel9`) porque o plugin monta `http://<baseUrl>:<port>/` — http puro, sem CA e sem descoberta de serviço. A porta é **string** no app-config: o plugin faz `Number(config.getString('...port'))`, e escrita sem aspas o `getString` estoura antes.
+
+### Job template do AAP com survey sincronizado
+
+O survey é a fonte da verdade; o portal acompanha. Dois scripts:
+
+```bash
+bash aap/setup-job-template.sh   # credencial de SCM, project, job template e survey
+bash rhdh/sync-survey.sh         # lê o survey e gera o software template
+```
+
+O `sync-survey.sh` gera `rhdh/catalog/aap-smoke-test.yaml` e o publica pelo httpd interno — a entidade não tem skeleton (só dispara o job pela API), então **o sync não depende de push**. Mudou uma pergunta no AAP? Roda o sync e o formulário do portal acompanha.
+
+O mapa de tipos tem duas armadilhas:
+
+- `min`/`max` do survey são **comprimento** em `text` e **valor** em `integer`. Tratar os dois igual gera um schema que recusa toda entrada.
+- pergunta `password` vira `ui:field: Secret`, não `ui:widget: password`. Com o widget o valor fica no registro da tarefa do scaffolder; com o Secret, não. Do lado do AAP a survey `password` já grava `$encrypted$`.
+
+O disparo usa `http:backstage:request` pelo proxy (`/aap`, definido no `setup-plugins.sh`), e o path **não leva o prefixo `/api`**: a ação trata o primeiro segmento como plugin id, então `/api/proxy/...` resolve para `http://localhost:7007/api/api/proxy/...` e volta 404 de corpo vazio. O certo é `/proxy/aap/...`.
+
+O proxy também precisa de `allowedMethods: ['GET','POST']` — sem POST o launch volta 405 — e de `allowedHeaders: ['content-type']`, sem o qual o controller recebe o POST sem tipo e responde 415.
 
 ### Connectivity Link no portal
 

@@ -189,8 +189,15 @@ entity = {
                 'method': 'POST',
                 # Caminho do proxy do RHDH, nao a URL do AAP: e o proxy que
                 # injeta o token e aceita o certificado do cluster. Com a URL
-                # direta o navegador/backend teria de carregar credencial.
-                'path': '/api/proxy/aap/api/controller/v2/job_templates/%s/launch/' % jt_id,
+                # direta o backend teria de carregar credencial.
+                #
+                # SEM o prefixo '/api'. A acao trata o PRIMEIRO segmento do
+                # path como plugin id e resolve a base por discovery: com
+                # '/api/proxy/...' o plugin vira 'api', a base sai
+                # 'http://localhost:7007/api/api' e o POST bate em
+                # /api/api/proxy/... -- 404 com corpo vazio, que nao parece
+                # erro de caminho nenhum.
+                'path': '/proxy/aap/api/controller/v2/job_templates/%s/launch/' % jt_id,
                 'headers': {'content-type': 'application/json'},
                 'body': {'extra_vars': {v: ref(v) for v in props}},
             },

@@ -1,0 +1,128 @@
+# GERADO POR rhdh/sync-survey.sh -- NAO EDITE A MAO.
+# Fonte: survey do job template 10 ("Smoke test do parceiro") em https://aap-aap.apps.cluster-w4xtj.dyn.redhatworkshops.io
+# Para mudar o formulario, mude o survey no AAP e rode o sync de novo.
+---
+{
+  "apiVersion": "scaffolder.backstage.io/v1beta3",
+  "kind": "Template",
+  "metadata": {
+    "name": "aap-smoke-test",
+    "title": "Smoke test do parceiro",
+    "description": "Dispara N requisicoes contra a API do parceiro pelo gateway do RHCL e confere o limite do plano.",
+    "tags": [
+      "ansible",
+      "aap",
+      "rhcl"
+    ],
+    "annotations": {
+      "rhcl.demo/gerado-por": "rhdh/sync-survey.sh",
+      "rhcl.demo/aap-job-template": "10"
+    }
+  },
+  "spec": {
+    "owner": "group:default/platform-team",
+    "type": "automation",
+    "parameters": [
+      {
+        "title": "Smoke test do parceiro",
+        "description": "Os campos abaixo sao o survey do job template 10 no AAP, sincronizados por rhdh/sync-survey.sh.",
+        "required": [
+          "api_host",
+          "api_key",
+          "endpoint_path",
+          "request_count",
+          "expected_tier"
+        ],
+        "properties": {
+          "api_host": {
+            "title": "Hostname do gateway",
+            "description": "Sem esquema. O default vem da HTTPRoute travel-agency deste cluster.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 253,
+            "default": "api-travels.apps.cluster-w4xtj.dyn.redhatworkshops.io"
+          },
+          "api_key": {
+            "title": "Chave do parceiro",
+            "description": "Vai na query string APIKEY -- e o que o AuthPolicy da rota espera.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "ui:field": "Secret"
+          },
+          "endpoint_path": {
+            "title": "Endpoint",
+            "description": "Qual servico do travel-agency exercitar.",
+            "type": "string",
+            "enum": [
+              "/travels",
+              "/flights",
+              "/hotels",
+              "/cars",
+              "/insurances",
+              "/discounts"
+            ],
+            "default": "/travels"
+          },
+          "request_count": {
+            "title": "Numero de requisicoes",
+            "description": "Para ver o 429, peca mais que o limite do tier (free 3, silver 10, gold 30 por janela de 10s).",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 60,
+            "default": 12
+          },
+          "expected_tier": {
+            "title": "Plano esperado",
+            "description": "O playbook confere se o numero de 200 bate com o limite deste tier no PlanPolicy travels-plans.",
+            "type": "string",
+            "enum": [
+              "free",
+              "silver",
+              "gold",
+              "unclassified"
+            ],
+            "default": "free"
+          }
+        }
+      }
+    ],
+    "steps": [
+      {
+        "id": "launch",
+        "name": "Disparar o job no AAP",
+        "action": "http:backstage:request",
+        "input": {
+          "method": "POST",
+          "path": "/proxy/aap/api/controller/v2/job_templates/10/launch/",
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body": {
+            "extra_vars": {
+              "api_host": "${{ parameters.api_host }}",
+              "api_key": "${{ secrets.api_key }}",
+              "endpoint_path": "${{ parameters.endpoint_path }}",
+              "request_count": "${{ parameters.request_count }}",
+              "expected_tier": "${{ parameters.expected_tier }}"
+            }
+          }
+        }
+      }
+    ],
+    "output": {
+      "links": [
+        {
+          "title": "Acompanhar o job no AAP",
+          "url": "https://aap-aap.apps.cluster-w4xtj.dyn.redhatworkshops.io/execution/jobs/playbook/${{ steps.launch.output.body.id }}/output"
+        }
+      ],
+      "text": [
+        {
+          "title": "Job disparado",
+          "content": "Job **${{ steps.launch.output.body.id }}** do template *Smoke test do parceiro* (id 10)."
+        }
+      ]
+    }
+  }
+}
