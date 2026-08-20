@@ -1,0 +1,18 @@
+# TechDocs deste servico.
+#
+# O RHDH gera a documentacao dentro do proprio pod (mkdocs 1.6 vive em
+# /opt/techdocs-venv) buscando este repositorio pela anotacao
+# backstage.io/techdocs-ref do catalog-info.yaml. Sem este arquivo a anotacao
+# aponta para um repo sem mkdocs e a aba Docs falha no build -- com a anotacao
+# ausente, ela some sem erro. Os dois modos de falha sao silenciosos de
+# maneiras diferentes.
+site_name: ${{ values.name }}
+site_description: ${{ values.description }}
+
+docs_dir: docs
+
+nav:
+  - Visao geral: index.md
+
+plugins:
+  - techdocs-core

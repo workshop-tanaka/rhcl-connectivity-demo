@@ -30,8 +30,14 @@ metadata:
     backstage.io/kubernetes-label-selector: app=${{ values.name }}
     backstage.io/kubernetes-namespace: ${{ values.namespace }}
     github.com/project-slug: ${{ values.repoSlug }}
-    # Lida pelo plugin de techdocs quando houver; inofensiva sem ele.
-    backstage.io/source-location: url:https://github.com/${{ values.repoSlug }}/
+    # As duas terminam diferente e nao e descuido: source-location PRECISA
+    # terminar em '/' (sem a barra o RHDH trata como arquivo e os botoes de
+    # View Source aparecem desabilitados); techdocs-ref, nao. Mesma convencao
+    # do catalogo da demo em rhdh/catalog/travel-agency.yaml.
+    backstage.io/source-location: url:https://github.com/${{ values.repoSlug }}/tree/main/
+    # Aba Docs a partir do mkdocs.yml deste repositorio. O RHDH gera no proprio
+    # pod (mkdocs vive em /opt/techdocs-venv), entao nao ha pipeline a montar.
+    backstage.io/techdocs-ref: url:https://github.com/${{ values.repoSlug }}/tree/main
   tags:
     - rhcl
     - golden-path
@@ -51,6 +57,13 @@ spec:
   owner: ${{ values.owner }}
   providesApis:
     - ${{ values.name }}-api
+  # O gateway compartilhado como dependencia declarada. Nao e enfeite de
+  # grafo: e o que faz a pergunta "o que mais esta atras do prod-web?" ter
+  # resposta na tela, em vez de exigir um 'oc get httproute -A'. A entidade
+  # resource:default/prod-web e servida pelo catalogo da demo -- se este
+  # componente for para um cluster sem ela, a relacao fica pendurada.
+  dependsOn:
+    - resource:default/prod-web
 ---
 apiVersion: backstage.io/v1alpha1
 kind: API

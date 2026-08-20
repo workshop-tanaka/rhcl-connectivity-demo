@@ -467,6 +467,34 @@ data:
                 - group: extensions.kuadrant.io
                   apiVersion: v1alpha1
                   plural: planpolicies
+                # O produto do developer portal, na aba do proprio componente:
+                # e o unico lugar onde plano publicado e workload aparecem
+                # lado a lado.
+                - group: devportal.kuadrant.io
+                  apiVersion: v1alpha1
+                  plural: apiproducts
+                - group: extensions.kuadrant.io
+                  apiVersion: v1alpha1
+                  plural: telemetrypolicies
+                # Malha. Com os servicos do golden path -- que rotulam TUDO com
+                # 'app: <nome>', policies de borda e de malha -- a aba Kubernetes
+                # passa a mostrar os dois escopos de policy na mesma tela, que e
+                # a unica visao onde o argumento do Ato 7 aparece sem trocar de
+                # ferramenta. Exige os apiGroups correspondentes no
+                # 04-kubernetes-rbac.yaml: sem eles o list volta forbidden e a
+                # aba fica igual, sem erro.
+                - group: security.istio.io
+                  apiVersion: v1
+                  plural: peerauthentications
+                - group: security.istio.io
+                  apiVersion: v1
+                  plural: authorizationpolicies
+                - group: networking.istio.io
+                  apiVersion: v1
+                  plural: destinationrules
+                - group: networking.istio.io
+                  apiVersion: v1
+                  plural: virtualservices
 EOF
 
 # ----- 4. ligar no CR ------------------------------------------------------
