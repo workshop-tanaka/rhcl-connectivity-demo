@@ -220,6 +220,7 @@ Dos plugins normalmente pedidos para uma demo de conectividade, metade **não ex
 | Tempo · Jaeger | Não existem. Neste cluster "Jaeger" é a UI do Tempo (`tempo-tempo-jaegerui`) |
 | Grafana | Não consta no doc; no ghcr só há builds de PR (`pr_*`), nenhum `bs_*` |
 | Connectivity Link | **Existe**: `@kuadrant/*` no npm público, v0.4.0. Fora do catálogo da Red Hat — ver abaixo |
+| Dev Spaces | **Não existe plugin** — conferido no npm, no ghcr de overlays e na imagem 1.10.3. A integração nativa é o decorator "edit code" do Topology, que nesta demo **não** acende (ver abaixo); o portal chega ao IDE por link no catálogo |
 
 Para o RHCL, o caminho nativo mais próximo é `customResources` do plugin Kubernetes: HTTPRoute, AuthPolicy, RateLimitPolicy e PlanPolicy aparecem na aba Kubernetes do componente. Não é um plugin, mas mostra a policy no lugar certo.
 
@@ -240,6 +241,7 @@ Sem elas o plugin carrega e a aba não aparece — sem erro:
 | `backstage.io/kubernetes-label-selector` | Kubernetes, Topology |
 | `backstage.io/kubernetes-namespace` | Kubernetes, Topology |
 | `github.com/project-slug` | GitHub Actions, Issues, Insights |
+| `app.openshift.io/vcs-uri` + `vcs-ref` | decorator "edit code" do Topology — ficam no **Deployment**, não na entidade |
 
 O `setup-catalog.sh` deriva o slug do remote do próprio repositório; sem remote no GitHub, remove a anotação em vez de publicá-la vazia.
 
@@ -327,6 +329,45 @@ echo-api  -> pods, services, deployments, replicasets, customresources
 ```
 
 `echo-api` traz mais porque o Deployment dele carrega `app.kubernetes.io/name`. Como o Topology desenha a partir do Deployment, os serviços do travel-agency ficam com a visão reduzida. Corrigir exigiria rotular os Deployments — que são do Argo.
+
+### Dev Spaces: por que o link, e não o decorator
+
+Não há plugin de Dev Spaces para o RHDH. A integração nativa é o decorator
+"edit code" do Topology, e ele **está ligado** — o par
+`app.openshift.io/vcs-uri` + `vcs-ref` está nos Deployments de
+`platform-reference/workloads/`. Só que o lápis leva ao **GitHub**, não ao IDE.
+
+O plugin só troca o destino se achar o `CheCluster`, e ele o procura com o
+namespace fixo no código:
+
+```ts
+// topology/src/utils/resource-utils.ts
+resources.checlusters?.data?.find(cc => cc.metadata?.namespace === 'openshift-devspaces')
+```
+
+Mas quem decide o que entra em `resources.checlusters` é o fetch do plugin
+Kubernetes, governado pelas anotações da entidade. Com
+`backstage.io/kubernetes-namespace: travel-agency` — que é o que a demo usa — a
+busca fica **restrita a esse namespace**, e o CheCluster nunca chega. Medido em
+`/api/kubernetes/services/travels`: `checlusters` volta com **0 itens**.
+
+A única combinação que funciona é `kubernetes-id` + `label-selector` **sem**
+`kubernetes-namespace`, com o CheCluster carregando o label do selector.
+Verificada de ponta a ponta (o lápis passou a apontar para
+`…/f?url=…&policies.create=peruser`) e **descartada**, por dois motivos que se
+somam:
+
+- o selector é `app=travels`, `app=flights`, `app=cars`… e há **um** CheCluster:
+  a chave `app` não pode ter sete valores. Daria o decorator em 1 de 7
+  componentes;
+- `kubernetes-id` exigiria rotular os Deployments, que são do Argo com
+  `selfHeal` — o mesmo motivo pelo qual este README já prefere o seletor de
+  label ao id.
+
+O que a demo usa no lugar é um item de `links:` em cada componente, resolvido
+pelo `setup-catalog.sh` a partir do `status.cheURL`. Aparece no card *About*,
+funciona nos 7, e não depende do Topology ter carregado. Detalhes em
+`platform-reference/devspaces/README.md`.
 
 ## Plugins dinâmicos
 
