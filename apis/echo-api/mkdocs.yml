@@ -1,0 +1,17 @@
+# TechDocs de Echo API — uma doc por produto de API.
+#
+# O CR APIProduct aponta spec.documentation.techdocsRef para este diretorio; o
+# provider do plugin apenas repassa o valor para a anotacao
+# backstage.io/techdocs-ref da entidade, e quem gera e o TechDocs do RHDH.
+# Diferente do openAPISpecURL, aqui NAO ha busca pelo operator -- entao nao ha
+# a armadilha do 'controller will not retry'.
+site_name: Echo API
+site_description: Documentacao do produto de API Echo API
+
+docs_dir: docs
+
+nav:
+  - Visao geral: index.md
+
+plugins:
+  - techdocs-core
