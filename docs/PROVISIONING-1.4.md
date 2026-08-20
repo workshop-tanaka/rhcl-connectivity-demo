@@ -10,6 +10,39 @@ Aqui `platform-reference/` é aplicável — é a fonte da camada de plataforma.
 
 ---
 
+## 0. O caminho curto
+
+Tudo o que este documento descreve está executável em dois scripts. Eles não
+substituem o texto: o que está aqui é **por que** cada passo existe e como cada
+um quebra — e é isso que você vai querer ler quando algo falhar.
+
+```bash
+bash scripts/new-env.sh        # camada env/ + overlay com o hostname deste cluster
+bash scripts/provision.sh      # as 9 etapas abaixo, na ordem, idempotentes
+bash scripts/preflight.sh      # o veredito
+```
+
+`provision.sh --dry-run` imprime a sequência inteira sem tocar no cluster, e
+cada etapa roda sozinha (`bash scripts/provision.sh tracing dashboards`).
+
+| Etapa | Seção | O que o script faz além de aplicar |
+| --- | --- | --- |
+| `operators` | [2](#2-operadores) | acrescenta `enableUserWorkload` **preservando** as demais chaves do ConfigMap de monitoring |
+| `mesh` | [3](#3-malha) | com malha já de pé, não reaplica o CR `Istio` (o apply removeria o `version` gravado e dispararia upgrade) |
+| `platform` | [4](#4-plataforma) | cria os namespaces limpos, e não de `platform-reference/namespaces/` (faixas de UID do cluster antigo) |
+| `gateway` | [5](#5-gateway-dns-e-tls--onde-está-a-decisão) | descobre o Secret do wildcard pelo `ingresscontroller`, em vez do nome fixo `cert-manager-ingress-cert` |
+| `devportal` | [7](#7-consoles-integradas) | pula sozinha se as CRDs `devportal.kuadrant.io` não existirem (RHCL < 1.4.2) |
+| `demo` | [6](#6-camada-de-demo) | **recusa** aplicar overlay cujo hostname não é deste cluster |
+| `consoles` | [7](#7-consoles-integradas), [7.1](#71-o-que-cr-kiali-saudavel-quer-dizer) | habilita o plugin por `add` posicional, nunca por merge da lista inteira |
+| `tracing` | [7.2](#72-traces-no-console-cluster-observability-operator) | aplica na ordem que a armadilha 13 exige, e reinicia o backend do plugin se ele já existia |
+| `dashboards` | [9](#9-dashboards-do-grafana) | espera o token da SA do Grafana ser emitido antes de aplicar os dashboards |
+
+Duas coisas que o script **não** faz, de propósito: instalar o RHDH (Ato 6, que
+já tem os seus próprios scripts em `rhdh/`) e aprovar `APIKeyRequest` — aprovar
+cunha chave sem limite, e pendente é o estado correto (armadilha 11).
+
+---
+
 ## 1. Antes de começar: o que o cluster já tem
 
 Metade da lista costuma vir pronta nos clusters RHPDS. Confira antes de instalar:
@@ -84,6 +117,12 @@ spec:
 EOF
 ```
 
+As mesmas duas Subscriptions estão em
+[platform-reference/operators/subscriptions.yaml](../platform-reference/operators/subscriptions.yaml)
+(e as opcionais em `subscriptions-optional.yaml`, ao lado) — é o que a etapa
+`operators` aplica. O heredoc acima continua aqui porque é ele que se lê quando
+o catálogo do cluster não publica `redhat-operators` com esses nomes.
+
 O RHCL vai para `kuadrant-system` com OperatorGroup próprio — mesmo sendo
 `AllNamespaces`, é lá que o `preflight.sh` procura o controller.
 
@@ -134,6 +173,14 @@ EOF
 
 oc get gatewayclass    # istio  Accepted=True
 ```
+
+> ⚠️ **Este heredoc não basta para o Ato 5.** Ele sobe a malha e registra a
+> `GatewayClass`, mas não declara o `extensionProvider` para onde o proxy manda
+> o span, nem a `Telemetry` que manda emitir. Com só isto, a malha funciona, o
+> Kiali desenha o grafo, e **Observe → Traces** fica permanentemente vazio — sem
+> erro em lugar nenhum. As duas peças estão em
+> [platform-reference/mesh-control-plane/](../platform-reference/mesh-control-plane/),
+> que é o que a etapa `mesh` aplica.
 
 ---
 
@@ -392,6 +439,54 @@ oc get cm topology -n kuadrant-system -o jsonpath='{.data.topology}' | head -5
 
 ---
 
+### 7.2 Traces no console (Cluster Observability Operator)
+
+A Jaeger UI que o Tempo serve esta **deprecada** e avisa na tela. O caminho
+novo poe os traces em **Observe -> Traces**, no mesmo console das outras duas
+telas do roteiro -- mas exige **multitenancy no Tempo**, e isso mexe na
+ingestao. A ordem importa: fazer na ordem errada deixa a aba consultando um
+tenant que nao existe.
+
+```bash
+# 1. Tempo com multitenancy (mode: openshift, tenant 'dev')
+oc apply -f platform-reference/tracing/tempo-monolithic.yaml
+
+# 2. RBAC do tenant -- escrita para a SA do collector, leitura para quem loga
+oc apply -f platform-reference/tracing/rbac-tenant-dev.yaml
+
+# 3. collector aponta para o GATEWAY (TLS + token + header de tenant).
+#    Sem isto a ingestao para: o Service 'tempo-tempo' deixou de existir.
+oc apply -f platform-reference/tracing/otel-collector.yaml
+
+# 4. operator + plugin (o UIPlugin se habilita sozinho no console)
+oc apply -f platform-reference/consoles/uiplugin-distributed-tracing.yaml
+```
+
+Se o Tempo ja tinha multitenancy **depois** de o plugin subir, reinicie o
+backend dele -- ele descobre as instancias no start:
+
+```bash
+oc rollout restart deploy/distributed-tracing -n openshift-cluster-observability-operator
+```
+
+Conferencia, sem depender da tela:
+
+```bash
+# ingestao: silencio e o resultado correto
+oc logs deploy/otel-collector -n tracing-system --tail=50 | grep 'Exporting failed'
+
+# leitura por tenant (a rota 'tracing-ui' antiga nao existe mais)
+TR=$(oc get route tempo-tempo-jaegerui -n tracing-system -o jsonpath='{.spec.host}')
+curl -sk -H "Authorization: Bearer $(oc whoami -t)" \
+  "https://${TR}/api/traces/v1/dev/api/services"
+```
+
+O que cada passo custa, e o que quebra em silencio se faltar, esta na
+[armadilha 13 do RUNBOOK](RUNBOOK.md#13-o-plugin-de-tracing-do-console-exige-multitenancy-no-tempo)
+e no cabecalho de cada arquivo em `platform-reference/tracing/`.
+
+---
+
 ## 8. O que esperar do preflight
 
 Com os operadores opcionais fora, o resultado correto é:
@@ -446,6 +541,13 @@ workshop.
 O que o cluster ja tem e o **RHCL — planos comerciais** (`rhcl-planos`), de
 `platform-reference/monitoring/`, que e o dashboard do Ato 4 porque e o unico
 que quebra por `plan`.
+
+Antes de qualquer dashboard, a instância: `GrafanaDashboard` sem um `Grafana`
+com o label `dashboards: grafana` fica órfão, e com a instância mas sem o
+datasource abre com *"Datasource thanos was not found"* em cada painel. Os dois
+estão em
+[platform-reference/monitoring/grafana-instance.yaml](../platform-reference/monitoring/grafana-instance.yaml),
+com o token da service account resolvido no apply em vez de gravado no arquivo.
 
 ### Instalar os tres de fabrica
 

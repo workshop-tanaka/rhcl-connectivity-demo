@@ -9,6 +9,9 @@ ausência desta página.
 
 ## Por onde começar
 
+- **[Passo a passo](DEMO-PASSO-A-PASSO.md)** — a sequência de execução: o que
+  rodar, em que ordem, o que aparece na tela e o que dizer. É o documento aberto
+  na hora de apresentar.
 - **[Roteiro da demo](RUNBOOK.md)** — os atos, na ordem em que são apresentados,
   e as armadilhas encontradas neste cluster.
 - **[Provisionamento 1.4](PROVISIONING-1.4.md)** — como o ambiente é montado.

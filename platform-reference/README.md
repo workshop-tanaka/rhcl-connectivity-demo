@@ -82,6 +82,27 @@ console é camada de plataforma — não é recurso que o roteiro aplica ou remo
 Passo a passo (e o patch que o plugin do Connectivity Link ainda exige) na
 [seção 7 do PROVISIONING-1.4](../docs/PROVISIONING-1.4.md#7-consoles-integradas).
 
+`consoles/uiplugin-distributed-tracing.yaml` acrescenta a aba **Observe →
+Traces**, do Cluster Observability Operator — é o substituto da Jaeger UI, que
+o Tempo declara deprecada. Ele **não funciona sozinho**: o plugin recusa Tempo
+sem multitenancy, e ligar multitenancy mexe na ingestão. O par dele está em
+`tracing/`.
+
+## `tracing/`
+
+Também fora do alcance do Argo. Os três arquivos são um conjunto — aplicar um
+sem os outros derruba o Ato 5 em silêncio:
+
+| Arquivo | Sem ele |
+| --- | --- |
+| `tempo-monolithic.yaml` | sem multitenancy o plugin do console recusa a instância — a aba Traces fica morta |
+| `rbac-tenant-dev.yaml` | o collector conecta e o dado não entra; a aba lista a instância e não devolve trace |
+| `otel-collector.yaml` | a ingestão para (`no children to pick from`): o Service `tempo-tempo` deixa de existir quando o gateway sobe |
+
+O tenant `dev` aparece nos três arquivos, no path da UI (`<rota>/dev`) e na
+consulta do `preflight.sh`. Ordem de aplicação e o que quebra em cada passo na
+[seção 7.2 do PROVISIONING-1.4](../docs/PROVISIONING-1.4.md#72-traces-no-console-cluster-observability-operator).
+
 ## `monitoring/`
 
 Como `consoles/`, esta pasta está fora do alcance do Argo — ela existe porque a
@@ -94,8 +115,50 @@ aqui corresponde a uma cadeia que quebra em silêncio:
 | `istio-monitors.yaml` | nada raspa os proxies da malha — o grafo do Ato 5 abre **vazio**, o que se lê como "não há tráfego" |
 | `kiali.yaml` | o Kiali não confia na service CA nem tem RBAC no Thanos — a aba Service Mesh diz *"Metrics are disabled"* apontando para uma config que já está `enabled: true` |
 | `grafana-dashboard-plans.yaml` | os dashboards de fábrica agregam sem quebrar por `plan` |
+| `kube-state-metrics-kuadrant.yaml` | os dashboards de fábrica sobem vazios (join com `gatewayapi_*`) e não há série de `APIKey` para alertar |
+| `prometheusrule-devportal.yaml` | solicitação de API key fica parada até alguém lembrar de abrir a aba — o produto não notifica ninguém |
+| `grafana-dashboard-onboarding.yaml` | ninguém vê a **demanda**: quantos pedem acesso, para qual plano, e há quanto tempo esperam |
+| `grafana-instance.yaml` | não há instância com o label `dashboards: grafana` nem datasource `thanos` — todo `GrafanaDashboard` fica órfão, ou casa e abre com *"Datasource thanos was not found"* em cada painel |
+| `kube-state-metrics-kuadrant.yaml` | as 11 métricas `gatewayapi_*` não existem, e os três dashboards de fábrica sobem **vazios** (todo painel útil faz `group_left` com `gatewayapi_httproute_labels`) |
+
+`prometheusrule-devportal.yaml` depende da entrada de `CustomResourceState` que
+`kube-state-metrics-kuadrant.yaml` declara para `APIKey`, **e** do rule de RBAC
+sobre `devportal.kuadrant.io` no mesmo arquivo — sem o RBAC, a entrada é aceita
+em silêncio, a série nunca existe e o alerta fica pronto sem nunca disparar.
 
 `kiali.yaml` carrega o CR `Kiali` que até então só existia no cluster, e não no
 repo. O ConfigMap `kiali-cabundle` que ele exige **não** está aqui: o PEM é
 específico do cluster. O comando está no cabeçalho do arquivo e na
 [seção 7.1 do PROVISIONING-1.4](../docs/PROVISIONING-1.4.md#71-o-que-cr-kiali-saudavel-quer-dizer).
+
+`grafana-instance.yaml` fecha o único buraco de reprodutibilidade que sobrava
+nesta árvore: os `GrafanaDashboard` deste repo sempre declararam
+`instanceSelector: {dashboards: grafana}`, e nada aqui criava a instância com
+esse label. O token de leitura do Thanos **não** está no arquivo — o datasource
+capturado do cluster trazia um bearer de service account literal, que
+publicaria no git uma credencial de leitura de todas as métricas. Ele é
+resolvido no apply, pelo `valuesFrom` do grafana-operator.
+
+## `operators/` e `mesh-control-plane/`
+
+Estes dois diretórios não vieram de captura: nasceram para acabar com a
+categoria "só existe como texto". As `Subscription` dos operadores e os CRs
+`Istio`/`IstioCNI` só viviam como heredoc no `PROVISIONING-1.4.md`, o que
+significa que a única forma de reproduzi-los era copiar do documento — e o que
+está em documento não é diffável contra o cluster nem alcançável pelo
+`provision.sh`.
+
+| Arquivo | O que entrega |
+| --- | --- |
+| `operators/subscriptions.yaml` | Service Mesh 3 e RHCL — os dois sem os quais não há demo |
+| `operators/subscriptions-optional.yaml` | Kiali, Tempo, OpenTelemetry e Grafana: cada um acende uma tela, nenhum impede a demo |
+| `mesh-control-plane/istio.yaml` | o CR que registra a `GatewayClass` istio, **com** o `extensionProvider` do tracing |
+| `mesh-control-plane/telemetry-tracing.yaml` | a ordem de emitir span (100% de amostragem) |
+
+Os dois arquivos da malha estão separados por uma razão operacional: o CR
+`Istio` não pode levar `oc apply` cego num cluster que já tem malha de pé — o
+arquivo não fixa `spec.version`, e o apply removeria a versão gravada,
+disparando upgrade do plano de controle no meio do provisionamento. A
+`Telemetry`, sim: é inofensiva de reaplicar, e é a peça que costuma faltar.
+Sem ela o provider existe, ninguém emite span, e **Observe → Traces** fica
+permanentemente vazio sem erro em lugar nenhum.

@@ -110,17 +110,23 @@ bash scripts/traffic.sh tiers        # valida DEPOIS do reset
 
 > ⚠️ **A ordem importa, e é contraintuitiva.** O `soak` faz round-robin entre
 > todos os tiers, e o `PlanPolicy` tem cota **diária** além da janela de 10s:
-> `free` 50/dia, `silver` 500/dia, `gold` 5000/dia. A ~8 req/s a chave `free`
-> estoura os 50 em **~25 segundos** — os 10 minutos de soak deixam o tier free
-> com zero requisições servidas, e o Ato 2 vira três linhas de `429`.
+> `free` 1000/dia, `silver` 10000/dia, `gold` 100000/dia. São vinte vezes os
+> valores originais (50/500/5000), e a razão de terem subido é que os antigos
+> matavam o ensaio — [armadilha 8](#8-a-cota-diária-do-plano-mata-o-ensaio--e-o-roteiro-pedia-isso).
 >
-> O sintoma engana: parece rate limit funcionando, e é cota exaurida.
+> Com essa folga um ensaio inteiro custa pouco: medido neste cluster, uma
+> validação completa — três `preflight`, `anon`, `tiers`, `mesh-split` e
+> `metrics` — consumiu **21 das 1000** do `free`. O `soak` de 10 minutos deixou
+> de ser o risco que era.
+>
+> O `reset` continua valendo, e por dois motivos: a cota é diária, então ela
+> acumula entre ensaios do mesmo dia, e se alguém tiver baixado os limites de
+> volta o sintoma engana — parece rate limit funcionando, e é cota exaurida.
 > `traffic.sh reset` reinicia o Limitador, cujos contadores são in-memory.
 >
-> Se for deixar o `soak` rodando **durante** a apresentação — e o Ato 4 fica
-> melhor com ele —, dê o `reset` logo antes de começar e conte que o free tem
-> ~6 minutos de vida útil até a cota diária acabar de novo. Na prática: rode o
-> Ato 2 cedo, ou suba o soak só depois dele.
+> **Ao mexer nos limites, reinicie o Limitador.** Ele guarda o contador com o
+> teto vigente quando o contador nasceu: aplicar o YAML novo e conferir sem
+> reset mostra o limite velho, e parece que a edição não pegou.
 
 Sem tráfego de fundo os painéis do Grafana mostram uma linha achatada e o Ato 4
 fica sem força — mas um Ato 2 morto custa mais caro que um gráfico chato.
@@ -251,28 +257,46 @@ oc get ratelimitpolicy ingress-gateway-rlp-lowlimits -n ingress-gateway \
 ```
 
 ```
-Accepted=True (Resource accepted)
-Enforced=True (AuthPolicy has been partially enforced)
+Accepted=True  (AuthPolicy has been accepted)
+Enforced=False (AuthPolicy is overridden by [travel-agency/travel-agency-authpolicy
+                                             echo-api/echo-api-authpolicy])
 ```
 
-*Partially enforced* é a palavra que faz o ato: a policy do Gateway **está**
-valendo — para o `echo-api`, que não declarou nada — e **cedeu** para o
-`travel-agency`, que declarou. Prove os dois lados na mesma tela:
+A mensagem não diz apenas que a policy do Gateway foi sobreposta: ela **nomeia
+quem venceu, rota por rota**. A `RateLimitPolicy` responde igual — `overridden
+by [travel-agency/travels-plans echo-api/echo-plans]`, que são as RLPs geradas
+pelos dois `PlanPolicy`. O default da plataforma é fechado; quem quer abrir,
+declara como — e o cluster registra a troca.
+
+> **Este par mudou quando o `echo-api` virou o segundo produto do catálogo.**
+> Enquanto ele não tinha policy própria, a do Gateway ficava
+> `Enforced=True (AuthPolicy has been partially enforced)` — valendo para o
+> echo, cedendo para o travels — e o ato podia ser contado com dois códigos na
+> tela: `403` no echo (deny-all do Gateway) contra `401` no travels (AuthPolicy
+> da rota). Hoje as duas rotas declaram a sua, as duas respondem `401`, e
+> *partially enforced* não aparece mais. Se você reencontrar aquele texto em
+> alguma anotação antiga, é isto que mudou.
+
+A prova de que a fronteira é por **produto**, e não "tem chave / não tem chave",
+passou a ser esta — a chave do travels contra o echo:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' https://echo-travels.apps.<dominio>/    # 403 — deny-all do Gateway
-curl -s -o /dev/null -w '%{http_code}\n' https://api-travels.apps.<dominio>/travels  # 401 — AuthPolicy da rota
+curl -s -o /dev/null -w '%{http_code}\n' "https://echo-travels.apps.<dominio>/?APIKEY=<chave gold>"   # 401
+curl -s -o /dev/null -w '%{http_code}\n' "https://api-travels.apps.<dominio>/travels?APIKEY=<chave gold>"  # 200
 ```
 
-Dois códigos diferentes, duas policies diferentes, no mesmo gateway. O default
-da plataforma é fechado; quem quer abrir, declara como.
+A mesma chave, válida e classificada em `gold`, abre um produto e não abre o
+outro: o selector do `AuthPolicy` do echo exige também
+`devportal.kuadrant.io/apiproduct`. Assinar um produto não dá acesso ao gateway
+inteiro — ver o cabeçalho de
+[env/rhcl-1.4_ocp-4.21/devportal/echo-api.yaml](../env/rhcl-1.4_ocp-4.21/devportal/echo-api.yaml).
 
 Esse fork não precisa ficar só no `oc get`: em **Connectivity Link → Policy
 Topology** ele está desenhado. O listener do `prod-web` bifurca para as duas
-rotas, e as quatro policies chegam nos alvos como aresta tracejada — duas no
-Gateway (`prod-web-deny-all`, `ingress-gateway-rlp-lowlimits`) e duas na rota
-(`travel-agency-authpolicy` e a RLP dos planos). É a mesma frase do ato, em
-imagem.
+rotas, e as policies chegam nos alvos como aresta tracejada — duas no Gateway
+(`prod-web-deny-all`, `ingress-gateway-rlp-lowlimits`) e duas em **cada** rota
+(`travel-agency-authpolicy` + a RLP dos planos; `echo-api-authpolicy` +
+`echo-plans`). É a mesma frase do ato, em imagem: quem declarou, venceu.
 
 > **O grafo não marca quem venceu.** Não existe badge de *overridden* nele — o
 > desenho faz a pergunta, o campo de status responde. Não perca tempo no palco
@@ -304,12 +328,25 @@ Depois mostre os três artefatos que o `PlanPolicy` gerou sozinho:
 ```bash
 oc get authconfig -n kuadrant-system -o yaml | grep -A16 'properties:'
 oc get limitador limitador -n kuadrant-system -o jsonpath='{.spec.limits}' | python3 -m json.tool
-oc get wasmplugin kuadrant-prod-web -n ingress-gateway -o jsonpath='{.spec.pluginConfig}' | python3 -m json.tool
+oc get envoyfilter kuadrant-prod-web -n ingress-gateway \
+  -o jsonpath='{.spec.configPatches[0].patch.value.typed_config.value.config.configuration.value}' \
+  | python3 -m json.tool | grep -E 'auth.kuadrant.plan|metrics.labels'
 ```
 
 Uma policy declarativa de 30 linhas virou config do Authorino (CEL de
 classificação), do Limitador (um contador por tier) e do filtro WASM do Envoy
 (predicados por plano). Ninguém escreveu nada disso à mão.
+
+> ⚠️ **Neste cluster o filtro não é um `WasmPlugin`.** No RHCL 1.4.2 sobre OSSM
+> 3 / Istio 1.30 o mesmo módulo WASM é entregue por três **`EnvoyFilter`s**
+> (`kuadrant-prod-web`, `kuadrant-auth-prod-web`,
+> `kuadrant-ratelimiting-prod-web`), e `oc get wasmplugin` devolve *No resources
+> found* — o que no palco se lê como "a policy não gerou nada". A configuração
+> vive como string JSON dentro do patch, daí o `jsonpath` longo acima.
+>
+> O `grep` final é deliberado: mostra os predicados por plano
+> (`auth.kuadrant.plan == "gold"`) e o `metrics.labels.plan`, que é o
+> `TelemetryPolicy` — a mesma tela emenda no Ato 4.
 
 ---
 
@@ -349,8 +386,8 @@ são coisas diferentes, e a diferença só aparece na hora de projetar.
 
 Os quatro primeiros painéis são a rajada — consumo, 429, participação, taxa de
 recusa. O quinto é **cota diária consumida por plano**, e é o que muda a
-conversa: a rajada (3/10s) é o que a plateia vê, a cota (50/dia) é o que está no
-contrato. É também a que esgota sem avisar durante o ensaio — [armadilha
+conversa: a rajada (3/10s) é o que a plateia vê, a cota (1000/dia) é o que está
+no contrato. É também a que esgota sem avisar durante o ensaio — [armadilha
 8](#8-a-cota-diária-do-plano-mata-o-ensaio--e-o-roteiro-pedia-isso).
 
 > O painel de cota é uma **aproximação**: o Limitador não exporta o estado dos
@@ -400,8 +437,8 @@ trocar de janela.
 >
 > E usa **só a chave gold**: `429` é recusado na borda e nunca entra na malha,
 > então tier limitado dá pico no Grafana e grafo vazio no Kiali ao mesmo tempo.
-> O round-robin do `soak`, além disso, queima os 50/dia do `free` e derruba o
-> Ato 2.
+> O round-robin do `soak`, além disso, consome a cota diária do `free` sem
+> precisar dela — e com os limites antigos isso derrubava o Ato 2.
 
 Com o `mesh` rodando, o grafo fecha assim — a route standalone do Kiali fica
 como plano B se a aba do console não abrir:
@@ -701,7 +738,7 @@ quando quebra*. Nenhuma linha de aplicação mudou em nenhum dos dois.
 | --- | --- | --- |
 | Tudo `200`, nenhum `429` | chave sem `kuadrant.io/plan-id` → fail-open | `bash scripts/preflight.sh core` aponta a chave; `oc label secret <n> -n kuadrant-system kuadrant.io/plan-id=free` |
 | `429` onde era pra ser `200` | contador da janela anterior ainda aberto | espere 11s e repita — é o motivo da pausa no script |
-| **`free` com zero `200`**, gold e silver normais | **cota diária exaurida** (50/dia) por ensaio ou `soak` | `bash scripts/traffic.sh reset` — 30s, e é o modo de falha mais provável |
+| **`free` com zero `200`**, gold e silver normais | **cota diária exaurida** (1000/dia) por ensaio ou `soak` | `bash scripts/traffic.sh reset` — 30s, e é o modo de falha mais provável |
 | Tudo `401`, inclusive com chave | Secret sem `authorino.kuadrant.io/managed-by`, ou no namespace errado | `oc get secrets -n kuadrant-system -l app=partner` |
 | `000` no meio da rajada | timeout de rede do sandbox | repita; se persistir, `oc get pods -n ingress-gateway` |
 | `404` com chave válida | auth e rate limit passaram; quem devolveu foi a app. Ela só responde em `/travels` — `/`, `/flights` e `/hotels` dão 404 | não mexa nas policies; volte ao default (`PATH_` não definido) |
@@ -770,8 +807,21 @@ os logs do Authorino.
 **"E se o Limitador cair?"**
 `failureMode: allow` no serviço de rate limit — o tráfego passa. É a escolha
 padrão e é deliberada: indisponibilidade do controle de cota não deve derrubar
-a API. O serviço de auth é o oposto, `failureMode: deny`. Mostrável em
-`oc get wasmplugin kuadrant-prod-web -n ingress-gateway -o jsonpath='{.spec.pluginConfig.services}'`.
+a API. O serviço de auth é o oposto, `failureMode: deny`.
+
+Mostrável — e a mesma saída responde a pergunta seguinte, porque traz os
+timeouts:
+
+```bash
+oc get envoyfilter kuadrant-prod-web -n ingress-gateway \
+  -o jsonpath='{.spec.configPatches[0].patch.value.typed_config.value.config.configuration.value}' \
+  | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["services"], indent=2))'
+```
+
+```
+"auth-service":            { "failureMode": "deny",  "timeout": "200ms" }
+"ratelimit-check-service": { "failureMode": "allow", "timeout": "100ms" }
+```
 
 **"Quanto custa em latência?"**
 Duas chamadas gRPC out-of-process por requisição (auth + rate limit), com
@@ -898,9 +948,10 @@ Applications que a captura não lia:
   Ato 4 fica sem número, sem nenhum erro visível. Estão em
   [platform-reference/monitoring/](../platform-reference/monitoring/).
 - **Deployment do `echo-api`**. O Service existia sem backend. Importa mais do
-  que parece: é a segunda rota anexada ao `prod-web`, e sem ela as policies de
-  Gateway ficam `Enforced=False` por não terem o que proteger — que é
-  exatamente o par do Ato 3 no 1.4.
+  que parece: é a segunda rota anexada ao `prod-web` — e, depois que ganhou
+  `AuthPolicy` e `PlanPolicy` próprios, o segundo produto do catálogo. O Ato 3
+  é contado sobre esse par: sem a rota, a mensagem de status do Gateway nomeia
+  uma rota só e o `curl` de isolamento entre produtos fica sem alvo.
 
 - **O banco inteiro.** Os quatro backends do fan-out (`cars`, `flights`,
   `hotels`, `insurances`) consultam um MySQL em `mysqldb.travel-db:3306`, e nem
@@ -969,7 +1020,8 @@ oc exec -n travel-db deploy/mysqldb -c mysqldb -- \
 
 ### 8. A cota diária do plano mata o ensaio — e o roteiro pedia isso
 
-O `PlanPolicy` declara **dois** limites por tier, e só um é visível no Ato 2:
+O `PlanPolicy` declara **dois** limites por tier, e só um é visível no Ato 2.
+Como era originalmente — os valores de hoje estão no fim deste item:
 
 ```
 free      3/10s   +    50/dia
@@ -1003,13 +1055,22 @@ mesma leitura:
 
 ```
 cota diaria restante
-  gold     4985/5000
-  free     38/50
+  gold     99928/100000
+  silver   9960/10000
+  free     982/1000
 ```
 
 Não é específico do 1.4 — as cotas estão em `base/policies-plans/`, então o
 mesmo valia no 1.2.1. Só não aparecia porque ninguém rodava soak longo antes de
 conferir os tiers.
+
+**Como ficou:** as três diárias subiram 20× — `free` 1000, `silver` 10000,
+`gold` 100000. A razão entre elas é o argumento comercial e não mudou; o valor
+absoluto é só folga de ensaio, e é por isso que podia subir. Com esses números
+uma validação completa (três `preflight`, `anon`, `tiers`, `mesh-split`,
+`metrics`) consumiu 21 das 1000 do `free` — a armadilha continua sendo verdade
+sobre o mecanismo, e deixou de ser um risco na prática. Se você baixar os limites de volta, releia
+este item: o `reset` volta a ser obrigatório no aquecimento.
 
 ### 9. `backend.reading.allow` e uma allowlist — e falha em silencio
 
@@ -1131,10 +1192,13 @@ alcançada por outro caminho: lá a chave órfã era erro humano, aqui é o prod
 que a cria. O `preflight.sh` pega (reprova chave sem `plan-id`), mas só depois
 de ela existir.
 
-Por isso `env/rhcl-1.4_ocp-4.21/devportal/` deixa os três `APIKey` em `Pending`
-e o roteiro avisa para não aprovar: pendente povoa as três abas e **não toca nos
-Secrets** referenciados — verificado com snapshot antes/depois. A saída, se
-alguém aprovar:
+Enquanto isso valeu, o roteiro mandava **não aprovar**, e
+`env/rhcl-1.4_ocp-4.21/devportal/` deixava os três `APIKey` em `Pending` só para
+povoar as abas. **Essa instrução caiu** com o predicado guardado abaixo —
+aprovar voltou a ser seguro, e medido. Os `Pending` seguem no repo porque a fila
+é parte da demonstração do Ato 6, não porque aprovar quebre alguma coisa.
+
+Se precisar desfazer aprovações de um ensaio:
 
 ```bash
 oc delete secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true

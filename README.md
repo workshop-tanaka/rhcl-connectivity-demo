@@ -166,6 +166,10 @@ bash scripts/demo.sh --list          # os passos, e o que cada um faz
 bash scripts/demo.sh --dry-run       # ensaia sem executar nada
 bash scripts/demo.sh telas check     # preparacao: URLs das abas + veredito
 
+# ou, de dentro de uma sessao do Claude Code (.claude/commands/demo.md):
+#   /demo          conduz um movimento por vez, le a saida e diagnostica
+#   /demo ato3     entra direto num ato
+
 bash scripts/traffic.sh tiers        # comparativo dos tiers (default)
 bash scripts/traffic.sh burst gold   # rajada de um tier so
 bash scripts/traffic.sh anon         # sem chave / chave invalida -> 401
@@ -212,7 +216,7 @@ URLs de Grafana, Kiali e Tempo no [runbook](docs/RUNBOOK.md#ato-4--isso-vira-nú
 
 ## Armadilhas
 
-Doze comportamentos que custam tempo e não estão óbvios na documentação —
+Treze comportamentos que custam tempo e não estão óbvios na documentação —
 todos verificados em cluster, com sintoma e defesa em
 [docs/RUNBOOK.md](docs/RUNBOOK.md#armadilhas--encontradas-neste-cluster-não-no-manual):
 
@@ -233,3 +237,5 @@ todos verificados em cluster, com sintoma e defesa em
 10. O Kiali desliga as métricas sozinho, e a tela culpa a configuração.
 11. Aprovar chave no developer portal cunha uma chave sem limite.
 12. Fault injection não exercita retry nem timeout.
+13. O plugin de tracing do console exige multitenancy no Tempo — e ligá-la mexe
+    na ingestão, não só na leitura.

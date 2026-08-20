@@ -11,6 +11,7 @@ docs_dir: docs
 
 nav:
   - Inicio: index.md
+  - Passo a passo: DEMO-PASSO-A-PASSO.md
   - Roteiro: RUNBOOK.md
   - Provisionamento 1.4: PROVISIONING-1.4.md
 

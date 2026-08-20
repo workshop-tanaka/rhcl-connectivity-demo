@@ -1,0 +1,485 @@
+diff --git a/backend/src/main/java/io/kuadrant/devportal/rhcl/KubernetesRhclIntegrationService.java b/backend/src/main/java/io/kuadrant/devportal/rhcl/KubernetesRhclIntegrationService.java
+index 7118eba..74a9b62 100644
+--- a/backend/src/main/java/io/kuadrant/devportal/rhcl/KubernetesRhclIntegrationService.java
++++ b/backend/src/main/java/io/kuadrant/devportal/rhcl/KubernetesRhclIntegrationService.java
+@@ -83,6 +83,11 @@ public class KubernetesRhclIntegrationService implements RhclIntegrationService
+                         .addToLabels("app", config.apiKeyAppLabel())
+                         .addToLabels("authorino.kuadrant.io/managed-by", "authorino")
+                         .addToLabels("app.kubernetes.io/managed-by", "developer-portal")
++                        // Mesmo label que o controller do RHCL carimba no Secret que
++                        // ele proprio cunha. Permite que o AuthPolicy de cada rota
++                        // aceite so as chaves emitidas para AQUELE produto -- sem
++                        // isto, uma assinatura vale para todo o catalogo.
++                        .addToLabels("devportal.kuadrant.io/apiproduct", apiName)
+                         .addToAnnotations("secret.kuadrant.io/plan-id", plan != null ? plan.tier : "bronze")
+                         .addToAnnotations("secret.kuadrant.io/user-id", userId)
+                         .build())
+@@ -95,7 +100,10 @@ public class KubernetesRhclIntegrationService implements RhclIntegrationService
+         // `secretRef` was added in Kuadrant 1.4's CRD; the 1.3 schema rejects
+         // it as an unknown field. Only include when explicitly enabled.
+         Map<String, Object> apiKeySpec = new java.util.LinkedHashMap<>();
+-        apiKeySpec.put("apiProductRef", Map.of("name", apiName));
++        // O namespace e explicito: o APIProduct vive junto da HTTPRoute que ele
++        // representa, e o APIKey junto do Secret que o Authorino enxerga -- que
++        // nem sempre e o mesmo namespace.
++        apiKeySpec.put("apiProductRef", Map.of("name", apiName, "namespace", productNamespace()));
+         apiKeySpec.put("planTier", plan != null ? plan.tier : "bronze");
+         apiKeySpec.put("requestedBy", Map.of("email", user != null ? user.email : "", "userId", userId));
+         if (settings.apiKeyEmitSecretRef()) {
+@@ -244,11 +252,16 @@ public class KubernetesRhclIntegrationService implements RhclIntegrationService
+         return r;
+     }
+ 
++    /** Namespace of the APIProduct CRs; defaults to the API-key namespace. */
++    private String productNamespace() {
++        return config.apiProductNamespace().orElse(settings.rhclNamespace());
++    }
++
+     @SuppressWarnings("unchecked")
+     private String resolveHostname(ApiProduct product, String ns, String apiName) {
+         try {
+             GenericKubernetesResource cr = client.genericKubernetesResources(API_PRODUCT)
+-                    .inNamespace(ns).withName(apiName).get();
++                    .inNamespace(productNamespace()).withName(apiName).get();
+             if (cr != null) {
+                 Map<String, Object> status = (Map<String, Object>) cr.getAdditionalProperties().get("status");
+                 // APIKey status carries apiHostname; APIProduct exposes oidcDiscovery etc.
+diff --git a/backend/src/main/java/io/kuadrant/devportal/rhcl/PortalConfig.java b/backend/src/main/java/io/kuadrant/devportal/rhcl/PortalConfig.java
+index 305eafb..20ce420 100644
+--- a/backend/src/main/java/io/kuadrant/devportal/rhcl/PortalConfig.java
++++ b/backend/src/main/java/io/kuadrant/devportal/rhcl/PortalConfig.java
+@@ -19,6 +19,26 @@ public interface PortalConfig {
+     @WithDefault("rhcl-apps")
+     String namespace();
+ 
++    /**
++     * Namespace holding the {@code APIProduct} CRs, when they do not live in
++     * {@link #namespace()}. Authorino with {@code allNamespaces: false} forces
++     * the key Secrets into its own namespace, while the APIProduct must sit
++     * next to the HTTPRoute it targets -- so the two can differ.
++     */
++    Optional<String> apiProductNamespace();
++
++    /**
++     * Whether the gateway takes the API key as a query parameter instead of a
++     * header. Mirrors the AuthPolicy's {@code credentials} block; only affects
++     * the sample snippets handed to the consumer.
++     */
++    @WithDefault("false")
++    boolean apiKeyInQuery();
++
++    /** Path used in the sample snippets. */
++    @WithDefault("/")
++    String apiSamplePath();
++
+     /** Header the gateway expects the API key in. */
+     @WithDefault("api-key")
+     String apiKeyHeader();
+diff --git a/backend/src/main/java/io/kuadrant/devportal/rhcl/SettingsService.java b/backend/src/main/java/io/kuadrant/devportal/rhcl/SettingsService.java
+index db93453..0fd6a10 100644
+--- a/backend/src/main/java/io/kuadrant/devportal/rhcl/SettingsService.java
++++ b/backend/src/main/java/io/kuadrant/devportal/rhcl/SettingsService.java
+@@ -39,6 +39,13 @@ public class SettingsService {
+     public static final String TENANT_NAME = "tenant.name";
+     public static final String TENANT_DESCRIPTION = "tenant.description";
+ 
++    @org.eclipse.microprofile.config.inject.ConfigProperty(name = "portal.tenant.name", defaultValue = "ACME Corp")
++    String tenantNameDefault;
++
++    @org.eclipse.microprofile.config.inject.ConfigProperty(name = "portal.tenant.description",
++            defaultValue = "APIs and developer tooling")
++    String tenantDescriptionDefault;
++
+     @Inject
+     PortalConfig config;
+ 
+@@ -60,12 +67,17 @@ public class SettingsService {
+                 .orElse(config.apiKeyEmitSecretRef());
+     }
+ 
++    // O default vem do deploy (PORTAL_TENANT_NAME), nao de uma constante: o
++    // deploy.sh ja renderiza a marca no frontend, e o /api/system/tenant e lido
++    // depois da montagem -- com a constante aqui, a pagina trocava a marca do
++    // cliente por "ACME Corp" logo apos carregar. A linha do DB continua tendo
++    // precedencia, para o admin renomear sem redeploy.
+     public String tenantName() {
+-        return get(TENANT_NAME).orElse("ACME Corp");
++        return get(TENANT_NAME).orElse(tenantNameDefault);
+     }
+ 
+     public String tenantDescription() {
+-        return get(TENANT_DESCRIPTION).orElse("APIs and developer tooling");
++        return get(TENANT_DESCRIPTION).orElse(tenantDescriptionDefault);
+     }
+ 
+     // ----- Public API used by the admin REST resource -----------------
+diff --git a/backend/src/main/java/io/kuadrant/devportal/service/DataSeeder.java b/backend/src/main/java/io/kuadrant/devportal/service/DataSeeder.java
+index 16badb6..de2c04a 100644
+--- a/backend/src/main/java/io/kuadrant/devportal/service/DataSeeder.java
++++ b/backend/src/main/java/io/kuadrant/devportal/service/DataSeeder.java
+@@ -18,7 +18,7 @@ import jakarta.transaction.Transactional;
+ /**
+  * Seeds the catalog with demo data on first start (when the product table is
+  * empty), so the portal is immediately walkable. Mirrors the cluster's
+- * {@code banking-api} APIProduct + gold/silver/bronze PlanPolicy tiers.
++ * {@code travels-api} APIProduct + gold/silver/free PlanPolicy tiers.
+  */
+ @ApplicationScoped
+ public class DataSeeder {
+@@ -37,68 +37,109 @@ public class DataSeeder {
+             defaultValue = "http://banking-api-v1.rhcl-apps.svc:8080/q/openapi")
+     String openApiUrl;
+ 
++    // Segundo produto do catalogo. Vazio = nao semeia -- um cluster sem
++    // echo-api exposto nao ganha um item de catalogo que responderia 404.
++    @ConfigProperty(name = "portal.seed.echo-hostname", defaultValue = "")
++    String echoHostname;
++
+     @Transactional
+     void onStart(@Observes StartupEvent ev) {
+         if (!seedEnabled) {
+             return;
+         }
+-        if (ApiProduct.count() > 0) {
+-            reconcile();
++        // O gate e POR PRODUTO, nao pela contagem total: com 'count() > 0' um
++        // produto novo (echo-api) nunca entraria num portal que ja tem catalogo,
++        // e a unica saida seria zerar o banco.
++        reconcile();
++        seedEcho();
++        if (ApiProduct.findByName("travels-api") != null) {
+             return;
+         }
+-        LOG.info("Seeding demo catalog (banking-api + plans)...");
+-
+-        ApiProduct banking = new ApiProduct();
+-        banking.name = "banking-api";
+-        banking.displayName = "Banking API";
+-        banking.description = "Sample banking API exposed through Red Hat Connectivity Link — demo seed, customise via portal.seed.* properties.";
+-        banking.version = "v1";
+-        banking.status = ApiStatus.ACTIVE;
+-        banking.owner = "RHCL PoC Team";
+-        banking.baseUrl = "https://" + hostname + "/api/v1";
+-        banking.openApiSpecUrl = openApiUrl;
+-        banking.approvalMode = ApprovalMode.MANUAL;
+-        banking.published = true;
+-        banking.tags = List.of("banking", "poc", "rhcl");
+-        banking.contactTeam = "RHCL PoC Team";
+-        banking.contactEmail = "rhcl-poc@example.com";
+-        banking.rhclRef = "rhcl-apps/banking-api";
+-        banking.persist();
+-
+-        seedPlan(banking.id, "Gold", "Unlimited tier for trusted consumers.", "gold", 0, 0, 0, true);
+-        seedPlan(banking.id, "Silver", "50 requests/minute.", "silver", 50, 50_000, 1_000_000, true);
+-        seedPlan(banking.id, "Bronze", "10 requests/minute — good for getting started.", "bronze", 10, 5_000, 100_000, false);
+-
+-        // A second, beta product to make the catalog feel real.
+-        ApiProduct payments = new ApiProduct();
+-        payments.name = "payments-api";
+-        payments.displayName = "Payments API";
+-        payments.description = "Initiate and track payments (beta). Subject to change.";
+-        payments.version = "v0";
+-        payments.status = ApiStatus.BETA;
+-        payments.owner = "Payments Squad";
+-        payments.baseUrl = "https://" + hostname + "/payments/v0";
+-        payments.approvalMode = ApprovalMode.AUTOMATIC;
+-        payments.published = true;
+-        payments.tags = List.of("payments", "beta");
+-        payments.contactTeam = "Payments Squad";
+-        payments.contactEmail = "payments@example.com";
+-        payments.persist();
+-        seedPlan(payments.id, "Free", "Auto-approved sandbox tier.", "bronze", 10, 1_000, 10_000, false);
++        LOG.info("Seeding demo catalog (travels-api + plans)...");
++
++        // O catalogo do portal e a sua propria base -- ele nao le APIProducts do
++        // cluster. Para o portal e a demo contarem a MESMA historia, o produto e
++        // os tres planos abaixo espelham o que ja esta no travel-agency:
++        // APIProduct travels-api e os tiers do PlanPolicy travels-plans. Os
++        // nomes de tier tem de bater exatamente ('gold'/'silver'/'free'): e o
++        // que vai para spec.planTier do APIKey e para a annotation plan-id que
++        // classifica o trafego.
++        ApiProduct travels = new ApiProduct();
++        travels.name = "travels-api";
++        travels.displayName = "Travels API";
++        travels.description = "A API da travel-agency, publicada em tres planos comerciais e governada "
++                + "pelo Red Hat Connectivity Link. O limite de cada plano vem do PlanPolicy travels-plans.";
++        travels.version = "v1";
++        travels.status = ApiStatus.ACTIVE;
++        travels.owner = "Travel Platform Team";
++        travels.baseUrl = "https://" + hostname + "/travels";
++        travels.openApiSpecUrl = openApiUrl;
++        travels.approvalMode = ApprovalMode.MANUAL;
++        travels.published = true;
++        travels.tags = List.of("travel", "partners", "rate-limited");
++        travels.contactTeam = "Travel Platform Team";
++        travels.contactEmail = "api@travels.example";
++        travels.rhclRef = "travel-agency/travels-api";
++        travels.persist();
++
++        // rpm derivado da janela de 10s do PlanPolicy (30/10s = 180/min), e a
++        // cota diaria copiada tal e qual.
++        seedPlan(travels.id, "Gold", "Revenda white-label: 30 req/10s, 5000/dia.", "gold", 180, 5_000, 150_000, true);
++        seedPlan(travels.id, "Silver", "Integracao corporativa: 10 req/10s, 500/dia.", "silver", 60, 500, 15_000, true);
++        seedPlan(travels.id, "Free", "Avaliacao: 3 req/10s, 50/dia.", "free", 18, 50, 1_500, false);
+ 
+         LOG.info("Seed complete.");
+     }
+ 
+-    /** Keep the banking-api spec URL aligned with config on every restart. */
++    /** Keep the seeded product spec URL aligned with config on every restart. */
+     private void reconcile() {
+-        ApiProduct banking = ApiProduct.findByName("banking-api");
++        ApiProduct banking = ApiProduct.findByName("travels-api");
+         if (banking != null && !openApiUrl.equals(banking.openApiSpecUrl)) {
+-            LOG.infof("Reconciling banking-api openApiSpecUrl -> %s", openApiUrl);
++            LOG.infof("Reconciling travels-api openApiSpecUrl -> %s", openApiUrl);
+             banking.openApiSpecUrl = openApiUrl;
+             banking.updatedAt = java.time.Instant.now();
+         }
+     }
+ 
++    /**
++     * Segundo produto: o echo-api. Idempotente -- so cria o que falta, para
++     * poder entrar num portal que ja esta rodando com catalogo.
++     *
++     * approvalMode AUTOMATIC espelha o APIProduct no cluster: o echo existe
++     * para o parceiro conferir a propria integracao, e exigir aprovacao manual
++     * para isso so atrapalha.
++     */
++    private void seedEcho() {
++        if (echoHostname == null || echoHostname.isBlank() || ApiProduct.findByName("echo-api") != null) {
++            return;
++        }
++        LOG.infof("Seeding echo-api (%s)...", echoHostname);
++        ApiProduct echo = new ApiProduct();
++        echo.name = "echo-api";
++        echo.displayName = "Echo API";
++        echo.description = "Endpoint de teste da plataforma: serve uma pagina estatica atras do mesmo "
++                + "Gateway das APIs de negocio. Util para validar chave, rota e limite antes de integrar "
++                + "com a API real. Responde 403 por design (pagina de boas-vindas do httpd) -- o que "
++                + "importa aqui e o 401 sem chave e o 429 acima do limite.";
++        echo.version = "v1";
++        echo.status = ApiStatus.ACTIVE;
++        echo.owner = "Platform Team";
++        echo.baseUrl = "https://" + echoHostname + "/";
++        echo.approvalMode = ApprovalMode.AUTOMATIC;
++        echo.published = true;
++        echo.tags = List.of("utility", "diagnostics");
++        echo.contactTeam = "Platform Team";
++        echo.contactEmail = "platform@travels.example";
++        echo.rhclRef = "echo-api/echo-api";
++        echo.persist();
++
++        // UM plano, tier 'default' -- o mesmo nome do unico tier do PlanPolicy
++        // echo-plans. O tier nao existe para segmentar cliente: existe porque
++        // spec.planTier e obrigatorio no APIKey e tem de casar com a policy da
++        // rota, senao a chave nunca sai de Pending.
++        seedPlan(echo.id, "Default", "20 req/10s, 2000/dia.", "default", 120, 2_000, 60_000, false);
++    }
++
+     private void seedPlan(Long productId, String name, String desc, String tier, int rpm, long daily,
+             long monthly, boolean approvalRequired) {
+         ApplicationPlan p = new ApplicationPlan();
+diff --git a/backend/src/main/java/io/kuadrant/devportal/service/SubscriptionService.java b/backend/src/main/java/io/kuadrant/devportal/service/SubscriptionService.java
+index e71ea70..a8b9ffd 100644
+--- a/backend/src/main/java/io/kuadrant/devportal/service/SubscriptionService.java
++++ b/backend/src/main/java/io/kuadrant/devportal/service/SubscriptionService.java
+@@ -38,6 +38,9 @@ public class SubscriptionService {
+     @Inject
+     Instance<RhclIntegrationService> rhcl;
+ 
++    @Inject
++    io.kuadrant.devportal.rhcl.PortalConfig config;
++
+     @Inject
+     AuditService audit;
+ 
+@@ -183,9 +186,17 @@ public class SubscriptionService {
+         return cred == null ? null : toCredentialDto(cred);
+     }
+ 
+-    public static ApiCredentialDto toCredentialDto(ApiCredential cred) {
+-        String curl = "curl -H \"" + cred.headerName() + ": " + cred.plainKey() + "\" https://"
+-                + cred.hostname() + "/api/v1/accounts/summary";
++    /**
++     * Builds the one-shot credential payload, including the snippet the consumer
++     * copies. The snippet follows the gateway's AuthPolicy: a header when the
++     * policy reads one, a query parameter when it reads {@code credentials.queryString}
++     * -- handing over a curl that does not authenticate is worse than handing none.
++     */
++    public ApiCredentialDto toCredentialDto(ApiCredential cred) {
++        String url = "https://" + cred.hostname() + config.apiSamplePath();
++        String curl = config.apiKeyInQuery()
++                ? "curl \"" + url + "?" + cred.headerName() + "=" + cred.plainKey() + "\""
++                : "curl -H \"" + cred.headerName() + ": " + cred.plainKey() + "\" " + url;
+         return new ApiCredentialDto(cred.keyId(), cred.plainKey(), cred.keyPreview(), cred.headerName(),
+                 cred.hostname(), curl);
+     }
+diff --git a/backend/src/main/resources/application.properties b/backend/src/main/resources/application.properties
+index 46a32a3..3c8a7e8 100644
+--- a/backend/src/main/resources/application.properties
++++ b/backend/src/main/resources/application.properties
+@@ -36,11 +36,26 @@ portal.rhcl.namespace=${RHCL_NAMESPACE:rhcl-apps}
+ portal.rhcl.api-key-header=${RHCL_APIKEY_HEADER:api-key}
+ portal.rhcl.api-key-app-label=${RHCL_APIKEY_APP_LABEL:banking-api-apikey}
+ portal.rhcl.default-hostname=${RHCL_DEFAULT_HOSTNAME:}
++# Namespace dos APIProducts, quando nao for o mesmo das chaves (Authorino com
++# allNamespaces: false prende o Secret ao namespace dele; o APIProduct fica
++# junto da HTTPRoute que ele representa).
++portal.rhcl.api-product-namespace=${RHCL_APIPRODUCT_NAMESPACE:}
++# Como a chave viaja: header (default) ou query param. Espelha o bloco
++# credentials do AuthPolicy; afeta so os exemplos entregues ao consumidor.
++portal.rhcl.api-key-in-query=${RHCL_APIKEY_IN_QUERY:false}
++portal.rhcl.api-sample-path=${RHCL_API_SAMPLE_PATH:/}
+ # portal.rhcl.prometheus-url=${PROMETHEUS_URL:}
+ 
++# --- Marca do tenant ---------------------------------------------------------
++# Mesmos valores que o deploy.sh injeta no frontend; aqui servem de default para
++# /api/system/tenant, que o frontend le depois de montar.
++portal.tenant.name=${PORTAL_TENANT_NAME:ACME Corp}
++portal.tenant.description=${PORTAL_TENANT_DESCRIPTION:APIs and developer tooling}
++
+ # Demo catalog seed (banking-api + plans) on first start.
+ portal.seed.enabled=${SEED_ENABLED:true}
+ portal.seed.hostname=${SEED_HOSTNAME:banking-api-connectivity.apps.example.com}
++portal.seed.echo-hostname=${SEED_ECHO_HOSTNAME:}
+ 
+ # ===========================================================================
+ # Production profile — OIDC enabled, /api/me & /api/admin require a token.
+diff --git a/deploy/backend.yaml b/deploy/backend.yaml
+index 87fa6d6..5ca5dea 100644
+--- a/deploy/backend.yaml
++++ b/deploy/backend.yaml
+@@ -12,14 +12,38 @@ metadata:
+ data:
+   # mock | kubernetes. Switch to "kubernetes" to drive the real RHCL CRDs.
+   RHCL_MODE: "kubernetes"
+-  RHCL_NAMESPACE: "rhcl-apps"
+-  RHCL_APIKEY_HEADER: "api-key"
+-  RHCL_APIKEY_APP_LABEL: "banking-api-apikey"
++  # Chaves e APIKey CRs vao para o namespace do Authorino: o AuthPolicy da rota
++  # usa allNamespaces: false, entao Secret fora dali e invisivel.
++  RHCL_NAMESPACE: "kuadrant-system"
++  # O APIProduct fica junto da HTTPRoute que ele representa.
++  RHCL_APIPRODUCT_NAMESPACE: "travel-agency"
++  # O AuthPolicy le a chave do query param APIKEY, nao de um header.
++  RHCL_APIKEY_HEADER: "APIKEY"
++  RHCL_APIKEY_IN_QUERY: "true"
++  RHCL_API_SAMPLE_PATH: "/travels"
++  # Label que o AuthPolicy seleciona (spec.rules.authentication.apiKey.selector).
++  RHCL_APIKEY_APP_LABEL: "partner"
++  # O CRD APIKey do RHCL 1.4 declara spec.secretRef como obrigatorio.
++  # Nome canonico SmallRye de portal.rhcl.api-key-emit-secret-ref. O README do
++  # upstream documenta PORTAL_RHCL_APIKEYEMITSECRETREF, que NAO casa com o
++  # mapeamento e deixa o flag em false -- a criacao da chave falha com
++  # "spec.secretRef: Required value".
++  PORTAL_RHCL_API_KEY_EMIT_SECRET_REF: "true"
+   # In-cluster Thanos querier for real per-API usage metrics (usage dashboard).
+   PORTAL_RHCL_PROMETHEUS_URL: "https://thanos-querier.openshift-monitoring.svc:9091"
++  # Marca do tenant tambem no backend: /api/system/tenant e a fonte que o
++  # frontend consulta depois de montar.
++  PORTAL_TENANT_NAME: "${PORTAL_TENANT_NAME}"
++  PORTAL_TENANT_DESCRIPTION: "${PORTAL_TENANT_DESCRIPTION}"
+   SEED_ENABLED: "true"
++  # A travels-api nao publica OpenAPI. Valor vazio NAO serve: o Quarkus falha o
++  # boot ao converter string vazia ("Failed to load config value of type
++  # class java.lang.String"). Fica um endpoint inexistente e a aba Docs vazia.
++  PORTAL_SEED_OPENAPI_URL: "http://travels-v1.travel-agency.svc:8000/openapi"
+   # Cluster-specific values are rendered by deploy.sh (envsubst). See deploy.sh.
+   SEED_HOSTNAME: "${GATEWAY_HOST}"
++  # Segundo produto do catalogo; vazio desliga.
++  SEED_ECHO_HOSTNAME: "${ECHO_HOST}"
+   RHCL_DEFAULT_HOSTNAME: "${GATEWAY_HOST}"
+   # OIDC (used in prod profile). Realm rhcl on the lab Keycloak.
+   OIDC_AUTH_SERVER_URL: "${OIDC_ISSUER}"
+diff --git a/deploy/deploy.sh b/deploy/deploy.sh
+index 58d2cd2..e64ad78 100755
+--- a/deploy/deploy.sh
++++ b/deploy/deploy.sh
+@@ -80,6 +80,7 @@ fi
+ echo "→ applying manifests ..."
+ oc kustomize "$HERE" \
+   | sed -e "s|\${GATEWAY_HOST}|$GATEWAY_HOST|g" \
++        -e "s|\${ECHO_HOST}|${ECHO_HOST:-}|g" \
+         -e "s|\${OIDC_ISSUER}|$OIDC_ISSUER|g" \
+         -e "s|\${BACKEND_HOST}|$BACKEND_HOST|g" \
+         -e "s|\${APPS_DOMAIN}|$APPS_DOMAIN|g" \
+diff --git a/deploy/rbac-rhcl.yaml b/deploy/rbac-rhcl.yaml
+index fd7a5f9..6cf0045 100644
+--- a/deploy/rbac-rhcl.yaml
++++ b/deploy/rbac-rhcl.yaml
+@@ -1,18 +1,21 @@
+-# RBAC granting the portal backend SA (in rhcl-devportal) the rights to drive
+-# the RHCL DevPortal CRDs and Authorino API-key Secrets in the rhcl-apps
+-# namespace. Required only when RHCL_MODE=kubernetes.
++# RBAC do backend do portal (SA portal-backend, ns rhcl-devportal).
++#
++# Sao DOIS namespaces porque o cluster obriga: o AuthPolicy da rota usa
++# 'allNamespaces: false', entao o Authorino so enxerga Secret de API key no
++# namespace dele (kuadrant-system) -- e la que a chave e o APIKey nascem. Ja o
++# APIProduct tem de ficar junto da HTTPRoute que ele representa
++# (travel-agency), e dali o portal so le.
++#
++# Necessario apenas com RHCL_MODE=kubernetes.
+ apiVersion: rbac.authorization.k8s.io/v1
+ kind: Role
+ metadata:
+-  name: portal-rhcl-integration
+-  namespace: rhcl-apps
++  name: portal-rhcl-keys
++  namespace: kuadrant-system
+ rules:
+   - apiGroups: ["devportal.kuadrant.io"]
+-    resources: ["apiproducts", "apikeys", "apikeyrequests", "apikeyapprovals"]
++    resources: ["apikeys", "apikeyrequests"]
+     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+-  - apiGroups: ["extensions.kuadrant.io"]
+-    resources: ["planpolicies"]
+-    verbs: ["get", "list", "watch"]
+   - apiGroups: [""]
+     resources: ["secrets"]
+     verbs: ["get", "list", "create", "update", "patch", "delete"]
+@@ -20,12 +23,40 @@ rules:
+ apiVersion: rbac.authorization.k8s.io/v1
+ kind: RoleBinding
+ metadata:
+-  name: portal-rhcl-integration
+-  namespace: rhcl-apps
++  name: portal-rhcl-keys
++  namespace: kuadrant-system
++roleRef:
++  apiGroup: rbac.authorization.k8s.io
++  kind: Role
++  name: portal-rhcl-keys
++subjects:
++  - kind: ServiceAccount
++    name: portal-backend
++    namespace: rhcl-devportal
++---
++# Catalogo: leitura do APIProduct (hostname, status) e dos planos.
++apiVersion: rbac.authorization.k8s.io/v1
++kind: Role
++metadata:
++  name: portal-rhcl-catalog
++  namespace: travel-agency
++rules:
++  - apiGroups: ["devportal.kuadrant.io"]
++    resources: ["apiproducts", "apikeyapprovals", "apikeyrequests"]
++    verbs: ["get", "list", "watch"]
++  - apiGroups: ["extensions.kuadrant.io"]
++    resources: ["planpolicies"]
++    verbs: ["get", "list", "watch"]
++---
++apiVersion: rbac.authorization.k8s.io/v1
++kind: RoleBinding
++metadata:
++  name: portal-rhcl-catalog
++  namespace: travel-agency
+ roleRef:
+   apiGroup: rbac.authorization.k8s.io
+   kind: Role
+-  name: portal-rhcl-integration
++  name: portal-rhcl-catalog
+ subjects:
+   - kind: ServiceAccount
+     name: portal-backend
