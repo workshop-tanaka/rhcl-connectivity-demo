@@ -79,3 +79,14 @@ valendo para quem aplica à mão (`oc apply -k manifests/`).
 O preço é a convenção de nome virar contrato: `include: manifests/[0-9]*.yaml`
 pega `00-` a `53-` e deixa o `kustomization.yaml` de fora (se ele entrasse, o
 sync falharia com `kind not set`).
+
+## Mudar este escopo
+
+Há um plano avaliado para mover os recursos da demo para um **GitLab no próprio
+cluster**, mantendo o GitHub como repositório de administração, setup e da infra
+do próprio GitLab — inclusive o porquê de a camada-semente não poder ser GitOps:
+[docs/GITOPS-GITLAB.md](../docs/GITOPS-GITLAB.md).
+
+O escopo estreito descrito acima continua valendo até que aquele plano seja
+executado. Ele não é servido pelo TechDocs de propósito: é documento de
+engenharia, não material de apresentação.
