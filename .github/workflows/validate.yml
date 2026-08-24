@@ -65,3 +65,67 @@ jobs:
             fi
           done
           exit $fail
+
+  antidrift:
+    name: Anti-drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copias que precisam continuar identicas
+        run: |
+          python3 - <<'EOF'
+          import hashlib, sys
+
+          # Duas funcoes vivem em mais de um arquivo DE PROPOSITO, e em ambos os
+          # casos o motivo e o mesmo: os scripts de scripts/ sao self-contained --
+          # rodam sozinhos, sem source de nada. A duplicacao e o preco dessa
+          # garantia, e este job e quem a torna segura.
+          #
+          # Nao guardamos _log/_ok/_warn/_die: eles VARIAM de proposito (o _warn do
+          # preflight conta avisos e aceita uma dica; os outros nao). Guardar
+          # cosmetico produz alarme falso, e alarme falso ensina a ignorar o job.
+          GUARDADAS = [
+              # _overlay decide o overlay pelo CSV -- ou seja, o regime de
+              # precedencia de rate limit. Se as copias divergirem, um script passa
+              # a recomendar o overlay da outra release, que reescreve o hostname da
+              # HTTPRoute E readiciona a RateLimitPolicy plana: o conserto sugerido
+              # causa falha pior que a original.
+              ("_overlay", ["scripts/preflight.sh", "scripts/traffic.sh"]),
+              # _discover_rhdh_ns decide QUAL portal recebe a configuracao da demo.
+              # Ja divergiu uma vez (2026-08-24, sync-survey.sh sem a guarda do
+              # namespace alheio) e ninguem viu, porque a diferenca so aparece em
+              # cluster novo. Consolidado em rhdh/lib.sh; o preflight mantem copia
+              # por ser self-contained.
+              ("_discover_rhdh_ns", ["scripts/preflight.sh", "rhdh/lib.sh"]),
+          ]
+
+          def corpo(path, fn):
+              linhas = open(path).read().splitlines()
+              i = next((k for k, l in enumerate(linhas) if l.startswith(fn + "()")), None)
+              if i is None:
+                  return None
+              j = next(k for k in range(i, len(linhas)) if linhas[k] == "}")
+              util = [l.strip() for l in linhas[i:j + 1]
+                      if l.strip() and not l.strip().startswith("#")]
+              return hashlib.sha1("\n".join(util).encode()).hexdigest()[:12]
+
+          falhou = 0
+          for fn, arquivos in GUARDADAS:
+              vistos = {}
+              for a in arquivos:
+                  h = corpo(a, fn)
+                  if h is None:
+                      print("FALHA %s: nao achei %s()" % (a, fn))
+                      falhou = 1
+                      continue
+                  vistos[a] = h
+              if len(set(vistos.values())) > 1:
+                  print("FALHA %s() divergiu entre as copias:" % fn)
+                  for a, h in vistos.items():
+                      print("        %s  %s" % (h, a))
+                  print("        as copias precisam ficar identicas -- veja o comentario deste job")
+                  falhou = 1
+              elif vistos:
+                  print("ok    %s() identica em %d arquivo(s)" % (fn, len(vistos)))
+          sys.exit(falhou)
+          EOF
