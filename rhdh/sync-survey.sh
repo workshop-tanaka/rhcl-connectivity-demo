@@ -22,30 +22,12 @@
 
 set -uo pipefail
 
-if [[ -t 1 ]]; then
-  _RED=$'\033[0;31m'; _GRN=$'\033[0;32m'; _YEL=$'\033[0;33m'; _BLU=$'\033[0;34m'; _RST=$'\033[0m'
-else
-  _RED=""; _GRN=""; _YEL=""; _BLU=""; _RST=""
-fi
-_log()  { printf '%s[*]%s %s\n' "$_BLU" "$_RST" "$*"; }
-_ok()   { printf '%s[OK]%s %s\n' "$_GRN" "$_RST" "$*"; }
-_warn() { printf '%s[!]%s %s\n' "$_YEL" "$_RST" "$*" >&2; }
-_die()  { printf '%s[X]%s %s\n' "$_RED" "$_RST" "$*" >&2; exit 1; }
-
 _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${_here}/lib.sh" || { echo "rhdh/lib.sh ausente" >&2; exit 1; }
 
-command -v oc >/dev/null      || _die "oc nao encontrado no PATH."
-command -v curl >/dev/null    || _die "curl nao encontrado no PATH."
-command -v python3 >/dev/null || _die "python3 nao encontrado no PATH."
-oc whoami >/dev/null 2>&1     || _die "nao autenticado no cluster (oc login)."
+_need oc curl python3
+_need_cluster
 
-_discover_rhdh_ns() {
-  local ns
-  for ns in $(oc get backstage -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | sort -u); do
-    oc get secret rhdh-backend-secret -n "$ns" >/dev/null 2>&1 && { printf '%s' "$ns"; return; }
-  done
-  printf 'rhdh'
-}
 RHDH_NS="${RHDH_NS:-$(_discover_rhdh_ns)}"
 
 AAP_URL="${RHAAP_BASE_URL:-$(oc get secret rhdh-ansible-secret -n "$RHDH_NS" \
