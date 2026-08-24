@@ -243,9 +243,9 @@ st_operators() {
   _wait_crd telemetrypolicies.extensions.kuadrant.io
 
   if [[ "${OPTIONAL:-1}" == "1" ]]; then
-    _wait_csv openshift-operators kiali-ossm 0
-    _wait_csv openshift-operators tempo-product 0
-    _wait_csv openshift-operators opentelemetry-product 0
+    _wait_csv openshift-operators kiali-operator 0
+    _wait_csv openshift-operators tempo-operator 0
+    _wait_csv openshift-operators opentelemetry-operator 0
     _wait_csv monitoring grafana-operator 0
   fi
 
@@ -332,9 +332,15 @@ st_platform() {
   # A ordem importa: o label de injecao tem de existir ANTES dos Deployments,
   # senao os pods sobem sem sidecar e o Ato 7 (malha leste-oeste) nao acontece —
   # e o sintoma so aparece la, tres atos depois.
-  _ns ingress-gateway travel-agency echo-api
-  _run oc label namespace travel-agency istio-injection=enabled --overwrite >/dev/null \
-    && _ok "travel-agency com istio-injection=enabled"
+  # travel-db entra aqui, e nao so pelo Namespace que mysqldb.yaml carrega: o
+  # 'oc apply -f <dir>' percorre em ordem alfabetica, entao 00-seed-enrich.yaml
+  # chega ANTES de mysqldb.yaml e falha por namespace inexistente. Criar aqui
+  # tambem tira o label de injecao da mesma requisicao que cria o Deployment.
+  _ns ingress-gateway travel-agency echo-api travel-db
+  for _n in travel-agency travel-db; do
+    _run oc label namespace "$_n" istio-injection=enabled --overwrite >/dev/null \
+      && _ok "${_n} com istio-injection=enabled"
+  done
 
   _apply platform-reference/workloads/travel-agency
   _apply platform-reference/workloads/echo-api
@@ -638,6 +644,7 @@ st_dashboards() {
   fi
 
   _apply platform-reference/monitoring/grafana-dashboard-plans.yaml   # o do Ato 4
+  _apply platform-reference/monitoring/grafana-dashboard-parceiros.yaml # consumo por parceiro
   _apply platform-reference/monitoring/kuadrant-dashboards            # os tres de fabrica
 }
 

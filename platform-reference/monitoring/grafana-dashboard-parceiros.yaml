@@ -1,0 +1,108 @@
+# ===========================================================================
+# Dashboard 'RHCL — consumo por parceiro'.
+#
+# Responde a pergunta que o 'rhcl-planos' nao responde: dentro do plano, QUEM
+# consumiu. E a diferenca entre "o tier free esta saturando" e "a Acme esta
+# saturando o tier free".
+#
+# A serie NAO vem do Limitador -- ali a granularidade e por plano e nao ha como
+# mudar (o PlanPolicy reescreve o dynamicMetadata do AuthConfig; armadilha 3).
+# Vem da malha: o AuthPolicy injeta a identidade como header x-partner e o
+# Telemetry do Istio a transforma em dimensao. Os dois em base/:
+#   base/policies-security/travel-agency-authpolicy.yaml
+#   base/policies-telemetry/istio-partner-dimension.yaml
+#
+# LEITURA DOS ROTULOS:
+#   bob, carol           chave criada no developer portal (annotation user-id)
+#   apikey-gold-globex   chave criada pelo repo, sem annotation: nome do Secret
+#   unknown              401 -- sem identidade, o Istio preenche assim
+#
+# CARDINALIDADE: um parceiro novo multiplica series por codigo de resposta.
+# Dezenas, tranquilo. Milhares, volte a medir por plano.
+# ===========================================================================
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: rhcl-parceiros
+  namespace: monitoring
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  json: >
+    {
+      "title": "RHCL — consumo por parceiro",
+      "uid": "rhcl-parceiros",
+      "timezone": "browser",
+      "refresh": "10s",
+      "time": {"from": "now-1h", "to": "now"},
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {"text": "Thanos", "value": "Thanos", "selected": false},
+            "options": [], "refresh": 1, "hide": 0, "includeAll": false, "multi": false
+          },
+          {
+            "name": "parceiro",
+            "type": "query",
+            "label": "Parceiro",
+            "datasource": {"type": "prometheus", "uid": "${datasource}"},
+            "query": {"query": "label_values(istio_requests_total{partner!=\"\", partner!=\"unknown\"}, partner)", "refId": "StandardVariableQuery"},
+            "refresh": 2, "includeAll": true, "multi": true, "current": {"text": "All", "value": "$__all"}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Servidas por parceiro (req/s)",
+          "description": "200 por consumidor. Dentro do mesmo plano, mostra quem realmente usa a API.",
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (partner) (rate(istio_requests_total{partner=~\"$parceiro\", response_code=\"200\"}[2m]))", "legendFormat": "{{partner}}"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Recusadas por parceiro (429/s)",
+          "description": "O 429 nasce no gateway e nunca chega a aplicacao -- e mesmo assim carrega o rotulo. E o argumento de upgrade, com nome do cliente.",
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (partner) (rate(istio_requests_total{partner=~\"$parceiro\", response_code=\"429\"}[2m]))", "legendFormat": "{{partner}}"}
+          ]
+        },
+        {
+          "type": "table",
+          "title": "Consumo na janela",
+          "description": "Servidas, recusadas e taxa de recusa por parceiro. A coluna que interessa ao comercial e a ultima.",
+          "gridPos": {"h": 9, "w": 14, "x": 0, "y": 9},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "servidas", "expr": "sum by (partner) (increase(istio_requests_total{partner=~\"$parceiro\", response_code=\"200\"}[$__range]))", "instant": true, "format": "table"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "recusadas", "expr": "sum by (partner) (increase(istio_requests_total{partner=~\"$parceiro\", response_code=\"429\"}[$__range])) or (sum by (partner) (increase(istio_requests_total{partner=~\"$parceiro\", response_code=\"200\"}[$__range])) * 0)", "instant": true, "format": "table"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "recusa_pct", "expr": "100 * sum by (partner) (increase(istio_requests_total{partner=~\"$parceiro\", response_code=\"429\"}[$__range])) / clamp_min(sum by (partner) (increase(istio_requests_total{partner=~\"$parceiro\"}[$__range])), 1)", "instant": true, "format": "table"}
+          ],
+          "transformations": [
+            {"id": "joinByField", "options": {"byField": "partner", "mode": "outer"}},
+            {"id": "organize", "options": {"excludeByName": {"Time": true, "Time 1": true, "Time 2": true, "Time 3": true},
+              "renameByName": {"partner": "parceiro", "Value #servidas": "servidas", "Value #recusadas": "recusadas (429)", "Value #recusa_pct": "taxa de recusa %"}}},
+            {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "servidas", "desc": true}]}}
+          ]
+        },
+        {
+          "type": "piechart",
+          "title": "Participacao no trafego servido",
+          "description": "Quanto do consumo total cada parceiro representa na janela.",
+          "gridPos": {"h": 9, "w": 10, "x": 14, "y": 9},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (partner) (increase(istio_requests_total{partner=~\"$parceiro\", response_code=\"200\"}[$__range]))", "legendFormat": "{{partner}}", "instant": true}
+          ]
+        }
+      ]
+    }
