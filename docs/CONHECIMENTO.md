@@ -31,18 +31,25 @@ sem acentuação em comentários de script.
 Cluster de workshop, com prazo de validade. Tudo nesta seção envelhece; a
 seção 5 (armadilhas) não.
 
-| Item | Valor em 2026-08-21 |
+| Item | Valor em 2026-08-24 |
 | --- | --- |
-| Cluster | `cluster-w4xtj.dyn.redhatworkshops.io` |
-| API | `https://api.cluster-w4xtj.dyn.redhatworkshops.io:6443` |
-| OpenShift | 4.21.27 — **SNO**: 1 node `control-plane,master,worker` |
+| Cluster | `cluster-cxr7d.dyn.redhatworkshops.io` |
+| API | `https://api.cluster-cxr7d.dyn.redhatworkshops.io:6443` |
+| OpenShift | 4.21.28 — **5 nodes**: 3 `control-plane,master,worker` + 2 `worker` |
 | RHCL | `rhcl-operator.v1.4.2` (canal `stable`) |
 | Service Mesh | OSSM `servicemeshoperator3.v3.4.1`, Istio **1.30.3** |
-| Kiali / RHDH | operator 2.27.2 / 1.10.3 |
+| Kiali / RHDH | operator 2.27.2 / `rhdh-operator.v1.9.8` |
 | Observabilidade | Tempo 0.21.0-3, OTel 0.152.0-3, COO 1.5.1 |
 | Authorino / Limitador | 1.4.2 / 1.4.1 |
-| Storage | ODF 4.20.17 com **Ceph externo** (`HEALTH_OK`) |
-| TLS `*.apps` | wildcard Google Trust Services, válido até **2026-11-02** |
+| Storage | ODF 4.20.17, `ocs-external-storagecluster` **Ceph externo** `Ready` |
+| TLS `*.apps` | wildcard Google Trust Services (CN=WR1), válido até **2026-11-22** |
+
+> **Este cluster NÃO é SNO** — ao contrário do w4xtj, que era de 1 node. Duas
+> consequências ao ler o resto do arquivo: o risco de `DiskPressure` da §5.3 cai
+> muito (o disco deixa de ser o indicador mais apertado), e o ruído benigno da
+> §7 sobre "4 pods `Pending` em `openshift-storage`" tinha como causa
+> anti-affinity num cluster de 1 node — aqui, pods `Pending` merecem ser
+> investigados, não dispensados.
 
 Comando único para reconfirmar tudo:
 
@@ -62,10 +69,16 @@ oc get clusterversion; oc get csv -A | grep -E 'rhcl|servicemesh'; oc get nodes
 | `monitoring` | Grafana próprio da demo + dashboards por plano |
 | `tracing-system` | Tempo + OTel collector (Ato 5) |
 | `rhdh-rhcl` | **o RHDH da demo** — rota `rhcl-portal` |
-| `rhdh` | RHDH do workshop AAP — **não é a demo, não mexer** |
-| `rhcl-devportal` | developer portal standalone, buildado no cluster |
 | `echo-api` | API secundária, usada no fluxo de devportal |
-| `aap` | Ansible Automation Platform do workshop |
+| `openshift-gitops` | Argo CD + o ApplicationSet do golden path (Ato 6) |
+| `openshift-devspaces` | Dev Spaces (`CheCluster`), fora do roteiro dos 7 atos |
+
+Neste cluster **não existem** três namespaces que o w4xtj tinha: `rhdh` (era o
+portal do workshop AAP), `rhcl-devportal` (portal standalone buildado no
+cluster) e `aap`. Como não há RHDH concorrente, o `_discover_rhdh_ns` escolheria
+`rhdh` sozinho — a instalação foi feita com `RHDH_NS=rhdh-rhcl` e
+`RHDH_HOST=rhcl-portal.apps...` de propósito, para o ambiente continuar batendo
+com o que o RUNBOOK descreve.
 
 ---
 
@@ -108,8 +121,9 @@ curl "https://api-travels.apps.<dom>/travels?APIKEY=<chave>"     # 200
 curl -H "Authorization: APIKEY <chave>" .../travels              # 401 — NÃO funciona
 ```
 
-> ⚠️ O `ACESSOS.md` gerado em 2026-08-18 documenta a forma de header. Está
-> desatualizado — medido em 2026-08-20, só a query string autentica.
+> O `acessos.sh` documentava a forma de header, que não autentica. Corrigido em
+> 2026-08-24: a folha agora sai com `?APIKEY=<chave>`. Folhas geradas antes
+> dessa data mandam quem lê para um 401.
 
 ---
 

@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# CAMADA DE AMBIENTE — cluster-cxr7d
+# Gerada por scripts/new-env.sh. Dominio: apps.cluster-cxr7d.dyn.redhatworkshops.io
+#
+# Camada FINA de proposito: o unico conteudo proprio deste diretorio e o
+# hostname deste cluster. Tudo o mais -- base/, a camada devportal/ e os
+# patches especificos da release (o delete da RateLimitPolicy plana e a leitura
+# label-ou-annotation do PlanPolicy) -- e herdado por referencia de
+# env/rhcl-1.4_ocp-4.21/, sem copia. Corrigir la corrige aqui.
+#
+# Como a sobreposicao funciona: o kustomize renderiza o recurso referenciado
+# PRIMEIRO (incluindo o patch de hostname daquela camada, que aponta para o
+# cluster de referencia) e so entao aplica os patches deste arquivo. O 'replace'
+# abaixo e o ultimo a tocar em /spec/hostnames, entao e o que vale.
+#
+# Conferir antes de aplicar -- este comando e a prova de que o hostname certo
+# venceu, e leva 1 segundo:
+#
+#   oc kustomize overlays/cluster-cxr7d | grep -A2 'hostnames:'
+#
+# Render: oc kustomize overlays/cluster-cxr7d
+# Deploy: oc apply -k overlays/cluster-cxr7d
+# ===========================================================================
+
+resources:
+  - ../rhcl-1.4_ocp-4.21
+
+patches:
+  # JSON 6902 e nao strategic merge: HTTPRoute e CRD sem schema conhecido pelo
+  # kustomize, e um merge de lista sobrescreveria campos vizinhos.
+  - path: patch-httproute-travel-agency.yaml
+    target:
+      group: gateway.networking.k8s.io
+      version: v1
+      kind: HTTPRoute
+      name: travel-agency
+      namespace: travel-agency

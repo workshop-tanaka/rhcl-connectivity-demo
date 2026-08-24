@@ -1,0 +1,12 @@
+# HTTPRoute travel-agency: hostname real do cluster cluster-cxr7d.
+#
+# Um rotulo sob .apps, para caber no wildcard que o cluster ja tem -- ver a
+# armadilha 6 do RUNBOOK (DNS01 quebra a resolucao do proprio host).
+#
+# A rota irma, echo-api, NAO e governada pela demo: ela mora em
+# platform-reference/gateway/httproute-echo-api.yaml e o hostname dela neste
+# cluster e echo-travels.apps.cluster-cxr7d.dyn.redhatworkshops.io -- quem a aplica e o scripts/provision.sh.
+- op: replace
+  path: /spec/hostnames
+  value:
+    - api-travels.apps.cluster-cxr7d.dyn.redhatworkshops.io

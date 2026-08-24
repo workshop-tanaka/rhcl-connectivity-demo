@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# OVERLAY 'cluster-cxr7d' — gerado por scripts/new-env.sh
+#
+# Existe em paralelo aos outros overlays, e nao no lugar deles: os ambientes
+# convivem, cada um apontando para a sua camada env/. Trocar de cluster e
+# trocar de overlay no comando, sem editar arquivo.
+#
+# Premissas deste cluster (o scripts/provision.sh as monta, o
+# scripts/preflight.sh as confere):
+#   - Service Mesh com CR Istio + IstioCNI (fornece gatewayClassName istio)
+#   - RHCL 1.4+ e CR Kuadrant em kuadrant-system, com developerPortal ligado
+#   - user workload monitoring ligado + ServiceMonitors de
+#     platform-reference/monitoring/
+#   - Gateway prod-web publicado por Route passthrough e servindo o wildcard
+#     *.apps.cluster-cxr7d.dyn.redhatworkshops.io
+#
+# Deploy: oc apply -k overlays/cluster-cxr7d
+# ===========================================================================
+
+resources:
+  - ../../env/cluster-cxr7d
