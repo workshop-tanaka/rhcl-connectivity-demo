@@ -20,7 +20,8 @@
 #   DURATION=0  segundos no modo soak; 0 = até Ctrl-C (default 0)
 #   PATH_=/travels   caminho da API (default /travels; 'mesh' ignora e usa /travels/<cidade>)
 #   MESH_USER=theonlyuser  usuario enviado no modo mesh; e o que aciona o discounts
-#   FAILS=15    falhas duras seguidas (000/5xx) que encerram o modo 'all' (default 15)
+#   FAILS=15    falhas duras seguidas (000/5xx) que PAUSAM o modo 'all' (default 15)
+#   GIVEUP=600  segundos continuos fora antes de desistir de vez (default 600)
 #   REQS=20     requisições no modo mesh-split (default 20; cada uma vira 4 em discounts)
 
 set -uo pipefail
@@ -331,6 +332,37 @@ except Exception: pass' 2>/dev/null)
   _log "o grafo leva ~1min para encher: PodMonitor raspa a cada 30s."
 }
 
+# Espera o ambiente voltar, sondando com recuo exponencial.
+# Devolve 0 se voltou, 1 se estourou o limite de desistencia.
+#
+# Existe porque encerrar na primeira janela ruim e errado neste sandbox: o
+# jitter de rede produz rajadas curtas de 000 que nao significam ambiente fora.
+# Medido: 155 timeouts em 6654 requisicoes (2.3%), quase todos isolados -- mas
+# basta um blip agrupar 15 seguidos para derrubar uma sessao de horas.
+#
+# A sonda aceita QUALQUER resposta HTTP que nao seja 5xx como "de pe": 401 e 429
+# provam que o gateway esta vivo e decidindo. 5xx nao conta como recuperacao
+# porque foi exatamente o sintoma do Authorino despejado por DiskPressure -- o
+# gateway respondia, mas o data plane estava quebrado.
+_wait_for_env() {
+  local url="$1" giveup="$2" start now wait=5 code elapsed
+  start="$(date +%s)"
+  while :; do
+    now="$(date +%s)"; elapsed=$(( now - start ))
+    if (( elapsed >= giveup )); then
+      _warn "ambiente fora ha ${elapsed}s (limite ${giveup}s) -- desistindo."
+      return 1
+    fi
+    sleep "$wait"
+    code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "$url")"
+    case "$code" in
+      000|5*) printf '%s  [%ss fora] sonda=%s, proxima em %ss%s\n' "$_DIM" "$elapsed" "$code" "$wait" "$_RST" ;;
+      *)      _ok "ambiente de volta apos ${elapsed}s (sonda=${code}) -- retomando."; return 0 ;;
+    esac
+    wait=$(( wait * 2 )); (( wait > 60 )) && wait=60
+  done
+}
+
 # ----- modo all: todas as APIs e todos os tiers, ate mandarem parar ---------
 # Diferente do 'mesh' (gold-only, para o grafo do Ato 5) e do 'soak' (round-robin
 # cego em /travels, que nem atravessa a malha). Aqui o objetivo e manter TODOS os
@@ -364,7 +396,7 @@ except Exception: pass' 2>/dev/null)
 # do apiproduct -- nao mexer na AuthPolicy.
 mode_all() {
   _load_keys
-  local rate="${RATE:-2}" fails="${FAILS:-15}"
+  local rate="${RATE:-2}" fails="${FAILS:-15}" giveup="${GIVEUP:-600}"
   local travels_host="$HOST"
   local echo_host; echo_host="$(oc get httproute echo-api -n echo-api \
                                  -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null)"
@@ -393,12 +425,14 @@ except Exception: pass' 2>/dev/null)
     _warn "HTTPRoute do echo-api nao encontrada; seguindo so com travel-agency."
   fi
   _log "ciclo: ${CYCLE[*]}  a ~${rate} req/s, ${_BLD}ate mandarem parar${_RST}"
-  _log "para quando o AMBIENTE cair: ${fails} falhas duras seguidas (000 ou 5xx)."
+  _log "ao cair o ambiente (${fails} falhas duras seguidas): PAUSA e retoma sozinho."
   _log "401/403/429 sao respostas de POLICY -- ambiente de pe, nao contam."
+  _log "so desiste apos ${giveup}s continuos fora (GIVEUP=)."
   echo
 
   local sleep_s; sleep_s="$(python3 -c "print(1/max($rate,1))" 2>/dev/null || echo 0.5)"
   local n=0 c2xx=0 c401=0 c403=0 c429=0 c5xx=0 c000=0 cother=0 hard=0
+  local pauses=0 downtime=0 dstart=0 gaveup=0
   local slot key code url city
   # Warm-up: a primeira chamada de cada servico ao discounts as vezes estoura o
   # timeout e volta null dentro de um 200. Fora da contagem, de proposito.
@@ -435,9 +469,14 @@ except Exception: pass' 2>/dev/null)
 
     if (( hard >= fails )); then
       echo
-      _warn "${hard} falhas duras seguidas -- ambiente considerado INDISPONIVEL."
-      _warn "ultimo codigo: ${code}"
-      break
+      _warn "$(date +%H:%M:%S) ${hard} falhas duras seguidas (ultimo=${code}) -- pausando."
+      pauses=$((pauses+1)); dstart="$(date +%s)"
+      if ! _wait_for_env "https://${travels_host}/travels" "$giveup"; then
+        gaveup=1; break
+      fi
+      downtime=$(( downtime + $(date +%s) - dstart ))
+      hard=0
+      echo
     fi
 
     (( n % 60 == 0 )) && printf '%s%s%s  %d req  %s2xx=%d%s 401=%d 403=%d %s429=%d%s 5xx=%d 000=%d\n' \
@@ -449,8 +488,9 @@ except Exception: pass' 2>/dev/null)
 
   echo
   _ok "${n} requisicoes: 2xx=${c2xx} 401=${c401} 403=${c403} 429=${c429} 5xx=${c5xx} 000=${c000} outros=${cother}"
-  if (( hard >= fails )); then
-    _warn "encerrado por indisponibilidade do ambiente, nao por pedido."
+  (( pauses > 0 )) && _log "${pauses} pausa(s) por instabilidade, ${downtime}s fora no total -- retomado automaticamente."
+  if (( gaveup == 1 )); then
+    _warn "encerrado por indisponibilidade sustentada (>${giveup}s), nao por pedido."
     return 1
   fi
 }
@@ -550,6 +590,18 @@ mode_mesh_split() {
     || _warn "sem VirtualService 'discounts' -- o esperado e round-robin ~50/50 (oc apply -k overlays/rhcl-1.4)"
 
   # Soma inbound de um pod de discounts. Sem o pod, devolve vazio e o chamador decide.
+  #
+  # O FILTRO E UM awk SO, DE PROPOSITO. Com 'grep A | grep B' mais o
+  # 'set -o pipefail' da linha 27, um pod que ainda nao recebeu requisicao
+  # nenhuma faz o primeiro grep sair 1 -- e o pipefail converte "contador
+  # zerado" em erro do _inbound. O chamador reportava isso como "pod nao
+  # encontrado", mandando quem depura procurar um Deployment que esta intacto.
+  # O v2 leva so 10% do trafego e zera o Envoy a cada restart, entao contador
+  # vazio e estado COMUM, nao excecao: medido em 2026-08-24, v1 tinha 2 series
+  # e v2 zero, e o Ato 7 morria na primeira linha. O awk casa as duas condicoes
+  # numa passada e devolve 0 quando nao ha serie, que e a resposta certa.
+  # Falha real de leitura (exec recusado, sidecar fora) continua caindo no
+  # pipefail pelo 'oc exec', que e o que o chamador deve mesmo abortar.
   _inbound() {
     local pod
     pod="$(oc get pod -n travel-agency -l "app=discounts,version=$1" \
@@ -557,13 +609,12 @@ mode_mesh_split() {
     [[ -n "$pod" ]] || return 1
     oc exec -n travel-agency "$pod" -c istio-proxy -- \
       pilot-agent request GET stats/prometheus 2>/dev/null \
-      | grep '^istio_requests_total' | grep 'reporter="destination"' \
-      | awk '{s+=$NF} END{printf "%d", s+0}'
+      | awk '/^istio_requests_total/ && /reporter="destination"/ {s+=$NF} END{printf "%d", s+0}'
   }
 
   local a1 a2 b1 b2
-  a1="$(_inbound v1)" || _die "pod discounts-v1 nao encontrado em travel-agency."
-  a2="$(_inbound v2)" || _die "pod discounts-v2 nao encontrado em travel-agency."
+  a1="$(_inbound v1)" || _die "nao consegui ler o sidecar de discounts-v1 (oc get pod -n travel-agency -l app=discounts)."
+  a2="$(_inbound v2)" || _die "nao consegui ler o sidecar de discounts-v2 (oc get pod -n travel-agency -l app=discounts)."
 
   local reqs="${REQS:-20}" n=0
   _log "${reqs} requisicoes em ${_BLD}${HOST}/travels/<cidade>${_RST} (tier gold)"
