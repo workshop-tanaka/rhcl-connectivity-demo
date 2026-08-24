@@ -45,10 +45,10 @@ spec:
                 header:
                   name: travel
         readiness.status.sidecar.istio.io/applicationPorts: ""
-        sidecar.istio.io/inject: "true"
       creationTimestamp: null
       labels:
         app: travels
+        sidecar.istio.io/inject: "true"
         version: v1
     spec:
       containers:

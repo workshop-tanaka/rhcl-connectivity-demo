@@ -27,10 +27,10 @@ spec:
       annotations:
         kubectl.kubernetes.io/restartedAt: "2026-07-28T14:35:30Z"
         readiness.status.sidecar.istio.io/applicationPorts: ""
-        sidecar.istio.io/inject: "true"
       creationTimestamp: null
       labels:
         app: insurances
+        sidecar.istio.io/inject: "true"
         version: v1
     spec:
       containers:
