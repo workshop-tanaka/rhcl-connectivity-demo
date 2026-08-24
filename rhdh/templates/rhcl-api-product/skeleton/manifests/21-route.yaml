@@ -1,0 +1,39 @@
+# ===========================================================================
+# A Route que PUBLICA o hostname para fora do cluster.
+#
+# Por que ela existe, se ja ha uma HTTPRoute: sao camadas diferentes. A
+# HTTPRoute (20-) anexa o servico ao Gateway prod-web -- isso resolve o
+# roteamento DENTRO do cluster e e o que faz AuthPolicy e PlanPolicy valerem.
+# Mas o Gateway aqui e ClusterIP (nao ha LoadBalancer neste tipo de cluster),
+# entao nada do lado de fora chega nele sem uma Route do OpenShift apontando
+# para o Service prod-web-istio.
+#
+# Sem este arquivo o servico fica COMPLETO por dentro e invisivel por fora:
+# Argo Synced, APIProduct Ready, HTTPRoute Accepted -- e curl no hostname
+# devolve 503 do router, porque o router nao conhece o host. Medido no ensaio
+# de 2026-08-24: 503 de fora, 401 por dentro via Host header.
+#
+# passthrough, e nao edge: quem termina o TLS e o Envoy do Gateway, que precisa
+# do SNI para escolher o listener. Terminar no router quebraria isso.
+#
+# O namespace e ingress-gateway, e nao o do servico, porque e la que vive o
+# Service prod-web-istio -- Route e Service precisam ser do mesmo namespace.
+# ===========================================================================
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ${{ values.name }}-gateway
+  namespace: ingress-gateway
+  labels:
+    app: ${{ values.name }}
+spec:
+  host: ${{ values.hostname }}
+  port:
+    targetPort: 443
+  tls:
+    termination: passthrough
+  to:
+    kind: Service
+    name: prod-web-istio
+    weight: 100
+  wildcardPolicy: None

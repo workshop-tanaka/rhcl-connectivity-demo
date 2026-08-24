@@ -70,7 +70,14 @@ spec:
             de Gateway API casa UM rotulo so, entao nada de subdominio extra.
             Descubra com: oc get ingresses.config cluster -o jsonpath='{.spec.domain}'
           pattern: '^apps\.[a-z0-9.-]+$'
-          default: apps.cluster-w4xtj.dyn.redhatworkshops.io
+          # SEM default de proposito. Havia um fixo aqui (apps.cluster-w4xtj...)
+          # e ele sobrevivia a troca de cluster: o new-env.sh gera env/ e
+          # overlays/, mas nao toca em template. Quem aceitasse o default gerava
+          # um servico com hostname de OUTRO cluster -- a HTTPRoute ficava
+          # Accepted=False (NoMatchingListenerHostname) com tudo verde no Argo.
+          # Campo obrigatorio e vazio bloqueia o formulario, que e um erro
+          # visivel; default errado e uma falha silenciosa.
+          ui:placeholder: apps.cluster-xxxxx.dyn.redhatworkshops.io
         image:
           title: Imagem do container
           type: string

@@ -8,6 +8,7 @@ kind: Kustomization
 #   00  namespace ja na malha        <- sem isto, nada abaixo tem sidecar
 #   10-12  workload com identidade propria
 #   20  a rota, anexada ao gateway compartilhado
+#   21  a Route que publica o host para fora (o Gateway e ClusterIP)
 #   30  quem entra          (AuthPolicy)
 #   31  quanto passa POR TIER (PlanPolicy)
 #   40  a vitrine           (APIProduct do developer portal)
@@ -23,6 +24,7 @@ resources:
   - 11-deployment.yaml
   - 12-service.yaml
   - 20-httproute.yaml
+  - 21-route.yaml
   - 30-authpolicy.yaml
   - 31-planpolicy.yaml
   - 40-apiproduct.yaml
