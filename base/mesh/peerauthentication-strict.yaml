@@ -3,17 +3,17 @@
 #
 # Sem selector, vale para TODOS os workloads de travel-agency. A partir daqui
 # um pod sem sidecar nao consegue mais falar com nenhum dos sete servicos: o
-# Envoy do lado servidor exige certificado de cliente emitido pela CA da malha.
+# Envoy do lado servidor exige certificado de cliente emitido pela CA do Service Mesh.
 #
 # O QUE ISTO NAO QUEBRA (verificado neste cluster, nao deduzido do doc):
 #
 #   - o Gateway prod-web. Ele e um gateway Istio (gatewayClassName: istio),
-#     entao esta na malha e apresenta certificado como qualquer sidecar. O
+#     entao esta no Service Mesh e apresenta certificado como qualquer sidecar. O
 #     caminho norte-sul dos Atos 1-4 continua identico.
 #   - o scrape do Prometheus. O PodMonitor 'istio-proxies-monitor' coleta na
 #     15020 (metricas mescladas do sidecar), porta que o Istio isenta de mTLS
 #     por construcao. O Ato 4 nao perde metrica.
-#   - as probes do kubelet. Vem do no, fora da malha, e o Istio as reescreve
+#   - as probes do kubelet. Vem do no, fora do Service Mesh, e o Istio as reescreve
 #     para a 15021.
 #   - as chamadas para travel-db (MySQL dos quatro backends). STRICT governa o
 #     que ENTRA em travel-agency; a saida para outro namespace segue o

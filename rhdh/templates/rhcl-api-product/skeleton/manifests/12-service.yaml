@@ -11,7 +11,7 @@ spec:
   selector:
     app: ${{ values.name }}
   ports:
-    # O nome da porta importa na malha: o Istio deduz o protocolo do prefixo
+    # O nome da porta importa no Service Mesh: o Istio deduz o protocolo do prefixo
     # ('http', 'grpc', 'tcp'). Porta sem nome vira TCP opaco, e o grafo do Kiali
     # perde metrica de HTTP -- codigo de resposta, taxa de erro, tudo.
     - name: http

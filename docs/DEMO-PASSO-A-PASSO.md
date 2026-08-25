@@ -82,7 +82,7 @@ bash scripts/demo.sh check          # ou: bash scripts/preflight.sh
 ```
 
 Percorre a cadeia inteira na ordem do roteiro — operadores, Gateway, policies,
-chaves, tráfego real, observabilidade, consoles, RHDH, malha — e cada falha vem
+chaves, tráfego real, observabilidade, consoles, RHDH, Service Mesh — e cada falha vem
 com a correção ao lado. Termina em `[OK] demo pronta.` ou sai com código 1.
 
 Se acusar recursos ausentes:
@@ -352,12 +352,12 @@ oc whoami --show-console                        # + /ossmconsole/graph e /observ
 </details>
 
 **Pré-requisito que não é opcional.** O tráfego de `/travels` **não atravessa a
-malha** — a resposta é local ao `travels` e o grafo para em `prod-web → travels`,
+Service Mesh** — a resposta é local ao `travels` e o grafo para em `prod-web → travels`,
 o que na tela se lê como coleta quebrada. Quem provoca o fan-out é
 `/travels/<cidade>` **com o header `user`**; sem ele os quatro vendedores não
 chamam o `discounts` e o grafo perde o nível mais profundo. O modo `mesh` faz as
 duas coisas certas, e usa só a chave gold — `429` é recusado na borda e nunca
-entra na malha. A coleta leva ~1 min (PodMonitor a 30s); fale enquanto isso.
+entra no Service Mesh. A coleta leva ~1 min (PodMonitor a 30s); fale enquanto isso.
 
 **Traffic Graph** (console → Service Mesh), namespaces `ingress-gateway` +
 `travel-agency` + `travel-db`, janela **Last 5m**:
@@ -404,7 +404,7 @@ de uma API:
 
 | | O que cria | Como entrega |
 | --- | --- | --- |
-| **1. API como produto** | namespace já na malha, workload com SA própria, HTTPRoute no `prod-web`, `AuthPolicy`, `PlanPolicy`, `APIProduct`, mTLS `STRICT`, `AuthorizationPolicy` e o par `DestinationRule`/`VirtualService` | repositório novo no GitHub |
+| **1. API como produto** | namespace já no Service Mesh, workload com SA própria, HTTPRoute no `prod-web`, `AuthPolicy`, `PlanPolicy`, `APIProduct`, mTLS `STRICT`, `AuthorizationPolicy` e o par `DestinationRule`/`VirtualService` | repositório novo no GitHub |
 | **2. Assinar uma API** | o `APIKey` do developer portal, em `consumers/` | *pull request* |
 | **3. Publicar uma v2** | a v2 ao lado da v1 e o peso no `VirtualService` | *pull request* |
 
@@ -421,7 +421,7 @@ navegador e sem pedir nada instalado na máquina de ninguém.
 > com `oc apply -f platform-reference/devspaces/` e republique o catálogo.
 
 O ponto não é digitar menos: é que um serviço novo **não consegue nascer** sem
-namespace na malha, sem policy de borda, sem plano comercial e sem fronteira
+namespace no Service Mesh, sem policy de borda, sem plano comercial e sem fronteira
 leste-oeste. As armadilhas que custaram tempo neste cluster estão fechadas na
 origem — inclusive o *fail-open* do predicate de plano, que o formulário expõe
 como escolha explícita.
@@ -470,7 +470,7 @@ sozinha depois do passo 1: *"então a chave de API protege tudo?"*. Não protege
 ela abre a porta da rua. E o argumento fecha porque é o **mesmo Envoy** nas duas
 pontas: o `prod-web` é um gateway Istio.
 
-**1. Ninguém fala em texto claro.** A sonda de fora da malha devolve
+**1. Ninguém fala em texto claro.** A sonda de fora do Service Mesh devolve
 `HTTP=000 exit=56`: conexão resetada, **não houve HTTP**. O servidor derrubou
 antes, porque o cliente não apresentou certificado. (Em `PERMISSIVE` a mesma
 sonda devolveria `403` — a conexão completaria e quem recusaria seria a
@@ -500,7 +500,7 @@ porque o Kubernetes só sabe balancear por pod. Não procure a versão na respos
 v1 e v2 são a mesma imagem, e a divisão só existe na métrica e no grafo.
 
 > **O fecho dos dois dias:** o RHCL respondeu *quem entra, quanto pode e quanto
-> custa*; a malha respondeu *quem fala com quem, em qual versão e o que acontece
+> custa*; o Service Mesh respondeu *quem fala com quem, em qual versão e o que acontece
 > quando quebra*. Nenhuma linha de aplicação mudou em nenhum dos dois.
 
 **Cenário de falha**, se sobrar tempo:

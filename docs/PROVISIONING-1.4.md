@@ -28,7 +28,7 @@ cada etapa roda sozinha (`bash scripts/provision.sh tracing dashboards`).
 | Etapa | Seção | O que o script faz além de aplicar |
 | --- | --- | --- |
 | `operators` | [2](#2-operadores) | acrescenta `enableUserWorkload` **preservando** as demais chaves do ConfigMap de monitoring |
-| `mesh` | [3](#3-malha) | com malha já de pé, não reaplica o CR `Istio` (o apply removeria o `version` gravado e dispararia upgrade) |
+| `mesh` | [3](#3-Service Mesh) | com Service Mesh já de pé, não reaplica o CR `Istio` (o apply removeria o `version` gravado e dispararia upgrade) |
 | `platform` | [4](#4-plataforma) | cria os namespaces limpos, e não de `platform-reference/namespaces/` (faixas de UID do cluster antigo) |
 | `gateway` | [5](#5-gateway-dns-e-tls--onde-está-a-decisão) | descobre o Secret do wildcard pelo `ingresscontroller`, em vez do nome fixo `cert-manager-ingress-cert` |
 | `devportal` | [7](#7-consoles-integradas) | pula sozinha se as CRDs `devportal.kuadrant.io` não existirem (RHCL < 1.4.2) |
@@ -141,7 +141,7 @@ Opcionais, para os Atos 4 e 5 terem tela: `kiali-ossm` e `tempo-product` +
 `istio-system` e `tracing-system`. O `kiali-ossm` rende duas coisas: a route do
 Kiali e a aba **Service Mesh** dentro do console — ver [secao 7](#7-consoles-integradas).
 Nenhuma das duas nasce com metrica: o Kiali ainda precisa da CA e do RBAC para
-ler o Thanos, e a malha precisa de PodMonitor — [secao 7.1](#71-o-que-cr-kiali-saudavel-quer-dizer).
+ler o Thanos, e o Service Mesh precisa de PodMonitor — [secao 7.1](#71-o-que-cr-kiali-saudavel-quer-dizer).
 
 Junto dos opcionais vai o **Dev Spaces**, que a etapa `operators` aplica de
 [platform-reference/devspaces/](../platform-reference/devspaces/) — em arquivo
@@ -152,7 +152,7 @@ link **Abrir no Dev Spaces** nos componentes do portal; sem ele o
 
 ---
 
-## 3. Malha
+## 3. Service Mesh
 
 ```bash
 cat <<'EOF' | oc apply -f -
@@ -181,9 +181,9 @@ EOF
 oc get gatewayclass    # istio  Accepted=True
 ```
 
-> ⚠️ **Este heredoc não basta para o Ato 5.** Ele sobe a malha e registra a
+> ⚠️ **Este heredoc não basta para o Ato 5.** Ele sobe o Service Mesh e registra a
 > `GatewayClass`, mas não declara o `extensionProvider` para onde o proxy manda
-> o span, nem a `Telemetry` que manda emitir. Com só isto, a malha funciona, o
+> o span, nem a `Telemetry` que manda emitir. Com só isto, o Service Mesh funciona, o
 > Kiali desenha o grafo, e **Observe → Traces** fica permanentemente vazio — sem
 > erro em lugar nenhum. As duas peças estão em
 > [platform-reference/mesh-control-plane/](../platform-reference/mesh-control-plane/),
@@ -328,7 +328,7 @@ oc apply -f platform-reference/consoles/ossmconsole.yaml
 ```
 
 Esse operator **se habilita sozinho** no `console.operator` — nao repita o patch
-para ele. O plugin nao fala com a malha: ele fala com o Kiali de `istio-system`
+para ele. O plugin nao fala com o Service Mesh: ele fala com o Kiali de `istio-system`
 pelo proxy do console (`authorization: UserToken`), entao um CR `Kiali` saudavel
 e pre-requisito, nao detalhe.
 
@@ -378,7 +378,7 @@ curl -sk "https://$(oc get route kiali -n istio-system -o jsonpath='{.spec.host}
 
 O `preflight.sh` faz esses dois checks (mais a contagem de `istio_requests_total`
 no Thanos) na secao de observabilidade. Detalhe do porque isso passa batido: os
-pods da malha ja tem `prometheus.io/scrape: true`, que o Prometheus de user
+pods do Service Mesh ja tem `prometheus.io/scrape: true`, que o Prometheus de user
 workload do OpenShift ignora -- so PodMonitor/ServiceMonitor valem.
 
 Conferir que os dois realmente servem seus assets ao console — o pod do console

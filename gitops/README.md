@@ -11,7 +11,7 @@ com `selfHeal: true` reverteram cada `oc apply` manual em segundos. Aqui:
 
 | | governado por | selfHeal |
 | --- | --- | --- |
-| operadores, malha, gateway, tracing | `provision.sh` | — |
+| operadores, Service Mesh, gateway, tracing | `provision.sh` | — |
 | camada de demo (`base/`, `env/`) | `oc apply -k overlays/…` | — |
 | **serviços criados pelo golden path** | **Argo CD** | **não** |
 

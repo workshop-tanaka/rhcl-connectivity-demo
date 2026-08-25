@@ -1,7 +1,7 @@
 # ===========================================================================
 # Collector que recebe os spans dos proxies do Istio e entrega ao Tempo.
 #
-# O 'extensionProviders' da malha aponta para otel-collector:4317
+# O 'extensionProviders' do Service Mesh aponta para otel-collector:4317
 # (oc get istio default -o jsonpath='{.spec.values.meshConfig.extensionProviders}'),
 # entao o caminho inteiro do Ato 5 e:
 #
@@ -12,7 +12,7 @@
 #
 # Ligar multitenancy no TempoMonolithic apaga o Service 'tempo-tempo' e poe um
 # gateway na frente. O export passa a exigir TRES coisas, e a falta de qualquer
-# uma derruba a ingestao inteira sem erro no lado da malha -- o sintoma fica
+# uma derruba a ingestao inteira sem erro no lado do Service Mesh -- o sintoma fica
 # escondido no log do collector:
 #
 #   Exporting failed. ... "rpc error: code = Unavailable desc = no children to

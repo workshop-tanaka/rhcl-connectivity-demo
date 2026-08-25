@@ -5,7 +5,7 @@ kind: Kustomization
 # A ordem dos arquivos e a ordem em que as coisas passam a existir para quem
 # assiste -- o kustomize nao ordena por isso, mas quem le o repo, sim:
 #
-#   00  namespace ja na malha        <- sem isto, nada abaixo tem sidecar
+#   00  namespace ja no Service Mesh        <- sem isto, nada abaixo tem sidecar
 #   10-12  workload com identidade propria
 #   20  a rota, anexada ao gateway compartilhado
 #   21  a Route que publica o host para fora (o Gateway e ClusterIP)

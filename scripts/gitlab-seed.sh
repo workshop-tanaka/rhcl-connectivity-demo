@@ -133,7 +133,7 @@ else:
     st, proj = call("POST", "/projects", {
         "name": "rhcl-policies", "path": "rhcl-policies",
         "namespace_id": policies_id, "visibility": "public",
-        "description": "Camada de demo do RHCL: planos, auth, telemetria e malha. Autoritativo, FORA do Argo.",
+        "description": "Camada de demo do RHCL: planos, auth, telemetria e Service Mesh. Autoritativo, FORA do Argo.",
         "initialize_with_readme": True})
     if st in (200, 201):
         ok(f"projeto {proj['path_with_namespace']} criado"); proj_id = proj["id"]

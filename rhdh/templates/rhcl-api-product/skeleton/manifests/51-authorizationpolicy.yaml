@@ -3,7 +3,7 @@
 # AuthorizationPolicy -- o par LESTE-OESTE do AuthPolicy do RHCL.
 #
 # O AuthPolicy decide quem entra pela BORDA. Esta decide quem pode falar com
-# este servico DENTRO da malha, e a diferenca de escopo e o argumento inteiro do
+# este servico DENTRO do Service Mesh, e a diferenca de escopo e o argumento inteiro do
 # Ato 7: uma chave de API valida abre a porta da rua, nao abre todas as portas
 # internas.
 #
@@ -39,14 +39,14 @@ spec:
             principals:
 {%- for caller in values.allowedCallers %}
               # <namespace>/<serviceaccount> do formulario vira o SPIFFE ID do
-              # trust domain da malha (cluster.local, confirmado em cm/istio).
+              # trust domain do Service Mesh (cluster.local, confirmado em cm/istio).
               - cluster.local/ns/${{ caller | replace("/", "/sa/") }}
 {%- endfor %}
 {%- else %}
 # ===========================================================================
 # Sem AuthorizationPolicy -- a lista de chamadores ficou vazia no formulario.
 #
-# Consequencia: qualquer workload da malha alcanca este servico. A borda
+# Consequencia: qualquer workload do Service Mesh alcanca este servico. A borda
 # continua protegida pelo AuthPolicy, mas a fronteira leste-oeste nao existe, e
 # o movimento 2 do Ato 7 nao tem o que mostrar aqui.
 #

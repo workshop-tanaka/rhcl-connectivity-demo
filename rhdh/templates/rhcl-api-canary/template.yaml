@@ -5,7 +5,7 @@ metadata:
   title: 3. Publicar uma v2 — canary por pull request
   description: >-
     O dia 2 do golden path. Sobe a v2 do servico ao lado da v1 e desloca uma
-    fracao do trafego para ela pelo VirtualService da malha -- proporcao
+    fracao do trafego para ela pelo VirtualService do Service Mesh -- proporcao
     declarada, independente do numero de replicas. Vai como pull request: a
     mudanca de exposicao passa por revisao, como codigo.
   tags:
@@ -57,7 +57,7 @@ spec:
           type: string
           description: >-
             Pode ser a MESMA imagem da v1. Nesta demo isso e ate util: prova que
-            a divisao acontece na malha e nao no payload -- so o Kiali e a
+            a divisao acontece no Service Mesh e nao no payload -- so o Kiali e a
             metrica istio_requests_total{destination_version} mostram a diferenca.
           default: quay.io/kuadrant/authorino-examples:talker-api
         replicasV2:

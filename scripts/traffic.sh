@@ -213,7 +213,7 @@ mode_soak() {
 # O PATH_ default do script (/travels) NAO serve para o Kiali. Esse endpoint
 # devolve a lista de cidades de dentro do proprio travels -- resposta local,
 # zero chamadas de saida. O grafo entao mostra 'prod-web -> travels' e para ali,
-# o que na tela se le como "falta coleta" ou "a malha nao esta instrumentada",
+# o que na tela se le como "falta coleta" ou "o Service Mesh nao esta instrumentada",
 # quando na verdade a coleta esta certa e o trafego e que nao fan-outa.
 #
 # Quem provoca o fan-out e /travels/<cidade>: travels chama flights, hotels,
@@ -221,7 +221,7 @@ mode_soak() {
 # travel-db. Uma requisicao vira a topologia inteira do ato.
 #
 # Usa SO a chave gold, de proposito, por dois motivos:
-#   - 429 e recusado NA BORDA e nunca entra na malha. Trafego de um tier
+#   - 429 e recusado NA BORDA e nunca entra no Service Mesh. Trafego de um tier
 #     limitado nao desenha aresta nenhuma abaixo do gateway -- da pico no
 #     Grafana e grafo vazio no Kiali ao mesmo tempo.
 #   - o round-robin do 'soak' queima os 50/dia do free em ~25s e derruba o
@@ -239,7 +239,7 @@ mode_mesh() {
   local base="https://${HOST}"
 
   # A lista de cidades sai do proprio /travels -- e o unico uso bom desse
-  # endpoint aqui: alimentar as chamadas que de fato atravessam a malha.
+  # endpoint aqui: alimentar as chamadas que de fato atravessam o Service Mesh.
   local -a CITIES=()
   while IFS= read -r c; do [[ -n "$c" ]] && CITIES+=("$c"); done < <(
     curl -sk --max-time 10 "${base}/travels?APIKEY=${gold}" \
@@ -252,7 +252,7 @@ except Exception: pass' 2>/dev/null)
   # discounts -- sem ele esses quatro respondem sozinhos e o discounts NUNCA
   # recebe uma requisicao. No grafo isso custa o nivel mais profundo da
   # topologia e, junto com ele, o unico servico com duas versoes (v1 e v2), que
-  # e justamente o que mostra roteamento por versao na malha.
+  # e justamente o que mostra roteamento por versao no Service Mesh.
   # 'portal' e 'device' nao mudam o fan-out: alimentam as custom_tags de tracing
   # declaradas nos Deployments, e aparecem no Tempo no mesmo ato.
   #
@@ -284,13 +284,13 @@ except Exception: pass' 2>/dev/null)
 
   # Primeira chamada fria descartada: a conexao inicial de cada servico com o
   # discounts as vezes estoura o timeout e o campo volta 'null' na resposta.
-  # Nao e erro de policy nem da malha, mas no palco parece um.
+  # Nao e erro de policy nem do Service Mesh, mas no palco parece um.
   curl -sk -o /dev/null --max-time 15 "${HDRS[@]}" \
     "${base}/travels/${CITIES[0]}?APIKEY=${gold}" 2>/dev/null || true
   echo
   # A cota diaria do gold (5000) e o teto real deste modo, e nao a janela de
   # 30/10s -- esta o trafego nunca encosta. Quando a diaria estoura, TUDO vira
-  # 429; como 429 e recusado na borda e nunca entra na malha, o grafo esvazia
+  # 429; como 429 e recusado na borda e nunca entra no Service Mesh, o grafo esvazia
   # de uma vez e parece que a coleta caiu.
   if [[ "$dur" == "0" ]]; then
     # Continuo: o aviso por volume nao serve (nao ha duracao), entao diz em
@@ -324,7 +324,7 @@ except Exception: pass' 2>/dev/null)
   echo
   _ok "${n} requisicoes, ${rl} limitadas."
   if (( rl > n / 10 )); then
-    _warn "muita recusa na borda -- o que passa de 429 nao chega na malha."
+    _warn "muita recusa na borda -- o que passa de 429 nao chega no Service Mesh."
     _warn "cheque a cota do gold: bash scripts/traffic.sh metrics"
   fi
   _log "Kiali: console -> Service Mesh -> Traffic Graph, namespaces"
@@ -365,7 +365,7 @@ _wait_for_env() {
 
 # ----- modo all: todas as APIs e todos os tiers, ate mandarem parar ---------
 # Diferente do 'mesh' (gold-only, para o grafo do Ato 5) e do 'soak' (round-robin
-# cego em /travels, que nem atravessa a malha). Aqui o objetivo e manter TODOS os
+# cego em /travels, que nem atravessa o Service Mesh). Aqui o objetivo e manter TODOS os
 # paineis vivos ao mesmo tempo: as tres faixas do PlanPolicy e as duas rotas
 # anexadas ao prod-web.
 #
@@ -565,7 +565,7 @@ mode_reset() {
 }
 
 # Mede a divisao de trafego entre discounts-v1 e discounts-v2 -- o numero do
-# canary do Ato 7. E o equivalente, para a malha, do que 'tiers' faz para as
+# canary do Ato 7. E o equivalente, para o Service Mesh, do que 'tiers' faz para as
 # policies do RHCL: uma rajada controlada e o efeito na tela.
 #
 # POR QUE LER METRICA E NAO A RESPOSTA: v1 e v2 sao a MESMA imagem e devolvem

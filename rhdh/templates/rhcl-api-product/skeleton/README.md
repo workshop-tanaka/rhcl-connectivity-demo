@@ -3,7 +3,7 @@
 ${{ values.description }}
 
 Gerado pelo golden path **rhcl-api-product** do Red Hat Developer Hub. O serviço
-nasce dentro da malha, exposto no Gateway compartilhado `prod-web`, protegido
+nasce dentro do Service Mesh, exposto no Gateway compartilhado `prod-web`, protegido
 pelas policies do Red Hat Connectivity Link e publicado como produto no
 developer portal — sem que nada disso tenha sido escrito à mão.
 
@@ -115,8 +115,8 @@ done; echo
 
 | Guard-rail | Onde | O que evita |
 | --- | --- | --- |
-| Namespace com `istio-injection=enabled` | `00-namespace.yaml` | serviço fora da malha — **a annotation no pod não injeta nada** |
-| ServiceAccount própria | `10-serviceaccount.yaml` | identidade indistinguível na malha |
+| Namespace com `istio-injection=enabled` | `00-namespace.yaml` | serviço fora do Service Mesh — **a annotation no pod não injeta nada** |
+| ServiceAccount própria | `10-serviceaccount.yaml` | identidade indistinguível no Service Mesh |
 | `spec.rules` (e não `defaults.rules`) | `30-authpolicy.yaml` | `AuthSchemeNotFound` em todo pedido de chave |
 | Selector com label de produto | `30-authpolicy.yaml` | chave de outro produto abrindo esta API |
 | `PlanPolicy` sem `RateLimitPolicy` plana | `31-planpolicy.yaml` | no RHCL 1.4 a RLP plana **sobrepõe** e apaga os planos |

@@ -3,13 +3,13 @@
 {%- if values.mtlsStrict %}
 #
 # STRICT: a partir daqui um pod sem sidecar nao fala com nada aqui dentro. O
-# Envoy do lado servidor exige certificado de cliente emitido pela CA da malha.
+# Envoy do lado servidor exige certificado de cliente emitido pela CA do Service Mesh.
 #
 # O CONTRASTE QUE FAZ O PONTO NA DEMO -- sem ele o STRICT parece redundante,
 # porque o cadeado do Kiali aparece nos dois casos (auto-mTLS ja cifra por
 # padrao). A diferenca e que sem STRICT o servidor AINDA ACEITA texto claro:
 #
-#   STRICT      sonda de fora da malha -> HTTP=000 exit=56 (conexao resetada)
+#   STRICT      sonda de fora do Service Mesh -> HTTP=000 exit=56 (conexao resetada)
 #   PERMISSIVE  a mesma sonda          -> HTTP=403 exit=0  (quem recusa e a
 #                                        AuthorizationPolicy, ja sem identidade)
 #
@@ -18,7 +18,7 @@
 #     -w 'HTTP=%{http_code} exit=%{exitcode}\n' \
 #     http://${{ values.name }}.${{ values.namespace }}:${{ values.port }}/
 #
-# O QUE STRICT NAO QUEBRA: o Gateway prod-web (e um gateway Istio, esta na malha
+# O QUE STRICT NAO QUEBRA: o Gateway prod-web (e um gateway Istio, esta no Service Mesh
 # e apresenta certificado como qualquer sidecar), o scrape do Prometheus (porta
 # 15020, isenta por construcao) e as probes do kubelet (reescritas para a 15021).
 #

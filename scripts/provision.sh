@@ -407,10 +407,10 @@ st_gitlab() {
 }
 
 # ===========================================================================
-# 2. malha
+# 2. Service Mesh
 # ===========================================================================
 st_mesh() {
-  _sec "malha (plano de controle)"
+  _sec "Service Mesh (plano de controle)"
   _has_crd istios.sailoperator.io || _die "CRD istios.sailoperator.io ausente — rode a etapa 'operators' antes."
 
   if oc get istio default >/dev/null 2>&1; then
@@ -440,7 +440,7 @@ st_mesh() {
   _wait_cond istio/default "" Ready
   _wait_cond istiocni/default "" Ready
 
-  # A GatewayClass e o contrato entre a malha e o Gateway da demo: sem ela
+  # A GatewayClass e o contrato entre o Service Mesh e o Gateway da demo: sem ela
   # 'Accepted', o Gateway fica pendente para sempre e sem mensagem util.
   if [[ $DRY_RUN -eq 0 ]]; then
     local acc; acc="$(oc get gatewayclass istio -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null)"
@@ -457,7 +457,7 @@ st_platform() {
   _wait_cond kuadrant/kuadrant kuadrant-system Ready
 
   # A ordem importa: o label de injecao tem de existir ANTES dos Deployments,
-  # senao os pods sobem sem sidecar e o Ato 7 (malha leste-oeste) nao acontece —
+  # senao os pods sobem sem sidecar e o Ato 7 (Service Mesh leste-oeste) nao acontece —
   # e o sintoma so aparece la, tres atos depois.
   # travel-db entra aqui, e nao so pelo Namespace que mysqldb.yaml carrega: o
   # 'oc apply -f <dir>' percorre em ordem alfabetica, entao 00-seed-enrich.yaml
@@ -690,7 +690,7 @@ st_consoles() {
     fi
 
     # Sem PodMonitor/ServiceMonitor o grafo do Kiali abre VAZIO mesmo com o
-    # Prometheus conectado: os pods da malha tem prometheus.io/scrape, que o
+    # Prometheus conectado: os pods do Service Mesh tem prometheus.io/scrape, que o
     # Prometheus de user workload do OpenShift ignora.
     _apply platform-reference/monitoring/istio-monitors.yaml
   else

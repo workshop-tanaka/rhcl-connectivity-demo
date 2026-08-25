@@ -19,7 +19,7 @@ próprio cluster já tem.
 A tese que a demo defende: **o RHCL é uma plataforma de API, não um gateway.**
 Cada ato existe para sustentar isso — política declarativa na borda, planos
 comerciais, precedência explícita, número de negócio, rastreabilidade, o
-autosserviço no portal e a fronteira interna na malha.
+autosserviço no portal e a fronteira interna no Service Mesh.
 
 O repositório é bilíngue por convenção: **código e comentários em português**,
 sem acentuação em comentários de script.
@@ -61,11 +61,11 @@ oc get clusterversion; oc get csv -A | grep -E 'rhcl|servicemesh'; oc get nodes
 
 | Namespace | Papel |
 | --- | --- |
-| `travel-agency` | os 6 serviços da app + policies de malha (Ato 7) |
+| `travel-agency` | os 6 serviços da app + policies de Service Mesh (Ato 7) |
 | `travel-db` | `mysqldb` — se cair, `/travels` devolve `[]` |
 | `ingress-gateway` | Gateway `prod-web` + EnvoyFilters gerados pelo Kuadrant |
 | `kuadrant-system` | Authorino, Limitador, Secrets de API key (`app=partner`) |
-| `istio-system` / `istio-cni` | control plane da malha, Kiali, OSSM console |
+| `istio-system` / `istio-cni` | control plane do Service Mesh, Kiali, OSSM console |
 | `monitoring` | Grafana próprio da demo + dashboards por plano |
 | `tracing-system` | Tempo + OTel collector (Ato 5) |
 | `rhdh-rhcl` | **o RHDH da demo** — rota `rhcl-portal` |
@@ -228,7 +228,7 @@ oc get pod X -o jsonpath='{.spec.initContainers[*].name}'  # istio-validation, i
 ```
 
 Contar sidecars em `.spec.containers` dá **zero** e leva a concluir, errado, que
-a malha não está injetando.
+o Service Mesh não está injetando.
 
 ### 5.6 DNS01 quebra o wildcard do próprio host
 
@@ -306,7 +306,7 @@ quando não há série. Falha real de leitura continua abortando, porque o `oc e
 > mensagem está mentindo e o problema é outro.
 
 **Para destravar na hora** (o Ato 7 precisa de tráfego prévio no caminho da
-malha, que não é o mesmo do Ato 2):
+Service Mesh, que não é o mesmo do Ato 2):
 
 ```bash
 # /travels SEM cidade não chama o discounts — 'tiers' não serve para primar o v2
@@ -322,7 +322,7 @@ curl -sk -H "user: theonlyuser" "https://<host>/travels/Rome?APIKEY=<gold>"
 | `base/` | camada de demo neutra — correta para RHCL 1.2 |
 | `env/<release>_<ocp>/` | ajustes por release; é aqui que a RLP plana sai do render |
 | `overlays/rhcl-1.4`, `overlays/provisioned` | overlay por ambiente (1.4 e 1.2) |
-| `platform-reference/` | o que a plataforma entrega: workloads, malha, operadores |
+| `platform-reference/` | o que a plataforma entrega: workloads, Service Mesh, operadores |
 | `rhdh/` | instalação e configuração do RHDH + templates do golden path |
 | `gitops/` | ApplicationSet do Argo, usado pelo Ato 6 |
 | `devportal-fork/` | fork do developer portal standalone, buildado no cluster |
@@ -395,7 +395,7 @@ oc debug node/<node> -q -- chroot /host df -h /var
 # 4. Alertas
 #    (via route thanos-querier, /api/v1/alerts, filtrar state=firing)
 
-# 5. Malha
+# 5. Service Mesh
 istioctl proxy-status          # sincronização e skew de versão
 istioctl analyze -n travel-agency
 oc exec -n travel-agency <travels> -c travels -- \
@@ -408,7 +408,7 @@ REQS=20 bash scripts/traffic.sh mesh-split    # esperado ~90/10
 - `/travels` sem chave → **401** (não 500 — ver 5.3)
 - proxies todos na mesma versão do control plane, sem `STALE`
 - `authorized_calls` com label `plan` no Thanos (`free`, `silver`, `gold`)
-- zero 5xx na malha; os únicos não-200 devem ser os 403 da AuthorizationPolicy
+- zero 5xx no Service Mesh; os únicos não-200 devem ser os 403 da AuthorizationPolicy
 - cota diária do `free` — o preflight gasta ~13 por execução; `traffic.sh reset` zera
 
 ---

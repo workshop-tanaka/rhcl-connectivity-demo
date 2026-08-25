@@ -2,7 +2,7 @@
 # do OpenShift, servida pelo mesmo Kiali que atende a route de istio-system.
 #
 # Requer o operator kiali-ossm (openshift-operators, canal stable) e um CR Kiali
-# ja saudavel: o plugin nao fala com a malha, fala com o Kiali via proxy do
+# ja saudavel: o plugin nao fala com o Service Mesh, fala com o Kiali via proxy do
 # console (authorization: UserToken).
 #
 # O operator kiali-ossm cria o ConsolePlugin/ossmconsole E se habilita sozinho

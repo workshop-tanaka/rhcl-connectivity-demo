@@ -1,5 +1,5 @@
 # ===========================================================================
-# Namespace do servico -- e o unico lugar onde a MALHA e ligada.
+# Namespace do servico -- e o unico lugar onde o SERVICE MESH e ligado.
 #
 # 'istio-injection: enabled' nao e enfeite nem redundancia com a annotation do
 # pod: o webhook de injecao decide se roda OLHANDO LABEL, tanto do namespace

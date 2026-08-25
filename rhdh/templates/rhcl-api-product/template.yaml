@@ -2,9 +2,9 @@ apiVersion: scaffolder.backstage.io/v1beta3
 kind: Template
 metadata:
   name: rhcl-api-product
-  title: 1. API como produto — projeto, malha e Connectivity Link
+  title: 1. API como produto — projeto, Service Mesh e Connectivity Link
   description: >-
-    Golden path completo: cria o namespace ja na malha, o workload com
+    Golden path completo: cria o namespace ja no Service Mesh, o workload com
     ServiceAccount proprio, a rota no Gateway compartilhado, as policies do RHCL
     (AuthPolicy + PlanPolicy), o APIProduct do developer portal e o par
     leste-oeste do Service Mesh (mTLS STRICT + AuthorizationPolicy + canary
@@ -59,7 +59,7 @@ spec:
           description: >-
             Vazio = usa o nome do servico. O namespace e CRIADO pelo manifesto,
             ja com istio-injection=enabled -- sem esse label o pod nasce sem
-            sidecar e o servico fica fora da malha, sem erro nenhum.
+            sidecar e o servico fica fora do Service Mesh, sem erro nenhum.
           pattern: '^$|^[a-z]([-a-z0-9]*[a-z0-9])?$'
         appsDomain:
           title: Dominio de apps do cluster
@@ -150,7 +150,7 @@ spec:
           default: partner
 
     # -----------------------------------------------------------------------
-    - title: Malha de servicos
+    - title: Service Mesh
       required: [mtlsStrict, allowedCallers]
       properties:
         mtlsStrict:

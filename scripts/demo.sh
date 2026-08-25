@@ -401,18 +401,18 @@ step_ato4() {
 
 step_ato5() {
   _title "Ato 5 — O caminho todo e rastreavel" "3 min"
-  _why "O trafego de /travels NAO atravessa a malha: a resposta e local ao"
+  _why "O trafego de /travels NAO atravessa o Service Mesh: a resposta e local ao"
   _why "travels e o grafo para em 'prod-web -> travels', o que na tela se le como"
   _why "coleta quebrada. Quem provoca o fan-out e /travels/<cidade>, com o header"
   _why "'user' — sem ele os quatro vendedores nao chamam o discounts e o grafo"
   _why "perde o nivel mais profundo. O modo 'mesh' faz as duas coisas certas, e"
-  _why "so com a chave gold: 429 e recusado na borda e nunca entra na malha."
+  _why "so com a chave gold: 429 e recusado na borda e nunca entra no Service Mesh."
   _pause || return 0
   if [[ $DRY_RUN -eq 1 ]]; then
     printf '\n  %s$ DURATION=%s bash scripts/traffic.sh mesh &%s\n\n' "$_BLD" "$MESH_SECS" "$_RST"
   else
     ( DURATION="$MESH_SECS" RATE=2 bash "scripts/traffic.sh" mesh >/dev/null 2>&1 & )
-    _ok "trafego de malha rodando em segundo plano por ${MESH_SECS}s"
+    _ok "trafego de Service Mesh rodando em segundo plano por ${MESH_SECS}s"
     _log "a coleta leva ~1 min (PodMonitor a 30s) — fale enquanto isso"
   fi
   echo
@@ -457,7 +457,7 @@ step_ato6() {
   _why "   Os parceiros do Ato 2 aparecem como consumidores, um por chave."
   echo
   _why "b) Os tres templates, em Create — sao os tres momentos do ciclo:"
-  _why "   1. API como produto      cria namespace na malha, workload, rota,"
+  _why "   1. API como produto      cria namespace no Service Mesh, workload, rota,"
   _why "                            AuthPolicy + PlanPolicy, APIProduct e o par"
   _why "                            leste-oeste; publica no GitHub"
   _why "   2. Assinar uma API       o consumidor pede chave por pull request; o"
@@ -498,7 +498,7 @@ step_ato7() {
   printf '\n  %s1. Ninguem fala em texto claro%s\n' "$_BLD" "$_RST"
   _do oc get peerauthentication travel-agency-mtls -n travel-agency \
       -o jsonpath='{.spec.mtls.mode}{"\n"}'
-  _why "Agora a prova, de fora da malha — um pod sem sidecar, no namespace default:"
+  _why "Agora a prova, de fora do Service Mesh — um pod sem sidecar, no namespace default:"
   _pause || return 0
   _do oc run mtls-probe -n default --image=registry.access.redhat.com/ubi9/ubi-minimal \
       --restart=Never --rm -i -- curl -s -m 6 -o /dev/null \
@@ -535,7 +535,7 @@ done"
   _why  "Nao procure a versao na resposta: v1 e v2 sao a mesma imagem e devolvem"
   _why  "o mesmo corpo. A divisao so existe na metrica e no grafo."
   echo
-  _say  "O RHCL respondeu quem entra, quanto pode e quanto custa. A malha respondeu quem fala com quem, em qual versao, e o que acontece quando quebra. Nenhuma linha de aplicacao mudou em nenhum dos dois."
+  _say  "O RHCL respondeu quem entra, quanto pode e quanto custa. O Service Mesh respondeu quem fala com quem, em qual versao, e o que acontece quando quebra. Nenhuma linha de aplicacao mudou em nenhum dos dois."
 }
 
 step_falha() {

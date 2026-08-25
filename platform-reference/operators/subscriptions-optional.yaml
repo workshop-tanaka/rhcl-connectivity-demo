@@ -4,9 +4,9 @@
 # Nenhum deles impede a demo: sem todos, o preflight.sh termina em
 # '[OK] demo pode ser apresentada' com avisos. O que se perde:
 #
-#   kiali-ossm             Ato 5 (grafo da malha) + aba Service Mesh no console
+#   kiali-ossm             Ato 5 (grafo do Service Mesh) + aba Service Mesh no console
 #   tempo-product          Ato 5 (traces)
-#   opentelemetry-product  o collector que leva os spans da malha ao Tempo
+#   opentelemetry-product  o collector que leva os spans do Service Mesh ao Tempo
 #   grafana-operator       Ato 4 (o dashboard 'RHCL - planos comerciais')
 #
 # O grafana-operator vem de 'community-operators', nao de 'redhat-operators' —

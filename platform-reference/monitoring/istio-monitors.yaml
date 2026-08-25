@@ -5,11 +5,11 @@
 # um degrau adiante: la a serie do Limitador nao chegava ao Thanos, aqui nao
 # chegava NENHUMA serie 'istio_*'. 'count({__name__=~"istio.*"})' voltava vazio.
 #
-# Por que passa despercebido: os pods da malha ja carregam
+# Por que passa despercebido: os pods do Service Mesh ja carregam
 # 'prometheus.io/scrape: true' e 'prometheus.io/port: 15020', que e o padrao que
 # o Prometheus de comunidade le sozinho. O Prometheus de user workload do
 # OpenShift IGNORA anotacao -- ele so raspa o que um PodMonitor ou ServiceMonitor
-# declara. Sem estes objetos a malha parece instrumentada e nao esta.
+# declara. Sem estes objetos o Service Mesh parece instrumentada e nao esta.
 #
 # O sintoma final e pior do que uma tela de erro: corrigidos o TLS e o RBAC do
 # Kiali (ver kiali.yaml), o grafo abre, conecta, e fica VAZIO -- o que no palco

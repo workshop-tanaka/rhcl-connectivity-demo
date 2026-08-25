@@ -44,7 +44,7 @@ Para cada movimento:
    | `ato2` | free ~3 servidas, silver ~10, gold 14 de 14 |
    | `ato3` | `Enforced=False` com a mensagem **nomeando** as duas rotas |
    | `ato4` | séries quebradas por `plan` e a cota diária restante |
-   | `ato5` | o tráfego de malha subiu; o grafo leva ~1 min para desenhar |
+   | `ato5` | o tráfego de Service Mesh subiu; o grafo leva ~1 min para desenhar |
    | `ato7` | `HTTP=000 exit=56`; `travels` 403 e os quatro vendedores 200; ~90/10 |
 
    Bateu: diga em uma linha o que aquilo prova, e pare.

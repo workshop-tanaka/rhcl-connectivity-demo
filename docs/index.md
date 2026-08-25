@@ -24,6 +24,6 @@ O Developer Hub reúne, sobre a mesma demo:
 | --- | --- |
 | Catálogo | serviços, parceiros e as policies do RHCL como recursos |
 | Aba Kubernetes | HTTPRoute, AuthPolicy, RateLimitPolicy e PlanPolicy do serviço |
-| Aba Kiali | a malha, no contexto daquele serviço |
+| Aba Kiali | o Service Mesh, no contexto daquele serviço |
 | Kuadrant | API Products, planos comerciais e o fluxo de chave |
 | Links | traces no Tempo, dashboard de planos no Grafana |

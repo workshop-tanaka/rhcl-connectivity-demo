@@ -1,5 +1,5 @@
 # ===========================================================================
-# Plano de controle da malha — Istio + IstioCNI, e o que liga o Ato 5.
+# Plano de controle do Service Mesh — Istio + IstioCNI, e o que liga o Ato 5.
 #
 # Estes CRs nao existiam no repo: viviam como heredoc na secao 3 do
 # PROVISIONING-1.4.md, e o heredoc de la traz SO o basico. As duas pecas que
@@ -10,7 +10,7 @@
 #   2. Telemetry/mesh-default         -> a ordem de EMITIR o span
 #
 # Sem (1) o collector nunca e chamado. Sem (2) o provider existe e ninguem o
-# usa: os proxies sobem, a malha funciona, o Kiali desenha o grafo, e
+# usa: os proxies sobem, o Service Mesh funciona, o Kiali desenha o grafo, e
 # 'Observe -> Traces' fica permanentemente vazio. Nao ha erro em lugar nenhum
 # — este e o modo de falha silencioso mais caro do provisionamento, porque so
 # aparece no ensaio.
@@ -26,7 +26,7 @@
 # cluster de referencia, acrescente 'version: v1.30.3'.
 #
 # POR ISSO O provision.sh NAO DA 'oc apply' CEGO NESTE ARQUIVO. Num cluster que
-# ja tem malha de pe, um apply removeria o 'version' que estiver gravado no CR
+# ja tem Service Mesh de pe, um apply removeria o 'version' que estiver gravado no CR
 # (o campo nao consta aqui) e dispararia upgrade/downgrade do plano de controle
 # no meio do provisionamento. A etapa 'mesh' entao:
 #   - CR ausente  -> aplica este arquivo inteiro

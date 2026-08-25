@@ -2,7 +2,7 @@
 # AuthorizationPolicy — o par LESTE-OESTE do AuthPolicy do RHCL.
 #
 # O AuthPolicy (base/policies-security/) decide quem entra pela BORDA. Esta
-# decide quem pode falar com quem DENTRO da malha, e a diferenca de escopo e
+# decide quem pode falar com quem DENTRO do Service Mesh, e a diferenca de escopo e
 # o argumento inteiro do ato: uma chave de API valida abre a porta da rua, nao
 # abre todas as portas internas.
 #

@@ -1,6 +1,6 @@
 # Red Hat Developer Hub
 
-Portal de desenvolvedor sobre a demo RHCL: catalogado, com as policies do Connectivity Link modeladas como recursos, e um **golden path** de três templates que cria uma API nova já dentro da malha, exposta, limitada por plano e publicada como produto.
+Portal de desenvolvedor sobre a demo RHCL: catalogado, com as policies do Connectivity Link modeladas como recursos, e um **golden path** de três templates que cria uma API nova já dentro do Service Mesh, exposta, limitada por plano e publicada como produto.
 
 ## Instalar
 
@@ -89,12 +89,12 @@ um é uma `Template` registrada como location própria:
 
 | | O que faz | Como entrega |
 | --- | --- | --- |
-| **1. `rhcl-api-product`** | o projeto inteiro: namespace já na malha, workload com ServiceAccount própria, HTTPRoute no `prod-web`, `AuthPolicy`, `PlanPolicy`, `APIProduct` do developer portal, `PeerAuthentication`, `AuthorizationPolicy` e o par `DestinationRule`/`VirtualService` pronto para canary | cria o repositório no GitHub |
+| **1. `rhcl-api-product`** | o projeto inteiro: namespace já no Service Mesh, workload com ServiceAccount própria, HTTPRoute no `prod-web`, `AuthPolicy`, `PlanPolicy`, `APIProduct` do developer portal, `PeerAuthentication`, `AuthorizationPolicy` e o par `DestinationRule`/`VirtualService` pronto para canary | cria o repositório no GitHub |
 | **2. `rhcl-api-subscription`** | um consumidor pede acesso: gera o `APIKey` do developer portal em `consumers/` | *pull request* no repo da API |
 | **3. `rhcl-api-canary`** | sobe a v2 ao lado da v1 e desloca uma fração do tráfego pelo `VirtualService` | *pull request* no repo da API |
 
 O ponto da demo continua sendo o mesmo, agora com os três escopos juntos: **a
-policy nasce com o serviço** — de borda *e* de malha —, e mudar exposição ou
+policy nasce com o serviço** — de borda *e* de Service Mesh —, e mudar exposição ou
 quem consome passa a ser uma revisão de código, não um ticket para a plataforma.
 
 Requer `setup-github.sh` (a action `publish:github` vem de um plugin desabilitado
@@ -108,7 +108,7 @@ Cada item abaixo foi medido neste cluster, não deduzido do manual:
 - **O namespace precisa do label `istio-injection=enabled`.** A annotation
   `sidecar.istio.io/inject` no pod **não injeta nada**: o webhook decide olhando
   *label* (de namespace ou de pod). Pod só com a annotation nasce sem
-  `istio-proxy`, o serviço funciona, e a malha simplesmente não o vê.
+  `istio-proxy`, o serviço funciona, e o Service Mesh simplesmente não o vê.
 - **A `AuthPolicy` tem que usar `spec.rules`, não `spec.defaults.rules`.** O
   controlador do `APIProduct` ignora o wrapper de defaults, fica sem
   `discoveredAuthScheme`, e todo pedido de chave morre em `AuthSchemeNotFound`.

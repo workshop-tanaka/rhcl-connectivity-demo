@@ -62,7 +62,7 @@ _user="$(curl -sf -H "Authorization: Bearer ${GITHUB_TOKEN}" \
 _ok "token valido (usuario ${_user})."
 
 # Os tres templates do golden path. Cada um e uma location propria no catalogo:
-#   1. produto     cria o projeto inteiro (namespace na malha, policies, produto)
+#   1. produto     cria o projeto inteiro (namespace no Service Mesh, policies, produto)
 #   2. assinatura  pede chave por pull request no repo da API
 #   3. canary      publica a v2 e move peso, tambem por pull request
 _tpl_paths="rhdh/templates/rhcl-api-product/template.yaml
@@ -153,6 +153,6 @@ TEMPLATE_LOCATION_URLS="${_tpl_urls}" \
 _ok "integracao GitHub ativa (org ${GITHUB_ORG})."
 _log "o init container instala os plugins no boot -- o primeiro start demora mais."
 _log "templates em Create ->"
-_log "  1. API como produto — projeto, malha e Connectivity Link"
+_log "  1. API como produto — projeto, Service Mesh e Connectivity Link"
 _log "  2. Assinar uma API — pedido de chave por pull request"
 _log "  3. Publicar uma v2 — canary por pull request"

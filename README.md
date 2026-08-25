@@ -26,7 +26,7 @@ bash scripts/traffic.sh tiers       # mostra os tres planos lado a lado
 
 ```bash
 bash scripts/new-env.sh             # gera env/<cluster>/ e overlays/<cluster>/
-bash scripts/provision.sh           # operadores -> malha -> plataforma -> demo -> telas
+bash scripts/provision.sh           # operadores -> Service Mesh -> plataforma -> demo -> telas
 bash scripts/preflight.sh           # o veredito
 ```
 
@@ -89,7 +89,7 @@ Três software templates no RHDH, e a ordem deles é a jornada de uma API:
 
 | | O que cria | Como entrega |
 | --- | --- | --- |
-| **1. API como produto** | namespace já na malha, workload com SA própria, HTTPRoute no `prod-web`, `AuthPolicy`, `PlanPolicy`, `APIProduct`, mTLS `STRICT`, `AuthorizationPolicy` e o par `DestinationRule`/`VirtualService` | repositório novo no GitHub |
+| **1. API como produto** | namespace já no Service Mesh, workload com SA própria, HTTPRoute no `prod-web`, `AuthPolicy`, `PlanPolicy`, `APIProduct`, mTLS `STRICT`, `AuthorizationPolicy` e o par `DestinationRule`/`VirtualService` | repositório novo no GitHub |
 | **2. Assinar uma API** | o `APIKey` do developer portal, em `consumers/` | *pull request* |
 | **3. Publicar uma v2** | a v2 ao lado da v1 e o peso no `VirtualService` | *pull request* |
 
@@ -98,7 +98,7 @@ do cluster o descobre e o Argo aplica — **não há passo de deploy**. Cada rep
 traz também um `verify.sh`, que é o `preflight.sh` daquele serviço.
 
 O ponto não é digitar menos: é que um serviço novo **não consegue nascer** sem
-namespace na malha, sem policy de borda, sem plano comercial e sem fronteira
+namespace no Service Mesh, sem policy de borda, sem plano comercial e sem fronteira
 leste-oeste. As armadilhas que custaram tempo neste cluster estão fechadas na
 origem — inclusive o *fail-open* do predicate de plano, que o formulário expõe
 como escolha explícita e comentada.
@@ -136,7 +136,7 @@ scripts/
   capture.sh               captura o cluster de volta para o repo
   acessos.sh               folha de acessos (URL/usuario/senha) do cluster
 rhdh/                      Red Hat Developer Hub: catalogo + golden path
-  templates/rhcl-api-product/       cria o projeto inteiro (malha + RHCL + produto)
+  templates/rhcl-api-product/       cria o projeto inteiro (Service Mesh + RHCL + produto)
   templates/rhcl-api-subscription/  pede chave por pull request
   templates/rhcl-api-canary/        publica v2 e move peso, por pull request
 gitops/                    ApplicationSet que descobre os repos gerados (topic)
@@ -175,7 +175,7 @@ bash scripts/traffic.sh burst gold   # rajada de um tier so
 bash scripts/traffic.sh anon         # sem chave / chave invalida -> 401
 bash scripts/traffic.sh soak         # trafego continuo, para assistir no Grafana
 bash scripts/traffic.sh mesh         # fan-out real, para o grafo do Kiali (Ato 5)
-bash scripts/traffic.sh mesh-split   # divisao v1/v2 do canary na malha (Ato 7)
+bash scripts/traffic.sh mesh-split   # divisao v1/v2 do canary no Service Mesh (Ato 7)
 bash scripts/traffic.sh metrics      # contadores do Limitador, por plano
 bash scripts/traffic.sh reset        # zera as cotas do dia (reinicia o Limitador)
 

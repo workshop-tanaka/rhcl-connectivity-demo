@@ -68,7 +68,7 @@ if [[ "${1:-}" == "key" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-_sec "namespace e malha"
+_sec "namespace e Service Mesh"
 if ! oc get ns "$NS" >/dev/null 2>&1; then
   _bad "namespace ${NS} nao existe" "o Argo ainda nao sincronizou? oc apply -k manifests/"
   printf '\n%s%d falha(s).%s\n' "$_RED" "$FAIL" "$_RST"; exit 1
@@ -163,14 +163,14 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-_sec "malha (leste-oeste)"
+_sec "Service Mesh (leste-oeste)"
 m="$(oc get peerauthentication "${NAME}-mtls" -n "$NS" -o jsonpath='{.spec.mtls.mode}' 2>/dev/null)"
 [[ -n "$m" ]] && _ok "PeerAuthentication: ${m}" || _warn "sem PeerAuthentication neste namespace"
 if oc get authorizationpolicy "${NAME}-callers" -n "$NS" >/dev/null 2>&1; then
   p="$(oc get authorizationpolicy "${NAME}-callers" -n "$NS" -o jsonpath='{.spec.rules[0].from[0].source.principals[*]}' 2>/dev/null)"
   _ok "AuthorizationPolicy: ${p}"
 else
-  _warn "sem AuthorizationPolicy" "qualquer workload da malha alcanca este servico"
+  _warn "sem AuthorizationPolicy" "qualquer workload do Service Mesh alcanca este servico"
 fi
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@ ${{ values.description }}
 | Planos | ${{ values.planPreset }} |
 | mTLS | ${{ "STRICT" if values.mtlsStrict else "PERMISSIVE" }} |
 
-Serviço gerado pelo golden path **rhcl-api-product**. Nasce dentro da malha,
+Serviço gerado pelo golden path **rhcl-api-product**. Nasce dentro do Service Mesh,
 exposto no Gateway compartilhado `prod-web` e publicado como produto no
 developer portal do Red Hat Connectivity Link.
 
@@ -36,9 +36,9 @@ por IP, e por plano contratado.
 | Borda | `AuthPolicy` | quem entra |
 | Borda | `PlanPolicy` | quanto passa, por plano |
 | Borda | `APIProduct` | o que o catálogo publica |
-| Malha | `PeerAuthentication` | quem pode falar (mTLS) |
-| Malha | `AuthorizationPolicy` | quem pode falar com este serviço |
-| Malha | `VirtualService` | para qual versão vai o tráfego |
+| Service Mesh | `PeerAuthentication` | quem pode falar (mTLS) |
+| Service Mesh | `AuthorizationPolicy` | quem pode falar com este serviço |
+| Service Mesh | `VirtualService` | para qual versão vai o tráfego |
 
 Nenhuma dessas regras está no código da aplicação. Trocar de plano, abrir a API
 para um novo chamador interno ou mover tráfego para uma v2 é mudar YAML neste

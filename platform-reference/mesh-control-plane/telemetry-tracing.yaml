@@ -1,9 +1,9 @@
 # ===========================================================================
-# Telemetry da malha — a ordem de EMITIR span, separada do CR do Istio.
+# Telemetry do Service Mesh — a ordem de EMITIR span, separada do CR do Istio.
 #
 # Arquivo proprio, e nao mais um documento dentro de istio.yaml, por uma razao
 # operacional: o CR Istio nao pode levar 'oc apply' cego num cluster que ja tem
-# malha de pe (o apply removeria o 'version' gravado e dispararia
+# Service Mesh de pe (o apply removeria o 'version' gravado e dispararia
 # upgrade/downgrade do plano de controle no meio do provisionamento). Esta
 # Telemetry, sim: ela e inofensiva de reaplicar, e e a peca que costuma faltar.
 #

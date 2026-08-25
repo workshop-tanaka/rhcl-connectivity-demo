@@ -37,7 +37,7 @@
 # Em producao, inverta os dois.
 #
 # CreateNamespace NAO esta ligado: o namespace e um recurso do proprio repo
-# (00-namespace.yaml), com o label de injecao da malha. Delegar a criacao ao
+# (00-namespace.yaml), com o label de injecao do Service Mesh. Delegar a criacao ao
 # Argo produziria um namespace sem label -- e um servico sem sidecar.
 # ===========================================================================
 apiVersion: argoproj.io/v1alpha1

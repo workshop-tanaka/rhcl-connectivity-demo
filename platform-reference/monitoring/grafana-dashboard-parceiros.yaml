@@ -7,7 +7,7 @@
 #
 # A serie NAO vem do Limitador -- ali a granularidade e por plano e nao ha como
 # mudar (o PlanPolicy reescreve o dynamicMetadata do AuthConfig; armadilha 3).
-# Vem da malha: o AuthPolicy injeta a identidade como header x-partner e o
+# Vem do Service Mesh: o AuthPolicy injeta a identidade como header x-partner e o
 # Telemetry do Istio a transforma em dimensao. Os dois em base/:
 #   base/policies-security/travel-agency-authpolicy.yaml
 #   base/policies-telemetry/istio-partner-dimension.yaml

@@ -92,7 +92,7 @@ spec:
         server: https://kubernetes.default.svc
         # Fallback apenas: todo manifesto do golden path declara o proprio
         # namespace, e o namespace e criado por 00-namespace.yaml (com o label
-        # de injecao da malha, sem o qual o servico nasce fora do mesh).
+        # de injecao do Service Mesh, sem o qual o servico nasce fora do mesh).
         namespace: '{{ .repository }}'
       syncPolicy:
         automated:
