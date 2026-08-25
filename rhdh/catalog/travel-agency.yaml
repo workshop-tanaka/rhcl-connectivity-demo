@@ -254,10 +254,9 @@ metadata:
     # O que enche a secao Docs do portal. Sem esta anotacao o TechDocs esta
     # ligado e nao tem o que renderizar -- a secao aparece vazia.
     # O mkdocs.yml na raiz do repo define o nav; o RHDH clona e gera no pod.
-    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
-    github.com/project-slug: ${DEMO_REPO_SLUG}
   # Nao ha plugin de Grafana instalavel no RHDH 1.10 -- nem no ghcr (so builds
   # de PR) nem no npm (o pacote nao traz build dinamico). O link direto ao
   # dashboard resolve o mesmo problema numa demo: sair do portal para o numero.
@@ -330,11 +329,10 @@ metadata:
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
-    backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
-    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    backstage.io/source-location: url:${DEMO_REPO_URL}/
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
-    github.com/project-slug: ${DEMO_REPO_SLUG}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
@@ -348,7 +346,7 @@ metadata:
     # Este link e o caminho que esta ligado, e nao depende do Topology carregar.
     # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
     # linhas em vez de publicar um link morto.
-    - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    - url: https://${DEVSPACES_HOST}/#${DEMO_REPO_URL}
       title: Abrir no Dev Spaces
       icon: code
     - url: https://${TRACING_HOST}/search?service=travels.travel-agency
@@ -387,11 +385,10 @@ metadata:
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
-    backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
-    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    backstage.io/source-location: url:${DEMO_REPO_URL}/
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
-    github.com/project-slug: ${DEMO_REPO_SLUG}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
@@ -405,7 +402,7 @@ metadata:
     # Este link e o caminho que esta ligado, e nao depende do Topology carregar.
     # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
     # linhas em vez de publicar um link morto.
-    - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    - url: https://${DEVSPACES_HOST}/#${DEMO_REPO_URL}
       title: Abrir no Dev Spaces
       icon: code
     - url: https://${TRACING_HOST}/search?service=flights.travel-agency
@@ -432,11 +429,10 @@ metadata:
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
-    backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
-    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    backstage.io/source-location: url:${DEMO_REPO_URL}/
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
-    github.com/project-slug: ${DEMO_REPO_SLUG}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
@@ -450,7 +446,7 @@ metadata:
     # Este link e o caminho que esta ligado, e nao depende do Topology carregar.
     # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
     # linhas em vez de publicar um link morto.
-    - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    - url: https://${DEVSPACES_HOST}/#${DEMO_REPO_URL}
       title: Abrir no Dev Spaces
       icon: code
     - url: https://${TRACING_HOST}/search?service=hotels.travel-agency
@@ -477,11 +473,10 @@ metadata:
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
-    backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
-    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    backstage.io/source-location: url:${DEMO_REPO_URL}/
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
-    github.com/project-slug: ${DEMO_REPO_SLUG}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
@@ -495,7 +490,7 @@ metadata:
     # Este link e o caminho que esta ligado, e nao depende do Topology carregar.
     # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
     # linhas em vez de publicar um link morto.
-    - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    - url: https://${DEVSPACES_HOST}/#${DEMO_REPO_URL}
       title: Abrir no Dev Spaces
       icon: code
     - url: https://${TRACING_HOST}/search?service=cars.travel-agency
@@ -522,11 +517,10 @@ metadata:
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
-    backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
-    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    backstage.io/source-location: url:${DEMO_REPO_URL}/
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
-    github.com/project-slug: ${DEMO_REPO_SLUG}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
@@ -540,7 +534,7 @@ metadata:
     # Este link e o caminho que esta ligado, e nao depende do Topology carregar.
     # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
     # linhas em vez de publicar um link morto.
-    - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    - url: https://${DEVSPACES_HOST}/#${DEMO_REPO_URL}
       title: Abrir no Dev Spaces
       icon: code
     - url: https://${TRACING_HOST}/search?service=insurances.travel-agency
@@ -569,11 +563,10 @@ metadata:
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
-    backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
-    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    backstage.io/source-location: url:${DEMO_REPO_URL}/
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
-    github.com/project-slug: ${DEMO_REPO_SLUG}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
@@ -587,7 +580,7 @@ metadata:
     # Este link e o caminho que esta ligado, e nao depende do Topology carregar.
     # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
     # linhas em vez de publicar um link morto.
-    - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    - url: https://${DEVSPACES_HOST}/#${DEMO_REPO_URL}
       title: Abrir no Dev Spaces
       icon: code
     - url: https://${TRACING_HOST}/search?service=discounts.travel-agency
@@ -616,7 +609,7 @@ metadata:
     # Este link e o caminho que esta ligado, e nao depende do Topology carregar.
     # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
     # linhas em vez de publicar um link morto.
-    - url: https://${DEVSPACES_HOST}/#https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    - url: https://${DEVSPACES_HOST}/#${DEMO_REPO_URL}
       title: Abrir no Dev Spaces
       icon: code
     - url: https://${TRACING_HOST}/search?service=echo-api.echo-api
@@ -633,11 +626,10 @@ metadata:
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
-    backstage.io/source-location: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}/
-    backstage.io/techdocs-ref: url:https://github.com/${DEMO_REPO_SLUG}/tree/${DEMO_REPO_BRANCH}
+    backstage.io/source-location: url:${DEMO_REPO_URL}/
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
-    github.com/project-slug: ${DEMO_REPO_SLUG}
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default

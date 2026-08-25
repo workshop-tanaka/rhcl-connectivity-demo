@@ -10,8 +10,8 @@
 #
 # Uso:
 #   bash setup-catalog.sh
-#   TEMPLATE_LOCATION_URLS='https://github.com/org/repo/blob/main/rhdh/templates/rhcl-api-product/template.yaml ...' \
-#     bash setup-catalog.sh     # registra tambem o software template (setup-github.sh faz isso)
+#   TEMPLATE_LOCATION_URLS='https://<gitlab>/rhcl/base/rhcl-connectivity-demo/-/blob/main/rhdh/templates/rhcl-api-product/template.yaml ...' \
+#     bash setup-catalog.sh     # registra tambem os software templates (setup-gitlab.sh faz isso)
 #
 # Pre-requisitos: oc (autenticado), envsubst.
 
@@ -44,10 +44,26 @@ if [[ -z "$DEMO_API_HOST" ]]; then
   _warn "HTTPRoute travel-agency nao encontrada; usando placeholder ${DEMO_API_HOST}."
 fi
 [[ -n "$DEMO_ECHO_HOST" ]] || DEMO_ECHO_HOST="echo.travels.example.com"
-# Slug do repositorio, para as abas do GitHub (Actions/Issues/Insights). Vem do
-# remote do proprio repo: fixa-lo no YAML amarraria o catalogo a um fork.
-DEMO_REPO_SLUG="${DEMO_REPO_SLUG:-$(git -C "${_here}/.." remote get-url origin 2>/dev/null \
-  | sed -E 's|.*github\.com[:/]||; s|\.git$||')}"
+# ---------------------------------------------------------------------------
+# DEMO_REPO_URL — de onde o portal le TechDocs, codigo-fonte e o que o Dev
+# Spaces abre. Aponta para o ESPELHO no GitLab do cluster, e nao mais para o
+# github.com: o ambiente de demo nao tem integracao com o GitHub (decisao de
+# 2026-08-25).
+#
+# O espelho e criado pelo scripts/gitlab-seed.sh. Sem ele, TechDocs nao
+# renderiza e o botao do Dev Spaces abre no vazio -- por isso o aviso, em vez
+# de montar URL para um projeto que nao existe.
+# ---------------------------------------------------------------------------
+_gl_host="$(oc get route -n gitlab-system \
+  -o jsonpath='{range .items[?(@.spec.to.name=="gitlab-webservice-default")]}{.spec.host}{"\n"}{end}' 2>/dev/null | head -1)"
+if [[ -n "$_gl_host" ]]; then
+  DEMO_REPO_URL="${DEMO_REPO_URL:-https://${_gl_host}/rhcl/base/rhcl-connectivity-demo/-/tree/main}"
+  DEMO_REPO_URL_BLOB="${DEMO_REPO_URL_BLOB:-https://${_gl_host}/rhcl/base/rhcl-connectivity-demo/-/blob/main}"
+else
+  DEMO_REPO_URL=""; DEMO_REPO_URL_BLOB=""
+  _warn "GitLab nao encontrado — TechDocs e o link do Dev Spaces ficarao sem origem" \
+        "bash scripts/provision.sh gitlab && bash scripts/gitlab-seed.sh"
+fi
 # Hosts de observabilidade, para os links das entidades. Nao ha plugin de
 # Grafana nem de Tempo instalavel no RHDH 1.10 (nenhum build para o Backstage
 # 1.49.4), entao o portal leva ate eles por link em vez de embutir.
@@ -67,26 +83,27 @@ _log "observabilidade: ${GRAFANA_HOST} / ${TRACING_HOST}"
 # A branch importa: fixar 'main' faz o TechDocs clonar um estado antigo, gerar
 # um mkdocs.yml default (site_name = nome da entidade) e publicar so o que
 # existia la -- sem erro, com conteudo errado.
-DEMO_REPO_BRANCH="${DEMO_REPO_BRANCH:-$(git -C "${_here}/.." rev-parse --abbrev-ref HEAD 2>/dev/null)}"
-[[ -n "$DEMO_REPO_BRANCH" ]] || DEMO_REPO_BRANCH="main"
-_log "branch dos TechDocs: ${DEMO_REPO_BRANCH}"
+# DEMO_REPO_BRANCH saiu junto com o GitHub: o espelho no GitLab tem um branch
+# so ('main'), porque ele e artefato de uma semeadura e nao um repositorio onde
+# se trabalha. Qual branch do GitHub originou o espelho e decisao de quem roda o
+# gitlab-seed.sh, e nao muda a URL que o portal le.
 
-export DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_SLUG GRAFANA_HOST TRACING_HOST DEMO_REPO_BRANCH DEVSPACES_HOST
+export DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_URL DEMO_REPO_URL_BLOB GRAFANA_HOST TRACING_HOST DEVSPACES_HOST
 _log "hosts da demo: ${DEMO_API_HOST} / ${DEMO_ECHO_HOST}"
 
 # ----- 2. entidades renderizadas -------------------------------------------
 _rendered="$(mktemp)"
 trap 'rm -f "$_rendered"' EXIT
-envsubst '${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_SLUG} ${GRAFANA_HOST} ${TRACING_HOST} ${DEMO_REPO_BRANCH} ${DEVSPACES_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
+envsubst '${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_URL} ${DEMO_REPO_URL_BLOB} ${GRAFANA_HOST} ${TRACING_HOST} ${DEVSPACES_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
   || _die "falha ao renderizar catalog/travel-agency.yaml"
 
-# Sem remote no GitHub a anotacao sairia vazia, e as abas do GitHub falhariam
-# pedindo um slug invalido em vez de simplesmente nao aparecer.
-if [[ -z "$DEMO_REPO_SLUG" ]]; then
-  sed -i.bak '/github\.com\/project-slug/d' "$_rendered" && rm -f "${_rendered}.bak"
-  _warn "sem remote github -- abas do GitHub omitidas do catalogo."
+# Espelho ausente: TechDocs e source-location sairiam com URL vazia, e o portal
+# mostraria abas que carregam e nao vao a lugar nenhum -- pior que a ausencia.
+if [[ -z "$DEMO_REPO_URL" ]]; then
+  _warn "sem espelho no GitLab -- TechDocs e codigo-fonte ficarao sem origem" \
+        "bash scripts/gitlab-seed.sh"
 else
-  _log "repositorio das abas do GitHub: ${DEMO_REPO_SLUG}"
+  _log "origem do TechDocs e do codigo: ${DEMO_REPO_URL}"
 fi
 
 # Dev Spaces ausente: o link sairia como 'https:///#...' -- um destino que
@@ -336,10 +353,10 @@ if oc get configmap app-config-rhdh-plugins -n "$RHDH_NS" >/dev/null 2>&1; then
   _cms="${_cms},{\"name\":\"app-config-rhdh-plugins\"}"
   _log "camada de plugins detectada -- incluida no appConfig."
 fi
-if oc get configmap app-config-rhdh-github -n "$RHDH_NS" >/dev/null 2>&1; then
-  _cms="${_cms},{\"name\":\"app-config-rhdh-github\"}"
-  _log "camada GitHub detectada -- incluida no appConfig."
-fi
+# A camada GitHub NAO entra mais: o ambiente de demo e so GitLab (2026-08-25).
+# Se o ConfigMap app-config-rhdh-github ainda existir no cluster, e residuo de
+# uma instalacao anterior -- ele deixa de ser referenciado aqui, e some do
+# portal no proximo rollout.
 if oc get configmap app-config-rhdh-gitlab -n "$RHDH_NS" >/dev/null 2>&1; then
   _cms="${_cms},{\"name\":\"app-config-rhdh-gitlab\"}"
   _log "camada GitLab detectada -- incluida no appConfig."

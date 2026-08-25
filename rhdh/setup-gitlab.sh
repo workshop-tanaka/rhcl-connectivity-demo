@@ -170,8 +170,34 @@ _ok "app-config-rhdh-gitlab aplicado"
 _log "habilitando os plugins (delegado ao setup-plugins.sh)..."
 bash "${_here}/setup-plugins.sh" || _die "falha ao habilitar os plugins."
 
+# ----- 6. registrar os templates, agora do GITLAB ---------------------------
+# Eram lidos de uma URL do github.com, registrada pelo setup-github.sh. Com a
+# integracao GitHub fora do portal, essa URL deixa de ser alcancavel -- e o
+# 'Create' fica vazio, que e indistinguivel de "o template nunca existiu".
+#
+# O espelho e criado pelo scripts/gitlab-seed.sh. Se ele nao rodou, aqui nao ha
+# o que registrar, e vale avisar em vez de registrar URL que devolve 404.
+_ESP="rhcl/base/rhcl-connectivity-demo"
+_esp_ok=1
+curl -sf -o /dev/null -m 20 -H "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+  "https://${GITLAB_HOST}/api/v4/projects/$(printf '%s' "$_ESP" | sed 's|/|%2F|g')" 2>/dev/null || _esp_ok=0
+
+if [[ $_esp_ok -eq 0 ]]; then
+  _warn "espelho ${_ESP} ausente — os templates nao serao registrados" \
+        "rode antes: bash scripts/gitlab-seed.sh"
+  _tpl_urls=""
+else
+  _tpl_urls=""
+  for _t in rhcl-api-product rhcl-api-subscription rhcl-api-canary; do
+    _tpl_urls="${_tpl_urls} https://${GITLAB_HOST}/${_ESP}/-/blob/main/rhdh/templates/${_t}/template.yaml"
+    _log "software template: ${_t}"
+  done
+  _ok "3 templates apontando para o GitLab"
+fi
+
 _log "habilitando o catalogo (delegado ao setup-catalog.sh)..."
-bash "${_here}/setup-catalog.sh" || _die "falha ao publicar o catalogo."
+TEMPLATE_LOCATION_URLS="${_tpl_urls}" \
+  bash "${_here}/setup-catalog.sh" || _die "falha ao publicar o catalogo."
 
 _ok "integracao GitLab ativa (https://${GITLAB_HOST})"
 _log "os templates publicam em rhcl/apis; o ApplicationSet descobre pelo subgrupo"

@@ -343,45 +343,22 @@ if [[ "${WITH_ANSIBLE:-false}" == "true" ]]; then
   _log "plugins do Ansible incluidos (v${_aap_ver})."
 fi
 
-# Camada GitHub: se o Secret existe, os plugins dela entram nesta mesma lista.
-if oc get secret rhdh-github-secret -n "$RHDH_NS" >/dev/null 2>&1; then
-  _gh_branch="${GITHUB_BRANCH:-main}"
-  _plugins="${_plugins}
-      - package: ./dynamic-plugins/dist/backstage-plugin-catalog-backend-module-github-dynamic
-        disabled: false
-        pluginConfig:
-          catalog:
-            providers:
-              github:
-                providerId:
-                  organization: \${GITHUB_ORG}
-                  catalogPath: /catalog-info.yaml
-                  filters:
-                    branch: ${_gh_branch}
-                  schedule:
-                    frequency:
-                      minutes: 5
-                    initialDelay:
-                      seconds: 30
-                    timeout:
-                      minutes: 3
-      - package: ./dynamic-plugins/dist/backstage-plugin-scaffolder-backend-module-github-dynamic
-        disabled: false
-      # Aba do GitHub na pagina da entidade. Community supported, vinda do ghcr
-      # -- a tag amarra o build ao Backstage 1.49.4 do RHDH 1.10.
-      #
-      # Actions e Issues foram removidos numa etapa anterior, quando o repo nao
-      # tinha workflow nem issue e as abas subiriam vazias. Voltaram junto com
-      # .github/workflows/validate.yml, que produz execucoes reais a cada push.
-      # As tres dependem da anotacao github.com/project-slug na entidade.
-      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/roadiehq-backstage-plugin-github-insights:bs_1.49.4__3.5.0!roadiehq-backstage-plugin-github-insights
-        disabled: false
-      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-github-actions:bs_1.49.4__0.22.0!backstage-community-plugin-github-actions
-        disabled: false
-      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-github-issues:bs_1.49.4__0.21.0!backstage-community-plugin-github-issues
-        disabled: false"
-  _log "camada GitHub detectada -- plugins incluidos."
-fi
+# ---------------------------------------------------------------------------
+# A CAMADA GITHUB SAIU (2026-08-25). O ambiente de demo e so GitLab.
+#
+# Removidos daqui cinco plugins: catalog-backend-module-github (descoberta por
+# org), scaffolder-backend-module-github (publish:github) e as tres abas de
+# entidade (insights, actions, issues) -- que dependiam da anotacao
+# github.com/project-slug, tambem removida do catalogo.
+#
+# O que ficou no lugar: a camada GitLab logo abaixo, que fornece
+# publish:gitlab. Os templates passam a ser servidos do espelho
+# rhcl/base/rhcl-connectivity-demo, semeado pelo scripts/gitlab-seed.sh.
+#
+# O rhdh/setup-github.sh NAO foi apagado: ele documenta o caminho GitHub para
+# quem quiser, e a fonte do repo continua la (ESTRATEGIA-BRANCHES secao 1). Ele
+# so deixou de fazer parte do caminho da demo.
+# ---------------------------------------------------------------------------
 
 # Camada GitLab: e ela que fornece a action publish:gitlab, sem a qual os tres
 # templates falham no passo de publicacao. O modulo vem na imagem do RHDH
@@ -581,10 +558,9 @@ _secrets='{"name":"rhdh-backend-secret"},{"name":"rhdh-kubernetes-secret"},{"nam
 if oc get secret rhdh-ansible-secret -n "$RHDH_NS" >/dev/null 2>&1; then
   _secrets="${_secrets},{\"name\":\"rhdh-ansible-secret\"}"
 fi
-if oc get configmap app-config-rhdh-github -n "$RHDH_NS" >/dev/null 2>&1; then
-  _cms="${_cms},{\"name\":\"app-config-rhdh-github\"}"
-  _secrets="${_secrets},{\"name\":\"rhdh-github-secret\"}"
-fi
+# app-config-rhdh-github e rhdh-github-secret NAO entram mais: sem eles nao ha
+# 'integrations.github' no portal, que e o ponto da decisao de 2026-08-25.
+# Residuo de instalacao anterior deixa de ser referenciado e some no rollout.
 if oc get configmap app-config-rhdh-gitlab -n "$RHDH_NS" >/dev/null 2>&1; then
   _cms="${_cms},{\"name\":\"app-config-rhdh-gitlab\"}"
   _secrets="${_secrets},{\"name\":\"rhdh-gitlab-secret\"}"
