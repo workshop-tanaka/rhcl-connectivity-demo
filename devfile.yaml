@@ -1,0 +1,39 @@
+# ===========================================================================
+# Devfile do repositorio da demo — o que o Dev Spaces abre quando alguem clica
+# em "Abrir no Dev Spaces" num componente do portal.
+#
+# POR QUE ELE EXISTE: sem devfile na raiz, o dashboard mostra
+#   "Failed to fetch devfile. Workspace will start from the default devfile."
+# O workspace ate sobe, mas o aviso aparece na frente da plateia e parece erro.
+#
+# ATENCAO — este arquivo so tem efeito depois de chegar ao GitHub. O Dev Spaces
+# le o devfile do REMOTE, nunca do disco local; enquanto o commit nao subir
+# para o branch que o link do catalogo aponta, o aviso continua.
+#
+# POR QUE NAO HA 'commands' AQUI: o workspace roda com a ServiceAccount do
+# proprio workspace, que so tem permissao no namespace <usuario>-devspaces.
+# Um comando 'oc get authpolicy -A' falharia com Forbidden ao ser clicado --
+# pior que nao existir. Quem quiser rodar os scripts do repo faz 'oc login'
+# dentro do terminal do IDE primeiro.
+#
+# A imagem e a Universal Developer Image do produto: a tag 3.29 acompanha o
+# Dev Spaces 3.29 instalado por platform-reference/devspaces/ e e a mesma que o
+# CSV do operator referencia nos proprios samples. Ao subir o Dev Spaces de
+# versao, esta tag precisa subir junto.
+# ===========================================================================
+schemaVersion: 2.2.0
+metadata:
+  name: rhcl-connectivity-demo
+  displayName: RHCL — demo de conectividade
+  description: Policies, catalogo do portal e manifests da plataforma.
+components:
+  - name: tools
+    container:
+      image: registry.redhat.io/devspaces/udi-rhel9:3.29
+      # mountSources monta o repositorio clonado em /projects. Sem isto o IDE
+      # sobe e o container nao enxerga o codigo.
+      mountSources: true
+      memoryRequest: 1Gi
+      memoryLimit: 4Gi
+      cpuRequest: 200m
+      cpuLimit: 2000m

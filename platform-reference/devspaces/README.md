@@ -83,21 +83,72 @@ oc label checluster devspaces -n openshift-devspaces app=travels
 # por backstage.io/kubernetes-id: travels
 ```
 
-## Não há `devfile.yaml` no repositório — de propósito
+## O repositório é privado — e isso quebra o Dev Spaces em dois pontos
 
-Sem devfile, o workspace sobe com a *Universal Developer Image* e o repositório
-aberto: dá para ler e editar as policies, que é o que a demo precisa. Um
-devfile acrescentaria nome de workspace e comandos prontos (*preflight*,
-*aplicar policies*), e a imagem a fixar seria
-`registry.redhat.io/devspaces/udi-rhel9:3.29` — a tag pública que o próprio CSV
-do operator 3.29.1 referencia nos samples.
+`devhub-tanaka/rhcl-connectivity-demo` é **privado**. Sem credencial, o clique
+no link falha de duas formas que parecem coisas diferentes e têm a mesma causa:
 
-Ficou de fora porque **hoje o link funciona** e um devfile inválido o quebraria:
-validá-lo exige subir um workspace, o que passa pelo login OAuth e não dá para
-automatizar daqui. Também não foi possível confirmar quais CLIs a UDI traz — os
-scripts deste repo exigem `oc`, `curl`, `python3`, `envsubst` e `yq`, e um
-comando que morre com *"yq nao encontrado"* na frente da plateia custa mais do
-que o atalho vale. Se for adicionar, teste com um workspace real antes.
+```
+Failed to fetch devfile. Workspace will start from the default devfile.
+```
+
+O dashboard não conseguiu **ler** o repositório — não é (só) a ausência de
+devfile. Logo depois, o init container `project-clone` não consegue **clonar**.
+
+A correção é um *personal access token* no namespace do usuário
+(`<usuario>-devspaces`), no formato que o Che propaga para o clone:
+
+```bash
+TOK=$(oc get secret rhdh-github-secret -n rhdh-rhcl -o jsonpath='{.data.GITHUB_TOKEN}' | base64 -d)
+GH_USER=$(curl -s -H "Authorization: Bearer $TOK" https://api.github.com/user \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['login'])")
+CHE_UID=$(oc get secret user-profile -n admin-devspaces -o jsonpath='{.data.id}' | base64 -d)
+
+oc apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: personal-access-token-github
+  namespace: admin-devspaces
+  labels:
+    app.kubernetes.io/component: scm-personal-access-token
+    app.kubernetes.io/part-of: che.eclipse.org
+  annotations:
+    che.eclipse.org/che-userid: ${CHE_UID}
+    che.eclipse.org/scm-personal-access-token-name: github
+    che.eclipse.org/scm-url: https://github.com
+    che.eclipse.org/scm-username: ${GH_USER}
+type: Opaque
+stringData:
+  token: ${TOK}
+EOF
+```
+
+O token reaproveitado é o mesmo que o RHDH já usa; escopo `repo` basta (medido:
+`GET /repos/...` responde 200 com ele). O namespace é o do usuário que
+apresenta — troque `admin-devspaces` se não for `admin`.
+
+A alternativa suportada é OAuth com um GitHub OAuth App e o Secret
+`github-oauth-config` em `openshift-devspaces`: melhor para vários
+apresentadores, porque cada um autoriza a própria conta em vez de compartilhar
+um token. Para uma demo de um operador só, o PAT acima resolve.
+
+## `devfile.yaml` na raiz
+
+Existe, e é deliberadamente mínimo: só a *Universal Developer Image* e limites
+de recurso. **Sem `commands`** — o workspace roda com a ServiceAccount do
+próprio workspace, que só tem permissão no namespace `<usuario>-devspaces`, e
+um botão *"listar policies"* que responde `Forbidden` ao ser clicado custa mais
+do que o atalho vale. Quem for rodar os scripts faz `oc login` no terminal do
+IDE.
+
+Ele só surte efeito **depois de chegar ao GitHub**: o Dev Spaces lê o devfile do
+remote, nunca do disco. Enquanto o commit não subir para o branch que o link do
+catálogo aponta, o aviso continua.
+
+A tag `udi-rhel9:3.29` acompanha o Dev Spaces 3.29 — é a mesma que o CSV do
+operator referencia nos próprios samples. Subir o Dev Spaces de versão exige
+subir a tag junto.
 
 ## O que mais depende disto
 
