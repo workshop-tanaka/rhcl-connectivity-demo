@@ -64,6 +64,66 @@ else
         "rode: bash scripts/gitlab-seed.sh"
 fi
 
+# ----- 3b. OAuth application, para o GitLab ser o IdP do portal ------------
+# O portal saiu do guest e entra pelo GitLab. Sem esta application o login nao
+# existe -- e num cluster novo ninguem adivinharia recria-la.
+#
+# ESCOPOS: 'read_user' e o que o provider do Backstage pede no sign-in, e
+# FALTAVA na primeira versao. O sintoma e do lado do GitLab, na tela de
+# autorizacao, e nao diz qual escopo:
+#   "The requested scope is invalid, unknown, or malformed."
+# 'api' e o que o requestUserCredentials dos templates soma para poder escrever.
+#
+# A API do GitLab NAO atualiza application -- so GET, POST e DELETE. Entao
+# reconciliar e apagar e recriar, o que ROTACIONA client_id e secret e exige o
+# restart do RHDH. Por isso so recria quando o callback ou os escopos mudaram.
+_RH="$(oc get route -n "$RHDH_NS" -o jsonpath='{range .items[?(@.spec.to.name=="backstage-developer-hub")]}{.spec.host}{"\n"}{end}' 2>/dev/null | head -1)"
+if [[ -z "$_RH" ]]; then
+  _warn "rota do RHDH nao encontrada — OAuth application nao configurada"
+else
+  export GITLAB_HOST GITLAB_TOKEN RHDH_NS _RH
+  python3 - <<'PYOAUTH'
+import os, sys, json, ssl, base64, subprocess, urllib.request, urllib.error
+host, tok = os.environ["GITLAB_HOST"], os.environ["GITLAB_TOKEN"]
+ns, rhdh = os.environ["RHDH_NS"], os.environ["_RH"]
+CB = f"https://{rhdh}/api/auth/gitlab/handler/frame"
+WANT = ["read_user", "api", "openid", "profile", "email"]
+ctx = ssl.create_default_context()
+def call(m, p, b=None):
+    d = json.dumps(b).encode() if b is not None else None
+    r = urllib.request.Request(f"https://{host}/api/v4{p}", data=d, method=m,
+        headers={"PRIVATE-TOKEN": tok, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(r, context=ctx, timeout=60) as x:
+            raw = x.read(); return x.status, (json.loads(raw) if raw else None)
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        try: return e.code, json.loads(raw)
+        except Exception: return e.code, {"message": raw.decode()[:200]}
+
+st, apps = call("GET", "/applications")
+atual = next((a for a in (apps or []) if a.get("application_name") == "rhcl-portal"), None)
+if atual and atual.get("callback_url") == CB and set(atual.get("scopes") or []) == set(WANT):
+    print("  [OK] OAuth application ja correta (nao rotacionada)")
+    sys.exit(0)
+if atual:
+    call("DELETE", f"/applications/{atual['id']}")
+    print("  [*] callback ou escopos mudaram — recriando (client_id sera rotacionado)")
+st, d = call("POST", "/applications", {
+    "name": "rhcl-portal", "redirect_uri": CB,
+    "scopes": " ".join(WANT), "confidential": "true"})
+if st not in (200, 201):
+    print("  [!] falha ao criar a OAuth application:", str(d.get("message"))[:160]); sys.exit(1)
+man = {"apiVersion": "v1", "kind": "Secret",
+       "metadata": {"name": "rhdh-gitlab-oauth", "namespace": ns},
+       "data": {"GITLAB_OAUTH_CLIENT_ID": base64.b64encode(d["application_id"].encode()).decode(),
+                "GITLAB_OAUTH_CLIENT_SECRET": base64.b64encode(d["secret"].encode()).decode()}}
+r = subprocess.run(["oc", "apply", "-f", "-"], input=json.dumps(man).encode(), capture_output=True)
+print("  [OK] OAuth application criada" if r.returncode == 0
+      else "  [!] secret nao gravado: " + r.stderr.decode()[:120])
+PYOAUTH
+fi
+
 # ----- 4. secret e app-config ----------------------------------------------
 export GITLAB_HOST
 oc create secret generic rhdh-gitlab-secret -n "$RHDH_NS" \
