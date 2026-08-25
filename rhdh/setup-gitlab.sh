@@ -87,7 +87,18 @@ import os, sys, json, ssl, base64, subprocess, urllib.request, urllib.error
 host, tok = os.environ["GITLAB_HOST"], os.environ["GITLAB_TOKEN"]
 ns, rhdh = os.environ["RHDH_NS"], os.environ["_RH"]
 CB = f"https://{rhdh}/api/auth/gitlab/handler/frame"
-WANT = ["read_user", "api", "openid", "profile", "email"]
+# Lista AMPLA de proposito. O erro do lado do GitLab --
+#   "The requested scope is invalid, unknown, or malformed."
+# -- nao diz QUAL escopo falta, e acontece depois do login, entao nao da para
+# reproduzir por curl (o authorize devolve 302 mesmo com escopo invalido,
+# porque redireciona para a tela de login antes de validar).
+#
+# 'read_user' e o do sign-in. 'api' e o que o requestUserCredentials dos
+# templates soma. Os de repositorio entram porque o publish cria projeto e faz
+# push, e descobrir um a um custaria uma rotacao de client_id por tentativa --
+# cada uma derrubando o login ate o RHDH reiniciar.
+WANT = ["read_user", "api", "read_api", "read_repository", "write_repository",
+        "openid", "profile", "email"]
 ctx = ssl.create_default_context()
 def call(m, p, b=None):
     d = json.dumps(b).encode() if b is not None else None
