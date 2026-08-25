@@ -155,10 +155,28 @@ cp "$_rendered" "${_cmdir}/travel-agency.yaml"
 # Template do job template do AAP, se o sync do survey ja rodou. Ele vem pelo
 # httpd interno em vez do git porque a entidade nao tem skeleton nenhum -- so
 # dispara o job pela API -- e assim regenerar o survey nao exige um push.
+#
+# A condicao NAO e so o arquivo existir: e existir AAP NESTE cluster. O arquivo
+# e gerado pelo sync-survey.sh a partir de uma instancia especifica, e carrega
+# os hostnames DELA -- inclusive como 'default' de campo do formulario. Servido
+# num cluster sem AAP, ele publica um template que dispara job num endereco
+# morto, com o default apontando para a API de outro cluster.
+#
+# Foi o que aconteceu ate 2026-08-25: o arquivo gerado no w4xtj continuou sendo
+# servido no cxr7d, que nao tem AAP. Nao deu erro, nao apareceu no preflight, e
+# so apareceria com alguem abrindo o template no portal durante uma demo.
+#
+# Com AAP presente, o sync-survey.sh regenera o arquivo contra a instancia
+# local e os hostnames saem certos -- entao a checagem tambem e o que mantem o
+# conteudo honesto.
 _aap_tpl="${_here}/catalog/aap-smoke-test.yaml"
-if [[ -f "$_aap_tpl" ]]; then
+if [[ -f "$_aap_tpl" ]] && oc get ns aap >/dev/null 2>&1; then
   cp "$_aap_tpl" "${_cmdir}/aap-smoke-test.yaml"
   _log "template do AAP incluido (gerado por sync-survey.sh)."
+elif [[ -f "$_aap_tpl" ]]; then
+  _warn "catalog/aap-smoke-test.yaml existe mas NAO ha AAP neste cluster --" \
+        "omitido para nao publicar template apontando para outro ambiente." \
+        "Com AAP: bash rhdh/sync-survey.sh regenera contra a instancia local."
 fi
 
 oc create configmap rhdh-catalog-entities -n "$RHDH_NS" \
@@ -183,9 +201,14 @@ _ok "entidades sendo servidas em http://${CATALOG_SVC}/travel-agency.yaml"
 _locations="        - type: url
           target: http://${CATALOG_SVC}/travel-agency.yaml"
 
-# Mesma condicao do bloco que copiou o arquivo acima: servir sem registrar
-# deixaria o YAML acessivel pelo httpd e invisivel no portal.
-if [[ -f "${_here}/catalog/aap-smoke-test.yaml" ]]; then
+# Mesma condicao do bloco que copiou o arquivo acima -- e ela precisa ser
+# IDENTICA, incluindo a checagem de AAP. Registrar sem servir deixa a Location
+# apontando para uma URL que o httpd nao entrega, e o Backstage MANTEM a
+# entidade ja ingerida: some do ConfigMap e continua no portal.
+#
+# Foi o que aconteceu na primeira tentativa de corrigir isto em 2026-08-25 --
+# o arquivo saiu do ConfigMap e o aap-smoke-test continuou listado.
+if [[ -f "${_here}/catalog/aap-smoke-test.yaml" ]] && oc get ns aap >/dev/null 2>&1; then
   _locations="${_locations}
         - type: url
           target: http://${CATALOG_SVC}/aap-smoke-test.yaml"
