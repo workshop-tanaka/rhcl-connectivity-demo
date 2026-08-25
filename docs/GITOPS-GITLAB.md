@@ -104,11 +104,55 @@ Quem busca essa URL é o **controlador do developer portal, de dentro do
 cluster**. Apontando para o GitLab, passa a depender de três coisas ao mesmo
 tempo:
 
-1. o controlador **alcançar** o host do GitLab (rota do cluster, saindo e voltando);
-2. o certificado ser **confiável para ele** — o wildcard `*.apps` do cluster
-   (Google Trust Services) funciona; autoassinado quebra o fetch;
-3. o projeto ser **público** — o GitLab tem configuração de instância que
-   restringe níveis de visibilidade; se ela barrar `public`, o raw devolve 404.
+1. ~~o controlador **alcançar** o host do GitLab~~ — **medido, OK**;
+2. ~~o certificado ser **confiável para ele**~~ — **medido, OK**;
+3. ~~o projeto ser **público**~~ — **medido, OK**.
+
+> ## Os três riscos foram eliminados em 2026-08-25
+>
+> Com o GitLab de pé no cluster (`gitlab.apps.cluster-cxr7d...`, publicado por
+> Route com o wildcard), projeto público `root/ensaio-spec` e um `openapi.yaml`
+> criado pela API:
+>
+> ```
+> URL: https://gitlab.apps.<dom>/root/ensaio-spec/-/raw/main/openapi.yaml
+>
+> anonimamente, de fora                   http=200  tls_verify=0
+> de dentro do developer-portal-controller http=200  tls_verify=0   <- o que decide
+> ```
+>
+> **O `openAPISpecURL` apontando para o GitLab interno funciona.** É o mesmo
+> resultado que o GitHub entrega hoje (`OpenAPISpecReady=True (SpecFetched)`,
+> medido em 2026-08-24 no ensaio do Ato 6), então a troca não regride nada.
+>
+> A condição a preservar é uma só: **o GitLab publicado com o wildcard do
+> cluster**, nunca com certificado próprio ou autoassinado.
+
+### Os dois primeiros riscos foram eliminados sem instalar nada
+
+O método é reaproveitável e leva um minuto: `curl` de dentro do pod que faz o
+fetch, **sem `-k`**, contra um host `*.apps` qualquer que o cluster já sirva —
+e olhar o `ssl_verify_result`, não só o código HTTP.
+
+```bash
+oc exec -n kuadrant-system deploy/developer-portal-controller -- \
+  curl -s -o /dev/null -m 15 -w 'http=%{http_code} tls_verify=%{ssl_verify_result}\n' \
+  https://rhcl-portal.apps.<dom>/
+```
+
+Medido em 2026-08-25, contra dois hosts:
+
+```
+rhcl-portal.apps.cluster-cxr7d...        http=200  tls_verify=0
+grafana-route-monitoring.apps...         http=200  tls_verify=0
+```
+
+`tls_verify=0` é sucesso na verificação. O controlador alcança hosts `*.apps`
+saindo pelo router e voltando, e confia no wildcard do cluster sem CA extra.
+
+**Consequência para o plano:** se o GitLab for publicado por Route com o
+wildcard do cluster — e não com certificado próprio ou autoassinado —, o
+`openAPISpecURL` funciona. O que sobra a testar é só a visibilidade do projeto.
 
 E o agravante, documentado no próprio arquivo:
 
@@ -119,9 +163,10 @@ Falhou uma vez, fica `OpenAPISpecReady=False` para sempre, sem aba Definition no
 portal, e só destrava editando o campo. Ao vivo, no Ato 6, é a falha mais cara
 possível: silenciosa e não auto-recuperável.
 
-**Teste isolado, antes de tudo:** subir o GitLab, criar um projeto público com um
-`openapi.yaml`, apontar um `APIProduct` de teste para o raw dele, e confirmar
-`OpenAPISpecReady=True`.
+**Teste isolado, agora reduzido:** subir o GitLab, criar um projeto público com
+um `openapi.yaml` e confirmar que o raw dele responde 200 anonimamente. Se
+responder, o `APIProduct` funciona — a parte de rede e TLS ja esta provada
+acima.
 
 **Se falhar**, o plano B é barato: manter o `openAPISpecURL` no GitHub (o repo
 base já é público lá) e mover só o `gitRepository` e o GitOps para o GitLab.
@@ -225,6 +270,65 @@ de fixar `requests`/`limits` em vez de aceitar os defaults do chart.
   cai também a exigência de SCC `privileged`;
 - **nginx-ingress e cert-manager embutidos**: o cluster já tem os dois. Usar
   `Route` e copiar o wildcard, como o `provision.sh` já faz para o Gateway.
+
+### O que NAO da para desligar — corrigido em 2026-08-25
+
+A primeira versao desta secao estimava "4–6 CPU e 10–12 GiB, SCM puro",
+assumindo os charts embutidos de PostgreSQL, Redis e MinIO. **Essa premissa
+esta errada para a versao que este cluster instala.**
+
+Medido ao aplicar o CR: o operator falha ao renderizar o template, com
+
+```
+Since chart v10.0.0, external Redis became required.       global.redis.host
+Since chart v10.0.0, external PostgreSQL became required.  global.psql.host
+Object Storage: connection nao pode ser vazio              artifacts, lfs, uploads, packages
+```
+
+E nao ha saida pela versao: `gitlab-operator-kubernetes.v3.3.0` e o unico no
+catalogo (nos dois canais) e traz apenas charts 10.x — `10.1.6`, `10.2.4`,
+`10.3.0`. O chart 9.x, que empacotava as dependencias, nao esta disponivel.
+
+Entao o GitLab aqui **nao e um componente, sao quatro**:
+
+| Dependencia | Situacao no cluster (2026-08-25) |
+| --- | --- |
+| PostgreSQL | nada instalado. O CNPG que existe e privado do ODF (`clusters.postgresql.cnpg.noobaa.io`, grupo de API forkado) e nao serve. Catalogo tem `cloudnative-pg`, `crunchy-postgres-operator`, `percona` |
+| Redis | nada instalado. `redis-operator` (Community) ou `redis-enterprise` (licenciado) |
+| Object storage | **disponivel** — NooBaa + `ObjectBucketClaim`, 4 buckets |
+
+O que cresce nao e capacidade — os control-planes seguem com ~7 CPU e ~38 GiB
+livres cada. O que cresce e **superficie operacional**: tres componentes a mais
+para manter de pe antes de uma demo, num cluster que hospeda a demo.
+
+Decisao de 2026-08-25: seguir com GitLab mesmo assim, instalando as
+dependencias. A alternativa considerada e descartada foi o Gitea, que
+colapsaria as tres (o Argo tem provider `gitea` no ApplicationSet e o Backstage
+tem `publish:gitea`), mas custa reconhecimento de nome numa demo Red Hat.
+
+### Apagar projeto falha com o registry desligado
+
+Medido em 2026-08-25. O delete do GitLab e soft-delete: renomeia o projeto e
+consulta o container registry, que este desenho desliga. Pela API:
+
+```
+DELETE /api/v4/projects/<id>
+  {"message":"Cannot rename project: failed to connect to the container
+   registry. Please try again later."}   http=400
+```
+
+E `Projects::DestroyService` **falha em silencio** — retorna sem erro e o
+projeto continua com `pending_delete=false`. O que funciona:
+
+```bash
+oc exec -n gitlab-system deploy/gitlab-webservice-default -c webservice -- \
+  sh -c 'cd /srv/gitlab && ./bin/rails runner \
+    "Project.find_by_full_path(\"grupo/projeto\").destroy!"'
+```
+
+Importa porque apagar projeto **e** operacao rotineira num golden path: cada
+ensaio cria um servico. Se incomodar, a saida e religar o registry — ao custo
+de mais uma peca.
 
 ### Hostnames, herdando a armadilha 6
 

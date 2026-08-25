@@ -1,0 +1,127 @@
+apiVersion: apps.gitlab.com/v1beta1
+kind: GitLab
+metadata:
+  name: gitlab
+  namespace: gitlab-system
+spec:
+  chart:
+    version: "10.3.0"
+    values:
+      global:
+        edition: ce
+        hosts:
+          domain: apps.cluster-cxr7d.dyn.redhatworkshops.io
+          https: true
+        # openshift-default converte Ingress em Route (ingress-to-route).
+        # configureCertmanager=false porque o TLS vem do wildcard do cluster,
+        # copiado em gitlab-wildcard-tls -- e nao de emissao DNS01, que
+        # sai Ready=True e faz o proprio host parar de resolver (armadilha 6).
+        # O chart 10.x usa Gateway API por PADRAO e tenta criar um EnvoyProxy
+        # (gateway.envoyproxy.io/v1alpha1) -- CRD que este cluster nao tem, e
+        # nao deve ter: o Gateway API aqui e servido pelo Istio do RHCL, e um
+        # segundo controlador seria confusao na demo. Desligado, o chart volta
+        # ao caminho de Ingress, que o router do OpenShift converte em Route.
+        gatewayApi:
+          enabled: false
+          installEnvoy: false
+        ingress:
+          enabled: true
+          class: openshift-default
+          configureCertmanager: false
+          tls:
+            secretName: gitlab-wildcard-tls
+
+        # ----- dependencias externas, obrigatorias desde o chart 10.0.0 -----
+        # O chart deixou de empacotar PostgreSQL e Redis, e o operator v3.3.0
+        # so traz charts 10.x. Sem estes blocos o template NAO RENDERIZA e o CR
+        # fica em 'Preparing' sem criar recurso nenhum.
+        psql:
+          host: gitlab-psql-rw.gitlab-system.svc.cluster.local
+          port: 5432
+          database: gitlabhq_production
+          username: gitlab
+          password:
+            secret: gitlab-psql-credentials
+            key: password
+        redis:
+          host: gitlab-redis.gitlab-system.svc.cluster.local
+          port: 6379
+          auth:
+            enabled: true
+            secret: gitlab-redis-credentials
+            key: password
+
+        # ----- object storage: desligado por tipo -----
+        # A terceira dependencia do chart 10.x seria object storage para
+        # artifacts, lfs, uploads e packages. Todos os quatro sao de CI, Git LFS
+        # e registry de pacotes -- e este GitLab e SCM PURO. Desligado o
+        # object_store, o GitLab usa disco local e a dependencia desaparece.
+        # Se um dia houver CI aqui, o NooBaa do cluster (ObjectBucketClaim) e o
+        # caminho, e ai voltam a precisar de 'connection'.
+        # A chave e '<tipo>.enabled' direto -- NAO '<tipo>.object_store.enabled'.
+        # Aqui 'enabled' significa "usar object storage para este tipo"; false
+        # cai para disco local. A logica esta em
+        # templates/_checkConfig_object_storage.tpl: o check varre 8 tipos e
+        # reclama de quem tem enabled=true com connection vazio. Os outros 4
+        # (externalDiffs, terraformState, dependencyProxy, ciSecureFiles) ja
+        # vem false por padrao.
+        appConfig:
+          artifacts:
+            enabled: false
+          lfs:
+            enabled: false
+          uploads:
+            enabled: false
+          packages:
+            enabled: false
+
+      # o cluster ja tem cert-manager proprio
+      installCertmanager: false
+      certmanager:
+        install: false
+      # o router do OpenShift serve o Ingress; nginx embutido seria um segundo
+      # ingress sem funcao
+      nginx-ingress:
+        enabled: false
+      # SCM puro: o golden path nao constroi imagem (o Deployment recebe
+      # 'image' como parametro e quem aplica e o Argo), entao runner e registry
+      # nao tem uso -- e o runner traria exigencia de SCC privileged.
+      gitlab-runner:
+        install: false
+      # ATENCAO ao efeito colateral, medido em 2026-08-25: com o registry
+      # desligado, APAGAR PROJETO PELA API FALHA. O delete do GitLab e um
+      # soft-delete que renomeia o projeto e consulta o registry:
+      #   {"message":"Cannot rename project: failed to connect to the
+      #    container registry. Please try again later."}  http=400
+      # Pior, Projects::DestroyService falha em SILENCIO -- retorna sem erro e
+      # o projeto continua com pending_delete=false. O que funciona e o destroy
+      # direto, pelo pod do webservice:
+      #   ./bin/rails runner 'Project.find_by_full_path("grupo/proj").destroy!'
+      # Se apagar projeto virar operacao rotineira aqui, reconsiderar o
+      # registry -- ou automatizar esse comando.
+      registry:
+        enabled: false
+      prometheus:
+        install: false
+      gitlab:
+        # toolbox DESLIGADO: com object storage fora, o Deployment dele renderiza
+        # com um secret de nome vazio na projecao de volumes e a API rejeita
+        #   volumes[4].projected.sources[8].secret.name: Required value
+        # Manter o toolbox exigiria configurar object storage so para o backup
+        # dele -- exatamente a dependencia que este arquivo remove.
+        #
+        # Consequencia: nao ha pod para 'gitlab-rails runner'. Emitir PAT passa
+        # a ser pela API, com a senha inicial de root (secret
+        # gitlab-gitlab-initial-root-password) -- o que e mais scriptavel, e
+        # nao menos.
+        toolbox:
+          enabled: false
+        webservice:
+          minReplicas: 1
+          maxReplicas: 1
+        sidekiq:
+          minReplicas: 1
+          maxReplicas: 1
+        gitlab-shell:
+          minReplicas: 1
+          maxReplicas: 1

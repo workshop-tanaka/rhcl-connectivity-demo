@@ -1,0 +1,74 @@
+# ===========================================================================
+# Redis do GitLab.
+#
+# Deployment simples, e nao operator, de proposito: o GitLab usa o Redis como
+# cache e fila do Sidekiq, uma instancia so resolve, e um operator a mais seria
+# a quarta peca a manter de pe antes de uma demo. Perder este pod perde job na
+# fila -- aceitavel aqui, inaceitavel em producao.
+#
+# COM autenticacao. Sem NetworkPolicy no cluster, um Redis aberto e alcancavel
+# de qualquer pod; a senha vem do secret gitlab-redis-credentials, criado por
+# comando (ver README.md).
+#
+# Sem persistencia (emptyDir): o que vive aqui e cache e fila, ambos
+# reconstruiveis. PVC so acrescentaria estado para manter.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitlab-redis
+  namespace: gitlab-system
+  labels:
+    app: gitlab-redis
+spec:
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+  selector:
+    app: gitlab-redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-redis
+  namespace: gitlab-system
+  labels:
+    app: gitlab-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitlab-redis
+  template:
+    metadata:
+      labels:
+        app: gitlab-redis
+    spec:
+      containers:
+        - name: redis
+          image: registry.redhat.io/rhel9/redis-7:latest
+          # SEM 'args': a imagem RHEL tem container-entrypoint proprio e
+          # rejeita flags cruas do redis-server ("exec: --: invalid option").
+          # Ela le REDIS_PASSWORD do ambiente e configura o requirepass sozinha.
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gitlab-redis-credentials
+                  key: password
+          ports:
+            - containerPort: 6379
+              name: redis
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}

@@ -1,0 +1,39 @@
+# ===========================================================================
+# PostgreSQL do GitLab — CloudNativePG.
+#
+# O secret gitlab-psql-credentials NAO esta neste arquivo de proposito: senha
+# em repo e senha vazada. Ele e criado por comando (ver README.md), com tipo
+# basic-auth -- que e o formato que o CNPG espera no bootstrap e que da ao
+# GitLab as chaves 'username' e 'password' que ele le.
+#
+# postInitApplicationSQL e obrigatorio: o GitLab exige as extensoes pg_trgm e
+# btree_gist, e criar extensao precisa de superusuario. O usuario 'gitlab' nao
+# tem esse direito, entao a criacao acontece aqui, no bootstrap, rodada pelo
+# superusuario -- e nao na migracao do GitLab, que falharia.
+#
+# instances: 1 porque e cluster de demo. Em producao seriam 3, e o CNPG faria
+# failover sozinho.
+# ===========================================================================
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: gitlab-psql
+  namespace: gitlab-system
+spec:
+  instances: 1
+  imagePullPolicy: IfNotPresent
+  storage:
+    size: 20Gi
+  bootstrap:
+    initdb:
+      database: gitlabhq_production
+      owner: gitlab
+      secret:
+        name: gitlab-psql-credentials
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS pg_trgm
+        - CREATE EXTENSION IF NOT EXISTS btree_gist
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi

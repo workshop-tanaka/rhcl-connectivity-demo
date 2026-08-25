@@ -1,0 +1,27 @@
+# ===========================================================================
+# DEPENDENCIAS DO GITLAB — obrigatorias a partir do chart 10.0.0
+#
+# O chart deixou de empacotar PostgreSQL, Redis e MinIO. O operator
+# gitlab-operator-kubernetes.v3.3.0 traz apenas charts 10.x (10.1.6, 10.2.4,
+# 10.3.0), entao nao ha como voltar para a versao com dependencias embutidas.
+# Sem estes tres, o operator falha ao RENDERIZAR o template -- nao cria recurso
+# nenhum e o CR fica em 'Preparing' sem explicacao na tela.
+#
+#   PostgreSQL  -> CloudNativePG (este arquivo + 03-postgres.yaml)
+#   Redis       -> 04-redis.yaml
+#   Object store-> 05-buckets.yaml (NooBaa, que o cluster ja tem)
+#
+# O CNPG do ODF NAO serve: ele registra clusters.postgresql.cnpg.noobaa.io,
+# um grupo de API forkado e privado do NooBaa.
+# ===========================================================================
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: cloudnative-pg
+  namespace: openshift-operators
+spec:
+  channel: stable-v1
+  name: cloudnative-pg
+  source: certified-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
