@@ -80,6 +80,15 @@ _host() { # ns route -> hostname (vazio se a route não existe)
   oc get route "$2" -n "$1" -o jsonpath='{.spec.host}' 2>/dev/null
 }
 
+_host_por_servico() { # ns service -> hostname da 1a route que aponta para ele
+  # O GitLab publica por Ingress, e o router converte em Route com sufixo
+  # gerado (gitlab-webservice-default-n459q). Nome fixo no catalogo nao acha,
+  # e o sufixo muda a cada reprovisionamento -- entao a busca e pelo SERVICO,
+  # que e estavel.
+  oc get route -n "$1" \
+    -o jsonpath="{range .items[?(@.spec.to.name=='$2')]}{.spec.host}{'\n'}{end}" 2>/dev/null | head -1
+}
+
 _skeys() { # ns secret -> uma chave por linha
   oc get secret "$2" -n "$1" -o go-template='{{range $k,$v := .data}}{{$k}}{{"\n"}}{{end}}' 2>/dev/null
 }
@@ -188,8 +197,8 @@ CATALOGO=(
   "Observabilidade|Kiali|istio-system/kiali|-||Atos 3 e 7 — OAuth do cluster"
   "Observabilidade|Traces (console)|-|-||Ato 5 — aba Observe > Traces, no console; a tela do ato"
   "Observabilidade|Thanos Querier|openshift-monitoring/thanos-querier|-||Atos 4 e 5 — PromQL cru, OAuth do cluster"
-  "Portais|Red Hat Developer Hub|rhdh/backstage-developer-hub|-|guest|Ato 6 — login guest, sem senha"
-  "Portais|RHDH — instância RHCL|rhdh-rhcl/backstage-developer-hub|-|guest|developer portal do RHCL — login guest"
+  "Portais|Red Hat Developer Hub|rhdh/backstage-developer-hub|-|-|RHDH do workshop AAP — NÃO é o da demo (§5.8)"
+  "Portais|RHDH — instância RHCL|rhdh-rhcl/backstage-developer-hub|-|-|o portal da demo — login PELO GITLAB; use uma das personas abaixo"
   "Portais|Argo CD|openshift-gitops/openshift-gitops-server|openshift-gitops/openshift-gitops-cluster|admin|dono de metade do cluster (armadilha 4 do RUNBOOK)"
   "IdP|Keycloak (RHBK)|keycloak/keycloak|keycloak/keycloak-initial-admin||admin do RHBK — IdP do login do cluster e realm do portal"
 )
@@ -206,6 +215,32 @@ CATALOGO_AMBIENTE=(
   "Ambiente (fora da demo)|Jaeger UI (Tempo)|tracing-system/tempo-tempo-jaegerui|-||plano B do Ato 5, deprecada; a UI fica em /dev (o tenant), a raiz devolve so JSON"
 )
 $TODAS && CATALOGO+=("${CATALOGO_AMBIENTE[@]}")
+
+# ---------------------------------------------------------------------------
+# GitLab do cluster — fora do CATALOGO porque a Route tem nome gerado.
+#
+# E o SCM do golden path desde 2026-08-25, e o IdP do portal desde que o guest
+# saiu. Sem ele nesta folha, a senha do root vive so em transcript de conversa
+# -- que e exatamente o que este script existe para evitar.
+# ---------------------------------------------------------------------------
+_glh="$(_host_por_servico gitlab-system gitlab-webservice-default)"
+if [[ -n "$_glh" ]]; then
+  CRED_USER="root"; CRED_PASS=""
+  _creds gitlab-system gitlab-gitlab-initial-root-password root >/dev/null 2>&1
+  _row "Portais" "GitLab (SCM do golden path)" "https://${_glh}" \
+       "root" "$CRED_PASS" "administrador; tambem e o IdP do portal desde que o guest saiu"
+
+  # As personas do Ato 6. A senha NAO esta em secret: foi definida por comando
+  # na API do admin, entao aqui ela e declarada. Se mudar, mude aqui tambem --
+  # nao ha de onde ler.
+  for _p in "globex-travel:Globex Travel (tier gold)" \
+            "initech-voyages:Initech Voyages (tier silver)" \
+            "acme-trips:ACME Trips (tier free)" \
+            "plat-eng:Plataforma (aprova e faz merge)"; do
+    _row "Portais" "GitLab — ${_p#*:}" "https://${_glh}" "${_p%%:*}" "redhat123" \
+         "persona do Ato 6; assina a merge request no portal"
+  done
+fi
 
 VISTAS=()   # ns/route já catalogadas, para o --todas não repetir
 for _e in "${CATALOGO[@]}"; do
