@@ -45,16 +45,45 @@ data:
             options:
               subject: legacy-default-config
               secret: "${BACKEND_SECRET}"
+          # ----- automacao -----
+          # O guest saiu, e com ele o caminho que scripts usavam para falar com
+          # a API ('api/auth/guest/refresh'). Automacao nao deve entrar como
+          # usuario: entra como SERVICO, que e para isto que serve o
+          # externalAccess.
+          #
+          # 'static' e nao 'legacy': o legacy espera um JWT assinado com o
+          # segredo, nao o segredo cru -- mandar o BACKEND_SECRET como Bearer
+          # devolve 'Illegal token' (medido em 2026-08-25). O static aceita o
+          # valor como esta.
+          - type: static
+            options:
+              token: "${AUTOMATION_TOKEN}"
+              subject: automation
 
-    # Login: provider 'guest' -- adequado para lab/demo, NAO para producao.
-    # Ver README.md ("Sair do guest") para promover isto.
+    # ----- login -----
+    # GitLab como IdP, e nao apenas como SCM. Resolve duas coisas de uma vez:
+    # quem a pessoa e no portal, E o token que o scaffolder usa para agir como
+    # ela no GitLab. Um mecanismo em vez de dois -- e e o que torna literal a
+    # frase do RUNBOOK sobre a assinatura ficar "em git, com autor e data".
+    #
+    # SEM guest. Ele nao esta comentado nem desabilitado: nao existe mais.
+    # 'environment: production' tambem passa a valer, entao nao ha porta lateral.
+    #
+    # O resolver casa o username do GitLab com User:default/<nome>. As quatro
+    # personas existem no catalogo (rhdh/catalog/travel-agency.yaml); sem a
+    # entidade, o login acontece e a sessao morre em "user not found".
     auth:
-      environment: development
+      environment: production
       providers:
-        guest:
-          dangerouslyAllowOutsideDevelopment: true
-      # O usuario 'guest' nao existe no catalogo; sem isto o sign-in e recusado.
-      dangerouslyAllowSignInWithoutUserInCatalog: true
+        gitlab:
+          production:
+            clientId: ${GITLAB_OAUTH_CLIENT_ID}
+            clientSecret: ${GITLAB_OAUTH_CLIENT_SECRET}
+            audience: https://${GITLAB_HOST}
+            signIn:
+              resolvers:
+                - resolver: usernameMatchingUserEntityName
+    signInPage: gitlab
 
     # 'locations' NAO e definido aqui de proposito: quem define e o
     # app-config-rhdh-catalog (setup-catalog.sh). Arrays nao se somam entre

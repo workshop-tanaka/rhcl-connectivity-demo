@@ -48,6 +48,19 @@ spec:
             # A diferenca que torna isso aceitavel: host errado aqui e falha
             # VISIVEL -- o formulario nao submete. Valor errado no appsDomain
             # passava verde e quebrava tres atos depois.
+            # O token OAuth de QUEM ESTA LOGADO chega ao passo de publicacao
+            # por aqui. E o que faz a merge request sair assinada pela persona
+            # -- 'Globex Travel' no lugar de 'root' -- e torna literal a frase
+            # do RUNBOOK sobre o contrato ficar em git com autor e data.
+            #
+            # additionalScopes 'api' porque o escopo padrao do login (openid,
+            # profile, email) nao autoriza escrita no GitLab: sem ele o publish
+            # falha com 403 depois de o formulario ja ter sido preenchido.
+            requestUserCredentials:
+              secretsKey: USER_OAUTH_TOKEN
+              additionalScopes:
+                gitlab:
+                  - api
 
     - title: A v2
       required: [imageV2, weightV2, replicasV2]
@@ -93,6 +106,8 @@ spec:
       action: publish:gitlab:merge-request
       input:
         repoUrl: ${{ parameters.repoUrl }}
+        # A MR sai assinada por quem esta logado -- e o que a plateia le.
+        token: ${{ secrets.USER_OAUTH_TOKEN }}
         branchName: canary-v2-${{ parameters.weightV2 }}pct
         title: "canary: v2 com ${{ parameters.weightV2 }}% do trafego"
         description: |

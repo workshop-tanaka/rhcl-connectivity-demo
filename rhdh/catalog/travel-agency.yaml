@@ -42,6 +42,85 @@ spec:
   memberOf:
     - group:default/platform-team
 ---
+# ---------------------------------------------------------------------------
+# AS PERSONAS DO ATO 6 — as mesmas que existem como usuario no GitLab.
+#
+# Elas existem por causa do resolver de sign-in: 'usernameMatchingUserEntityName'
+# casa o username do GitLab com User:default/<nome>. Sem a entidade, o login
+# acontece e a sessao morre logo depois em "user not found" -- falha que parece
+# de credencial e e de catalogo.
+#
+# NAMESPACE default de proposito (o 'guest' acima esta em 'development'): o
+# resolver procura em default, e entidade no namespace errado e invisivel para
+# ele.
+#
+# O e-mail difere do que esta no GitLab (@example.invalid, que nunca recebe
+# correio). Nao e inconsistencia: o resolver casa por USERNAME, e os dois
+# sistemas nao precisam concordar no endereco. Aqui vale a convencao do repo,
+# que e o que aparece na tela.
+#
+# E o e-mail nao e decorativo, pelo mesmo motivo do 'guest' acima: sem ele o
+# plugin Kuadrant desabilita 'Request API Access'.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: globex-travel
+  description: Parceiro tier gold. Abre merge request de assinatura no GitLab.
+spec:
+  profile:
+    displayName: Globex Travel
+    email: globex@travel-agency.demo
+  memberOf:
+    - group:default/parceiros
+---
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: initech-voyages
+  description: Parceiro tier silver. Abre merge request de assinatura no GitLab.
+spec:
+  profile:
+    displayName: Initech Voyages
+    email: initech@travel-agency.demo
+  memberOf:
+    - group:default/parceiros
+---
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: acme-trips
+  description: Parceiro tier free. Abre merge request de assinatura no GitLab.
+spec:
+  profile:
+    displayName: ACME Trips
+    email: acme@travel-agency.demo
+  memberOf:
+    - group:default/parceiros
+---
+# Quem APROVA. Maintainer em rhcl/apis no GitLab, e o unico que faz merge --
+# quem pede nao e quem aprova.
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: plat-eng
+  description: Engenharia de plataforma. Aprova e faz merge das assinaturas.
+spec:
+  profile:
+    displayName: Plataforma
+    email: plataforma@travel-agency.demo
+  memberOf:
+    - group:default/platform-team
+---
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: parceiros
+  description: Consumidores da API. Abrem assinatura por merge request; nao aprovam.
+spec:
+  type: team
+  children: []
+---
 apiVersion: backstage.io/v1alpha1
 kind: Group
 metadata:

@@ -574,7 +574,10 @@ EOF
 # ----- 4. ligar no CR ------------------------------------------------------
 # Merge patch substitui arrays: as listas vao completas.
 _cms='{"name":"app-config-rhdh"},{"name":"app-config-rhdh-catalog"},{"name":"app-config-rhdh-plugins"}'
-_secrets='{"name":"rhdh-backend-secret"},{"name":"rhdh-kubernetes-secret"}'
+# rhdh-automation-secret e rhdh-gitlab-oauth NAO sao condicionais: sem o
+# primeiro nao ha como automacao falar com a API (o guest saiu), e sem o
+# segundo o login nao existe -- o portal sobe sem porta de entrada.
+_secrets='{"name":"rhdh-backend-secret"},{"name":"rhdh-kubernetes-secret"},{"name":"rhdh-automation-secret"},{"name":"rhdh-gitlab-oauth"}'
 if oc get secret rhdh-ansible-secret -n "$RHDH_NS" >/dev/null 2>&1; then
   _secrets="${_secrets},{\"name\":\"rhdh-ansible-secret\"}"
 fi
