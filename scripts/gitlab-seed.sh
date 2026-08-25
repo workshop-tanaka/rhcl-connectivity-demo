@@ -70,6 +70,7 @@ HOST  = os.environ["GITLAB_HOST"]
 TOKEN = os.environ["TOKEN"]
 DRY   = os.environ["DRY"] == "1"
 ROOT  = os.environ["SEED_ROOT"]
+ROOT_REPO = os.path.dirname(ROOT)   # a raiz do repo; SEED_ROOT aponta para base/
 API   = f"https://{HOST}/api/v4"
 CTX   = ssl.create_default_context()
 
@@ -187,9 +188,14 @@ def ensure_pat(user_id):
     # idempotencia e por nome: havendo um 'golden-path' ativo, nao cria outro,
     # e quem guarda o valor e o Secret gravado na primeira vez. Reemitir exige
     # apagar o Secret e o token, nesta ordem.
-    st, d = call("GET", f"/users/{user_id}/personal_access_tokens")
-    if st == 200:
-        for t in d or []:
+    # A rota e /personal_access_tokens?user_id=N, e NAO
+    # /users/N/personal_access_tokens -- essa ultima devolve 404. Com o 404 o
+    # 'st == 200' nunca era verdadeiro, a funcao caia direto na criacao, e cada
+    # execucao emitia um PAT novo: dois por persona depois de duas passadas,
+    # todos ativos. Medido em 2026-08-25.
+    st, d = call("GET", f"/personal_access_tokens?user_id={user_id}")
+    if st == 200 and isinstance(d, list):
+        for t in d:
             if t.get("name") == "golden-path" and t.get("active", True):
                 return None
     # A validade e CALCULADA, nao fixa. A instancia impoe teto de um ano --
@@ -288,23 +294,115 @@ for rel, full in files:
         "file_path": rel, "content": base64.b64encode(raw).decode(),
         "encoding": "base64"})
 
+# Sem sys.exit aqui: o espelho vem depois, e sair na semeadura de policies o
+# pulava em silencio sempre que base/ estava em dia -- que e o caso comum.
 if not actions:
-    ok(f"nada mudou -- {iguais} arquivo(s) ja identicos no remoto"); sys.exit(0)
-if iguais:
-    print(f"  [*] {iguais} inalterado(s), {len(actions)} a commitar")
-
-st, d = call("POST", f"/projects/{proj_id}/repository/commits", {
-    "branch": "main",
-    "commit_message": "Semeadura da camada de policies a partir de base/",
-    "actions": actions})
-if st in (200, 201):
-    ok(f"{len(actions)} arquivo(s) commitados em {proj_path}")
+    ok(f"policies em dia -- {iguais} arquivo(s) ja identicos no remoto")
 else:
-    msg = str(d.get("message"))
-    if "no changes" in msg.lower():
-        ok("nada mudou desde a ultima semeadura")
+    if iguais:
+        print(f"  [*] {iguais} inalterado(s), {len(actions)} a commitar")
+    st, d = call("POST", f"/projects/{proj_id}/repository/commits", {
+        "branch": "main",
+        "commit_message": "Semeadura da camada de policies a partir de base/",
+        "actions": actions})
+    if st in (200, 201):
+        ok(f"{len(actions)} arquivo(s) commitados em {proj_path}")
     else:
-        warn(f"falha ao commitar: {msg[:200]}"); sys.exit(1)
+        msg = str(d.get("message"))
+        if "no changes" in msg.lower():
+            ok("nada mudou desde a ultima semeadura")
+        else:
+            warn(f"falha ao commitar: {msg[:200]}")
+
+# ----- 4. o espelho do repo, para o portal nao depender do GitHub -----------
+# POR QUE ISTO EXISTE: o RHDH lia os templates de uma URL do github.com. Com a
+# integracao GitHub fora do portal (decisao de 2026-08-25 -- ambiente de demo e
+# so GitLab), essa URL deixa de ser alcancavel, e sem ela nao ha Ato 6.
+#
+# ESPELHO SELETIVO, e nao o repo inteiro: aqui vai so o que o PORTAL serve. O
+# resto -- scripts/, platform-reference/, base/, e os documentos de engenharia
+# -- nao tem por que estar num portal que a plateia abre.
+#
+# RENDERIZACAO NO CAMINHO: os templates trazem __GITLAB_HOST__, substituido
+# aqui. E o ponto de substituicao que nao existia quando eles eram lidos do
+# GitHub -- e a razao de o allowedHosts ter ficado fixo por um commit.
+ESPELHO = [
+    "mkdocs.yml",              # raiz do TechDocs
+    "devfile.yaml",            # o que o Dev Spaces abre
+    "docs/index.md",           # os quatro do nav do mkdocs -- e so eles
+    "docs/DEMO-PASSO-A-PASSO.md",
+    "docs/RUNBOOK.md",
+    "docs/PROVISIONING-1.4.md",
+]
+ESPELHO_DIRS = ["rhdh/templates"]   # os 3 templates e seus skeletons
+
+def _coleta_espelho(raiz):
+    itens = []
+    for rel in ESPELHO:
+        full = os.path.join(raiz, rel)
+        if os.path.isfile(full):
+            itens.append((rel, full))
+        else:
+            warn(f"ausente no repo, fora do espelho: {rel}")
+    for d in ESPELHO_DIRS:
+        base = os.path.join(raiz, d)
+        for dirpath, _dirs, names in os.walk(base):
+            for n in sorted(names):
+                full = os.path.join(dirpath, n)
+                itens.append((os.path.relpath(full, raiz), full))
+    itens.sort()
+    return itens
+
+if root_id and root_id != -1:
+    base_id = ensure_group("base", "Base", root_id)
+    espelho_path = "rhcl/base/rhcl-connectivity-demo"
+    st, pr = call("GET", "/projects/" + urllib.parse.quote(espelho_path, safe=""))
+    if st == 200:
+        ok(f"projeto {espelho_path} ja existe"); esp_id = pr["id"]
+    elif DRY:
+        print(f"    $ criar projeto {espelho_path}"); esp_id = -1
+    else:
+        st, pr = call("POST", "/projects", {
+            "name": "rhcl-connectivity-demo", "path": "rhcl-connectivity-demo",
+            "namespace_id": base_id, "visibility": "public",
+            "description": "Espelho seletivo do repo base: o que o portal serve (templates, TechDocs, devfile). Fonte no GitHub.",
+            "initialize_with_readme": True})
+        if st in (200, 201):
+            ok(f"projeto {pr['path_with_namespace']} criado"); esp_id = pr["id"]
+        else:
+            warn(f"falha ao criar o espelho: {pr.get('message')}"); esp_id = None
+
+    if esp_id and esp_id != -1 and not DRY:
+        itens = _coleta_espelho(ROOT_REPO)
+        rem = {}
+        st, tree = call("GET", f"/projects/{esp_id}/repository/tree?recursive=true&per_page=100")
+        if st == 200:
+            rem = {e["path"]: e["id"] for e in tree or [] if e["type"] == "blob"}
+        acoes, iguais = [], 0
+        for rel, full in itens:
+            with open(full, "rb") as fh:
+                raw = fh.read()
+            if rel.startswith("rhdh/templates/") and rel.endswith(".yaml"):
+                raw = raw.replace(b"__GITLAB_HOST__", HOST.encode())
+            if rem.get(rel) == git_blob_sha(raw):
+                iguais += 1; continue
+            acoes.append({"action": "update" if rel in rem else "create",
+                          "file_path": rel,
+                          "content": base64.b64encode(raw).decode(),
+                          "encoding": "base64"})
+        if not acoes:
+            ok(f"espelho em dia -- {iguais} arquivo(s) identicos")
+        else:
+            st, d = call("POST", f"/projects/{esp_id}/repository/commits", {
+                "branch": "main",
+                "commit_message": "Espelho seletivo do repo base (templates, TechDocs, devfile)",
+                "actions": acoes})
+            if st in (200, 201):
+                ok(f"{len(acoes)} arquivo(s) espelhados em {espelho_path}"
+                   + (f" ({iguais} inalterados)" if iguais else ""))
+            else:
+                warn(f"falha ao espelhar: {str(d.get('message'))[:160]}")
+
 PY
 _rc=$?
 echo

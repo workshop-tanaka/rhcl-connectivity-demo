@@ -39,26 +39,19 @@ spec:
           type: string
           ui:field: RepoUrlPicker
           ui:options:
-            # allowedHosts com valor de cluster, e isso e DIVIDA CONHECIDA.
+            # __GITLAB_HOST__ e substituido pelo gitlab-seed.sh, que espelha
+            # este template para dentro do GitLab e o renderiza no caminho.
             #
-            # Tentei sem a lista, para nao fixar host aqui. Nao funciona: sem
-            # allowedHosts o picker nao oferece host nenhum utilizavel -- o
-            # campo Host fica sem o GitLab e o formulario nao anda. A hipotese
-            # de que ele cairia nas integracoes configuradas estava errada,
-            # medido em 2026-08-25.
+            # allowedHosts NAO pode faltar: sem a lista o picker nao oferece
+            # host nenhum utilizavel -- o campo Host fica vazio e o formulario
+            # nao anda, mesmo com a integracao carregada e correta (medido em
+            # 2026-08-25). E nao pode ser fixo, porque o host muda por cluster.
             #
-            # Por que e aceitavel POR ENQUANTO: pela ESTRATEGIA-BRANCHES, valor
-            # especifico de cluster pode viver em branch de demo -- e a falha
-            # aqui e VISIVEL (o host nao aparece, ninguem submete errado), nao
-            # silenciosa como era o default do appsDomain.
-            #
-            # A CORRECAO DE VERDADE e semear os templates no proprio GitLab
-            # (docs/GITOPS-GITLAB.md): o gitlab-seed.sh renderiza, e o host
-            # entra substituido como ja acontece com __APPS_DOMAIN__ e
-            # __GITLAB_API__. Enquanto os templates forem lidos do GitHub, nao
-            # ha ponto de substituicao.
+            # Por isso os templates sao SERVIDOS DO GITLAB e nao do GitHub: e a
+            # semeadura que da o ponto de substituicao. Enquanto eram lidos de
+            # uma URL do GitHub, nao havia onde renderizar.
             allowedHosts:
-              - gitlab.apps.cluster-cxr7d.dyn.redhatworkshops.io
+              - __GITLAB_HOST__
             # O token OAuth de QUEM ESTA LOGADO chega ao passo de publicacao
             # por aqui. E o que faz a merge request sair assinada pela persona
             # -- 'Globex Travel' no lugar de 'root' -- e torna literal a frase
