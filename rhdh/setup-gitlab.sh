@@ -75,6 +75,16 @@ _ok "rhdh-gitlab-secret gravado em ${RHDH_NS}"
 
 # baseUrl e apiBaseUrl explicitos: sem eles o Backstage assume gitlab.com para
 # host que nao reconhece, e o publish vai para o lugar errado sem erro claro.
+#
+# ATENCAO ao '${GITLAB_TOKEN}' abaixo: SEM barra invertida. O heredoc e quoted
+# (<<'EOF'), entao o shell nao expande nada, e o envsubst com whitelist so
+# substitui RHDH_NS e GITLAB_HOST -- a variavel do token passa intacta, que e o
+# que o Backstage precisa resolver em runtime.
+#
+# Escapar como '\${GITLAB_TOKEN}' grava a BARRA no ConfigMap. O sintoma nao
+# aponta para ca: o publish:gitlab falha com 'GitbeakerRequestError:
+# Unauthorized', que parece token errado -- e o token esta certo, no secret e
+# na variavel do container. Medido em 2026-08-25.
 envsubst '${RHDH_NS} ${GITLAB_HOST}' <<'EOF' | oc apply -f - >/dev/null \
   || _die "falha ao aplicar o app-config do GitLab."
 apiVersion: v1
@@ -87,7 +97,7 @@ data:
     integrations:
       gitlab:
         - host: ${GITLAB_HOST}
-          token: \${GITLAB_TOKEN}
+          token: ${GITLAB_TOKEN}
           baseUrl: https://${GITLAB_HOST}
           apiBaseUrl: https://${GITLAB_HOST}/api/v4
 EOF
