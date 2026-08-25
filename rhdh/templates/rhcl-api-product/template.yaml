@@ -255,15 +255,23 @@ spec:
       action: publish:gitlab
       input:
         repoUrl: ${{ parameters.repoUrl }}
-        description: ${{ parameters.description }}
         defaultBranch: main
         # PUBLICO de proposito, e nao por descuido: o APIProduct manda o
-        # controlador do developer portal BUSCAR o openapi.yaml em
-        # raw.githubusercontent.com. Repositorio privado devolve 404 e o produto
-        # fica com OpenAPISpecReady=False -- sem aba Definition no portal.
+        # controlador do developer portal BUSCAR o openapi.yaml no raw do
+        # GitLab. Projeto privado devolve 404, o produto fica com
+        # OpenAPISpecReady=False -- sem aba Definition no portal -- e o
+        # controlador NAO REPETE.
         repoVisibility: public
-        # O topic e o que o ApplicationSet procura. Sem ele, no modo
-        # applicationset, o repo e criado e nunca sincroniza.
+        # 'description' NAO e input de publish:gitlab (e de publish:github).
+        # Passa-lo direto derruba a task com
+        #   InputError: instance is not allowed to have the additional
+        #   property "description"
+        # Os atributos do projeto vao em 'settings'.
+        settings:
+          description: ${{ parameters.description }}
+        # O topic deixou de ser o seletor do ApplicationSet -- quem seleciona
+        # agora e o SUBGRUPO rhcl/apis. Fica como rotulo informativo, e porque
+        # ajuda a achar os projetos do golden path na busca do GitLab.
         topics:
           - rhcl-golden-path
           - ${{ parameters.name }}
