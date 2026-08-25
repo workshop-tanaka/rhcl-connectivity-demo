@@ -860,10 +860,31 @@ else
     _warn "catálogo não configurado" "bash rhdh/setup-catalog.sh"
   fi
 
-  if oc get cm app-config-rhdh-github -n "$_rhdh_ns" >/dev/null 2>&1; then
-    _ok "integração GitHub + software template registrados"
+  # A checagem aqui era 'existe app-config-rhdh-github?' e virou FALSO VERDE
+  # quando o portal passou a ser so GitLab: o ConfigMap continua no cluster como
+  # residuo nao referenciado, e o preflight aprovava uma integracao que o CR nao
+  # monta mais. O que importa nao e o ConfigMap existir -- e de ONDE os
+  # templates vem.
+  _tplsrc="$(oc get cm app-config-rhdh-catalog -n "$_rhdh_ns" \
+      -o jsonpath='{.data.app-config-catalog\.yaml}' 2>/dev/null \
+      | awk '$1 == "target:" {print $2}' | grep -c 'gitlab' 2>/dev/null)"
+  if [[ "${_tplsrc:-0}" -ge 3 ]]; then
+    _ok "os 3 software templates vêm do GitLab (espelho no cluster)"
+  elif [[ "${_tplsrc:-0}" -ge 1 ]]; then
+    _warn "só ${_tplsrc} template(s) apontando para o GitLab" \
+          "esperados 3 — bash scripts/gitlab-seed.sh && bash rhdh/setup-gitlab.sh"
   else
-    _warn "sem integração GitHub" "bash rhdh/setup-github.sh <org> <repo> — sem isso o scaffolding do Ato 6 não roda"
+    _bad "nenhum software template vindo do GitLab — o Ato 6 não tem o que criar" \
+         "bash scripts/gitlab-seed.sh && bash rhdh/setup-gitlab.sh"
+  fi
+
+  # Regressao a vigiar: a integracao GitHub de volta no CR significa que alguem
+  # rodou setup-github.sh, e o portal volta a depender de um SCM externo -- o
+  # oposto da decisao de 2026-08-25.
+  if oc get backstage -n "$_rhdh_ns" -o jsonpath='{.items[*].spec.application.appConfig.configMaps}' 2>/dev/null \
+     | grep -q 'app-config-rhdh-github'; then
+    _warn "o CR voltou a montar a integração GitHub" \
+          "o ambiente de demo é só GitLab; rode bash rhdh/setup-gitlab.sh para recompor"
   fi
 
   # O GitHub e de onde o RHDH LE os templates; o GitLab e para onde o golden
