@@ -64,7 +64,7 @@ echo
 export GITLAB_HOST TOKEN DRY SEED_ROOT="${_here}/base"
 
 python3 - <<'PY'
-import os, sys, json, ssl, base64, urllib.request, urllib.error, urllib.parse
+import os, sys, json, ssl, base64, datetime, urllib.request, urllib.error, urllib.parse
 
 HOST  = os.environ["GITLAB_HOST"]
 TOKEN = os.environ["TOKEN"]
@@ -139,6 +139,109 @@ else:
         ok(f"projeto {proj['path_with_namespace']} criado"); proj_id = proj["id"]
     else:
         warn(f"falha ao criar projeto: {proj.get('message')}"); sys.exit(1)
+
+# ----- 2b. as personas do Ato 6 -----
+# POR QUE ISTO EXISTE: o RUNBOOK vende o Ato 6 dizendo que "o contrato fica em
+# git, com AUTOR e data". Com um token so -- o do root -- toda merge request
+# sai assinada pelo mesmo administrador, e a frase deixa de ser verificavel na
+# tela.
+#
+# Os tres consumidores espelham as entidades api-consumer do catalogo
+# (rhdh/catalog/travel-agency.yaml), entao quem ve "Globex Travel" no portal ve
+# o mesmo nome assinando a merge request.
+#
+# ACESSO ASSIMETRICO, de proposito: consumidor abre MR (Developer, nivel 30) e
+# plataforma faz merge (Maintainer, nivel 40). Quem pede nao e quem aprova --
+# e o momento de governanca que o ato ganha.
+PERSONAS = [
+    ("acme-trips",      "ACME Trips",      "acme@example.invalid",       30),
+    ("initech-voyages", "Initech Voyages", "initech@example.invalid",    30),
+    ("globex-travel",   "Globex Travel",   "globex@example.invalid",     30),
+    ("plat-eng",        "Plataforma",      "plataforma@example.invalid", 40),
+]
+
+def ensure_user(username, name, email):
+    st, d = call("GET", f"/users?username={username}")
+    if st == 200 and d:
+        return d[0]["id"]
+    if DRY:
+        print(f"    $ criar usuario {username}"); return -1
+    st, d = call("POST", "/users", {
+        "username": username, "name": name, "email": email,
+        "force_random_password": True, "skip_confirmation": True})
+    if st in (200, 201):
+        return d["id"]
+    warn(f"falha ao criar usuario {username}: {d.get('message')}")
+    return None
+
+def ensure_member(group_id, user_id, level):
+    st, _ = call("GET", f"/groups/{group_id}/members/{user_id}")
+    if st == 200:
+        return "ja era membro"
+    st, d = call("POST", f"/groups/{group_id}/members",
+                 {"user_id": user_id, "access_level": level})
+    return "adicionado" if st in (200, 201) else f"FALHOU: {d.get('message')}"
+
+def ensure_pat(user_id):
+    # A API nao devolve o VALOR de um PAT existente -- so o da criacao. Entao a
+    # idempotencia e por nome: havendo um 'golden-path' ativo, nao cria outro,
+    # e quem guarda o valor e o Secret gravado na primeira vez. Reemitir exige
+    # apagar o Secret e o token, nesta ordem.
+    st, d = call("GET", f"/users/{user_id}/personal_access_tokens")
+    if st == 200:
+        for t in d or []:
+            if t.get("name") == "golden-path" and t.get("active", True):
+                return None
+    # A validade e CALCULADA, nao fixa. A instancia impoe teto de um ano --
+    #   {"message":"Expiration date must be before 2027-08-25"}
+    # -- e data fixa no codigo apodrece: passaria a ser rejeitada sozinha meses
+    # depois, com a mensagem falando de um limite que ninguem configurou aqui.
+    # 300 dias fica folgado dentro do teto e muito alem da vida de um cluster
+    # de workshop.
+    venc = (datetime.date.today() + datetime.timedelta(days=300)).isoformat()
+    st, d = call("POST", f"/users/{user_id}/personal_access_tokens", {
+        "name": "golden-path", "scopes": ["api"], "expires_at": venc})
+    if st in (200, 201):
+        return d.get("token")
+    warn(f"falha ao emitir PAT: {d.get('message')}")
+    return None
+
+if apis_id and apis_id != -1:
+    novos = {}
+    for username, name, email, level in PERSONAS:
+        uid = ensure_user(username, name, email)
+        if uid is None or uid == -1:
+            continue
+        estado = ensure_member(apis_id, uid, level)
+        papel = "Maintainer" if level == 40 else "Developer"
+        ok(f"{username}: {papel} em rhcl/apis ({estado})")
+        t = ensure_pat(uid)
+        if t:
+            novos[username] = t
+
+    # Os tokens vao da MEMORIA para o Secret, por stdin do oc: nunca em arquivo,
+    # nunca em argv. Merge com o que ja existe, para nao apagar o PAT de uma
+    # persona que nao foi reemitida nesta passada.
+    if novos and not DRY:
+        import subprocess, base64 as b64
+        atual = {}
+        r = subprocess.run(["oc", "get", "secret", "golden-path-personas",
+                            "-n", "openshift-gitops", "-o", "json"],
+                           capture_output=True)
+        if r.returncode == 0:
+            atual = json.loads(r.stdout).get("data", {})
+        for u, t in novos.items():
+            atual[u] = b64.b64encode(t.encode()).decode()
+        man = {"apiVersion": "v1", "kind": "Secret",
+               "metadata": {"name": "golden-path-personas",
+                            "namespace": "openshift-gitops"},
+               "data": atual}
+        r = subprocess.run(["oc", "apply", "-f", "-"],
+                           input=json.dumps(man).encode(), capture_output=True)
+        if r.returncode == 0:
+            ok(f"{len(novos)} PAT(s) novo(s) em openshift-gitops/golden-path-personas")
+        else:
+            warn(f"falha ao gravar os PATs: {r.stderr.decode()[:120]}")
 
 # ----- 3. semear base/ -----
 files = []
