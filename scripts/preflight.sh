@@ -388,6 +388,31 @@ fi
 [[ "$MODE" == "core" ]] && { printf '\n'; [[ "$FAIL" == "0" ]] && { printf '%s[OK]%s núcleo pronto (%d avisos).\n' "$_GRN" "$_RST" "$WARN"; exit 0; } || { printf '%s[X]%s %d falha(s).\n' "$_RED" "$_RST" "$FAIL"; exit 1; }; }
 
 # ---------------------------------------------------------------------------
+# API atras do Gateway com hostname que o ROUTER do OpenShift nao conhece.
+#
+# O Gateway aceita a HTTPRoute, ResolvedRefs fica True, as policies ficam
+# Enforced, o Envoy do gateway monta o vhost -- e a API responde 503 de fora.
+# O 503 e do router, nao do Envoy: pagina HTML, HTTP/1.0. Quem so olha
+# 'oc get httproute' ve tudo verde.
+#
+# Aconteceu com duas APIs (cobranca, pagamentos) e o sintoma que chegou foi
+# "metrica vazia no Grafana" -- porque requisicao que nao chega nao vira serie.
+_sec "exposicao das APIs (o que o router conhece)"
+_hosts="$(oc get httproute -A -o jsonpath='{range .items[*]}{range .spec.hostnames[*]}{@}{"\t"}{end}{end}' 2>/dev/null | tr '\t' '\n' | grep -v '^$' | sort -u)"
+_rhosts="$(oc get route -A -o jsonpath='{range .items[*]}{.spec.host}{"\n"}{end}' 2>/dev/null)"
+_semroute=0
+while read -r _h; do
+  [[ -z "$_h" ]] && continue
+  if grep -qx "$_h" <<< "$_rhosts"; then
+    _ok "${_h%%.*}: hostname exposto pelo router"
+  else
+    _bad "${_h%%.*}: HTTPRoute anexada ao Gateway, mas SEM Route do OpenShift" \
+         "de fora isso e 503 do router (HTML, HTTP/1.0) e metrica vazia. Crie a Route passthrough para o Service prod-web-istio"
+    _semroute=1
+  fi
+done <<< "$_hosts"
+
+# ---------------------------------------------------------------------------
 _sec "observabilidade (Atos 4 e 5)"
 
 # A métrica com o label 'plan' é o que sustenta o Ato 4. Se o TelemetryPolicy
@@ -543,14 +568,14 @@ r=d.get('data',{}).get('result',[])
 print(r[0]['value'][1] if r else '')
 " 2>/dev/null)"
   if [[ -n "$_istio" ]]; then
-    _ok "malha instrumentada: ${_istio} séries 'istio_requests_total' no Thanos"
+    _ok "Service Mesh instrumentada: ${_istio} séries 'istio_requests_total' no Thanos"
   else
     _warn "nenhuma série 'istio_*' no Thanos: o grafo do Ato 5 abre vazio" \
           "oc apply -f platform-reference/monitoring/istio-monitors.yaml && bash scripts/traffic.sh mesh"
   fi
 fi
 
-# A emissão do span começa na malha, e é a metade que costuma faltar: o CR Istio
+# A emissão do span começa no Service Mesh, e é a metade que costuma faltar: o CR Istio
 # declara PARA ONDE mandar (extensionProvider) e a Telemetry manda EMITIR. Com
 # uma das duas ausente, tudo o que vem depois -- collector, gateway do Tempo,
 # plugin do console -- continua saudável, e nenhum trace nasce. Checado antes do
@@ -560,9 +585,9 @@ if oc get crd telemetries.telemetry.istio.io >/dev/null 2>&1; then
   _tel="$(oc get telemetry -n istio-system \
             -o jsonpath='{range .items[*]}{.spec.tracing[*].providers[*].name}{"\n"}{end}' 2>/dev/null)"
   if [[ "$_prov" == *otel-tracing* && "$_tel" == *otel-tracing* ]]; then
-    _ok "malha emitindo span (extensionProvider + Telemetry)"
+    _ok "Service Mesh emitindo span (extensionProvider + Telemetry)"
   elif [[ "$_prov" != *otel-tracing* ]]; then
-    _warn "CR Istio sem extensionProvider de tracing: nenhum span sai da malha" \
+    _warn "CR Istio sem extensionProvider de tracing: nenhum span sai do Service Mesh" \
           "platform-reference/mesh-control-plane/istio.yaml — ou 'bash scripts/provision.sh mesh'"
   else
     _warn "nenhuma Telemetry aponta para 'otel-tracing': o provider existe e ninguém emite" \
@@ -597,6 +622,30 @@ else
     _warn "não consegui consultar o Tempo" "oc get pods -n tracing-system"
   else
     _warn "Tempo ainda não tem traces do prod-web" "gere tráfego e aguarde ~20s"
+  fi
+fi
+
+# Consumo por parceiro depende de DUAS peças que nao se referenciam: o header
+# x-partner do AuthPolicy e a dimensao do Telemetry do Istio. Tirando qualquer
+# uma, a serie continua existindo -- so que sem o rotulo, ou com ele vazio. O
+# dashboard rhcl-parceiros abre com uma linha so, chamada 'unknown', e isso se
+# le como "todo mundo e o mesmo cliente".
+if [[ -n "$_thanos" ]]; then
+  _part="$(curl -sk --max-time 10 -H "Authorization: Bearer $(oc whoami -t)" \
+             "https://${_thanos}/api/v1/query" \
+             --data-urlencode 'query=count(count by (partner) (istio_requests_total{partner!="",partner!="unknown"}))' 2>/dev/null \
+           | python3 -c "
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit()
+r=d.get('data',{}).get('result',[])
+print(r[0]['value'][1] if r else '')
+" 2>/dev/null)"
+  if [[ "${_part:-0}" -ge 1 ]]; then
+    _ok "dimensão 'partner' viva: ${_part} parceiro(s) distinto(s) nas métricas do Service Mesh"
+  else
+    _warn "métricas do Service Mesh sem a dimensão 'partner'" \
+          "consumo por parceiro fica indistinguível — base/policies-telemetry/istio-partner-dimension.yaml + o header do AuthPolicy"
   fi
 fi
 
@@ -696,8 +745,24 @@ if [[ "$_plugins" == *'"kuadrant-console-plugin"'* ]]; then
       _warn "developer portal ligado, mas sem APIProduct — as 3 abas de API Catalog abrem vazias" \
             "oc apply -k env/rhcl-1.4_ocp-4.21/devportal"
     elif [[ "${_kfail:-0}" -gt 0 ]]; then
-      _bad "${_kfail} APIKey em Failed — provável AuthSchemeNotFound" \
-           "o AuthPolicy da rota precisa declarar spec.rules, não spec.defaults.rules; oc get apikey -A -o wide"
+      # O 'reason' vem do controller e diz exatamente qual é o defeito. Chutar
+      # AuthSchemeNotFound para todo Failed manda investigar o AuthPolicy mesmo
+      # quando o problema é outro -- aconteceu com uma chave cujo apiProductRef
+      # apontava para o namespace errado, e a correção sugerida não tinha nada a
+      # ver com ela.
+      _kreason="$(oc get apikey -A -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Failed")].reason}{"\n"}{end}' 2>/dev/null \
+                  | grep -v '^$' | sort -u | tr '\n' ' ')"
+      case "$_kreason" in
+        *AuthSchemeNotFound*)
+          _bad "${_kfail} APIKey em Failed (${_kreason% })" \
+               "o AuthPolicy da rota precisa declarar spec.rules, não spec.defaults.rules — base/policies-security/travel-agency-authpolicy.yaml" ;;
+        *APIProductNotFound*)
+          _bad "${_kfail} APIKey em Failed (${_kreason% })" \
+               "o apiProductRef aponta para um APIProduct que não existe nesse namespace: oc get apiproduct -A; oc get apikey -A -o wide" ;;
+        *)
+          _bad "${_kfail} APIKey em Failed (${_kreason:-motivo não reportado})" \
+               "oc get apikey -A -o wide; oc describe apikey <nome> -n <ns>" ;;
+      esac
     elif [[ -z "$_sch" ]]; then
       _warn "APIProduct travels-api sem discoveredAuthScheme" \
             "AuthPolicy com wrapper 'defaults'? o portal ignora e todo APIKey falha; ver base/policies-security/travel-agency-authpolicy.yaml"
@@ -803,11 +868,11 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Ato 7 e OPCIONAL: sem a camada de malha aplicada isto avisa e segue. O que
+# Ato 7 e OPCIONAL: sem a camada de Service Mesh aplicada isto avisa e segue. O que
 # nao pode e ela existir quebrada -- os tres modos de falha abaixo sao todos
 # SILENCIOSOS no caminho de dados, e dois deles sao residuo da propria demo
 # anterior (PERMISSIVE e fault injection nao revertidos).
-_sec "malha leste-oeste (Ato 7)"
+_sec "Service Mesh leste-oeste (Ato 7)"
 
 _pa_mode="$(oc get peerauthentication travel-agency-mtls -n travel-agency \
              -o jsonpath='{.spec.mtls.mode}' 2>/dev/null)"
@@ -816,7 +881,7 @@ _ap="$(oc get authorizationpolicy discounts-only-sellers -n travel-agency \
 _vs="$(oc get virtualservice discounts -n travel-agency -o name 2>/dev/null)"
 
 if [[ -z "$_pa_mode" && -z "$_ap" && -z "$_vs" ]]; then
-  _warn "camada de malha não aplicada — Ato 7 indisponível" \
+  _warn "camada de Service Mesh não aplicada — Ato 7 indisponível" \
         "oc apply -k overlays/rhcl-1.4 (os outros atos não dependem dela)"
 else
   # mTLS. PERMISSIVE nao e erro de configuracao: e o estado em que o ato fica
@@ -843,7 +908,7 @@ else
     if [[ -n "$_pt" && -n "$_pc" ]]; then
       # -m 10, nao 5: o PRIMEIRO 'oc exec' num pod paga cold start e estourava
       # os 5s, devolvendo string vazia. A matriz saia como 'travels=?, cars=200'
-      # e o preflight reprovava uma malha correta -- falso [X] dez minutos antes
+      # e o preflight reprovava um Service Mesh correto -- falso [X] dez minutos antes
       # de apresentar. Reexecutar passava, que e a assinatura de timeout e nao
       # de policy.
       _deny="$(oc exec -n travel-agency "$_pt" -c travels -- curl -s -m 10 -o /dev/null \

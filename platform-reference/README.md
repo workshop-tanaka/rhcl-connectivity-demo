@@ -112,12 +112,13 @@ aqui corresponde a uma cadeia que quebra em silêncio:
 | Arquivo | Sem ele |
 | --- | --- |
 | `servicemonitors.yaml` | o `TelemetryPolicy` rotula por `plan` e nada leva a série ao Thanos — Ato 4 sem número |
-| `istio-monitors.yaml` | nada raspa os proxies da malha — o grafo do Ato 5 abre **vazio**, o que se lê como "não há tráfego" |
+| `istio-monitors.yaml` | nada raspa os proxies do Service Mesh — o grafo do Ato 5 abre **vazio**, o que se lê como "não há tráfego" |
 | `kiali.yaml` | o Kiali não confia na service CA nem tem RBAC no Thanos — a aba Service Mesh diz *"Metrics are disabled"* apontando para uma config que já está `enabled: true` |
 | `grafana-dashboard-plans.yaml` | os dashboards de fábrica agregam sem quebrar por `plan` |
 | `kube-state-metrics-kuadrant.yaml` | os dashboards de fábrica sobem vazios (join com `gatewayapi_*`) e não há série de `APIKey` para alertar |
 | `prometheusrule-devportal.yaml` | solicitação de API key fica parada até alguém lembrar de abrir a aba — o produto não notifica ninguém |
 | `grafana-dashboard-onboarding.yaml` | ninguém vê a **demanda**: quantos pedem acesso, para qual plano, e há quanto tempo esperam |
+| `grafana-dashboard-parceiros.yaml` | a leitura para de descer do plano para o **cliente** — "o free está saturando" em vez de "a Acme está saturando" |
 | `grafana-instance.yaml` | não há instância com o label `dashboards: grafana` nem datasource `thanos` — todo `GrafanaDashboard` fica órfão, ou casa e abre com *"Datasource thanos was not found"* em cada painel |
 | `kube-state-metrics-kuadrant.yaml` | as 11 métricas `gatewayapi_*` não existem, e os três dashboards de fábrica sobem **vazios** (todo painel útil faz `group_left` com `gatewayapi_httproute_labels`) |
 
@@ -156,8 +157,8 @@ está em documento não é diffável contra o cluster nem alcançável pelo
 | `mesh-control-plane/telemetry-tracing.yaml` | a ordem de emitir span (100% de amostragem) |
 | `devspaces/` | OpenShift Dev Spaces: a Subscription e o `CheCluster`. É o que dá o link **Abrir no Dev Spaces** nos componentes do portal — ver `devspaces/README.md`, que também explica por que o decorator do Topology **não** aponta para o IDE |
 
-Os dois arquivos da malha estão separados por uma razão operacional: o CR
-`Istio` não pode levar `oc apply` cego num cluster que já tem malha de pé — o
+Os dois arquivos do Service Mesh estão separados por uma razão operacional: o CR
+`Istio` não pode levar `oc apply` cego num cluster que já tem Service Mesh de pé — o
 arquivo não fixa `spec.version`, e o apply removeria a versão gravada,
 disparando upgrade do plano de controle no meio do provisionamento. A
 `Telemetry`, sim: é inofensiva de reaplicar, e é a peça que costuma faltar.

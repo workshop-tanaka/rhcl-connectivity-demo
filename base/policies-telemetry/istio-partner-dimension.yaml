@@ -1,0 +1,48 @@
+# ===========================================================================
+# Dimensao 'partner' nas metricas do Istio.
+#
+# Par do header x-partner que o AuthPolicy injeta
+# (base/policies-security/travel-agency-authpolicy.yaml). Sozinho, nenhum dos
+# dois faz nada: o header sem esta Telemetry so trafega, e esta Telemetry sem o
+# header produz um rotulo vazio.
+#
+# POR QUE ISTO EXISTE: a metrica do Limitador nao pode ser rotulada por
+# parceiro -- o PlanPolicy reescreve o dynamicMetadata do AuthConfig e descarta
+# o que o AuthPolicy declarar la (armadilha 3). A saida e medir do lado da
+# Service Mesh, onde a dimensao vem do header da requisicao.
+#
+# O QUE SE GANHA (medido, nao deduzido):
+#
+#   istio_requests_total{partner="apikey-gold-globex", response_code="200"}
+#   istio_requests_total{partner="apikey-blue",        response_code="429"}
+#
+# O 429 aparece com rotulo mesmo nascendo no gateway, sem upstream nenhum --
+# 'destination_canonical_service' fica 'unknown' nesse caso, o que e correto e
+# nao e defeito. O 401 sai como partner="unknown" -- e assim que o Istio
+# preenche dimensao cujo header nao existe. Correto: a autenticacao falhou e
+# nao ha identidade para injetar.
+#
+# ---------------------------------------------------------------------------
+# CARDINALIDADE, e isto nao e nota de rodape: cada parceiro multiplica series
+# por codigo de resposta e por servico de destino. Dezenas de parceiros, tudo
+# bem. Milhares, e um problema serio de Prometheus -- e a hora de voltar a
+# medir por PLANO e deixar a atribuicao individual para log ou trace.
+#
+# Escopo: namespace do Gateway, entao vale para toda rota atras do prod-web.
+# ===========================================================================
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: partner-dimension
+  namespace: ingress-gateway
+spec:
+  metrics:
+    - providers:
+        - name: prometheus
+      overrides:
+        - match:
+            metric: REQUEST_COUNT
+            mode: CLIENT_AND_SERVER
+          tagOverrides:
+            partner:
+              value: "request.headers['x-partner']"

@@ -418,12 +418,12 @@ no contrato. É também a que esgota sem avisar durante o ensaio — [armadilha
 ### Ato 5 — O caminho todo é rastreável *(3 min)*
 
 **Kiali** — topologia com o `prod-web` na borda e o fan-out da travel-agency.
-Mostra que o gateway não é uma caixa-preta pendurada fora da malha. No 1.4 dá
+Mostra que o gateway não é uma caixa-preta pendurada fora do Service Mesh. No 1.4 dá
 para abrir pela aba **Service Mesh** do próprio console (Traffic Graph), sem
 trocar de janela.
 
 > O grafo só desenha o que houve de tráfego na janela escolhida, e o `soak` do
-> Terminal 2 bate só em `/travels` — que não atravessa a malha. Antes do ato,
+> Terminal 2 bate só em `/travels` — que não atravessa o Service Mesh. Antes do ato,
 > rode `bash scripts/traffic.sh mesh` (tier gold, ~2 req/s por 3 min): é o modo
 > que chama `/travels/<cidade>` e acende o fan-out inteiro até o `mysqldb`.
 > Depois abra o grafo com `ingress-gateway` + `travel-agency` + `travel-db`
@@ -433,9 +433,9 @@ trocar de janela.
 > `flights`, `hotels`, `cars` e `insurances` chamarem o `discounts`. Sem o
 > header os quatro respondem sozinhos, o `discounts` não recebe nada, e o grafo
 > perde o nível mais profundo — junto com o único serviço que tem duas versões
-> (v1 e v2), que é o que mostra roteamento por versão na malha.
+> (v1 e v2), que é o que mostra roteamento por versão no Service Mesh.
 >
-> E usa **só a chave gold**: `429` é recusado na borda e nunca entra na malha,
+> E usa **só a chave gold**: `429` é recusado na borda e nunca entra no Service Mesh,
 > então tier limitado dá pico no Grafana e grafo vazio no Kiali ao mesmo tempo.
 > O round-robin do `soak`, além disso, consome a cota diária do `free` sem
 > precisar dela — e com os limites antigos isso derrubava o Ato 2.
@@ -505,7 +505,7 @@ Abra o **1** e preencha nome, domínio de apps e imagem — o resto tem default.
 submeter, o template cria um repositório **público** no GitHub com:
 
 ```
-manifests/  00 namespace já na malha        10-12 workload com SA própria
+manifests/  00 namespace já no Service Mesh        10-12 workload com SA própria
             20 HTTPRoute no prod-web        30 AuthPolicy    31 PlanPolicy
             40 APIProduct                   50 mTLS  51 quem pode chamar
             52-53 subsets e pesos (canary pronto)
@@ -514,7 +514,7 @@ gitops/     Application do Argo             openapi.yaml  verify.sh
 ```
 
 > "Um formulário de cinco campos, e o serviço nasce fechado por padrão, dentro
-> da malha, com plano comercial e publicado no portal. A equipe de aplicação não
+> do Service Mesh, com plano comercial e publicado no portal. A equipe de aplicação não
 > escreveu nenhuma dessas policies — e também não pode esquecê-las."
 
 **c) O Argo pega sozinho.** O repositório nasce com o topic `rhcl-golden-path`,
@@ -533,7 +533,7 @@ reconhece — e cada um destes foi medido neste cluster, não deduzido do manual
 - **o namespace precisa do label `istio-injection=enabled`** — a annotation
   `sidecar.istio.io/inject` no pod **não injeta nada**, porque o webhook decide
   olhando *label*. Pod com a annotation e sem o label nasce sem `istio-proxy`, e
-  o serviço funciona: só não existe para a malha, para o Kiali nem para o Ato 7;
+  o serviço funciona: só não existe para o Service Mesh, para o Kiali nem para o Ato 7;
 - **a `AuthPolicy` precisa usar `spec.rules`**, não `spec.defaults.rules`, ou o
   `APIProduct` fica sem `discoveredAuthScheme` e todo pedido de chave morre em
   `AuthSchemeNotFound`;
@@ -569,7 +569,7 @@ bash verify.sh key        # emite uma chave 'free' e imprime o curl de teste
 
 **g) Fechar nos atos anteriores.** O serviço criado há cinco minutos já está:
 
-- no **Kiali**, dentro da malha, com cadeado (Ato 7 vale para ele sem nada a
+- no **Kiali**, dentro do Service Mesh, com cadeado (Ato 7 vale para ele sem nada a
   mais — o namespace nasceu com injeção);
 - em **Observe → Traces** (a `Telemetry` é mesh-wide, 100% de amostragem);
 - no dashboard **RHCL — planos comerciais**, com o rótulo `plan` correto desde a
@@ -597,7 +597,7 @@ API com o `APIKey`. O merge coloca o pedido no cluster; a aprovação acontece e
 
 Este ato é do **Service Mesh**, não do RHCL — e existe porque a pergunta vem
 sozinha depois do Ato 1: *"então a chave de API protege tudo?"*. Não protege.
-Ela abre a porta da rua. As portas de dentro são outra fronteira, e é a malha
+Ela abre a porta da rua. As portas de dentro são outra fronteira, e é o Service Mesh
 que as governa.
 
 O argumento fecha porque é o **mesmo Envoy** nas duas pontas: o `prod-web` é um
@@ -619,7 +619,7 @@ oc get peerauthentication travel-agency-mtls -n travel-agency \
   -o jsonpath='{.spec.mtls.mode}{"\n"}'
 ```
 
-Agora prove de fora da malha — um pod no `default`, que não tem sidecar:
+Agora prove de fora do Service Mesh — um pod no `default`, que não tem sidecar:
 
 ```bash
 oc run mtls-probe -n default --image=registry.access.redhat.com/ubi9/ubi-minimal \
@@ -727,7 +727,7 @@ oc apply -f base/mesh/virtualservice-discounts.yaml   # reverte
 > óbvios falham, e a armadilha 12 explica por quê, com os números.
 
 **O fecho dos dois dias:** o RHCL respondeu *quem entra, quanto pode e quanto
-custa*; a malha respondeu *quem fala com quem, em qual versão e o que acontece
+custa*; o Service Mesh respondeu *quem fala com quem, em qual versão e o que acontece
 quando quebra*. Nenhuma linha de aplicação mudou em nenhum dos dois.
 
 ---
@@ -800,10 +800,12 @@ ainda traz uma `OIDCPolicy` (`extensions.kuadrant.io`, extensão já rodando
 neste cluster) que faz o fluxo de login completo. Não está nesta demo.
 
 **"Dá para cobrar por consumidor?"**
-Com o que está aqui, a granularidade é **por plano**, não por cliente — e o
-motivo é técnico, não de configuração (ver armadilha 3). Para cobrança por
-consumidor hoje o caminho é a cota diária/mensal do próprio `PlanPolicy` mais
-os logs do Authorino.
+Dá — mas não pela métrica do Limitador, que é por plano e não tem volta (ver
+armadilha 3). A identidade viaja como header injetado pelo `AuthPolicy` e vira
+dimensão das métricas do Service Mesh, com servidas e **429 por parceiro**. É o
+dashboard `rhcl-parceiros`. O teto é cardinalidade: dezenas ou centenas de
+consumidores, tranquilo; para milhares, a atribuição individual vai para log ou
+trace, e a métrica volta a ser por plano.
 
 **"E se o Limitador cair?"**
 `failureMode: allow` no serviço de rate limit — o tráfego passa. É a escolha
@@ -864,7 +866,7 @@ Três defesas, todas aplicadas neste repo:
 (*"The only supported value is 'Gateway'"*). Por isso ela vive em
 `ingress-gateway` e não junto das policies da travel-agency.
 
-### 3. Não dá para rotular métrica por *parceiro*
+### 3. A métrica do Limitador não vai por parceiro — a do Service Mesh vai
 
 O caminho óbvio — exportar a identidade como `dynamicMetadata` no `AuthPolicy`
 e lê-la no `TelemetryPolicy` — **não funciona** enquanto houver `PlanPolicy` na
@@ -878,10 +880,43 @@ oc get authconfig -n kuadrant-system -o yaml | grep -A20 dynamicMetadata
 
 No contexto CEL do WASM existem `auth.kuadrant.plan`, `request.method` e
 `request.host`. **Não** existe `auth.identity.*` — um label que o referencie
-some da métrica sem erro.
+some da métrica sem erro. Então `authorized_calls` e `limited_calls` são **por
+plano**, e isso não tem volta.
 
-Consequência: a granularidade é **por plano**, não por cliente. Diga isso no
-Ato 4 em vez de deixar a pergunta no ar.
+**Mas há um segundo caminho, e ele funciona.** O `PlanPolicy` reescreve o
+`dynamicMetadata` — e **não** toca em `response.success.headers`. Medido neste
+cluster: com o header declarado, o AuthConfig gerado fica com os dois lados.
+
+```
+headers: ['x-partner']        <- do AuthPolicy, sobreviveu
+dynamicMetadata: ['kuadrant'] <- do PlanPolicy
+```
+
+Com a identidade viajando como header, o `Telemetry` do Istio a transforma em
+dimensão das métricas do gateway, e aí existe consumo **por parceiro**:
+
+```
+istio_requests_total{partner="bob",                response_code="200"} = 4
+istio_requests_total{partner="apikey-gold-globex", response_code="200"} = 8
+istio_requests_total{partner="apikey-blue",        response_code="429"} = 2
+```
+
+O `429` carrega o rótulo mesmo nascendo no gateway, sem chegar à aplicação
+(`destination_canonical_service` fica `unknown`, o que é correto). O `401` sai
+como `partner="unknown"`: sem identidade, não há o que injetar. O valor prefere
+a annotation `secret.kuadrant.io/user-id` que o developer portal grava — daí
+`bob` — e cai para o nome do Secret nas chaves criadas pelo repo.
+
+Os dois arquivos que fazem isso são
+[base/policies-security/travel-agency-authpolicy.yaml](../base/policies-security/travel-agency-authpolicy.yaml)
+e [base/policies-telemetry/istio-partner-dimension.yaml](../base/policies-telemetry/istio-partner-dimension.yaml);
+sozinho, nenhum dos dois faz nada. O painel é o **RHCL — consumo por parceiro**
+(`rhcl-parceiros`).
+
+**Cardinalidade é o limite real**, não o produto: cada parceiro multiplica
+séries por código de resposta. Dezenas ou centenas, tranquilo; milhares, volte
+a medir por plano e deixe a atribuição individual para log ou trace. Diga isso
+junto — é a pergunta que um arquiteto experiente faz em seguida.
 
 ### 4. O Argo CD é dono de metade do cluster
 
@@ -1134,7 +1169,7 @@ Kiali 2.27**. Configurar por ali dá a impressão exata de ter resolvido — e o
 
 **3. Coleta.** Corrigidos os dois, o Kiali conecta e **o grafo abre vazio** —
 não havia nenhum `PodMonitor` raspando os proxies, e `count(istio_requests_total)`
-no Thanos voltava vazio. Os pods da malha carregam `prometheus.io/scrape: true`,
+no Thanos voltava vazio. Os pods do Service Mesh carregam `prometheus.io/scrape: true`,
 que é o padrão que o Prometheus de comunidade lê sozinho e que o Prometheus de
 user workload do OpenShift **ignora**. É o pior dos três no palco: não há erro
 na tela, e grafo vazio se lê como *"não há tráfego"*.
@@ -1150,7 +1185,7 @@ Detalhe de ambiente, para quando os targets sumirem: neste cluster (Istio 1.30
 sobre OCP 4.21 / k8s 1.34) o sidecar é injetado como **native sidecar**, ou seja
 como `initContainer` com `restartPolicy: Always`. Ele não aparece em
 `.spec.containers` — um `oc get pods -o custom-columns=...containers[*].name` faz
-a malha parecer não injetada.
+o Service Mesh parecer não injetada.
 
 ---
 
@@ -1265,7 +1300,7 @@ sem ter lido nada é pior que não ter detector.
 ### 12. Fault injection não exercita retry nem timeout
 
 O caminho óbvio para demonstrar resiliência é injetar uma falha e mostrar a
-malha absorvendo. **Os dois testes óbvios falham**, e falham em silêncio — a
+Service Mesh absorvendo. **Os dois testes óbvios falham**, e falham em silêncio — a
 config está correta, o resultado é que não é o esperado. Ambos medidos neste
 cluster, com `timeout: 3s` e `retries.attempts: 2` na rota do `discounts`:
 
@@ -1318,7 +1353,7 @@ leitura. Medido neste cluster, na ordem em que apareceu:
 
 1. **O Service `tempo-tempo` desaparece** e um gateway toma o lugar. O
    `OpenTelemetryCollector` apontava para ele e passou a repetir
-   `Exporting failed ... no children to pick from` — a malha continuava
+   `Exporting failed ... no children to pick from` — o Service Mesh continuava
    produzindo spans e nada mais chegava ao Tempo. Nenhum ato quebra na tela: o
    trace some, e trace vazio se lê como "não houve tráfego".
 2. **A rota `tracing-ui` é apagada pelo operator.** Era a que o `preflight.sh`
@@ -1348,3 +1383,49 @@ responde — porque pod `Running` e rota no ar não dizem nada sobre nenhum dos 
 **Se for apresentar amanhã e o cluster ainda estiver sem isso:** não ligue na
 véspera. A Jaeger UI deprecada funciona, o aviso é de fim de vida e não de
 defeito, e a migração toca a tubulação do Ato 5.
+
+---
+
+### 14. API nova fica invisível no Grafana por três motivos, e nenhum é o painel
+
+O sintoma chega como *"as métricas estão vazias para algumas APIs"*. Não estão:
+as APIs é que não produziram nada. Aconteceu com duas APIs acrescentadas ao
+cluster (`cobranca`, `pagamentos`), e as três causas se empilham — cada uma só
+aparece depois de resolvida a anterior.
+
+**1. Sem `Route` do OpenShift, a requisição nem chega ao gateway.**
+O `Gateway` tem listener curinga, a `HTTPRoute` fica `Accepted` e
+`ResolvedRefs=True`, as policies ficam `Enforced`, o Envoy monta o vhost — e de
+fora a API responde **503**. O 503 é do **router**, não do Envoy, e dá para
+distinguir num relance:
+
+```
+HTTP/1.0 503 Service Unavailable     <- router do OpenShift, corpo HTML
+upstream connect error ...           <- Envoy, corpo texto
+```
+
+O `prod-web` só ganha `Route` para os hostnames que alguém criou: hoje existem
+`api-travels` e `echo-travels`. Toda API nova precisa da sua, `passthrough` para
+o Service `prod-web-istio`. O `preflight.sh` passou a comparar os hostnames de
+todas as `HTTPRoute` com os hostnames de todas as `Route` e reprova o que faltar.
+
+**2. Sem chave, todo tráfego é 401 — e 401 não vira `authorized_calls`.**
+As policies estavam corretas e não havia nenhum Secret com o seletor que o
+`AuthPolicy` daquelas rotas exige (`app: partner` **mais**
+`devportal.kuadrant.io/apiproduct: <produto>`). Métrica de consumo só nasce de
+requisição servida.
+
+**3. Sem o header no `AuthPolicy` da rota, o parceiro vira `unknown`.**
+O `x-partner` que alimenta o dashboard `rhcl-parceiros` é declarado **por
+AuthPolicy**, e o `AuthPolicy` do Gateway não serve: ele fica sobreposto pelas
+policies de rota. Uma API sem essa declaração aparece no painel como uma linha
+só, `unknown` — que se lê como "todos os clientes são o mesmo".
+
+```
+istio_requests_total{destination_service_name="cobranca", partner="unknown"} = 5
+```
+
+**Checklist para toda API nova atrás do `prod-web`:** `Route` do OpenShift para
+o hostname → chave com os labels que o `AuthPolicy` seleciona → `x-partner` no
+`AuthPolicy` da rota. As duas primeiras o preflight cobre; a terceira aparece no
+painel de parceiros como `unknown`.

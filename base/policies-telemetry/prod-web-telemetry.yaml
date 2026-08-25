@@ -30,18 +30,22 @@
 #   auth.identity.*      -> NAO EXISTE neste contexto. O label some da metrica,
 #                           sem erro, sem evento, sem status degradado.
 #
-# Nao ha como rotular por PARCEIRO hoje. O caminho obvio -- exportar a
-# identidade como dynamic metadata no AuthPolicy e ler aqui -- nao funciona
-# enquanto houver PlanPolicy na mesma rota: o controller do PlanPolicy
+# AQUI nao ha como rotular por PARCEIRO. O caminho obvio -- exportar a
+# identidade como dynamic metadata no AuthPolicy e ler nesta policy -- nao
+# funciona enquanto houver PlanPolicy na mesma rota: o controller do PlanPolicy
 # REESCREVE o bloco response.success.dynamicMetadata inteiro do AuthConfig
 # gerado, descartando o que o AuthPolicy tiver declarado ali. Confirme com:
 #
 #   oc get authconfig -n kuadrant-system -o yaml | grep -A20 dynamicMetadata
 #
-# Consequencia pratica para o roteiro: a granularidade e POR PLANO, nao por
-# cliente. Para a conversa de negocio ("o tier free esta saturando") isso
-# basta. Para cobranca por consumidor, nao -- e vale dizer isso na demo em vez
-# de deixar a pergunta no ar. Ver docs/RUNBOOK.md.
+# Ou seja: authorized_calls e limited_calls sao POR PLANO, ponto.
+#
+# O parceiro existe por OUTRO caminho, e nao passa por esta policy: o
+# AuthPolicy injeta a identidade como header (x-partner) -- headers o
+# PlanPolicy NAO reescreve, verificado -- e o Telemetry do Istio transforma o
+# header em dimensao das metricas do gateway. Ver
+# base/policies-telemetry/istio-partner-dimension.yaml e a armadilha 3 do
+# RUNBOOK. As duas leituras convivem: plano aqui, parceiro no Service Mesh.
 #
 # CARDINALIDADE: cada label multiplica series no Prometheus. 'plan' (4 valores),
 # 'method' e 'vhost' sao seguros. Nao coloque aqui nada derivado de

@@ -52,6 +52,43 @@ spec:
             name: APIKEY
         metrics: false
         priority: 0
+    # IDENTIDADE COMO HEADER -- e o que torna possivel medir consumo POR
+    # PARCEIRO, e nao so por plano.
+    #
+    # A armadilha 3 (RUNBOOK) documenta que nao da para rotular a metrica do
+    # LIMITADOR por parceiro: o PlanPolicy reescreve o bloco
+    # response.success.dynamicMetadata inteiro do AuthConfig gerado e descarta o
+    # que o AuthPolicy declarar ali. Isso continua verdade.
+    #
+    # O que NAO e verdade -- medido neste cluster -- e que o PlanPolicy leve
+    # junto os HEADERS. Ele nao leva:
+    #
+    #   oc get authconfig -n kuadrant-system -o json | \
+    #     python3 -c "...['spec']['response']['success'].keys()"
+    #   -> headers: ['x-partner']   dynamicMetadata: ['kuadrant']
+    #
+    # Com o header injetado, o Telemetry do Istio o transforma em dimensao das
+    # metricas do gateway (ver base/policies-telemetry/istio-partner-dimension.yaml),
+    # e ai existe consumo e recusa por parceiro. Inclusive o 429, que nasce no
+    # gateway e nunca chega a aplicacao:
+    #
+    #   istio_requests_total{partner="apikey-blue", response_code="429"} = 2
+    #
+    # O 401 sai com partner="unknown" (e assim que o Istio preenche dimensao
+    # cujo header nao existe), o que esta correto: a autenticacao falhou e nao
+    # ha identidade para injetar. Medido: chave do portal vira 'bob'; chave do
+    # repo, sem a annotation, vira 'apikey-gold-globex'.
+    #
+    # O valor prefere a annotation que o developer portal grava (user-id, o
+    # nome de quem pediu a chave) e cai para o nome do Secret quando ela nao
+    # existe -- que e o caso das chaves criadas pelo repo. Mesma forma de
+    # guarda dos predicados do PlanPolicy: indexar chave ausente em CEL ERRA.
+    response:
+      success:
+        headers:
+          x-partner:
+            plain:
+              expression: 'has(auth.identity.metadata.annotations) && "secret.kuadrant.io/user-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/user-id"] : auth.identity.metadata.name'
   targetRef:
     group: gateway.networking.k8s.io
     kind: HTTPRoute
