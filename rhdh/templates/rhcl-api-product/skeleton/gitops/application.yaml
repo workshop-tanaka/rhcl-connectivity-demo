@@ -50,7 +50,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/${{ values.repoSlug }}.git
+    repoURL: https://${{ values.gitlabHost }}/${{ values.repoSlug }}.git
     targetRevision: main
     path: .
     directory:

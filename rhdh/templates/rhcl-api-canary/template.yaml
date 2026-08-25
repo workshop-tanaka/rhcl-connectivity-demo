@@ -39,8 +39,15 @@ spec:
           type: string
           ui:field: RepoUrlPicker
           ui:options:
-            allowedHosts:
-              - github.com
+            # SEM allowedHosts de proposito. A lista exige host literal, e o
+            # host do GitLab e especifico do cluster (gitlab.<apps-domain>) --
+            # fixa-lo aqui repetiria a armadilha do appsDomain, que sobreviveu
+            # a uma troca de cluster. Sem a lista, o picker oferece as
+            # integracoes que o RHDH tem configuradas.
+            #
+            # A diferenca que torna isso aceitavel: host errado aqui e falha
+            # VISIVEL -- o formulario nao submete. Valor errado no appsDomain
+            # passava verde e quebrava tres atos depois.
 
     - title: A v2
       required: [imageV2, weightV2, replicasV2]
@@ -83,7 +90,7 @@ spec:
 
     - id: pr
       name: Abrir o pull request
-      action: publish:github:pull-request
+      action: publish:gitlab:merge-request
       input:
         repoUrl: ${{ parameters.repoUrl }}
         branchName: canary-v2-${{ parameters.weightV2 }}pct

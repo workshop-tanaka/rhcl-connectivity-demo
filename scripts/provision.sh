@@ -832,48 +832,49 @@ EOF
     _ok "application-controller autorizado a aplicar os manifests do golden path"
   fi
 
-  # ----- 3. credencial do GitHub -------------------------------------------
-  # Reusa o que o rhdh/setup-github.sh ja gravou, se existir: uma credencial so
-  # para o portal e para o Argo.
-  local org="${GITHUB_ORG:-}" tok="${GITHUB_TOKEN:-}" rhdh_ns="${RHDH_NS:-rhdh-rhcl}"
-  if [[ -z "$org" || -z "$tok" ]]; then
-    if oc get secret rhdh-github-secret -n "$rhdh_ns" >/dev/null 2>&1; then
-      [[ -z "$org" ]] && org="$(oc get secret rhdh-github-secret -n "$rhdh_ns" -o jsonpath='{.data.GITHUB_ORG}' 2>/dev/null | base64 -d 2>/dev/null)"
-      [[ -z "$tok" ]] && tok="$(oc get secret rhdh-github-secret -n "$rhdh_ns" -o jsonpath='{.data.GITHUB_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null)"
-      [[ -n "$org" && -n "$tok" ]] && _log "credencial reaproveitada do rhdh-github-secret (org ${org})"
+  # ----- 3. credencial do GitLab -------------------------------------------
+  # NAO e insumo externo como era no GitHub: o PAT e FABRICADO pela etapa
+  # 'gitlab', que o grava em golden-path-gitlab-token. Se ele nao existe, o
+  # ApplicationSet nao tem como listar os projetos -- e o sintoma seria
+  # silencio, nao erro.
+  if ! oc get secret golden-path-gitlab-token -n openshift-gitops >/dev/null 2>&1; then
+    if [[ $DRY_RUN -eq 0 ]]; then
+      _warn "secret golden-path-gitlab-token ausente — o ApplicationSet nao foi aplicado" \
+        "rode a etapa que o fabrica: bash scripts/provision.sh gitlab"
+      return 0
     fi
-  fi
-
-  if [[ -z "$org" || -z "$tok" ]]; then
-    _warn "sem GITHUB_ORG/GITHUB_TOKEN — o ApplicationSet nao foi aplicado" \
-      "os repos gerados continuam aplicaveis um a um: oc apply -f gitops/application.yaml"
-    printf '      %sGITHUB_ORG=<org> GITHUB_TOKEN=ghp_xxx bash scripts/provision.sh gitops%s\n' "$_DIM" "$_RST"
-    return 0
-  fi
-
-  if [[ $DRY_RUN -eq 1 ]]; then
-    _cmd "criar secret golden-path-github-token em openshift-gitops"
   else
-    oc create secret generic golden-path-github-token -n openshift-gitops \
-      --from-literal=token="$tok" --dry-run=client -o yaml | oc apply -f - >/dev/null \
-      && _ok "token do GitHub gravado em openshift-gitops"
+    _ok "PAT do GitLab presente (golden-path-gitlab-token)"
   fi
 
   # ----- 4. ApplicationSet -------------------------------------------------
   local tpl="${_here}/gitops/applicationset-golden-path.template.yaml"
   [[ -f "$tpl" ]] || { _warn "ausente no repo: gitops/applicationset-golden-path.template.yaml"; return 0; }
+
+  # A URL da API sai da rota do GitLab NESTE cluster. Nao fixar: foi valor fixo
+  # de host que fez o golden path apontar para o cluster antigo.
+  local glhost glapi
+  glhost="$(oc get route -n gitlab-system \
+    -o jsonpath='{range .items[?(@.spec.to.name=="gitlab-webservice-default")]}{.spec.host}{"\n"}{end}' 2>/dev/null | head -1)"
+  if [[ -z "$glhost" ]]; then
+    _warn "rota do GitLab nao encontrada em gitlab-system — o ApplicationSet nao foi aplicado" \
+      "rode antes: bash scripts/provision.sh gitlab"
+    return 0
+  fi
+  glapi="https://${glhost}"
+
   if [[ $DRY_RUN -eq 1 ]]; then
-    _cmd "aplicar ApplicationSet rhcl-golden-path (org ${org})"
+    _cmd "aplicar ApplicationSet rhcl-golden-path (api ${glapi}, grupo rhcl/apis)"
   else
-    sed "s|__GITHUB_ORG__|${org}|" "$tpl" | oc apply -f - >/dev/null \
-      && _ok "ApplicationSet rhcl-golden-path aplicado (org ${org})" \
+    sed "s|__GITLAB_API__|${glapi}|" "$tpl" | oc apply -f - >/dev/null \
+      && _ok "ApplicationSet rhcl-golden-path aplicado (grupo rhcl/apis em ${glhost})" \
       || _warn "falha ao aplicar o ApplicationSet"
   fi
 
   local rt
   rt="$(oc get route openshift-gitops-server -n openshift-gitops -o jsonpath='{.spec.host}' 2>/dev/null)"
   [[ -n "$rt" ]] && _log "Argo CD: https://${rt}  (login: OpenShift SSO)"
-  _log "repo com o topic 'rhcl-golden-path' aparece em ate ~3 min (requeueAfterSeconds)"
+  _log "projeto criado em rhcl/apis aparece em ate ~3 min (requeueAfterSeconds)"
 }
 
 # ===========================================================================

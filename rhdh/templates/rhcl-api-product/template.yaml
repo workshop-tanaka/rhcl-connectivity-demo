@@ -191,8 +191,15 @@ spec:
           type: string
           ui:field: RepoUrlPicker
           ui:options:
-            allowedHosts:
-              - github.com
+            # SEM allowedHosts de proposito. A lista exige host literal, e o
+            # host do GitLab e especifico do cluster (gitlab.<apps-domain>) --
+            # fixa-lo aqui repetiria a armadilha do appsDomain, que sobreviveu
+            # a uma troca de cluster. Sem a lista, o picker oferece as
+            # integracoes que o RHDH tem configuradas.
+            #
+            # A diferenca que torna isso aceitavel: host errado aqui e falha
+            # VISIVEL -- o formulario nao submete. Valor errado no appsDomain
+            # passava verde e quebrava tres atos depois.
         gitopsMode:
           title: Como o cluster recebe estes manifestos
           type: string
@@ -237,10 +244,15 @@ spec:
           gitopsMode: ${{ parameters.gitopsMode }}
           repoUrl: ${{ parameters.repoUrl }}
           repoSlug: ${{ (parameters.repoUrl | parseRepoUrl).owner }}/${{ (parameters.repoUrl | parseRepoUrl).repo }}
+          # DERIVADO do appsDomain, e nao um campo a mais no formulario: o
+          # GitLab da demo vive sempre em gitlab.<apps-domain>. Assim o skeleton
+          # monta as URLs do cluster certo sem ninguem digitar host nenhum -- e
+          # sem valor fixo que sobreviva a troca de cluster.
+          gitlabHost: gitlab.${{ parameters.appsDomain }}
 
     - id: publish
-      name: Publicar no GitHub
-      action: publish:github
+      name: Publicar no GitLab
+      action: publish:gitlab
       input:
         repoUrl: ${{ parameters.repoUrl }}
         description: ${{ parameters.description }}

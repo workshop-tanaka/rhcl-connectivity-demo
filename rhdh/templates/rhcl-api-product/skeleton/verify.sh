@@ -119,7 +119,7 @@ if oc get apiproduct "$NAME" -n "$NS" >/dev/null 2>&1; then
   done
   s="$(_cond apiproduct "$NAME" "$NS" OpenAPISpecReady)"
   [[ "$s" == "True" ]] && _ok "OpenAPISpecReady (spec lida do repositorio)" \
-    || _warn "OpenAPISpecReady=${s:-ausente}" "repo privado devolve 404 no raw.githubusercontent; o controlador NAO repete — edite spec.documentation.openAPISpecURL para disparar"
+    || _warn "OpenAPISpecReady=${s:-ausente}" "projeto privado devolve 404 no raw do GitLab; o controlador NAO repete — edite spec.documentation.openAPISpecURL para disparar"
   n="$(oc get apiproduct "$NAME" -n "$NS" -o jsonpath='{.status.discoveredPlans[*].tier}' 2>/dev/null)"
   [[ -n "$n" ]] && _ok "planos publicados: ${n}" || _warn "nenhum plano descoberto"
 else

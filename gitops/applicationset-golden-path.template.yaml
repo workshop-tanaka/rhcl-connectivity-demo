@@ -2,29 +2,42 @@
 # ApplicationSet do golden path — o que faz um repositorio virar servico sem
 # ninguem aplicar nada.
 #
-# TEMPLATE: '__GITHUB_ORG__' e substituido por 'scripts/provision.sh gitops',
-# que le a org do rhdh-github-secret ou da variavel GITHUB_ORG. Nao aplique
-# este arquivo direto -- o placeholder viraria uma org literal.
+# TEMPLATE: '__GITLAB_API__' e substituido por 'scripts/provision.sh gitops',
+# que monta a URL a partir da rota do GitLab no cluster. Nao aplique este
+# arquivo direto -- o placeholder viraria um host literal.
 #
 # ---------------------------------------------------------------------------
-# COMO A DESCOBERTA FUNCIONA, e onde ela falha em silencio:
+# COMO A DESCOBERTA FUNCIONA:
 #
-#   labelMatch  no gerador SCM do GitHub casa TOPIC do repositorio, nao label do
-#               Kubernetes. O template rhcl-api-product cria os repos com o
-#               topic 'rhcl-golden-path' (input 'topics' da action publish:github).
-#               Repo sem o topic simplesmente nao e descoberto -- nao ha erro,
-#               nao ha Application, e o servico nunca sobe.
+#   group       'rhcl/apis'. ESTAR NO SUBGRUPO E A CONDICAO -- e nao um topic
+#               que alguem precisa lembrar de por. Foi uma troca deliberada ao
+#               migrar do GitHub: la a descoberta dependia do topic
+#               'rhcl-golden-path', e repo sem o topic simplesmente nao era
+#               descoberto (sem erro, sem Application, sem servico). Neste
+#               cluster isso ja aconteceu de verdade -- foi removendo o topic
+#               que cobranca e pagamentos sairam do Argo.
 #
-#   pathsExist  segunda trava: repo com o topic mas sem 'manifests/' e ignorado.
-#               Evita que um repo marcado por engano vire um Application vazio.
+#   pathsExist  segunda trava: projeto no subgrupo mas sem 'manifests/' e
+#               ignorado. Evita que um projeto criado a mao vire Application
+#               vazio.
 #
-#   requeueAfterSeconds  o gerador consulta a API do GitHub nesse intervalo. E
+#   requeueAfterSeconds  o gerador consulta a API do GitLab nesse intervalo. E
 #               por isso que o servico novo demora ate ~3 min para aparecer --
 #               nao e o Argo estar lento, e o ciclo de descoberta.
 #
-# O token precisa de escopo de leitura dos repositorios da org. Repositorio
-# privado sem token no secret nao aparece na listagem, e o sintoma e o mesmo de
-# 'topic ausente': silencio.
+# O token e o PAT que a etapa 'gitlab' fabrica e grava em
+# golden-path-gitlab-token. Projeto privado nao aparece na listagem, e o
+# sintoma e silencio -- por isso o template cria os projetos como publicos.
+#
+# cloneProtocol: https E OBRIGATORIO, e nao e detalhe do GitHub. O campo fica
+# no nivel do scmProvider (nao dentro de github:/gitlab:) e vale para os dois:
+# sem ele o default e ssh, o Argo pede agente SSH que nao existe, e NENHUMA
+# Application sincroniza -- enquanto o ApplicationSet reporta
+# ErrorOccurred=False e "All applications have been generated successfully".
+#
+# Medido nos dois providers neste cluster: no GitHub em 2026-08-24, e de novo
+# no GitLab em 2026-08-25, quando este arquivo foi convertido e o campo saiu
+# junto por engano. O repoURL veio 'git@gitlab.apps...:rhcl/apis/...git'.
 # ---------------------------------------------------------------------------
 # POR QUE ISTO NAO GOVERNA A PLATAFORMA.
 #
@@ -46,15 +59,15 @@ spec:
   generators:
     - scmProvider:
         cloneProtocol: https
-        github:
-          organization: __GITHUB_ORG__
+        gitlab:
+          group: rhcl/apis
+          includeSubgroups: false
+          api: __GITLAB_API__
           tokenRef:
-            secretName: golden-path-github-token
+            secretName: golden-path-gitlab-token
             key: token
         filters:
-          # labelMatch = topic do GitHub.
-          - labelMatch: rhcl-golden-path
-            pathsExist: [manifests]
+          - pathsExist: [manifests]
         requeueAfterSeconds: 180
   template:
     metadata:

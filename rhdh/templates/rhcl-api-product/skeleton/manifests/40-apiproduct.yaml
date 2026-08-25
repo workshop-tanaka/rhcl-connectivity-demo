@@ -17,11 +17,17 @@
 # O catalogo fica vazio sem nenhum erro. O valor precisa ser uma entidade que
 # exista no catalogo.
 # ---------------------------------------------------------------------------
-# openAPISpecURL aponta para o openapi.yaml DESTE REPOSITORIO, servido pelo
-# raw.githubusercontent. E por isso que o template cria o repo como PUBLICO: em
-# repo privado o fetch devolve 404 e o produto fica com OpenAPISpecReady=False,
-# sem aba Definition no portal. O plugin do RHDH propaga esta URL como
-# annotation kuadrant.io/openapi-spec-url na entidade sincronizada.
+# openAPISpecURL aponta para o openapi.yaml DESTE PROJETO, servido pelo raw do
+# GitLab do cluster. E por isso que o template cria o projeto como PUBLICO: em
+# projeto privado o fetch devolve 404 e o produto fica com
+# OpenAPISpecReady=False, sem aba Definition no portal. O plugin do RHDH
+# propaga esta URL como annotation kuadrant.io/openapi-spec-url na entidade.
+#
+# Quem busca esta URL e o controlador do developer portal, de DENTRO do
+# cluster. Medido em 2026-08-25: alcanca o host, confia no wildcard e le o raw
+# anonimamente (http=200, tls_verify=0). A condicao a preservar e o GitLab
+# publicado com o WILDCARD do cluster -- certificado proprio quebra o fetch, e
+# o controlador NAO REPETE.
 #
 # Se o controlador nao conseguir buscar a spec, ele NAO REPETE:
 #   "Controller will not retry; the spec needs to change"
@@ -50,8 +56,8 @@ spec:
     - partners
 {%- endif %}
   documentation:
-    openAPISpecURL: https://raw.githubusercontent.com/${{ values.repoSlug }}/main/openapi.yaml
-    gitRepository: https://github.com/${{ values.repoSlug }}
+    openAPISpecURL: https://${{ values.gitlabHost }}/${{ values.repoSlug }}/-/raw/main/openapi.yaml
+    gitRepository: https://${{ values.gitlabHost }}/${{ values.repoSlug }}
   targetRef:
     group: gateway.networking.k8s.io
     kind: HTTPRoute

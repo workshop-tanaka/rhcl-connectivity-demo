@@ -41,8 +41,15 @@ spec:
             E onde o pull request sera aberto. E o repo que o template 1 criou.
           ui:field: RepoUrlPicker
           ui:options:
-            allowedHosts:
-              - github.com
+            # SEM allowedHosts de proposito. A lista exige host literal, e o
+            # host do GitLab e especifico do cluster (gitlab.<apps-domain>) --
+            # fixa-lo aqui repetiria a armadilha do appsDomain, que sobreviveu
+            # a uma troca de cluster. Sem a lista, o picker oferece as
+            # integracoes que o RHDH tem configuradas.
+            #
+            # A diferenca que torna isso aceitavel: host errado aqui e falha
+            # VISIVEL -- o formulario nao submete. Valor errado no appsDomain
+            # passava verde e quebrava tres atos depois.
 
     - title: Quem esta pedindo
       required: [consumer, email, planTier, useCase]
@@ -86,7 +93,7 @@ spec:
 
     - id: pr
       name: Abrir o pull request
-      action: publish:github:pull-request
+      action: publish:gitlab:merge-request
       input:
         repoUrl: ${{ parameters.repoUrl }}
         branchName: subscription-${{ parameters.consumer }}-${{ parameters.planTier }}

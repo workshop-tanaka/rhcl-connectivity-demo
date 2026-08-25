@@ -29,15 +29,15 @@ metadata:
     # que sao rotulados com o mesmo 'app'.
     backstage.io/kubernetes-label-selector: app=${{ values.name }}
     backstage.io/kubernetes-namespace: ${{ values.namespace }}
-    github.com/project-slug: ${{ values.repoSlug }}
+    gitlab.com/project-slug: ${{ values.repoSlug }}
     # As duas terminam diferente e nao e descuido: source-location PRECISA
     # terminar em '/' (sem a barra o RHDH trata como arquivo e os botoes de
     # View Source aparecem desabilitados); techdocs-ref, nao. Mesma convencao
     # do catalogo da demo em rhdh/catalog/travel-agency.yaml.
-    backstage.io/source-location: url:https://github.com/${{ values.repoSlug }}/tree/main/
+    backstage.io/source-location: url:https://${{ values.gitlabHost }}/${{ values.repoSlug }}/-/tree/main/
     # Aba Docs a partir do mkdocs.yml deste repositorio. O RHDH gera no proprio
     # pod (mkdocs vive em /opt/techdocs-venv), entao nao ha pipeline a montar.
-    backstage.io/techdocs-ref: url:https://github.com/${{ values.repoSlug }}/tree/main
+    backstage.io/techdocs-ref: url:https://${{ values.gitlabHost }}/${{ values.repoSlug }}/-/tree/main
   tags:
     - rhcl
     - golden-path
@@ -48,7 +48,7 @@ metadata:
     - url: https://${{ values.hostname }}
       title: Endpoint
       icon: web
-    - url: https://github.com/${{ values.repoSlug }}/blob/main/manifests/31-planpolicy.yaml
+    - url: https://${{ values.gitlabHost }}/${{ values.repoSlug }}/-/blob/main/manifests/31-planpolicy.yaml
       title: Planos (PlanPolicy)
       icon: docs
 spec:
@@ -73,7 +73,7 @@ metadata:
     ${{ values.description }} Exposta pelo Gateway prod-web, protegida por
     AuthPolicy e limitada por plano.
   annotations:
-    github.com/project-slug: ${{ values.repoSlug }}
+    gitlab.com/project-slug: ${{ values.repoSlug }}
   tags:
     - rhcl
     - golden-path
