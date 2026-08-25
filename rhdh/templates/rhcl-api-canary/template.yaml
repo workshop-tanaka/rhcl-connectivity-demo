@@ -39,15 +39,26 @@ spec:
           type: string
           ui:field: RepoUrlPicker
           ui:options:
-            # SEM allowedHosts de proposito. A lista exige host literal, e o
-            # host do GitLab e especifico do cluster (gitlab.<apps-domain>) --
-            # fixa-lo aqui repetiria a armadilha do appsDomain, que sobreviveu
-            # a uma troca de cluster. Sem a lista, o picker oferece as
-            # integracoes que o RHDH tem configuradas.
+            # allowedHosts com valor de cluster, e isso e DIVIDA CONHECIDA.
             #
-            # A diferenca que torna isso aceitavel: host errado aqui e falha
-            # VISIVEL -- o formulario nao submete. Valor errado no appsDomain
-            # passava verde e quebrava tres atos depois.
+            # Tentei sem a lista, para nao fixar host aqui. Nao funciona: sem
+            # allowedHosts o picker nao oferece host nenhum utilizavel -- o
+            # campo Host fica sem o GitLab e o formulario nao anda. A hipotese
+            # de que ele cairia nas integracoes configuradas estava errada,
+            # medido em 2026-08-25.
+            #
+            # Por que e aceitavel POR ENQUANTO: pela ESTRATEGIA-BRANCHES, valor
+            # especifico de cluster pode viver em branch de demo -- e a falha
+            # aqui e VISIVEL (o host nao aparece, ninguem submete errado), nao
+            # silenciosa como era o default do appsDomain.
+            #
+            # A CORRECAO DE VERDADE e semear os templates no proprio GitLab
+            # (docs/GITOPS-GITLAB.md): o gitlab-seed.sh renderiza, e o host
+            # entra substituido como ja acontece com __APPS_DOMAIN__ e
+            # __GITLAB_API__. Enquanto os templates forem lidos do GitHub, nao
+            # ha ponto de substituicao.
+            allowedHosts:
+              - gitlab.apps.cluster-cxr7d.dyn.redhatworkshops.io
             # O token OAuth de QUEM ESTA LOGADO chega ao passo de publicacao
             # por aqui. E o que faz a merge request sair assinada pela persona
             # -- 'Globex Travel' no lugar de 'root' -- e torna literal a frase
