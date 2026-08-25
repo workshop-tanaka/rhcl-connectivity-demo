@@ -865,6 +865,103 @@ else
   else
     _warn "sem integração GitHub" "bash rhdh/setup-github.sh <org> <repo> — sem isso o scaffolding do Ato 6 não roda"
   fi
+
+  # O GitHub e de onde o RHDH LE os templates; o GitLab e para onde o golden
+  # path ESCREVE. Sao integracoes independentes, e a segunda falha depois --
+  # no passo de publicacao, com o formulario ja preenchido na frente da
+  # plateia. Ver docs/GITOPS-GITLAB.md.
+  if oc get cm app-config-rhdh-gitlab -n "$_rhdh_ns" >/dev/null 2>&1; then
+    _ok "integração GitLab (publish:gitlab tem credencial)"
+  else
+    _warn "sem integração GitLab" "bash rhdh/setup-gitlab.sh — o publish:gitlab falha com 'Unauthorized'"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# O GitLab do cluster e o SCM dos servicos que o golden path gera. Tudo aqui
+# falha em SILENCIO: grupo vazio, token invalido e ApplicationSet apontando
+# para o lugar errado produzem exatamente a mesma tela verde --
+#   ErrorOccurred=False  "All applications have been generated successfully"
+# com zero Applications. So se descobre no Ato 6.
+_sec "GitLab do cluster (SCM do golden path)"
+
+_glhost="$(oc get route -n gitlab-system \
+  -o jsonpath='{range .items[?(@.spec.to.name=="gitlab-webservice-default")]}{.spec.host}{"\n"}{end}' 2>/dev/null | head -1)"
+
+if [[ -z "$_glhost" ]]; then
+  _warn "GitLab não instalado — o golden path do Ato 6 não tem onde publicar" \
+        "bash scripts/provision.sh gitlab"
+else
+  _glcode="$(curl -s -m 15 -o /dev/null -w '%{http_code}' "https://${_glhost}/" 2>/dev/null)"
+  if [[ "$_glcode" =~ ^(200|302)$ ]]; then
+    _ok "GitLab no ar: https://${_glhost}"
+  else
+    _bad "GitLab não responde (http=${_glcode:-000})" \
+         "oc get pods -n gitlab-system; oc get gitlab -n gitlab-system"
+  fi
+
+  _gltok="$(oc get secret golden-path-gitlab-token -n openshift-gitops \
+    -o jsonpath='{.data.token}' 2>/dev/null | base64 -d 2>/dev/null)"
+  if [[ -z "$_gltok" ]]; then
+    _bad "PAT ausente (openshift-gitops/golden-path-gitlab-token)" \
+         "é a etapa 'gitlab' que o fabrica: bash scripts/provision.sh gitlab"
+  else
+    _gluser="$(curl -s -m 15 -H "PRIVATE-TOKEN: ${_gltok}" "https://${_glhost}/api/v4/user" 2>/dev/null \
+               | python3 -c 'import sys,json; print(json.load(sys.stdin).get("username",""))' 2>/dev/null)"
+    if [[ -n "$_gluser" ]]; then
+      _ok "PAT autentica (usuário ${_gluser})"
+    else
+      _bad "o PAT não autentica em https://${_glhost}/api/v4/user" \
+           "reemita: bash scripts/provision.sh gitlab (apague antes o secret golden-path-gitlab-token)"
+    fi
+
+    # rhcl/apis pode e DEVE estar vazio antes do Ato 6 -- e o proprio ato que o
+    # povoa. Ja rhcl/policies vazio significa semeadura que nao rodou, e o
+    # sintoma seria a camada de demo inexistente no GitLab sem ninguem notar.
+    for _grp in rhcl/apis rhcl/policies; do
+      _genc="${_grp//\//%2F}"
+      _gid="$(curl -s -m 15 -H "PRIVATE-TOKEN: ${_gltok}" "https://${_glhost}/api/v4/groups/${_genc}" 2>/dev/null \
+              | python3 -c 'import sys,json; print(json.load(sys.stdin).get("full_path",""))' 2>/dev/null)"
+      if [[ "$_gid" != "$_grp" ]]; then
+        _bad "grupo ${_grp} ausente no GitLab" "bash scripts/gitlab-seed.sh"
+        continue
+      fi
+      _gn="$(curl -s -m 15 -H "PRIVATE-TOKEN: ${_gltok}" \
+             "https://${_glhost}/api/v4/groups/${_genc}/projects?per_page=100" 2>/dev/null \
+             | python3 -c 'import sys,json; print(len(json.load(sys.stdin)))' 2>/dev/null)"
+      if [[ "$_grp" == "rhcl/policies" && "${_gn:-0}" -lt 1 ]]; then
+        _bad "rhcl/policies existe mas está VAZIO — a camada de demo não foi semeada" \
+             "bash scripts/gitlab-seed.sh"
+      else
+        _ok "grupo ${_grp}: ${_gn:-0} projeto(s)"
+      fi
+    done
+  fi
+
+  # O ApplicationSet apontando para outro grupo -- ou para o GitHub, se a
+  # conversao nao rodou -- reporta sucesso com zero Applications.
+  _asgrp="$(oc get applicationset rhcl-golden-path -n openshift-gitops \
+    -o jsonpath='{.spec.generators[0].scmProvider.gitlab.group}' 2>/dev/null)"
+  if [[ "$_asgrp" == "rhcl/apis" ]]; then
+    _ok "ApplicationSet descobre por subgrupo (rhcl/apis), sem depender de topic"
+  elif [[ -n "$_asgrp" ]]; then
+    _bad "ApplicationSet aponta para o grupo '${_asgrp}', não rhcl/apis" \
+         "bash scripts/provision.sh gitops"
+  else
+    _warn "ApplicationSet não usa o provider do GitLab" \
+          "se a demo publica no GitLab, rode: bash scripts/provision.sh gitops"
+  fi
+
+  # cloneProtocol ausente = default ssh = NENHUMA Application sincroniza, com o
+  # ApplicationSet verde. Aconteceu nos dois providers, 24h de intervalo.
+  _ascp="$(oc get applicationset rhcl-golden-path -n openshift-gitops \
+    -o jsonpath='{.spec.generators[0].scmProvider.cloneProtocol}' 2>/dev/null)"
+  if [[ "$_ascp" == "https" ]]; then
+    _ok "cloneProtocol https (sem ele o Argo pede agente SSH e nada sincroniza)"
+  else
+    _bad "ApplicationSet sem cloneProtocol=https (atual: '${_ascp:-vazio}')" \
+         "o default é ssh: o repoURL sai como git@... e nenhuma Application sincroniza"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
