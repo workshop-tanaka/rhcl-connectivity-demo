@@ -9,8 +9,12 @@ spec:
     values:
       global:
         edition: ce
+        # __APPS_DOMAIN__ e substituido pelo provision.sh a partir do
+        # ingresses.config/cluster. NAO fixar o dominio aqui: foi assim que o
+        # template do golden path carregou o hostname do cluster antigo por
+        # semanas, gerando servico que apontava para outro cluster.
         hosts:
-          domain: apps.cluster-cxr7d.dyn.redhatworkshops.io
+          domain: __APPS_DOMAIN__
           https: true
         # openshift-default converte Ingress em Route (ingress-to-route).
         # configureCertmanager=false porque o TLS vem do wildcard do cluster,

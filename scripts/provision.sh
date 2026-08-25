@@ -51,7 +51,7 @@ PR="${_here}/platform-reference"
 TIMEOUT="${TIMEOUT:-600}"
 DRY_RUN=0
 
-STAGES_ALL=(operators mesh platform gateway devportal demo consoles tracing dashboards gitops)
+STAGES_ALL=(operators gitlab mesh platform gateway devportal demo consoles tracing dashboards gitops)
 
 _usage() {
   cat <<EOF
@@ -61,6 +61,8 @@ Etapas, na ordem em que dependem umas das outras:
 
   operators   Subscriptions do RHCL e do Service Mesh (+ opcionais) e o
               user workload monitoring, sem o qual o Ato 4 nao tem metrica
+  gitlab      SCM da demo no proprio cluster: CloudNativePG, Redis, o
+              operator e o CR do GitLab, o wildcard e o PAT. A MAIS LENTA
   mesh        CR Istio + IstioCNI (de onde vem a gatewayClassName) e a
               Telemetry que manda emitir span
   platform    CR Kuadrant, namespaces, os 6 backends do travel-agency, o
@@ -277,6 +279,131 @@ subprocess.run(["oc","-n","openshift-monitoring","patch","cm","cluster-monitorin
         || _warn "falha ao editar cluster-monitoring-config"
     fi
   fi
+}
+
+
+# ===========================================================================
+# 2b. gitlab (SCM da demo)
+# ===========================================================================
+# A infra do GitLab mora AQUI, no repo do GitHub, e nunca no proprio GitLab:
+# para instalar o GitLab e preciso o cluster; para definir o cluster e preciso
+# o Git. Ver docs/GITOPS-GITLAB.md secao 1.
+#
+# E a etapa mais lenta do provisionamento: o chart sobe gitaly, shell, kas,
+# exporter, webservice e sidekiq, e roda um Job de migrations que monta o
+# schema inteiro. Conte varios minutos.
+st_gitlab() {
+  _sec "gitlab (SCM da demo)"
+
+  # ----- 1. dependencias: chart 10.x nao empacota mais psql nem redis -------
+  _apply platform-reference/gitlab/00-dependencies.yaml || return 0
+  _wait_csv openshift-operators cloudnative-pg 0 || {
+    _warn "CloudNativePG nao ficou pronto — o GitLab nao sobe sem PostgreSQL externo"
+    return 0
+  }
+  _wait_crd clusters.postgresql.cnpg.io
+
+  # ----- 2. operator do GitLab (OwnNamespace: CR e operator no mesmo ns) ----
+  _apply platform-reference/gitlab/01-operator.yaml || return 0
+  _wait_csv gitlab-system gitlab-operator-kubernetes 0 || {
+    _warn "operator do GitLab nao ficou pronto"
+    return 0
+  }
+
+  # ----- 3. TLS: o wildcard que o cluster JA TEM ---------------------------
+  # Nao emitir por DNS01 para este host: o cert sai Ready=True e o que quebra e
+  # a resolucao do proprio hostname (armadilha 6 do RUNBOOK).
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "copiar wildcard para gitlab-system/gitlab-wildcard-tls"
+  else
+    local certsec
+    certsec="$(oc get ingresscontroller default -n openshift-ingress-operator \
+                -o jsonpath='{.spec.defaultCertificate.name}' 2>/dev/null)"
+    if [[ -n "$certsec" ]]; then
+      oc get secret "$certsec" -n openshift-ingress -o json 2>/dev/null \
+        | python3 -c 'import sys,json;d=json.load(sys.stdin);print(json.dumps({"apiVersion":"v1","kind":"Secret","type":d["type"],"metadata":{"name":"gitlab-wildcard-tls","namespace":"gitlab-system"},"data":d["data"]}))' \
+        | oc apply -f - >/dev/null 2>&1 \
+        && _ok "gitlab-wildcard-tls copiado de openshift-ingress/${certsec}" \
+        || _warn "falha ao copiar o wildcard"
+    else
+      _warn "nao achei o defaultCertificate do ingresscontroller"
+    fi
+  fi
+
+  # ----- 4. credenciais de psql e redis ------------------------------------
+  # Idempotente por construcao: se o secret existe, NAO rotaciona. Rotacionar
+  # a senha do banco com o GitLab de pe derruba o webservice.
+  local s
+  for s in gitlab-psql-credentials gitlab-redis-credentials; do
+    if oc get secret "$s" -n gitlab-system >/dev/null 2>&1; then
+      _ok "secret ${s} ja existe (nao rotacionado)"
+    elif [[ $DRY_RUN -eq 1 ]]; then
+      _cmd "criar secret ${s}"
+    else
+      local pw; pw="$(openssl rand -base64 24 | tr -d '/+=' | head -c 24)"
+      if [[ "$s" == gitlab-psql-credentials ]]; then
+        oc create secret generic "$s" -n gitlab-system --type=kubernetes.io/basic-auth \
+          --from-literal=username=gitlab --from-literal=password="$pw" \
+          --dry-run=client -o yaml | oc apply -f - >/dev/null
+      else
+        oc create secret generic "$s" -n gitlab-system \
+          --from-literal=password="$pw" \
+          --dry-run=client -o yaml | oc apply -f - >/dev/null
+      fi
+      _ok "secret ${s} criado"
+    fi
+  done
+
+  _apply platform-reference/gitlab/03-postgres.yaml
+  _apply platform-reference/gitlab/04-redis.yaml
+  _rollout gitlab-redis gitlab-system
+
+  # ----- 5. o CR, com o dominio DESTE cluster ------------------------------
+  local tpl="${_here}/platform-reference/gitlab/02-gitlab.yaml"
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "aplicar GitLab com domain=${DOMAIN}"
+  else
+    sed "s|__APPS_DOMAIN__|${DOMAIN}|" "$tpl" | oc apply -f - >/dev/null \
+      && _ok "GitLab aplicado (domain ${DOMAIN})" \
+      || _warn "falha ao aplicar o GitLab"
+    _log "o Job de migrations monta o schema inteiro — varios minutos"
+    _rollout gitlab-webservice-default gitlab-system || {
+      _warn "webservice nao ficou pronto; veja: oc logs -n gitlab-system deploy/gitlab-controller-manager --tail=5"
+      return 0
+    }
+  fi
+
+  # ----- 6. token de API ---------------------------------------------------
+  # O Argo e o RHDH precisam de PAT. Diferente do GitHub, onde o token e insumo
+  # externo, aqui ele e FABRICADO no provisionamento. Nao ha toolbox neste
+  # desenho -- mas o pod do webservice tem o app Rails, que resolve.
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "emitir PAT e gravar em openshift-gitops/golden-path-gitlab-token"
+  elif oc get secret golden-path-gitlab-token -n openshift-gitops >/dev/null 2>&1; then
+    _ok "golden-path-gitlab-token ja existe (nao reemitido)"
+  else
+    local wpod tok
+    wpod="$(oc get pod -n gitlab-system -l app=webservice -o name 2>/dev/null | head -1 | sed 's|pod/||')"
+    if [[ -n "$wpod" ]]; then
+      tok="$(oc exec -n gitlab-system "$wpod" -c webservice -- sh -c \
+        'cd /srv/gitlab && ./bin/rails runner "u=User.find_by_username(\"root\"); t=u.personal_access_tokens.create!(scopes:[\"api\"], name:\"golden-path\", expires_at: 365.days.from_now); puts \"TOKEN=\"+t.token" 2>/dev/null' 2>/dev/null \
+        | grep '^TOKEN=' | sed 's/TOKEN=//')"
+      if [[ -n "$tok" ]]; then
+        oc create ns openshift-gitops >/dev/null 2>&1 || true
+        oc create secret generic golden-path-gitlab-token -n openshift-gitops \
+          --from-literal=token="$tok" --dry-run=client -o yaml | oc apply -f - >/dev/null \
+          && _ok "PAT emitido e gravado em openshift-gitops/golden-path-gitlab-token"
+      else
+        _warn "nao consegui emitir o PAT pelo webservice — emita na UI (root) e crie o secret a mao"
+      fi
+    else
+      _warn "pod do webservice nao encontrado; PAT nao emitido"
+    fi
+  fi
+
+  local rt
+  rt="$(oc get route -n gitlab-system -o jsonpath='{range .items[?(@.spec.to.name=="gitlab-webservice-default")]}{.spec.host}{"\n"}{end}' 2>/dev/null | head -1)"
+  [[ -n "$rt" ]] && _log "GitLab: https://${rt}  (root / secret gitlab-gitlab-initial-root-password)"
 }
 
 # ===========================================================================
