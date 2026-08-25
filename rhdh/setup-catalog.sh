@@ -317,6 +317,10 @@ if oc get configmap app-config-rhdh-github -n "$RHDH_NS" >/dev/null 2>&1; then
   _cms="${_cms},{\"name\":\"app-config-rhdh-github\"}"
   _log "camada GitHub detectada -- incluida no appConfig."
 fi
+if oc get configmap app-config-rhdh-gitlab -n "$RHDH_NS" >/dev/null 2>&1; then
+  _cms="${_cms},{\"name\":\"app-config-rhdh-gitlab\"}"
+  _log "camada GitLab detectada -- incluida no appConfig."
+fi
 
 _log "atualizando a instancia..."
 # extraFiles NAO e tocado aqui: quem o usa e o setup-plugins.sh, para montar o

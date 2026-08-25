@@ -383,6 +383,16 @@ if oc get secret rhdh-github-secret -n "$RHDH_NS" >/dev/null 2>&1; then
   _log "camada GitHub detectada -- plugins incluidos."
 fi
 
+# Camada GitLab: e ela que fornece a action publish:gitlab, sem a qual os tres
+# templates falham no passo de publicacao. O modulo vem na imagem do RHDH
+# (confirmado em dynamic-plugins/dist), entao nao precisa de plugin-registry.
+if oc get secret rhdh-gitlab-secret -n "$RHDH_NS" >/dev/null 2>&1; then
+  _plugins="${_plugins}
+      - package: ./dynamic-plugins/dist/backstage-plugin-scaffolder-backend-module-gitlab-dynamic
+        disabled: false"
+  _log "camada GitLab detectada -- modulo de scaffolder incluido."
+fi
+
 _log "escrevendo a lista de plugins..."
 oc apply -f - >/dev/null <<EOF || _die "falha ao criar dynamic-plugins-rhdh."
 apiVersion: v1
@@ -540,8 +550,8 @@ data:
                 - group: extensions.kuadrant.io
                   apiVersion: v1alpha1
                   plural: telemetrypolicies
-                # Malha. Com os servicos do golden path -- que rotulam TUDO com
-                # 'app: <nome>', policies de borda e de malha -- a aba Kubernetes
+                # Service Mesh. Com os servicos do golden path -- que rotulam TUDO com
+                # 'app: <nome>', policies de borda e de Service Mesh -- a aba Kubernetes
                 # passa a mostrar os dois escopos de policy na mesma tela, que e
                 # a unica visao onde o argumento do Ato 7 aparece sem trocar de
                 # ferramenta. Exige os apiGroups correspondentes no
@@ -571,6 +581,10 @@ fi
 if oc get configmap app-config-rhdh-github -n "$RHDH_NS" >/dev/null 2>&1; then
   _cms="${_cms},{\"name\":\"app-config-rhdh-github\"}"
   _secrets="${_secrets},{\"name\":\"rhdh-github-secret\"}"
+fi
+if oc get configmap app-config-rhdh-gitlab -n "$RHDH_NS" >/dev/null 2>&1; then
+  _cms="${_cms},{\"name\":\"app-config-rhdh-gitlab\"}"
+  _secrets="${_secrets},{\"name\":\"rhdh-gitlab-secret\"}"
 fi
 
 # creator-service como sidecar, e nao como Deployment proprio: o plugin monta a
