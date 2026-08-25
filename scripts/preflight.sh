@@ -875,6 +875,57 @@ else
   else
     _warn "sem integração GitLab" "bash rhdh/setup-gitlab.sh — o publish:gitlab falha com 'Unauthorized'"
   fi
+
+  # ----- o login FUNCIONA, e nao apenas existe -----------------------------
+  # As duas falhas que derrubaram o portal em 2026-08-25 tinham a mesma forma:
+  # configuracao certa no repo, ausente no cluster. Nenhuma aparecia aqui.
+  #
+  #   secret criado mas nao montado  -> "Missing required config value at
+  #                                      backend.auth.externalAccess[1]"
+  #   entidades no YAML mas nao publicadas -> "unable to resolve user identity"
+  #
+  # A segunda e a pior: o portal SOBE, a tela de login aparece, e a sessao
+  # morre depois de a pessoa digitar a senha -- na frente da plateia.
+  _rhdh_host="$(oc get route -n "$_rhdh_ns" \
+    -o jsonpath='{range .items[?(@.spec.to.name=="backstage-developer-hub")]}{.spec.host}{"\n"}{end}' 2>/dev/null | head -1)"
+  if [[ -n "$_rhdh_host" ]]; then
+    _st="$(curl -sk -m 15 -o /dev/null -w '%{http_code}' \
+           "https://${_rhdh_host}/api/auth/gitlab/start?env=production" 2>/dev/null)"
+    if [[ "$_st" == "302" ]]; then
+      _ok "login pelo GitLab responde (302 para o authorize)"
+    else
+      _bad "o provider de login do GitLab não responde (http=${_st:-000})" \
+           "bash rhdh/setup-gitlab.sh; se o erro for de escopo, é a OAuth application"
+    fi
+
+    # 'guest' de volta seria regressao silenciosa: o portal funcionaria, e a
+    # demo perderia a identidade que faz a merge request ter autor.
+    _gst="$(curl -sk -m 15 -o /dev/null -w '%{http_code}' -X POST \
+            "https://${_rhdh_host}/api/auth/guest/refresh" 2>/dev/null)"
+    [[ "$_gst" == "404" ]] \
+      && _ok "provider 'guest' ausente (identidade real no Ato 6)" \
+      || _warn "o provider 'guest' respondeu (http=${_gst})" \
+               "com guest de volta, a MR do Ato 6 sai assinada pelo token de serviço"
+
+    # As personas precisam existir NO CATALOGO, nao so no YAML do repo: o
+    # resolver casa o username do GitLab com User:default/<nome>.
+    _at="$(oc get secret rhdh-automation-secret -n "$_rhdh_ns" \
+           -o jsonpath='{.data.AUTOMATION_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null)"
+    if [[ -n "$_at" ]]; then
+      _falta=""
+      for _u in globex-travel initech-voyages acme-trips plat-eng; do
+        curl -sk -m 15 -H "Authorization: Bearer ${_at}" \
+          "https://${_rhdh_host}/api/catalog/entities/by-name/user/default/${_u}" 2>/dev/null \
+          | grep -q '"kind":"User"' || _falta="${_falta} ${_u}"
+      done
+      if [[ -z "$_falta" ]]; then
+        _ok "as 4 personas existem no catálogo (login resolve)"
+      else
+        _bad "persona sem entidade no catálogo:${_falta}" \
+             "o login autentica e a sessão morre em 'unable to resolve user identity' — bash rhdh/setup-catalog.sh"
+      fi
+    fi
+  fi
 fi
 
 # ---------------------------------------------------------------------------
