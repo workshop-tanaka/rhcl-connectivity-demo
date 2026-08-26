@@ -759,6 +759,26 @@ if [[ "$_plugins" == *'"kuadrant-console-plugin"'* ]]; then
             -o jsonpath='{.spec.components.developerPortal.enabled}' 2>/dev/null)" == "true" ]]; then
     _prod="$(oc get apiproduct -A -o jsonpath='{range .items[*]}{.metadata.name}={.status.conditions[?(@.type=="Ready")].status};{end}' 2>/dev/null)"
     _sch="$(oc get apiproduct travels-api -n travel-agency -o jsonpath='{.status.discoveredAuthScheme.authentication}' 2>/dev/null)"
+
+    # OpenAPISpecReady e a checagem mais barata que existe aqui, e cobre a falha
+    # mais TRAICOEIRA: o controlador do RHCL busca o spec UMA VEZ. Se o alvo nao
+    # responder naquele instante -- o servico ainda subindo, o DNS ainda nao
+    # propagado --, ele grava FetchFailed e diz, com todas as letras:
+    # "Controller will not retry; the spec needs to change".
+    #
+    # Fica travado para sempre, com a URL servindo 200 o tempo todo. E so aparece
+    # quando alguem abre a aba Definition, que mostra "OpenAPI specification not
+    # yet synced". Visto neste ambiente em 2026-08-24 e so descoberto no dia 26,
+    # navegando o portal.
+    #
+    # Destrava mudando o campo (qualquer mudanca serve; devolver o valor
+    # canonico depois deixa o cluster igual ao repo).
+    _specfail="$(oc get apiproduct -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[?(@.type=="OpenAPISpecReady")].status} {end}' 2>/dev/null \
+                 | tr ' ' '\n' | grep '=False$' | cut -d= -f1 | tr '\n' ' ')"
+    if [[ -n "${_specfail// /}" ]]; then
+      _warn "OpenAPI não sincronizado em: ${_specfail% }" \
+            "a aba Definition mostra 'not yet synced'; o controlador NÃO repete — toque o campo: oc patch apiproduct <n> -n <ns> --type=merge -p '{\"spec\":{\"documentation\":{\"openAPISpecURL\":\"<url>?refresh\"}}}' e depois devolva a URL"
+    fi
     # -o em vez de -c: o jsonpath concatena sem newline, e 'grep -c' conta LINHA
     # -- com duas chaves falhando reportaria 1.
     _kfail="$(oc get apikey -A -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Failed")].status}{"\n"}{end}' 2>/dev/null | grep -c '^True$')"
