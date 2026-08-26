@@ -43,3 +43,41 @@ spec:
     email: ${{ values.email }}
   secretRef:
     name: apikey-${{ values.consumer }}-${{ values.apiName }}
+---
+# ===========================================================================
+# O SECRET DA CHAVE — sem ele a APIKey nasce Failed, nao Pending.
+#
+# secretRef e OBRIGATORIO na CRD (spec.required: apiProductRef, planTier,
+# requestedBy, secretRef), entao nao da para deixar o portal cunhar o Secret na
+# aprovacao: a APIKey precisa apontar para algo que ja exista. Sem este bloco:
+#
+#   APIKey  Failed=True (SecretNotFound)
+#
+# Medido em 2026-08-26, na primeira assinatura criada de ponta a ponta pelo
+# golden path. As tres chaves da demo mascaravam a lacuna, porque vem da camada
+# base/identity/ e nao do template.
+#
+# O 'kuadrant.io/plan-id' NAO E OPCIONAL. Sem ele o predicate do plano nao casa
+# e a chave passa SEM LIMITE NENHUM -- falha ABERTA, que responde 200 e mente
+# (armadilha 1 do RUNBOOK). Uma chave sem tier e pior que uma chave recusada.
+#
+# O valor da chave fica no git, de proposito e em coerencia com
+# base/identity/apikeys.yaml: e ambiente de demonstracao, e a chave existe para
+# ser lida na tela. Num ambiente real isto seria um ExternalSecret.
+# ===========================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-${{ values.consumer }}-${{ values.apiName }}
+  namespace: kuadrant-system
+  labels:
+    app: partner
+    authorino.kuadrant.io/managed-by: authorino
+    kuadrant.io/plan-id: ${{ values.planTier }}
+    app.kubernetes.io/part-of: rhcl-golden-path
+    devportal.kuadrant.io/apiproduct: ${{ values.apiName }}
+  annotations:
+    kuadrant.io/partner-name: "${{ values.consumer }}"
+type: Opaque
+stringData:
+  api_key: ${{ values.planTier }}-${{ values.consumer }}-${{ values.apiName }}

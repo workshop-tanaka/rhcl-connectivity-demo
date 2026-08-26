@@ -123,6 +123,16 @@ spec:
         repoUrl: ${{ parameters.repoUrl }}
         # A MR sai assinada por quem esta logado -- e o que a plateia le.
         token: ${{ secrets.USER_OAUTH_TOKEN }}
+        # ASSIGNEE e REVIEWER, e nao enfeite: sem eles a MR existe no projeto e
+        # NAO aparece no painel "Atribuidas a mim" de quem aprova. Medido em
+        # 2026-08-26 -- o aprovador entrou, procurou e nao achou.
+        #
+        # O ato so demonstra governanca se o pedido CHEGAR a quem decide. Deixar
+        # a MR orfa transforma "o parceiro pede e a plataforma aprova" em "o
+        # parceiro pede e alguem precisa saber a URL".
+        assignee: plat-eng
+        reviewers:
+          - plat-eng
         branchName: canary-v2-${{ parameters.weightV2 }}pct
         title: "canary: v2 com ${{ parameters.weightV2 }}% do trafego"
         description: |
