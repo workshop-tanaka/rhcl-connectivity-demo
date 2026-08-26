@@ -5,8 +5,15 @@
 # OperatorGroup e criado sem spec.targetNamespaces (escopo = cluster inteiro)
 # e o namespace do operator e separado do namespace da instancia.
 #
-# Canal: fast-1.9 (pin de minor). O canal 'fast' segue sempre a ultima minor
-# e faria upgrade automatico de 1.9 -> 1.10 -- indesejado num lab estavel.
+# Canal: fast-1.10 (pin de MINOR, e nao 'fast'). O canal 'fast' segue sempre a
+# ultima minor e faria upgrade automatico sem aviso -- indesejado num lab que
+# precisa estar identico no dia da apresentacao. O pin e a decisao; a versao e
+# consequencia.
+#
+# Subiu de fast-1.9 em 2026-08-26, e a validacao esta registrada no commit. O
+# resumo: os quatro plugins de risco carregaram, INCLUSIVE os do Kiali ainda
+# fixados em bs_1.49.4, e o golden path rodou ponta a ponta -- projeto criado no
+# GitLab, 10 tipos de recurso no cluster, Argo Synced/Healthy e 401 de fora.
 # ===========================================================================
 apiVersion: v1
 kind: Namespace
@@ -26,7 +33,7 @@ metadata:
   name: rhdh
   namespace: rhdh-operator
 spec:
-  channel: fast-1.9
+  channel: fast-1.10
   installPlanApproval: Automatic
   name: rhdh
   source: redhat-operators

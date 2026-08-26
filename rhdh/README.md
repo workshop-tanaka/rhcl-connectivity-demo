@@ -19,7 +19,7 @@ As duas primeiras já entregam um portal utilizável. A quarta chama a terceira 
 
 | Script | O que faz |
 | --- | --- |
-| `install.sh` | Subscription (`fast-1.9`), CR `Backstage`, PostgreSQL local, Route com host fixo, `BACKEND_SECRET` |
+| `install.sh` | Subscription (`fast-1.10`), CR `Backstage`, PostgreSQL local, Route com host fixo, `BACKEND_SECRET` |
 | `setup-catalog.sh` | Renderiza `catalog/` com os hostnames reais do cluster, serve por HTTP interno, registra a location |
 | `setup-plugins.sh` | ServiceAccount + RBAC de leitura, `dynamic-plugins-rhdh`, config do plugin Kubernetes |
 | `setup-github.sh` | `integrations.github`, descoberta da org, plugins de GitHub, registra os 3 templates do golden path |
@@ -37,7 +37,7 @@ RHDH_NS=meu-rhdh             bash rhdh/install.sh   # namespace da instância (d
 
 | Recurso | Namespace | Observação |
 | --- | --- | --- |
-| Subscription `rhdh` (canal `fast-1.9`) | `rhdh-operator` | install mode `AllNamespaces` — o único suportado |
+| Subscription `rhdh` (canal `fast-1.10`) | `rhdh-operator` | install mode `AllNamespaces` — o único suportado |
 | CR `Backstage/developer-hub` | `rhdh` | `rhdh.redhat.com/v1alpha5` |
 | `Deployment/backstage-developer-hub` | `rhdh` | frontend + backend |
 | `StatefulSet/backstage-psql-developer-hub` | `rhdh` | PostgreSQL local, PVC de 1Gi |

@@ -364,6 +364,8 @@ Confirmado inofensivo em 2026-08-20/21. Some da lista se o comportamento mudar.
 | `KubePodNotScheduled` / `KubeDeploymentRolloutStuck` (6 warnings) | mesma causa acima |
 | `PrometheusOperatorRejectedResources` | ServiceMonitors de *self-metrics* de operators (tempo, otel, devworkspace) usando bearer token file. Os da demo estão todos aceitos |
 | `AlertmanagerReceiversNotConfigured` | cluster de workshop, sem destino de notificação |
+| `ExtensionsPackageProcessor … additionalProperty: author` no log do RHDH | **defeito do próprio RHDH 1.10**: o descritor `package:rhdh/roadiehq-scaffolder-backend-module-http-request` vem *dentro da imagem* (`file:extensions…`) declarando um campo que o schema dela mesma rejeita. Não é config nossa e não há o que corrigir do nosso lado. Cerca de 5 avisos a cada 10 min, sobre uma entidade de catálogo — o plugin em si funciona: o golden path de 2026-08-26 rodou com ele |
+| `techdocs Unable to get metadata for 'component:default/<novo>'` | esperado logo após o golden path criar um componente: os TechDocs ainda não foram construídos para ele |
 | `APIKeyAguardandoAprovacao` | **alerta da própria demo** — é o estado esperado (5.7) |
 | `IST0133` / `IST0151` em EnvoyFilters `kuadrant-*` | gerados pelo RHCL, não escritos à mão; o caminho de dados prova que aplicam |
 | `IST0102` em `ingress-gateway` | correto — é gateway da Gateway API, injeção vem do recurso `Gateway` |
