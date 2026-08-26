@@ -3,3 +3,14 @@ downloads/
 ACESSOS.md
 acessos.local
 .claude/settings.local.json
+
+# Camadas de cluster — GERADAS por 'bash scripts/new-env.sh', uma por ambiente.
+#
+# Nao sao versionadas de proposito: pela secao 2 da ESTRATEGIA-BRANCHES, branch
+# carrega o que varia por DECISAO e diretorio o que varia por AMBIENTE. Um
+# hostname de cluster commitado sobrevive a troca de cluster, e foi assim que o
+# overlay do w4xtj foi parar num provisionamento do cxr7d.
+#
+# Regenerar custa um comando. Versionar custa uma armadilha silenciosa.
+env/cluster-*/
+overlays/cluster-*/
