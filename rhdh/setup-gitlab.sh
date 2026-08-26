@@ -87,21 +87,27 @@ import os, sys, json, ssl, base64, subprocess, urllib.request, urllib.error
 host, tok = os.environ["GITLAB_HOST"], os.environ["GITLAB_TOKEN"]
 ns, rhdh = os.environ["RHDH_NS"], os.environ["_RH"]
 CB = f"https://{rhdh}/api/auth/gitlab/handler/frame"
-# ESTE CONJUNTO EXATO, e nao um maior. Medido em 2026-08-25/26:
+# EXATAMENTE o que o Backstage pede, e nada mais. Nao e escolha: a lista foi
+# LIDA da URL de authorize que ele monta.
 #
-#   read_user api openid profile email          -> login funciona
-#   + read_api read_repository write_repository -> login QUEBRA, com
-#      "The requested scope is invalid, unknown, or malformed."
-#      no proprio sign-in (scope=read_user na URL do authorize)
+#   sign-in                 scope=read_user
+#   requestUserCredentials  scope=read_user read_api read_repository
+#                                 write_repository api
 #
-# Ou seja: ampliar a lista da application invalidou um escopo que antes era
-# aceito. Nao investiguei qual dos tres causa, porque cada tentativa custa uma
-# rotacao de client_id -- que derruba o login ate o RHDH reiniciar -- e o
-# conjunto menor atende os dois fluxos (sign-in com read_user, escrita com api).
+# O segundo conjunto e FIXO do provider GitLab do Backstage -- o
+# 'additionalScopes: gitlab: [api]' dos templates nao o define, so soma. Foi o
+# que custou tres rotacoes de client_id para descobrir, porque a mensagem do
+# GitLab ("The requested scope is invalid, unknown, or malformed") nao diz qual
+# escopo falta.
 #
-# Se um dia o publish precisar de escopo de repositorio, acrescente UM e teste,
-# em vez de somar todos: a falha nao diz qual escopo a causou.
-WANT = ["read_user", "api", "openid", "profile", "email"]
+# SEM openid/profile/email. Eles estavam na lista quando o sign-in comecou a
+# falhar mesmo com read_user registrado; a combinacao deles com os escopos
+# granulares e a suspeita. Nao sao necessarios: o sign-in pede so read_user, e
+# o resolver casa por username, nao por claim de OIDC.
+#
+# COMO DIAGNOSTICAR se voltar a falhar: a URL da tela de erro do GitLab TRAZ o
+# scope pedido. Compare com esta lista antes de mexer em qualquer outra coisa.
+WANT = ["read_user", "read_api", "read_repository", "write_repository", "api"]
 ctx = ssl.create_default_context()
 def call(m, p, b=None):
     d = json.dumps(b).encode() if b is not None else None
