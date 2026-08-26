@@ -759,6 +759,13 @@ if [[ "$_plugins" == *'"kuadrant-console-plugin"'* ]]; then
         *APIProductNotFound*)
           _bad "${_kfail} APIKey em Failed (${_kreason% })" \
                "o apiProductRef aponta para um APIProduct que não existe nesse namespace: oc get apiproduct -A; oc get apikey -A -o wide" ;;
+        *SecretNotFound*)
+          # secretRef e obrigatorio na CRD, entao a APIKey aponta para um Secret
+          # que precisa existir ANTES dela. Chave gerada pelo golden path traz o
+          # Secret no mesmo arquivo de consumers/; se ele falta, a assinatura
+          # nasce morta e ninguem nota ate tentar usar a chave.
+          _bad "${_kfail} APIKey em Failed (${_kreason% })" \
+               "o Secret do secretRef não existe — assinatura do golden path sem o Secret ao lado: oc get apikey -A -o jsonpath='{range .items[*]}{.metadata.name}{\" -> \"}{.spec.secretRef.name}{\"\\n\"}{end}'" ;;
         *)
           _bad "${_kfail} APIKey em Failed (${_kreason:-motivo não reportado})" \
                "oc get apikey -A -o wide; oc describe apikey <nome> -n <ns>" ;;

@@ -459,7 +459,7 @@ step_ato6() {
   _why "b) Os tres templates, em Create — sao os tres momentos do ciclo:"
   _why "   1. API como produto      cria namespace no Service Mesh, workload, rota,"
   _why "                            AuthPolicy + PlanPolicy, APIProduct e o par"
-  _why "                            leste-oeste; publica no GitHub"
+  _why "                            leste-oeste; publica no GitLab do cluster"
   _why "   2. Assinar uma API       o consumidor pede chave por pull request; o"
   _why "                            contrato fica em git, com autor e data"
   _why "   3. Publicar uma v2       canary por PR: a v2 sobe ao lado da v1 e a"
@@ -482,7 +482,9 @@ step_ato6() {
     _warn "manifests, mas nada sincroniza sozinho. Conte o ato ate o pull request,"
     _warn "ou instale antes: bash scripts/provision.sh gitops"
   fi
-  _log "detalhes e o caminho para sair do login 'guest': rhdh/README.md"
+  _say  "Repare em QUEM assina: o parceiro abre a merge request, a plataforma faz o merge."
+  _log "o portal entra pelo GitLab -- nao ha mais login guest. Personas em ACESSOS.md"
+  _log "TROCAR DE USUARIO entre os dois templates E o ato: quem pede nao aprova"
 }
 
 step_ato7() {
