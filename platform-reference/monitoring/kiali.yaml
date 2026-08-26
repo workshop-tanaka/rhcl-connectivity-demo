@@ -55,19 +55,28 @@ metadata:
   namespace: istio-system
 spec:
   auth:
-    # 'openshift' e a UNICA estrategia suportada pelo OSSM -- a doc do 3.4 e
-    # categorica na secao 1.4: "OSSM supports only the openshift authentication
-    # strategy when you deploy Kiali". 'anonymous' funciona, e por isso durou
-    # ate a auditoria de 2026-08-26 contra a doc.
+    # 'anonymous' -- e a escolha e DELIBERADA, contra o que a doc do OSSM 3.4
+    # recomenda. A secao 1.4 dela diz que 'openshift' e a unica estrategia
+    # suportada, e em 2026-08-26 eu troquei por isso. Quebrou a aba Kiali do
+    # Developer Hub no mesmo dia:
     #
-    # O custo e um login com as credenciais do cluster ao abrir o Kiali. Em
-    # troca, o RBAC do OpenShift passa a governar quem enxerga o que.
+    #   "Strategy openshift is not supported in Kiali backstage plugin yet"
     #
-    # E ha o motivo de roteiro, que pesa mais: a demo tirou o login 'guest' do
-    # Developer Hub para que o Ato 6 mostrasse QUEM assina cada mudanca. Um
-    # console de observabilidade que entra sem identidade, no mesmo palco,
-    # contradiz o que os outros atos afirmam.
-    strategy: openshift
+    # O plugin do Backstage manda serviceAccountToken -- ele fala 'token'. O
+    # Kiali em 'openshift' espera fluxo OAuth de navegador, que o plugin nao
+    # implementa. Nao ha configuracao que satisfaca os dois:
+    #
+    #   anonymous   aba do RHDH OK  | console abre direto      | nao suportado
+    #   token       aba do RHDH OK  | console exige colar token| nao suportado
+    #   openshift   aba QUEBRA      | console com login        | SUPORTADO
+    #
+    # A demo precisa da aba (e o Ato que mostra a malha no contexto do servico)
+    # e do console avulso como plano B da Aba 2, sob pressao de palco -- colar
+    # token nao serve para plano B. Por isso 'anonymous'.
+    #
+    # EM PRODUCAO A ESCOLHA E OUTRA: use 'openshift' e aceite ficar sem a aba do
+    # RHDH ate o plugin suportar. Este cluster e efemero e de demonstracao.
+    strategy: anonymous
   deployment:
     accessible_namespaces:
       - '**'

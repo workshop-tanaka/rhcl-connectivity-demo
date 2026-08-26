@@ -558,20 +558,26 @@ for s in d.get('externalServices',[]):
           "falta o ConfigMap kiali-cabundle e/ou o cluster-monitoring-view -- platform-reference/monitoring/kiali.yaml"
   fi
 
-  # 'openshift' e a UNICA estrategia de auth suportada pelo OSSM (doc 3.4, secao
-  # 1.4). 'anonymous' funciona, e por isso passa despercebida -- foi o que a
-  # auditoria contra a doc encontrou em 2026-08-26.
+  # A auth do Kiali e um CONFLITO entre dois produtos, e nao uma escolha livre.
   #
-  # Medimos o EFEITO, e nao o campo do CR: com auth ligada, /api/namespaces
-  # devolve 401 a quem nao se identifica. Anonima, ela entrega os namespaces a
-  # qualquer um que peca -- inclusive de fora do cluster.
-  _kiali_anon="$(curl -sk --max-time 15 -o /dev/null -w '%{http_code}' \
-                  "https://${_kiali_h}/api/namespaces" 2>/dev/null)"
-  if [[ "$_kiali_anon" == "200" ]]; then
-    _warn "Kiali responde /api/namespaces sem autenticação (strategy: anonymous)" \
-          "só 'openshift' é suportada pelo OSSM, e um console sem identidade contradiz o Ato 6: platform-reference/monitoring/kiali.yaml"
-  elif [[ "$_kiali_anon" == "401" || "$_kiali_anon" == "403" ]]; then
-    _ok "Kiali exige identidade (RBAC do OpenShift no ar)"
+  # A doc do OSSM 3.4 (secao 1.4) diz que 'openshift' e a unica estrategia
+  # suportada. Mas o plugin Kiali do Developer Hub manda serviceAccountToken --
+  # ele fala 'token' -- e com o Kiali em 'openshift' a aba morre com:
+  #
+  #   "Strategy openshift is not supported in Kiali backstage plugin yet"
+  #
+  # Foi exatamente o que aconteceu em 2026-08-26: troquei para 'openshift'
+  # seguindo a doc, e quebrei a aba no mesmo dia. Esta checagem existe para que
+  # ninguem repita -- inclusive eu.
+  #
+  # Ela nao opina sobre qual estrategia usar: so acusa a COMBINACAO que quebra.
+  _kstrat="$(oc get kiali kiali -n istio-system -o jsonpath='{.spec.auth.strategy}' 2>/dev/null)"
+  if [[ "$_kstrat" == "openshift" ]] \
+     && oc get cm dynamic-plugins-rhdh -n "${RHDH_NS:-rhdh-rhcl}" -o yaml 2>/dev/null | grep -q 'plugin-kiali'; then
+    _bad "Kiali em 'openshift' com o plugin Kiali ligado no RHDH — a aba vai quebrar" \
+         "o plugin manda serviceAccountToken e nao implementa o fluxo OAuth: use 'anonymous' (ou 'token') em platform-reference/monitoring/kiali.yaml"
+  elif [[ -n "$_kstrat" ]]; then
+    _ok "auth do Kiali ('${_kstrat}') compatível com o plugin do Developer Hub"
   fi
 fi
 
