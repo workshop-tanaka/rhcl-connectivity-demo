@@ -134,6 +134,19 @@ EOF
 # nem GA, nem Technology Preview, nem community. A imagem existe no ghcr e ha
 # build para o Backstage 1.49.4 desta versao, mas fora do conjunto documentado:
 # sem compromisso de suporte, e pode sumir. Por isso e opcional.
+# O DEFAULT SEGUE O CLUSTER, e nao 'false'. Motivo medido em 2026-08-26: as
+# flags so existiam como variavel de ambiente, ninguem as passava, e cada
+# reexecucao do setup-plugins.sh (inclusive as que o setup-gitlab.sh dispara)
+# DESLIGAVA as abas em silencio. O portal continuava de pe, sem Kiali e sem
+# Kuadrant -- e o Ato 6 perde as telas que ele existe para mostrar.
+#
+# Havendo CR Kiali no cluster, a aba faz sentido; nao havendo, ela abriria
+# vazia. WITH_KIALI=false continua forcando a exclusao.
+if [[ -z "${WITH_KIALI:-}" ]] && oc get kialis.kiali.io -A >/dev/null 2>&1 \
+   && [[ -n "$(oc get kialis.kiali.io -A --no-headers 2>/dev/null)" ]]; then
+  WITH_KIALI=true
+  _log "CR Kiali presente -- aba do Kiali incluida (WITH_KIALI=false exclui)"
+fi
 if [[ "${WITH_KIALI:-false}" == "true" ]]; then
   _kiali_tag="bs_1.49.4__1.50.2"
   _kiali_be_tag="bs_1.49.4__1.29.1"
@@ -183,6 +196,13 @@ fi
 #
 # Requer ainda: permission.enabled + politica de RBAC, e 'APIProduct' em
 # catalog.rules. Por isso fica atras de flag.
+# Mesmo raciocinio, e aqui pesa mais: as CRDs de devportal existirem significa
+# que a demo TEM API Products e chaves para mostrar. Sem o plugin, o Ato 6
+# perde as abas de produto e de aprovacao -- que sao o ato.
+if [[ -z "${WITH_KUADRANT:-}" ]] && oc get crd apiproducts.devportal.kuadrant.io >/dev/null 2>&1; then
+  WITH_KUADRANT=true
+  _log "CRDs de devportal presentes -- plugin do Kuadrant incluido (WITH_KUADRANT=false exclui)"
+fi
 if [[ "${WITH_KUADRANT:-false}" == "true" ]]; then
   _kd_ver="${KUADRANT_PLUGIN_VERSION:-0.4.0}"
   _npm_integrity() {
