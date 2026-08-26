@@ -443,6 +443,44 @@ funciona nos 7, e não depende do Topology ter carregado. Detalhes em
 
 ## Plugins dinâmicos
 
+### De onde vem cada plugin — e o que isso custa num upgrade
+
+Levantado em 2026-08-26, ao avaliar a subida para o RHDH 1.10.3. **É este mapa
+que decide um upgrade**, e ele não é óbvio no `setup-plugins.sh`: os plugins
+parecem uma lista só, e são três grupos com riscos muito diferentes.
+
+| Origem | Quais | Num upgrade de RHDH |
+| --- | --- | --- |
+| **Embutidos na imagem** (`./dynamic-plugins/dist/…`) | kubernetes (+backend), topology, notifications (+backend), signals (+backend), **módulo GitLab do scaffolder**, http-request | **sobem junto, sem ação** |
+| **OCI do pipeline Red Hat** (`ghcr.io/redhat-developer/rhdh-plugin-export-overlays`) | Kiali frontend e backend | **repin obrigatório** — a tag carrega a versão do Backstage |
+| **npm de terceiro** | `@kuadrant/kuadrant-backstage-plugin-frontend` e `-backend-dynamic` | **sem garantia nenhuma** |
+
+**O grupo do meio não é perigoso, é trabalhoso.** As tags têm a forma
+`bs_<backstage>__<plugin>`, e as nossas são `bs_1.49.4__*` — compiladas para o
+Backstage 1.49.4, que é o do RHDH 1.9.8. Verificado no registry: já existem
+`bs_1.52.0__1.51.1` (frontend) e `bs_1.52.0__1.29.2` (backend). O repositório de
+overlays mantém branch `release-1.10` e declara rastrear "os 2 últimos releases
+do RHDH". Ou seja: ninguém fica órfão — mas as duas variáveis `_kiali_tag` e
+`_kiali_be_tag` estão chumbadas, e **sem trocá-las os plugins somem em
+silêncio**, sem erro em lugar nenhum.
+
+> Isso não é hipótese: aconteceu em 2026-08-26 por outro caminho, quando os
+> defaults das flags desligaram Kiali e Kuadrant sem uma linha de log. O portal
+> ficou de pé e o Ato 6 perdeu as telas.
+
+**O grupo de baixo é o risco real, e é o mais importante da demo.** O
+`@kuadrant/*` é npm puro, fora do pipeline da Red Hat: ninguém o testa contra
+uma versão nova de Backstage, e o próprio `setup-plugins.sh` já avisa que a
+nossa versão de RHDH não é coberta pela doc do projeto. São essas duas peças que
+desenham **API Products, chaves e aprovação** — o Ato 6 inteiro.
+
+**Um upgrade responsável, portanto, começa pelo fim**: subir o RHDH novo num
+ambiente descartável e verificar se o `@kuadrant/*` carrega, ANTES de planejar
+qualquer coisa. Se não carregar, o upgrade custa o ato principal — e isso se
+descobre no palco, não no `oc get pods`.
+
+---
+
 O operator monta os plugins num PVC próprio (`...-dynamic-plugins-root`), populado pelo init container `install-dynamic-plugins`. Para habilitar plugins, crie um ConfigMap com `dynamic-plugins.yaml` e referencie-o em:
 
 ```yaml
