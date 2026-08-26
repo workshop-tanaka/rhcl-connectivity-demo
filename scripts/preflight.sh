@@ -538,7 +538,12 @@ fi
 # config segue dizendo 'enabled' o tempo todo. Quem sabe a verdade é o Kiali.
 _kiali_h="$(oc get route kiali -n istio-system -o jsonpath='{.spec.host}' 2>/dev/null)"
 if [[ -n "$_kiali_h" ]]; then
-  _promver="$(curl -sk --max-time 15 "https://${_kiali_h}/api/status" 2>/dev/null \
+  # O Bearer e obrigatorio desde que a auth virou 'openshift': /api/status passou
+  # a responder 401 a quem nao se identifica. Sem o header, esta checagem acusava
+  # "Kiali sem metricas" com as metricas intactas -- falso negativo que a propria
+  # mudanca de auth criou, em 2026-08-26.
+  _promver="$(curl -sk --max-time 15 -H "Authorization: Bearer $(oc whoami -t 2>/dev/null)" \
+              "https://${_kiali_h}/api/status" 2>/dev/null \
             | python3 -c "
 import json,sys
 try: d=json.load(sys.stdin)
@@ -551,6 +556,22 @@ for s in d.get('externalServices',[]):
   else
     _warn "Kiali sem métricas: a aba Service Mesh vai dizer 'Metrics are disabled'" \
           "falta o ConfigMap kiali-cabundle e/ou o cluster-monitoring-view -- platform-reference/monitoring/kiali.yaml"
+  fi
+
+  # 'openshift' e a UNICA estrategia de auth suportada pelo OSSM (doc 3.4, secao
+  # 1.4). 'anonymous' funciona, e por isso passa despercebida -- foi o que a
+  # auditoria contra a doc encontrou em 2026-08-26.
+  #
+  # Medimos o EFEITO, e nao o campo do CR: com auth ligada, /api/namespaces
+  # devolve 401 a quem nao se identifica. Anonima, ela entrega os namespaces a
+  # qualquer um que peca -- inclusive de fora do cluster.
+  _kiali_anon="$(curl -sk --max-time 15 -o /dev/null -w '%{http_code}' \
+                  "https://${_kiali_h}/api/namespaces" 2>/dev/null)"
+  if [[ "$_kiali_anon" == "200" ]]; then
+    _warn "Kiali responde /api/namespaces sem autenticação (strategy: anonymous)" \
+          "só 'openshift' é suportada pelo OSSM, e um console sem identidade contradiz o Ato 6: platform-reference/monitoring/kiali.yaml"
+  elif [[ "$_kiali_anon" == "401" || "$_kiali_anon" == "403" ]]; then
+    _ok "Kiali exige identidade (RBAC do OpenShift no ar)"
   fi
 fi
 
