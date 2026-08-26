@@ -8,8 +8,15 @@ Executada em duas releases, e o overlay muda com a release:
 
 | Ambiente | Overlay | Estado |
 | --- | --- | --- |
-| RHCL 1.2.1 / OCP 4.17 (`sandbox5518.opentlc.com`) | `overlays/provisioned` | validado; sandbox expirado |
-| **RHCL 1.4.2 / OCP 4.21** (`cluster-w4xtj.dyn.redhatworkshops.io`) | `overlays/rhcl-1.4` | **ambiente atual** |
+| RHCL 1.2.1 / OCP 4.17 | `overlays/provisioned` | validado; sandbox expirado |
+| **RHCL 1.4.2 / OCP 4.21** | `overlays/rhcl-1.4` | **release suportada** |
+
+Esta tabela lista **releases**, não clusters. O cluster de cada vez é efêmero e
+sua camada nasce de `bash scripts/new-env.sh`; nomear um aqui garante que a
+linha envelheça e passe a mentir — foi o que aconteceu com o `cluster-w4xtj`,
+que continuou anunciado como "ambiente atual" muito depois de expirar. O estado
+do cluster em uso está na §2 do [CONHECIMENTO](docs/CONHECIMENTO.md), que é
+descartável por definição.
 
 ## Começar
 

@@ -102,9 +102,16 @@ escrito** que sobreviveu à troca de cluster.
 Antes de promover, o teste é uma linha:
 
 ```bash
-git diff --name-only main..HEAD \
-  | xargs grep -lE 'cluster-[a-z0-9]{5}\.|apps\.cluster-' 2>/dev/null
+git diff --name-only main..HEAD | xargs grep -nE \
+  'cluster-[a-z0-9]{5}\.(dyn|apps)\.' 2>/dev/null | grep -vE ':\s*#'
 ```
+
+O padrão exige o **domínio inteiro** (`cluster-xxxxx.dyn.` ou `.apps.`) e
+descarta linhas de comentário. As duas restrições foram aprendidas rodando a
+versão anterior, que casava `cluster-admin.` — "admin" tem cinco caracteres — e
+acusava todo comentário que citava um hostname antigo para explicar uma
+armadilha. Onze arquivos, dez falsos positivos: uma trava assim é ignorada na
+segunda vez que alguém a roda.
 
 Saída vazia é o que autoriza a promoção. Saída não vazia significa: ou o arquivo
 não sobe, ou o valor vira placeholder — `__APPS_DOMAIN__`, `__GITLAB_API__`,
