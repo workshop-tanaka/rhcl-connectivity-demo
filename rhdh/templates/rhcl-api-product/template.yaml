@@ -204,6 +204,17 @@ spec:
             # uma URL do GitHub, nao havia onde renderizar.
             allowedHosts:
               - __GITLAB_HOST__
+            # allowedOwners tranca o destino em rhcl/apis, e NAO e cosmetico.
+            #
+            # Sem ele o campo Owner fica livre e assume o namespace pessoal de
+            # quem esta logado. O publish funciona, o projeto nasce, o portal
+            # registra -- e o ApplicationSet nunca descobre, porque a descoberta
+            # e pelo SUBGRUPO. Tudo verde, servico que nunca sobe.
+            #
+            # Aconteceu em 2026-08-26: o primeiro 'reservas' foi parar em
+            # plat-eng/reservas.
+            allowedOwners:
+              - rhcl/apis
             # O token OAuth de QUEM ESTA LOGADO chega ao passo de publicacao
             # por aqui. E o que faz a merge request sair assinada pela persona
             # -- 'Globex Travel' no lugar de 'root' -- e torna literal a frase
