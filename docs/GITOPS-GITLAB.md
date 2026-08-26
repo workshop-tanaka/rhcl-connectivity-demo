@@ -405,11 +405,25 @@ Incremental, medindo entre as etapas — cada uma é reversível sozinha.
 - **O GitLab entra no caminho crítico** do Ato 6 e do sync do Argo. Se cair na
   hora, quebra mais do que quebrava antes. A compensação é que o conserto está
   no GitHub e a montagem é reprodutível (`provision.sh gitlab`).
-- **A autonomia é parcial, por desenho.** O RHDH continua lendo os templates e os
-  TechDocs do GitHub no momento do `Create`. Isso resolve "token expirou / rate
-  limit / org indisponível" no caminho de CD; **não** resolve "demo sem
-  internet". Autonomia completa exigiria espelhar o repo base no GitLab e
-  reapontar o RHDH — decisão a mais, fora deste plano.
+- ~~**A autonomia é parcial, por desenho.**~~ **Deixou de ser, em 2026-08-26.**
+  Este item dizia que o RHDH continuaria lendo templates e TechDocs do GitHub no
+  momento do `Create`, e que autonomia completa exigiria espelhar o repo — "uma
+  decisão a mais, fora deste plano".
+
+  A decisão foi tomada: o portal não tem mais integração com o GitHub. O
+  `gitlab-seed.sh` espelha o necessário em `rhcl/base/rhcl-connectivity-demo` —
+  seletivamente, só o que o portal serve — e o `setup-gitlab.sh` registra os
+  templates de lá. **O Ato 6 inteiro roda sem sair do cluster.**
+
+  E o espelho resolveu de quebra um problema que não era o alvo: o
+  `allowedHosts` do `RepoUrlPicker` exige host literal, e o host é específico do
+  cluster. Enquanto os templates vinham do GitHub não havia ponto de
+  substituição, e o valor ficou fixo por um commit. Com a semeadura, ele entra
+  renderizado como `__GITLAB_HOST__` — mesmo mecanismo de `__APPS_DOMAIN__` e
+  `__GITLAB_API__`.
+
+  O que **continua** vindo do GitHub é a fonte: é lá que se commita, revisa e
+  promove. O GitLab recebe cópia de mão única.
 - **`policies/` vai divergir se ninguém cuidar.** Repositório autoritativo e não
   imposto depende de disciplina: aplicar sempre do clone. O contrapeso é o
   `preflight.sh`, que já compara cluster e esperado — ele vira o detector de

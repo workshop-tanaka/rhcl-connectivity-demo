@@ -166,6 +166,26 @@ Integração SCM e provider de login são coisas separadas: `setup-github.sh` ha
 
 ### Sair do guest
 
+> **FEITO em 2026-08-25.** O portal desta demo **não usa mais o provider
+> `guest`** — ele não está comentado nem desabilitado: não existe mais, e
+> `auth.environment` é `production`. Entra-se **pelo GitLab do cluster**, que é
+> ao mesmo tempo o IdP e a origem do token que o scaffolder usa para escrever.
+>
+> As quatro personas (`globex-travel`, `initech-voyages`, `acme-trips`,
+> `plat-eng`) são usuários reais no GitLab, criadas por
+> `scripts/gitlab-seed.sh`, e existem como entidades `User` no catálogo — sem
+> elas o login autentica e a sessão morre em *"unable to resolve user
+> identity"*. Credenciais em `ACESSOS.md` (`bash scripts/acessos.sh`).
+>
+> Quem faz tudo isso é `bash rhdh/setup-gitlab.sh`, inclusive a OAuth
+> application. **Automação não entra como usuário**: usa `externalAccess`
+> `type: static`, o token do secret `rhdh-automation-secret`.
+>
+> O texto abaixo descreve o cenário anterior e por que o OAuth do OpenShift não
+> serve como IdP. Fica como histórico — a limitação que ele documenta continua
+> verdadeira, e é o motivo de o GitLab ter sido escolhido.
+
+
 Atenção a uma limitação que costuma custar tempo: **o OAuth server embutido do OpenShift não serve como IdP do Backstage**. Ele é OAuth2 puro — não expõe discovery OIDC nem emite `id_token`, e seus tokens são opacos. Verificado neste cluster:
 
 ```
