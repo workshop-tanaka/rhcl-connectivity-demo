@@ -481,6 +481,43 @@ que qualquer uma dessas policies existe.
 Abra o **RHDH** (`rhcl-portal`, não o do namespace `rhdh` — aquele é do
 workshop do AAP).
 
+> ### Três coisas que este ato exige do apresentador
+>
+> Nenhuma é opcional, e todas foram descobertas ensaiando — não lendo.
+>
+> **1. Trocar de usuário no meio do ato não é detalhe de teste: é o ato.**
+> O portal não tem mais login `guest`; entra-se pelo GitLab, e a identidade de
+> quem está logado é quem assina no git. Preencher o campo *Consumidor* com
+> `globex-travel` estando logado como `plat-eng` produz uma merge request que
+> **se contradiz** — o formulário diz uma coisa, o autor diz outra. E é
+> exatamente a contradição que o ato não pode mostrar, porque a tese é que o
+> contrato tem autor verificável.
+>
+> Conte o logout como parte do movimento. Custa ~30 s e é o que torna
+> "quem pede não é quem aprova" visível em vez de afirmado.
+>
+> **2. Um popup abre ao preencher o repositório, e ele precisa completar.**
+> É o `requestUserCredentials`: o token OAuth de quem está logado é o que o
+> scaffolder usa para escrever. Bloqueador de popup, ou a janela fechada antes
+> de autorizar, produz `Unauthorized` no passo de publicação — uma mensagem que
+> aponta para credencial quando o problema é janela.
+>
+> Usuário que **já autorizou não vê o popup de novo**. Isso confunde: a ausência
+> dele não significa que algo falhou.
+>
+> **3. O Argo não reage ao merge na hora.** Medido: ficou 4 minutos numa
+> revisão anterior antes de enxergar. O `requeueAfterSeconds: 180` do
+> ApplicationSet governa a **descoberta** de projetos novos, não o refresh de
+> uma Application existente — são ciclos diferentes.
+>
+> Se a plateia estiver esperando, force:
+> ```bash
+> oc annotate application <nome> -n openshift-gitops \
+>   argocd.argoproj.io/refresh=hard --overwrite
+> ```
+> Ou fale sobre o pull request enquanto o ciclo passa — o silêncio é que fica
+> ruim, não a espera.
+
 **a) O catálogo.** As policies estão modeladas como recursos, separadas pelo
 escopo do `targetRef` — que é o que decide o alcance de cada uma:
 
