@@ -1,0 +1,74 @@
+# ===========================================================================
+# Leitura do Connectivity Link para o plugin connectivity-link-ops.
+#
+# POR QUE UM ARQUIVO SEPARADO do 04-kubernetes-rbac.yaml: aquele ClusterRole
+# pertence aos plugins Kubernetes e Topology, e responde por quais kinds a ABA
+# do componente mostra. Este responde por outro consumidor da MESMA
+# ServiceAccount. Separados, desligar o plugin remove exatamente as permissoes
+# dele -- juntos, ninguem lembraria quais linhas eram de quem.
+#
+# A ServiceAccount e a rhdh-kubernetes, criada pelo 04. Identidade nova seria um
+# segundo token para rotacionar e um segundo lugar para auditar, sem ganho.
+#
+# So verbos de leitura. O plugin nao escreve no cluster, e o dia em que
+# escrever isso tem de ser uma decisao explicita, nao uma linha que ja estava
+# aqui.
+# ===========================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rhdh-connectivity-link-ops-reader
+rules:
+  # Events: o painel "Recent Events" mostra o que o reconciler fez com as
+  # policies. Sem isto o painel abre vazio -- e vazio, aqui, seria mentira:
+  # os eventos existem, so nao podem ser lidos.
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [get, list, watch]
+
+  # EndpointSlice: e o que responde "o backend desta rota tem pod atras?".
+  # Service sozinho nao responde -- ele existe mesmo sem endpoint nenhum.
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+
+  # GatewayClass diz qual controller programa o Gateway; GRPCRoute entra junto
+  # porque a tela de rotas trata as duas iguais.
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [gatewayclasses, grpcroutes]
+    verbs: [get, list, watch]
+
+  # DNSRecord e o efeito real de uma DNSPolicy -- o que de fato foi para o
+  # provedor. TokenRateLimitPolicy fecha o conjunto de policies: sem ela, o
+  # painel de atencao ignora silenciosamente um tipo inteiro.
+  - apiGroups: [kuadrant.io]
+    resources: [dnsrecords, tokenratelimitpolicies]
+    verbs: [get, list, watch]
+
+  # cert-manager: validade, emissor e cadeia. Certificate responde "vence
+  # quando"; CertificateRequest e Issuer respondem "por que nao emitiu".
+  - apiGroups: [cert-manager.io]
+    resources: [certificates, certificaterequests, issuers, clusterissuers]
+    verbs: [get, list, watch]
+
+# NAO ESTA AQUI, DE PROPOSITO: cluster-monitoring-view.
+#
+# E o que a porta 9091 do thanos-querier exige para consulta cluster-wide, e
+# concede leitura de TODAS as metricas do cluster. A porta 9092, multi-tenant,
+# se contenta com 'get' em namespaces -- que esta SA ja tem pelo 04. Qual das
+# duas serve fica decidido por teste, quando a rota de metricas existir, e nao
+# por precaucao agora: privilegio concedido "por via das duvidas" nunca e
+# revisado depois.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rhdh-connectivity-link-ops-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rhdh-connectivity-link-ops-reader
+subjects:
+  - kind: ServiceAccount
+    name: rhdh-kubernetes
+    namespace: ${RHDH_NS}

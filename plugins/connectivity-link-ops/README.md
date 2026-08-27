@@ -140,21 +140,28 @@ precisam — verificado no cluster, não deduzido do YAML:
 | `httproutes.gateway.networking.k8s.io` | sim |
 | `ratelimitpolicies.kuadrant.io` | sim |
 | `authpolicies.kuadrant.io` | sim |
-| `dnspolicies.kuadrant.io` · `tlspolicies.kuadrant.io` | sim |
+| `dnspolicies` · `tlspolicies` · `tokenratelimitpolicies` | sim |
 | `planpolicies.extensions.kuadrant.io` | sim |
-| `tokenratelimitpolicies.kuadrant.io` | **não** |
-| `certificates.cert-manager.io` | **não** |
-| `dnsrecords.kuadrant.io` | **não** |
+| `events` · `endpointslices` · `gatewayclasses` · `grpcroutes` | sim |
+| `dnsrecords.kuadrant.io` | sim |
+| `certificates` · `certificaterequests` · `issuers` (cert-manager) | sim |
 | `customresourcedefinitions.apiextensions.k8s.io` | **não** |
 
-As três primeiras ausências são de propósito úteis. `TokenRateLimitPolicy`
-existe no cluster e a SA não pode lê-la: é o caso que faz a tela mostrar a
-diferença entre **0** (`DNSPolicy`, que é legível e está vazia) e **N/A** (o que
-não se pode olhar). Certificates e DNSRecords entram com a fase de
-confiabilidade.
+As oito primeiras linhas vêm de dois ClusterRoles: o `rhdh-kubernetes-reader`,
+dos plugins Kubernetes e Topology, e o `rhdh-connectivity-link-ops-reader`, que
+é só deste plugin e é aplicado pelo mesmo bloco do `setup-plugins.sh` que o
+instala. Separados de propósito: desligar o plugin remove exatamente as
+permissões dele.
 
-A última não é para conceder: o backend não lê CRDs, e o motivo está no
+A última **não é para conceder**: o backend não lê CRDs, e o motivo está no
 [README do backend](../connectivity-link-ops-backend/README.md#não-pergunte-pela-crd-antes-de-listar).
+
+Fora dessa lista, também de propósito: **`cluster-monitoring-view`**. É o que a
+porta 9091 do `thanos-querier` exige para consulta cluster-wide, e concede
+leitura de todas as métricas do cluster. A porta 9092, multi-tenant, se contenta
+com `get` em namespaces — que a SA já tem. Qual das duas serve fica decidido por
+teste, quando a rota de métricas existir. Privilégio concedido por precaução
+nunca é revisado depois.
 
 ## Permissões do RHDH
 

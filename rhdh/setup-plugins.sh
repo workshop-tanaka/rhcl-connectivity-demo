@@ -385,6 +385,12 @@ fi
 # fase de confiabilidade, e ate la a tela de DNS/TLS mostra o estado vazio que
 # explica qual verbo falta.
 if [[ "${WITH_CL_OPS:-false}" == "true" ]]; then
+  # O RBAC do plugin vem junto com o plugin: ligar um sem o outro daria uma tela
+  # de estados vazios explicando permissoes que este mesmo script sabe conceder.
+  _log "concedendo a leitura do Connectivity Link a SA rhdh-kubernetes..."
+  envsubst '${RHDH_NS}' < "${_here}/06-connectivity-link-rbac.yaml" | oc apply -f - >/dev/null \
+    || _die "falha ao aplicar o RBAC do connectivity-link-ops (precisa de cluster-admin)."
+
   _clo_ver="${CL_OPS_VERSION:-0.1.0}"
   _clo_be="${CL_OPS_BACKEND_TGZ:-rhcl-backstage-plugin-connectivity-link-ops-backend-dynamic-${_clo_ver}.tgz}"
   _clo_fe="${CL_OPS_FRONTEND_TGZ:-rhcl-backstage-plugin-connectivity-link-ops-${_clo_ver}.tgz}"
