@@ -893,6 +893,26 @@ data:
                 - group: extensions.kuadrant.io
                   apiVersion: v1alpha1
                   plural: telemetrypolicies
+                # Os tres abaixo o RBAC de 04-kubernetes-rbac.yaml JA concede; o
+                # customResources e que nao os declarava. O par so funciona
+                # completo -- e o modo de falhar e ausencia silenciosa, nao erro.
+                #
+                # O Gateway e o unico dos tres com instancia neste cluster
+                # (ingress-gateway/prod-web). DNSPolicy e TLSPolicy ficam
+                # declaradas mas sem CR: aqui o Gateway usa o wildcard do
+                # cluster, e o caminho DNS01 derrubaria a resolucao do proprio
+                # host. Entram porque descrevem a arquitetura de referencia e
+                # valem em cluster que as use -- declarar kind sem instancia
+                # nao custa nada ao plugin.
+                - group: gateway.networking.k8s.io
+                  apiVersion: v1
+                  plural: gateways
+                - group: kuadrant.io
+                  apiVersion: v1
+                  plural: dnspolicies
+                - group: kuadrant.io
+                  apiVersion: v1
+                  plural: tlspolicies
                 # Service Mesh. Com os servicos do golden path -- que rotulam TUDO com
                 # 'app: <nome>', policies de borda e de Service Mesh -- a aba Kubernetes
                 # passa a mostrar os dois escopos de policy na mesma tela, que e
