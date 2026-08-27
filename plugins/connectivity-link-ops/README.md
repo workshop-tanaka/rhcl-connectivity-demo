@@ -4,15 +4,17 @@ Frontend do plugin de Connectivity Link para o Red Hat Developer Hub. Anda junto
 com [`connectivity-link-ops-backend`](../connectivity-link-ops-backend) — um sem
 o outro não entrega tela nenhuma.
 
-## O que a F0 entrega
+## O que existe hoje
 
-Uma página só, `/connectivity-link`, e o caminho inteiro provado: o Scalprum
-carrega o frontend, o frontend acha o backend pela discovery, o backend pergunta
-ao cluster se pode ler, e a tela responde com a verdade que voltou.
+Uma página, `/connectivity-link`, com o inventário lido do cluster por watch:
+Gateways, HTTPRoutes e as policies do Connectivity Link, por tipo.
 
-Os cartões mostram `N/A` com o motivo, e não zero. Esse é o comportamento
-definitivo deles quando a medição não existir no cluster do cliente — não um
-placeholder a ser substituído.
+Os números são reais e vêm do cache dos informers do backend. O que não pôde
+ser medido mostra `N/A` **com o motivo**, e não zero — comportamento definitivo,
+não placeholder.
+
+Tráfego ainda é `N/A`: o proxy para o thanos-querier chega na parte de métricas
+da mesma fase, e até lá a tela diz isso em vez de mostrar um zero.
 
 ## Construir
 
@@ -129,12 +131,21 @@ precisam — verificado no cluster, não deduzido do YAML:
 | `httproutes.gateway.networking.k8s.io` | sim |
 | `ratelimitpolicies.kuadrant.io` | sim |
 | `authpolicies.kuadrant.io` | sim |
+| `dnspolicies.kuadrant.io` · `tlspolicies.kuadrant.io` | sim |
+| `planpolicies.extensions.kuadrant.io` | sim |
+| `tokenratelimitpolicies.kuadrant.io` | **não** |
 | `certificates.cert-manager.io` | **não** |
 | `dnsrecords.kuadrant.io` | **não** |
+| `customresourcedefinitions.apiextensions.k8s.io` | **não** |
 
-As duas últimas entram junto com a fase de confiabilidade. Até lá a tela de DNS
-e TLS mostra o estado vazio que diz qual verbo falta — que é exatamente o
-comportamento que se quer no cluster de um cliente.
+As três primeiras ausências são de propósito úteis. `TokenRateLimitPolicy`
+existe no cluster e a SA não pode lê-la: é o caso que faz a tela mostrar a
+diferença entre **0** (`DNSPolicy`, que é legível e está vazia) e **N/A** (o que
+não se pode olhar). Certificates e DNSRecords entram com a fase de
+confiabilidade.
+
+A última não é para conceder: o backend não lê CRDs, e o motivo está no
+[README do backend](../connectivity-link-ops-backend/README.md#não-pergunte-pela-crd-antes-de-listar).
 
 ## Permissões do RHDH
 

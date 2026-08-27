@@ -6,6 +6,8 @@ export {
   ConnectivityLinkOpsClient,
   type ConnectivityLinkOpsApi,
   type Readiness,
+  type Summary,
+  type KindResult,
 } from './api';
 export { connectivityLinkOpsApiFactory } from './apis';
 export {

@@ -24,8 +24,31 @@ export interface Readiness {
   serviceAccount?: string;
 }
 
+/** Uma contagem que existe, ou o motivo de ela não existir. Nunca as duas. */
+export interface KindResult {
+  key: string;
+  label: string;
+  count?: number;
+  unavailable?: string;
+}
+
+export interface Summary {
+  serviceAccount?: string;
+  gateways: KindResult;
+  httproutes: KindResult;
+  policies: {
+    kinds: KindResult[];
+    total?: number;
+    /** Algum tipo de policy não pôde ser lido — o total não fecha. */
+    partial: boolean;
+    unreadableCount: number;
+  };
+  traffic: { unavailable: string };
+}
+
 export interface ConnectivityLinkOpsApi {
   getReadiness(): Promise<Readiness>;
+  getSummary(): Promise<Summary>;
 }
 
 export const connectivityLinkOpsApiRef = createApiRef<ConnectivityLinkOpsApi>({
@@ -41,18 +64,24 @@ export class ConnectivityLinkOpsClient implements ConnectivityLinkOpsApi {
     this.fetchApi = options.fetchApi;
   }
 
-  async getReadiness(): Promise<Readiness> {
-    const baseUrl = await this.discoveryApi.getBaseUrl(
-      'connectivity-link-ops',
-    );
-    const response = await this.fetchApi.fetch(`${baseUrl}/readiness`);
+  private async get<T>(path: string): Promise<T> {
+    const baseUrl = await this.discoveryApi.getBaseUrl('connectivity-link-ops');
+    const response = await this.fetchApi.fetch(`${baseUrl}${path}`);
 
     if (!response.ok) {
       throw new Error(
-        `readiness falhou: ${response.status} ${response.statusText}`,
+        `${path} falhou: ${response.status} ${response.statusText}`,
       );
     }
 
-    return (await response.json()) as Readiness;
+    return (await response.json()) as T;
+  }
+
+  async getReadiness(): Promise<Readiness> {
+    return this.get<Readiness>('/readiness');
+  }
+
+  async getSummary(): Promise<Summary> {
+    return this.get<Summary>('/summary');
   }
 }

@@ -1,6 +1,19 @@
 import * as k8s from '@kubernetes/client-node';
 import { RootConfigService } from '@backstage/backend-plugin-api';
 
+/**
+ * O que o makeInformer devolve de fato: um informer que também guarda cache.
+ * O tipo `Informer` sozinho não expõe `list()`, e é o cache que interessa aqui.
+ */
+export type CachingInformer = k8s.Informer<k8s.KubernetesObject> &
+  k8s.ObjectCache<k8s.KubernetesObject>;
+
+interface CustomResourceRef {
+  group: string;
+  version: string;
+  plural: string;
+}
+
 export interface AccessCheck {
   group: string;
   resource: string;
@@ -87,6 +100,24 @@ export class KubeClient {
       allowed: body.status?.allowed === true,
       reason: body.status?.reason || body.status?.evaluationError,
     };
+  }
+
+  /**
+   * Informer sobre um recurso customizado, em todos os namespaces.
+   *
+   * O `listFn` usa `listClusterCustomObject` porque o cliente não tem um método
+   * tipado para CRD arbitrária — o cast é a fronteira entre o `object` que a API
+   * devolve e a lista que o informer espera.
+   */
+  makeInformer(path: string, ref: CustomResourceRef): CachingInformer {
+    const api = this.kc.makeApiClient(k8s.CustomObjectsApi);
+    const listFn = () =>
+      api.listClusterCustomObject(ref.group, ref.version, ref.plural) as unknown as Promise<{
+        response: any;
+        body: k8s.KubernetesListObject<k8s.KubernetesObject>;
+      }>;
+
+    return k8s.makeInformer<k8s.KubernetesObject>(this.kc, path, listFn);
   }
 
   /**

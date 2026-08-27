@@ -8,7 +8,12 @@ portal, e o que o portal pode dar de contexto que console nenhum tem.
 | Pacote | Papel |
 | --- | --- |
 | `connectivity-link-ops` | frontend, carregado por Scalprum |
-| `connectivity-link-ops-backend` | backend dinâmico, Node, fala com a API do cluster |
+| `connectivity-link-ops-backend` | backend dinâmico, Node, mantém os informers e fala com a API do cluster |
+
+A derivação mora no backend, e não em hooks do navegador. No kuadrant-console
+ela morava no browser porque não havia backend; aqui há — e isso permite watch
+de verdade, cache quente e lógica testável, com o frontend reduzido a
+Material-UI simples.
 
 ## Por que isto mora aqui, e até quando
 

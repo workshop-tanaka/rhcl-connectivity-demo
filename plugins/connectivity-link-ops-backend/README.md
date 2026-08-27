@@ -26,10 +26,31 @@ Aqui há — e isso muda três coisas:
 | --- | --- |
 | `GET /health` | vivo? |
 | `GET /readiness` | a ServiceAccount consegue `list` em `gateways`? Devolve o verbo e o recurso negados quando não |
+| `GET /summary` | o inventário, do cache quente dos informers: Gateways, HTTPRoutes e policies por tipo |
 
 `/readiness` é o que alimenta o estado vazio explicativo da tela. Ele pergunta
 ao **cluster**, por `SelfSubjectAccessReview`, e não a um arquivo de
 configuração — então o que a tela mostra é o que o cluster de fato respondeu.
+
+`/summary` devolve, por tipo, **ou** uma contagem **ou** o motivo de não haver
+contagem — nunca os dois, e nunca zero no lugar do motivo. O total de policies
+vem com `partial: true` quando algum tipo não pôde ser lido: somar só o que se
+enxerga e apresentar como total seria a mentira silenciosa que a regra do N/A
+existe para evitar — o número estaria certo e a leitura, errada.
+
+## Não pergunte pela CRD antes de listar
+
+A primeira versão do cache consultava `apiextensions.k8s.io` para saber se cada
+tipo existia antes de abrir o watch. Parece prudente, e está errado: a
+ServiceAccount de leitura da demo **não pode ler CRDs**, então a consulta
+falhava para todos os tipos e cada um era marcado como *"a CRD não existe neste
+cluster"*. Uma frase falsa, e da pior espécie — soava como diagnóstico.
+
+Ausência de permissão não é ausência do recurso. O gate agora é só o `can-i`
+(que qualquer identidade autenticada pode fazer sobre si mesma), e quem diz que
+o tipo não existe é o **404 da própria listagem**. Deixar o cluster responder,
+em vez de inferir de um sinal indireto, é a mesma disciplina que separa N/A de
+zero — aplicada ao motivo, e não ao número.
 
 ## Sobre as dependências em devDependencies
 
