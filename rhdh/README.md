@@ -443,6 +443,43 @@ funciona nos 7, e não depende do Topology ter carregado. Detalhes em
 
 ## Plugins dinâmicos
 
+### Camada de suporte de cada plugin — conferido contra a doc
+
+Levantado em 2026-08-27 contra o **"Red Hat Developer Hub 1.10 — Dynamic plugins
+reference"**, que classifica cada plugin em GA, Technology Preview ou community
+supported. É a resposta à pergunta que um cliente faz no palco: *"isso é
+suportado?"*
+
+| O que rodamos | O documento diz |
+| --- | --- |
+| `kubernetes-backend`, `topology`, `signals-backend` | **GA** — suporte pleno |
+| `kubernetes`, `notifications` (+backend), `signals`, **`scaffolder-backend-module-gitlab`** | **Technology Preview** — sem SLA de produção |
+| `quay` 1.32.1 | **community supported** (ghcr.io) |
+| `kiali` e `kiali-backend` | **ausente do documento inteiro** |
+| `@kuadrant/*`, `connectivity-link-ops`, `plugin-jaeger` | fora do escopo do documento |
+
+**Dois fatos que mudam o que se diz em voz alta:**
+
+**O módulo GitLab do scaffolder é Technology Preview** — e é ele que sustenta o
+Ato 6 inteiro: o `publish:gitlab`, a merge request, o golden path. A resposta
+honesta para "o golden path é suportado?" é *"Technology Preview"*, e não
+*"sim"*.
+
+**O Kiali não aparece em nenhuma das quatro listas** — nem GA, nem TP, nem
+community, nem "other installable". O `setup-plugins.sh` já avisava "fora do
+conjunto documentado pela Red Hat"; o documento confirma que é literal. Ele tem
+builds no registry de overlays da Red Hat, mas não figura no catálogo publicado.
+
+**O `plugin-jaeger` está ainda mais exposto:** não há plugin de traces em
+nenhuma das quatro listas, e ele nem tem build no registry de overlays — foi
+construído aqui, da fonte. Ver a seção de traces abaixo.
+
+E o documento **confirma o critério de versão** que esta base já usava: "for
+RHDH 1.10 based on Backstage 1.49.4, use the format `bs_1.49.4__<plugin-version>`".
+A versão do Backstage é o eixo, não a minor do RHDH.
+
+---
+
 ### De onde vem cada plugin — e o que isso custa num upgrade
 
 Levantado em 2026-08-26, ao avaliar a subida para o RHDH 1.10.3. **É este mapa
