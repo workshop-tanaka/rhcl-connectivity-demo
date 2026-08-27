@@ -343,6 +343,15 @@ metadata:
     # A versao do plugin que casa com este Backstage e a 0.9.0 (core-components
     # ^0.17.5); as 0.18.x pedem Backstage mais novo.
     jaegertracing.io/service: travels.travel-agency
+    # 7d, e nao o default de 1h. Medido em 2026-08-27: num cluster sem trafego
+    # recente a janela de 1h deixa a aba em 'No records to display' -- que na
+    # frente de um cliente le-se como 'a instrumentacao nao funciona', e nao
+    # como 'ninguem chamou a API hoje'.
+    #
+    # A janela larga e a rede de seguranca; o trafego ao vivo do roteiro e o que
+    # mostra o dado se mexendo. As duas juntas: nunca vazia, e viva quando
+    # importa.
+    jaegertracing.io/lookback: 7d
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -401,6 +410,7 @@ metadata:
     kiali.io/namespace: travel-agency
     quay.io/repository-slug: kiali/demo_travels_flights
     jaegertracing.io/service: flights.travel-agency
+    jaegertracing.io/lookback: 7d
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -447,6 +457,7 @@ metadata:
     kiali.io/namespace: travel-agency
     quay.io/repository-slug: kiali/demo_travels_hotels
     jaegertracing.io/service: hotels.travel-agency
+    jaegertracing.io/lookback: 7d
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -493,6 +504,7 @@ metadata:
     kiali.io/namespace: travel-agency
     quay.io/repository-slug: kiali/demo_travels_cars
     jaegertracing.io/service: cars.travel-agency
+    jaegertracing.io/lookback: 7d
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -539,6 +551,7 @@ metadata:
     kiali.io/namespace: travel-agency
     quay.io/repository-slug: kiali/demo_travels_insurances
     jaegertracing.io/service: insurances.travel-agency
+    jaegertracing.io/lookback: 7d
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -587,6 +600,7 @@ metadata:
     kiali.io/namespace: travel-agency
     quay.io/repository-slug: kiali/demo_travels_discounts
     jaegertracing.io/service: discounts.travel-agency
+    jaegertracing.io/lookback: 7d
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
