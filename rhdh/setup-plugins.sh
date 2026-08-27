@@ -19,6 +19,33 @@
 #
 # Pre-requisitos: oc (autenticado, cluster-admin), envsubst.
 
+# ---------------------------------------------------------------------------
+# MARCA DE PROCEDENCIA NO TITULO DA ABA -- decidido em 2026-08-27
+#
+# O criterio e a CADEIA DE ENTREGA, e nao a camada de suporte. Marca-se o que a
+# Red Hat nem lista na doc NEM constroi no proprio registry:
+#
+#   (sem marca)     entregue pela Red Hat, por um destes dois caminhos:
+#                     - vem dentro da imagem do RHDH (Kubernetes, Topology)
+#                     - vem de ghcr.io/redhat-developer/rhdh-plugin-export-overlays
+#                       (Kiali e Quay -- a Red Hat compila e publica)
+#
+#   (comunidade)    de terceiro, fora dos dois caminhos: @kuadrant/*, que vem
+#                   do npm publico
+#
+#   (customizado)   construido NESTA BASE: Traces e Connectivity Link
+#
+# POR QUE ESTE CRITERIO, e nao "esta na doc": o Kiali nao aparece em nenhuma das
+# quatro listas do "RHDH 1.10 Dynamic plugins reference", mas a Red Hat compila
+# e publica os builds dele no registry de overlays, com tag bs_<backstage>__*. A
+# doc atrasa; a cadeia de entrega nao. Marcar o Kiali diria ao cliente algo mais
+# grave do que e verdade.
+#
+# Sem marca, uma aba de terceiro ao lado de uma do produto le-se como produto --
+# e a pergunta "isso e suportado?" recebe a resposta errada por omissao. Marcar
+# so o que de fato vem de fora mantem a marca com significado.
+# ---------------------------------------------------------------------------
+
 set -uo pipefail
 
 _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -240,6 +267,159 @@ if [[ "${WITH_QUAY:-true}" == "true" ]]; then
   _log "Quay incluido -- aba 'Imagem' nos componentes com quay.io/repository-slug"
 fi
 
+# Traces na pagina do componente. NAO existe plugin de traces no catalogo do
+# RHDH 1.10 -- conferido nas quatro listas do "Dynamic plugins reference": GA,
+# Technology Preview, community supported e "other installable". Nenhuma tem
+# tempo, jaeger ou equivalente.
+#
+# Este pacote foi CONSTRUIDO AQUI, da fonte do backstage/community-plugins na
+# tag @backstage-community/plugin-jaeger@0.15.0, exportado com o rhdh-cli e
+# publicado no plugin-registry interno. Ele se declara supported-versions 1.49.2,
+# a mesma linha do Backstage 1.49.4 que o RHDH 1.10.3 embute.
+#
+# A ESCOLHA DA VERSAO nao sai do package.json publicado no npm -- sai do
+# backstage.json do WORKSPACE:
+#
+#   jaeger 0.13.0 -> backstage 1.47.2      jaeger 0.15.0 -> backstage 1.49.2  <-
+#   jaeger 0.14.0 -> backstage 1.48.2      jaeger 0.16.0 -> backstage 1.50.3
+#
+# A 0.9.0 declara core-components ^0.17.5 e parece casar melhor com o que temos;
+# o workspace dela mira Backstage 1.42.4. A faixa publicada engana, e o proprio
+# @kuadrant/* prova: declara ^0.12.0 e roda contra 0.16.0 sem reclamar.
+#
+# O opt-in e por flag e nao por deteccao porque exige o .tgz publicado. Para
+# reconstruir, ver plugins/README.md -- o caminho e o mesmo do connectivity-link-ops.
+if [[ "${WITH_JAEGER:-false}" == "true" ]]; then
+  _jaeger_tgz="backstage-community-plugin-jaeger-dynamic-0.15.0.tgz"
+  [[ -n "${JAEGER_INTEGRITY:-}" ]] \
+    || _die "WITH_JAEGER=true exige JAEGER_INTEGRITY; gere com 'openssl dgst -sha512 -binary <tgz> | openssl base64 -A'"
+
+  # O alvo tem TRES partes, e errar qualquer uma da erro diferente:
+  #
+  #   /api/traces/v1/<tenant>   o tempo-gateway serve por tenant; sem isso, 401 seco
+  #   /api                      a raiz da API do Jaeger; sem isso, 404
+  #   Authorization: Bearer     o gateway exige token; sem isso, 401
+  #
+  # O /api final e o menos obvio: o JaegerClient monta `${apiUrl}/traces`, entao
+  # o alvo precisa terminar na raiz da API -- e nao na do tenant. Com o alvo um
+  # nivel acima a aba carrega, o proxy responde, e o erro que chega na tela e
+  #   {"error":{"message":"Request failed with status 404 Not Found"}}
+  # que nao diz nada sobre caminho. Medido em 2026-08-27.
+  _tempo_host="${TEMPO_HOST:-$(oc get route tempo-tempo-jaegerui -n tracing-system -o jsonpath='{.spec.host}' 2>/dev/null)}"
+  _tempo_tenant="${TEMPO_TENANT:-dev}"
+  if [[ -z "$_tempo_host" ]]; then
+    _warn "rota do Tempo nao encontrada -- aba de traces vai abrir vazia" "oc get route -n tracing-system"
+  fi
+
+  _plugins="${_plugins}
+      - package: http://plugin-registry:8080/${_jaeger_tgz}
+        integrity: \"${JAEGER_INTEGRITY}\"
+        disabled: false
+        pluginConfig:
+          proxy:
+            endpoints:
+              '/jaeger-api':
+                target: 'https://${_tempo_host}/api/traces/v1/${_tempo_tenant}/api'
+                headers:
+                  Authorization: 'Bearer \${K8S_CLUSTER_TOKEN}'
+                changeOrigin: true
+                secure: false
+          dynamicPlugins:
+            frontend:
+              backstage-community.plugin-jaeger:
+                entityTabs:
+                  - path: /traces
+                    title: Traces (customizado)
+                    mountPoint: entity.page.traces
+                mountPoints:
+                  - mountPoint: entity.page.traces/cards
+                    importName: JaegerCard
+                    config:
+                      layout:
+                        gridColumn: '1 / -1'
+                      if:
+                        allOf:
+                          - isKind: component
+                          - hasAnnotation: jaegertracing.io/service"
+  _log "Jaeger incluido -- aba 'Traces' nos componentes com jaegertracing.io/service"
+  _warn "plugin de traces NAO existe no catalogo do RHDH: construido desta base, sem cobertura da Red Hat."
+fi
+
+
+# Grafana na pagina do componente. NAO existe build oficial da Red Hat: no
+# registry de overlays so ha tags pr_1204__* e pr_2206__*, que sao builds de
+# pull request -- nenhuma bs_*. Construido aqui, da tag
+# @backstage-community/plugin-grafana@0.17.0, cujo workspace mira Backstage
+# 1.49.2 -- a linha do 1.49.4 que o RHDH 1.10.3 embute. O export confirmou:
+# "Filling supported-versions with 1.49.2".
+#
+# POR QUE AQUI FUNCIONA e no Kiali e no Tempo nao: o pod do Grafana tem um
+# unico container, sem oauth-proxy na frente, e o CR traz
+# auth.anonymous.enabled=true com org_role Admin. O proxy fala direto com o
+# Service e dispensa credencial. Se o lab endurecer isso, este bloco quebra e a
+# correcao e um header Authorization com token de service account -- ou basic
+# auth com o secret grafana-admin-credentials.
+#
+# O alvo e o SERVICE, nao a rota: por dentro do cluster nao ha TLS nem OAuth no
+# caminho. A rota publica entra so em grafana.domain, que e o que monta o link
+# "abrir no Grafana" -- ela nao e usada para buscar dado.
+if [[ "${WITH_GRAFANA:-false}" == "true" ]]; then
+  _grafana_tgz="backstage-community-plugin-grafana-dynamic-0.17.0.tgz"
+  [[ -n "${GRAFANA_INTEGRITY:-}" ]] \
+    || _die "WITH_GRAFANA=true exige GRAFANA_INTEGRITY; gere com 'openssl dgst -sha512 -binary <tgz> | openssl base64 -A'"
+
+  _grafana_ns="${GRAFANA_NS:-monitoring}"
+  _grafana_svc="${GRAFANA_SVC:-http://grafana-service.${_grafana_ns}.svc:3000}"
+  _grafana_host="${GRAFANA_HOST:-$(oc get route grafana-route -n "$_grafana_ns" -o jsonpath='{.spec.host}' 2>/dev/null)}"
+  if [[ -z "$_grafana_host" ]]; then
+    _warn "rota do Grafana nao encontrada -- os cards abrem, mas o link 'ver no Grafana' fica quebrado" \
+          "oc get route -n $_grafana_ns"
+  fi
+
+  _plugins="${_plugins}
+      - package: http://plugin-registry:8080/${_grafana_tgz}
+        integrity: \"${GRAFANA_INTEGRITY}\"
+        disabled: false
+        pluginConfig:
+          proxy:
+            endpoints:
+              '/grafana/api':
+                target: '${_grafana_svc}'
+                changeOrigin: true
+                secure: false
+          grafana:
+            domain: https://${_grafana_host}
+            unifiedAlerting: true
+          dynamicPlugins:
+            frontend:
+              backstage-community.plugin-grafana:
+                mountPoints:
+                  - mountPoint: entity.page.overview/cards
+                    importName: EntityGrafanaDashboardsCard
+                    config:
+                      layout:
+                        gridColumnEnd:
+                          lg: \"span 6\"
+                      if:
+                        allOf:
+                          - isKind: component
+                          - hasAnnotation: grafana/dashboard-selector
+                  - mountPoint: entity.page.overview/cards
+                    importName: EntityGrafanaAlertsCard
+                    config:
+                      layout:
+                        gridColumnEnd:
+                          lg: \"span 6\"
+                      if:
+                        allOf:
+                          - isKind: component
+                          - hasAnnotation: grafana/alert-label-selector"
+  _log "Grafana incluido -- cards nos componentes com grafana/dashboard-selector ou grafana/alert-label-selector"
+  _warn "plugin do Grafana NAO tem build oficial da Red Hat: construido desta base, sem cobertura."
+fi
+
+
+
 
 # Kuadrant / Connectivity Link. EXISTE plugin -- @kuadrant/*, no npm publico,
 # v0.4.0. A doc oficial declara suporte ao RHDH 1.8.4 (Backstage 1.42.5) e aqui
@@ -322,10 +502,10 @@ if [[ "${WITH_KUADRANT:-false}" == "true" ]]; then
                 entityTabs:
                   - mountPoint: entity.page.api-keys
                     path: /api-keys
-                    title: API Keys
+                    title: API Keys (comunidade)
                   - mountPoint: entity.page.api-product-info
                     path: /api-product-info
-                    title: API Product Info
+                    title: API Product Info (comunidade)
                 mountPoints:
                   - mountPoint: entity.page.api-keys/cards
                     importName: EntityKuadrantApiKeyManagementTab
@@ -459,7 +639,29 @@ if [[ "${WITH_CL_OPS:-false}" == "true" ]]; then
                     importName: ConnectivityLinkOpsPage
                     menuItem:
                       icon: connectivityLinkIcon
-                      text: Connectivity Link"
+                      text: Connectivity Link
+                # O card de postura na aba Overview do componente. O 'if' evita
+                # o pior resultado possivel: um card em TODA entidade dizendo
+                # que nao achou nada. Sem a anotacao de namespace o backend nao
+                # tem onde procurar, entao o card nem aparece.
+                mountPoints:
+                  - mountPoint: entity.page.overview/cards
+                    importName: EntityConnectivityCard
+                    config:
+                      layout:
+                        gridColumnEnd:
+                          lg: span 6
+                          md: span 6
+                          xs: span 12
+                      # Lista PLANA de condicoes. Aninhar um 'anyOf' dentro do
+                      # 'allOf' nao avalia -- o card simplesmente nao monta, sem
+                      # erro no console nem no log. Os dois blocos que funcionam
+                      # neste arquivo, Quay e Kuadrant, sao planos; 'isKind'
+                      # aceita lista, que e como cobrir dois kinds sem aninhar.
+                      if:
+                        allOf:
+                          - isKind: [component, api]
+                          - hasAnnotation: backstage.io/kubernetes-namespace"
   _log "Connectivity Link Ops incluido (v${_clo_ver}, do plugin-registry)"
 fi
 
