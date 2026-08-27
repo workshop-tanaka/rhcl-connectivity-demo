@@ -165,6 +165,18 @@ oc get route backstage-developer-hub -n rhdh      -o jsonpath='{.spec.host}{"\n"
 A route do Kiali continua no ar e é o plano B da Aba 2 — o plugin de Service
 Mesh é o mesmo Kiali servido por dentro do console, não uma segunda instalação.
 
+> **O `/dev` na linha do Tempo não é enfeite.** É o tenant, e sem ele a rota
+> devolve **401 seco** — sem tela de login, sem redirecionamento, nada. Com ele,
+> o navegador faz o fluxo OAuth normal e entra.
+>
+> E **não existe deep-link por serviço**: `/dev/search?service=<x>` devolve 404
+> mesmo autenticado, verificado no navegador em 2026-08-27. A raiz `/dev` é tudo
+> o que essa rota oferece, e a filtragem é feita na própria UI.
+>
+> Por isso os links *Traces* dos componentes no portal levam ao **console →
+> Observe → Traces**, com o nome do serviço no título. Esta rota fica como o
+> plano B que o parágrafo acima descreve.
+
 ---
 
 ## O roteiro

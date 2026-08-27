@@ -76,11 +76,24 @@ DEVSPACES_HOST="${DEVSPACES_HOST:-$(oc get checluster devspaces -n openshift-dev
   -o jsonpath='{.status.cheURL}' 2>/dev/null | sed -E 's|^https?://||; s|/$||')}"
 GRAFANA_HOST="${GRAFANA_HOST:-$(_route_of grafana-route monitoring)}"
 TRACING_HOST="${TRACING_HOST:-$(_route_of tempo-tempo-jaegerui tracing-system)}"
-# O console e o destino dos links de trace, e nao a rota do Tempo. Motivo medido
-# em 2026-08-27: a rota do Tempo aponta para o tempo-gateway, que exige Bearer
-# token e devolve 401 SECO -- sem WWW-Authenticate, sem Location. Navegador
-# clicando de fora leva 401 e para ali. O caminho tambem estava errado: o
-# gateway serve por tenant, em /api/traces/v1/dev/.
+# O console e o destino dos links de trace, e nao a rota do Tempo. Medido em
+# 2026-08-27, e a razao NAO e a que escrevi primeiro:
+#
+#   A rota do Tempo E acessivel pelo navegador -- mas so na RAIZ DO TENANT:
+#     /dev  ->  302  ->  /openshift/dev/login  ->  OAuth  ->  SSO  ->  200
+#   Sem o prefixo /dev ela devolve 401 seco, sem convite a login. Era esse o
+#   defeito dos links antigos (${TRACING_HOST}/search?service=...): faltava o
+#   tenant, e nao "a rota nao funciona".
+#
+#   O que NAO existe e o deep-link por servico: /dev/search?service=<x> devolve
+#   404 tambem no navegador, autenticado. Confirmado por teste manual.
+#
+# Como o link so poderia levar a raiz sem filtro, ele passa a levar ao console,
+# que autentica pela sessao e e o caminho que os dois atos ja descrevem. O nome
+# do servico vive no TITULO, para o apresentador saber o que filtrar.
+#
+# A raiz do Tempo (<host>/dev) segue valendo como plano B -- e o RUNBOOK ja a
+# documenta assim, com o /dev no jsonpath.
 CONSOLE_HOST="${CONSOLE_HOST:-$(oc get route console -n openshift-console -o jsonpath='{.spec.host}' 2>/dev/null)}"
 [[ -n "$GRAFANA_HOST" ]] || { GRAFANA_HOST="grafana.example.com"; _warn "rota do Grafana nao encontrada; link com placeholder."; }
 [[ -n "$TRACING_HOST" ]] || { TRACING_HOST="tracing.example.com"; _warn "rota do Tempo nao encontrada; link com placeholder."; }
