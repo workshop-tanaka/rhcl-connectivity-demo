@@ -13,7 +13,10 @@ import {
   ResponseErrorPanel,
 } from '@backstage/core-components';
 import { useApi } from '@backstage/core-plugin-api';
-import { useEntity } from '@backstage/plugin-catalog-react';
+import { catalogApiRef, useEntity } from '@backstage/plugin-catalog-react';
+import { RELATION_API_PROVIDED_BY } from '@backstage/catalog-model';
+
+import type { Entity } from '@backstage/catalog-model';
 
 import { ConcernResult, connectivityLinkOpsApiRef } from '../../api';
 import { NotAvailable } from '../common';
@@ -28,6 +31,40 @@ const ROTULO: Record<ConcernResult['concern'], string> = {
 /** A anotação padrão do plugin Kubernetes. Reaproveitada de propósito: uma
  *  anotação nova por plugin transforma o catálogo num formulário. */
 const NS_ANNOTATION = 'backstage.io/kubernetes-namespace';
+
+/**
+ * Onde procurar no cluster, a partir da entidade aberta.
+ *
+ * Num Component é direto: o nome dele é o nome do Service, e a anotação diz o
+ * namespace. Numa API não é — ela se chama '<algo>-api' e não existe Service
+ * com esse nome. Quem sabe a resposta é o CATÁLOGO: a API tem relação
+ * `apiProvidedBy` com o componente que a expõe, e é dele que saem o namespace e
+ * o nome.
+ *
+ * Seguir a relação em vez de exigir uma anotação nova é o ponto: o catálogo já
+ * guarda quem provê o quê, e uma anotação por plugin transformaria cada
+ * entidade num formulário de configuração.
+ */
+async function alvoNoCluster(
+  entity: Entity,
+  catalogApi: { getEntityByRef: (ref: string) => Promise<Entity | undefined> },
+): Promise<{ namespace: string; name: string } | undefined> {
+  const direto = entity.metadata.annotations?.[NS_ANNOTATION];
+  if (direto) {
+    return { namespace: direto, name: entity.metadata.name };
+  }
+
+  const provedor = (entity.relations ?? []).find(
+    r => r.type === RELATION_API_PROVIDED_BY,
+  );
+  if (!provedor) return undefined;
+
+  const comp = await catalogApi.getEntityByRef(provedor.targetRef);
+  const ns = comp?.metadata.annotations?.[NS_ANNOTATION];
+  if (!comp || !ns) return undefined;
+
+  return { namespace: ns, name: comp.metadata.name };
+}
 
 const Estado = ({ c }: { c: ConcernResult }) => {
   if (c.status === 'unknown') {
@@ -66,22 +103,23 @@ const Estado = ({ c }: { c: ConcernResult }) => {
 export const EntityConnectivityCard = () => {
   const { entity } = useEntity();
   const api = useApi(connectivityLinkOpsApiRef);
+  const catalogApi = useApi(catalogApiRef);
 
-  const namespace =
-    entity.metadata.annotations?.[NS_ANNOTATION] ?? entity.metadata.namespace;
-  const name = entity.metadata.name;
+  const { value, loading, error } = useAsync(async () => {
+    const alvo = await alvoNoCluster(entity, catalogApi);
+    if (!alvo) return undefined;
+    return await api.getPosture(alvo.namespace, alvo.name);
+  }, [api, catalogApi, entity]);
 
-  const { value, loading, error } = useAsync(
-    () => (namespace ? api.getPosture(namespace, name) : Promise.resolve(undefined)),
-    [api, namespace, name],
-  );
+  const pronto = !loading && !error;
 
-  if (!namespace) {
+  if (pronto && !value) {
     return (
       <InfoCard title="Conectividade">
         <Typography variant="body2" color="textSecondary">
-          Esta entidade não declara <code>{NS_ANNOTATION}</code>, então não há
-          como saber onde procurar por ela no cluster.
+          Não há como saber onde procurar esta entidade no cluster: falta a
+          anotação <code>{NS_ANNOTATION}</code>, e ela também não declara
+          relação com um componente que a proveja.
         </Typography>
       </InfoCard>
     );
@@ -92,13 +130,13 @@ export const EntityConnectivityCard = () => {
       {loading && <Progress />}
       {error && <ResponseErrorPanel error={error} />}
 
-      {!loading && !error && value && !value.exposed && (
+      {pronto && value && !value.exposed && (
         <Typography variant="body2" color="textSecondary">
           Não exposta por um gateway. {value.reason}
         </Typography>
       )}
 
-      {!loading && !error && value?.exposed && (
+      {pronto && value?.exposed && (
         <>
           <Typography variant="body2" color="textSecondary" gutterBottom>
             {value.route?.hostnames?.length
