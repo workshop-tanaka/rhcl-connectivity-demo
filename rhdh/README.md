@@ -600,6 +600,46 @@ filters:
 
 Se for por topic, o template também precisa marcar os repos criados — `publish:github` aceita `topics` no input.
 
+### Na fila: plugin do Grafana
+
+Levantado em 2026-08-27, ainda **não implantado**. O ambiente é favorável e o
+trabalho é pequeno; ficou na fila só para não colidir com a sessão paralela que
+mexe no `plugin-registry`.
+
+| Fato | Valor |
+| --- | --- |
+| Pacote | `@backstage-community/plugin-grafana` |
+| Versão que casa | **0.17.0** — mira Backstage 1.49.2, o mais perto do nosso 1.49.4 |
+| Forma | `frontend-plugin` puro, sem pacote backend — mais simples que o Jaeger |
+| Build oficial Red Hat | **não existe**. No registry de overlays só há tags `pr_1204__*` e `pr_2206__*`, que são builds de pull request, nenhuma `bs_*` |
+| Procedência | comunidade, empacotado aqui — leva marca, como as abas do Kuadrant |
+
+**Por que aqui é fácil.** O pod do Grafana tem um único container, sem
+`oauth-proxy` na frente, e o CR traz `auth.anonymous.enabled=true` com
+`org_role: Admin`. O proxy do RHDH fala direto com
+`http://grafana-service.monitoring.svc:3000` e nem precisa de token — o oposto
+do Kiali e do Tempo, onde o OAuth do OpenShift é justamente o que impede o
+plugin de autenticar sozinho.
+
+Se algum dia o lab endurecer esse Grafana, é este parágrafo que deixa de valer:
+volte a autenticação para `admin/admin` via `grafana-admin-credentials`, ou
+emita um service account token.
+
+**O que falta fazer**, na ordem:
+
+1. exportar o `0.17.0` com o CLI do RHDH e publicar no `plugin-registry` —
+   lembrando que o build é **substituição total**: republique os `.tgz` que já
+   estão lá junto, ou eles somem;
+2. bloco `WITH_GRAFANA` no `setup-plugins.sh`, com o proxy `/grafana/api`
+   apontando para o Service e `grafana.domain` na rota pública (é ela que
+   monta o link "abrir no Grafana");
+3. anotar os componentes do catálogo com `grafana/dashboard-selector`.
+
+**O ganho para a demo** é que os dashboards que já existem — `rhcl-planos` e
+`rhcl-parceiros` — passam a aparecer na própria página do componente, ao lado
+das abas de tráfego. O cliente vê o efeito do rate limit por plano sem trocar
+de ferramenta.
+
 ## PostgreSQL
 
 `spec.database.enableLocalDb: true` sobe um Postgres gerenciado pelo operator, com PVC na storageClass default (`gp3-csi`). Para produção, aponte para um banco externo:
