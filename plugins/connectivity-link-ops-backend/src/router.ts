@@ -10,6 +10,7 @@ import { AuthorizeResult } from '@backstage/plugin-permission-common';
 
 import { connectivityLinkReadPermission } from './permissions';
 import { KubeClient } from './service/KubeClient';
+import { MetricsClient } from './service/MetricsClient';
 import { KindResult, ResourceCache, WATCHED_KINDS } from './service/ResourceCache';
 
 export interface RouterOptions {
@@ -18,6 +19,7 @@ export interface RouterOptions {
   permissions: PermissionsService;
   kube: KubeClient;
   cache: ResourceCache;
+  metrics: MetricsClient;
 }
 
 /**
@@ -37,7 +39,7 @@ const POLICY_KEYS = new Set(
 export async function createRouter(
   options: RouterOptions,
 ): Promise<express.Router> {
-  const { logger, httpAuth, permissions, kube, cache } = options;
+  const { logger, httpAuth, permissions, kube, cache, metrics } = options;
 
   const router = Router();
   router.use(express.json());
@@ -123,14 +125,7 @@ export async function createRouter(
         partial: unreadable.length > 0,
         unreadableCount: unreadable.length,
       },
-      /**
-       * Ainda não há de onde tirar tráfego: o proxy para o thanos-querier chega
-       * na parte de métricas da mesma fase. Vai explícito para a tela poder
-       * dizer o motivo em vez de mostrar um zero.
-       */
-      traffic: {
-        unavailable: 'a integração com o Prometheus chega na fase de tráfego',
-      },
+      traffic: await metrics.requestRate(cache.namespaces()),
     });
   });
 

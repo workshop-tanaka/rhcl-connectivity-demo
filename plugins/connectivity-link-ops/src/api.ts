@@ -43,7 +43,13 @@ export interface Summary {
     partial: boolean;
     unreadableCount: number;
   };
-  traffic: { unavailable: string };
+  traffic: {
+    /** Presente quando houve medição — inclusive quando ela é zero. */
+    value?: number;
+    unavailable?: string;
+    /** Namespaces que responderam sem série alguma. */
+    silent?: string[];
+  };
 }
 
 export interface ConnectivityLinkOpsApi {

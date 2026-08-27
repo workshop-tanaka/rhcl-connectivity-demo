@@ -159,6 +159,25 @@ export class ResourceCache {
     });
   }
 
+  /**
+   * Os namespaces onde há Gateway ou rota. É esta lista que define o alcance da
+   * consulta de métricas — a porta multi-tenant do Thanos não aceita pergunta
+   * cluster-wide, então o total é a soma do que se perguntou, e é aqui que se
+   * decide o que se pergunta.
+   */
+  namespaces(): string[] {
+    const out = new Set<string>();
+    for (const key of ['gateways', 'httproutes']) {
+      const entry = this.entries.get(key);
+      if (entry?.state !== 'ready' || !entry.informer) continue;
+      for (const obj of entry.informer.list()) {
+        const ns = obj.metadata?.namespace;
+        if (ns) out.add(ns);
+      }
+    }
+    return [...out];
+  }
+
   stop(): void {
     for (const entry of this.entries.values()) {
       entry.informer?.stop().catch(() => undefined);

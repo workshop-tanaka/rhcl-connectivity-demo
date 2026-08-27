@@ -104,8 +104,20 @@ export const OverviewPage = () => {
             <Grid item xs={12} sm={6} md={3}>
               <InfoCard title="Requisições por segundo">
                 <Typography variant="h3">
-                  <NotAvailable reason={value.traffic.unavailable} />
+                  {typeof value.traffic.value === 'number' ? (
+                    value.traffic.value.toFixed(2)
+                  ) : (
+                    <NotAvailable
+                      reason={value.traffic.unavailable ?? 'sem medição'}
+                    />
+                  )}
                 </Typography>
+                {value.traffic.silent?.length ? (
+                  <Typography variant="caption" color="textSecondary">
+                    sem série em {value.traffic.silent.join(', ')} — esses
+                    namespaces não entram na soma
+                  </Typography>
+                ) : null}
               </InfoCard>
             </Grid>
 

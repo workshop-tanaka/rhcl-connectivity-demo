@@ -38,6 +38,40 @@ vem com `partial: true` quando algum tipo não pôde ser lido: somar só o que s
 enxerga e apresentar como total seria a mentira silenciosa que a regra do N/A
 existe para evitar — o número estaria certo e a leitura, errada.
 
+## Métricas: a porta 9092, e por quê
+
+O `thanos-querier` expõe duas portas, e a diferença entre elas é de privilégio:
+
+| Porta | Exige | Resposta para esta SA |
+| --- | --- | --- |
+| 9091 (cluster-wide) | `cluster-monitoring-view` — leitura de **todas** as métricas do cluster | **403** |
+| 9092 (multi-tenant) | `get` em namespaces, que a SA já tinha | **200** |
+
+Fica a 9092, e o privilégio amplo não é concedido. A decisão saiu de medir as
+duas, não de ler documentação.
+
+O preço é honesto: a 9092 exige um `namespace` por consulta, então **não existe
+pergunta cluster-wide**. O total é a soma dos namespaces que se perguntou, e
+quem define esse conjunto é o cache de informers — um namespace fora dele é um
+namespace fora da conta. Por isso a resposta traz `silent`: os namespaces que
+responderam sem série alguma aparecem na tela, em vez de sumirem dentro de um
+número que pareceria completo.
+
+E de novo a distinção que o plugin inteiro persegue: um namespace **sem série**
+não contribui zero — "ninguém mediu aqui" e "mediram e deu zero" são respostas
+diferentes. Se nenhum namespace tiver série, o resultado é N/A. Se algum tiver,
+o número é real mesmo valendo zero: a série existe e o tráfego é que está parado.
+
+### O CA que não é o que você espera
+
+O certificado do `thanos-querier` é assinado pelo **service CA** do OpenShift,
+que não é o kube root CA em que o pod já confia por `NODE_EXTRA_CA_CERTS`. Sem
+o `service-ca.crt`, a conexão falha com **corpo vazio** — o que parece ausência
+de métrica e não erro de TLS, e manda quem depura para o lado errado.
+
+O `setup-plugins.sh` monta os dois CAs em `${CA_MOUNT}` e passa o caminho em
+`connectivityLinkOps.prometheus.caFile`.
+
 ## Não pergunte pela CRD antes de listar
 
 A primeira versão do cache consultava `apiextensions.k8s.io` para saber se cada

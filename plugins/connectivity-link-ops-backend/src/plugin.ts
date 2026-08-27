@@ -5,6 +5,7 @@ import {
 
 import { createRouter } from './router';
 import { KubeClient } from './service/KubeClient';
+import { MetricsClient } from './service/MetricsClient';
 import { ResourceCache } from './service/ResourceCache';
 
 export const connectivityLinkOpsPlugin = createBackendPlugin({
@@ -29,6 +30,7 @@ export const connectivityLinkOpsPlugin = createBackendPlugin({
       }) {
         const kube = new KubeClient(config);
         const cache = new ResourceCache(kube, logger);
+        const metrics = new MetricsClient(config, logger);
 
         // Sem await: o start faz uma checagem de CRD e de RBAC por tipo, e
         // segurar a subida do backend por causa disso deixaria o portal inteiro
@@ -41,7 +43,7 @@ export const connectivityLinkOpsPlugin = createBackendPlugin({
         lifecycle.addShutdownHook(() => cache.stop());
 
         httpRouter.use(
-          await createRouter({ logger, httpAuth, permissions, kube, cache }),
+          await createRouter({ logger, httpAuth, permissions, kube, cache, metrics }),
         );
       },
     });

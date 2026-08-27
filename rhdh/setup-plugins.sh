@@ -70,6 +70,11 @@ K8S_CLUSTER_URL="https://kubernetes.default.svc"
 # certificate in certificate chain", enquanto um curl com o MESMO CA responde
 # 200 de dentro do pod. A saida e fazer o Node confiar no CA globalmente, via
 # NODE_EXTRA_CA_CERTS apontando para o arquivo montado abaixo.
+# Dois CAs sao montados aqui, e eles assinam coisas diferentes: o kube-root-ca
+# cobre a API do cluster, e o service-ca cobre os certificados SERVIDOS por
+# Services internos -- entre eles o thanos-querier. Confiar num nao implica
+# confiar no outro: medido, a consulta ao thanos sem o service-ca falha com
+# corpo VAZIO, que parece ausencia de metrica e nao erro de TLS.
 CA_MOUNT="/opt/app-root/src/cluster-ca"
 
 K8S_CLUSTER_CA="$(oc get configmap kube-root-ca.crt -n "$RHDH_NS" \
@@ -417,6 +422,15 @@ if [[ "${WITH_CL_OPS:-false}" == "true" ]]; then
               serviceAccountToken: \${K8S_CLUSTER_TOKEN}
               serviceAccountName: system:serviceaccount:${RHDH_NS}:rhdh-kubernetes
               skipTLSVerify: false
+          # Porta 9092, e nao 9091: a 9091 exige cluster-monitoring-view, que da
+          # leitura de TODAS as metricas do cluster e respondeu 403 para esta SA.
+          # A 9092 e multi-tenant e se contenta com 'get' em namespaces, que a SA
+          # ja tem -- medido, respondeu 200. O preco e que toda consulta leva um
+          # namespace, entao nao existe pergunta cluster-wide: o total e a soma
+          # dos namespaces que o cache de informers conhece.
+          prometheus:
+            url: https://thanos-querier.openshift-monitoring.svc:9092
+            caFile: ${CA_MOUNT}/service-ca.crt
       - package: http://plugin-registry:8080/${_clo_fe}
         integrity: \"${CL_OPS_FRONTEND_INTEGRITY}\"
         disabled: false
@@ -735,7 +749,10 @@ oc patch backstage "$RHDH_CR" -n "$RHDH_NS" --type=merge -p "{
     \"appConfig\": {\"mountPath\": \"/opt/app-root/src\", \"configMaps\": [${_cms}]},
     \"extraFiles\": {
       \"mountPath\": \"${CA_MOUNT}\",
-      \"configMaps\": [{\"name\": \"kube-root-ca.crt\", \"key\": \"ca.crt\"}]
+      \"configMaps\": [
+        {\"name\": \"kube-root-ca.crt\", \"key\": \"ca.crt\"},
+        {\"name\": \"openshift-service-ca.crt\", \"key\": \"service-ca.crt\"}
+      ]
     },
     \"extraEnvs\": {
       \"secrets\": [${_secrets}],
