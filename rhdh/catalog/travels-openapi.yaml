@@ -19,8 +19,13 @@ info:
     por conta propria. O limite depende do plano da chave, classificado pelo
     PlanPolicy travels-plans.
 servers:
-  - url: https://api.travels.sandbox.opentlc.com
-    description: Substituido pelo host real do ambiente
+  # O valor SAI DO AMBIENTE: ate 2026-08-27 este arquivo era copiado sem
+  # envsubst e publicava o host de outro cluster -- que ainda por cima usava
+  # dois rotulos (api.travels), contra a regra de um rotulo so. Nao dava
+  # sintoma porque nada renderizava o spec com Try it out; no minuto em que a
+  # entidade kind: API existe, vira uma chamada que falha na frente do cliente.
+  - url: https://${DEMO_API_HOST}
+    description: Gateway prod-web deste ambiente
 security:
   - ApiKeyQuery: []
 paths:

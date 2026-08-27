@@ -107,13 +107,13 @@ _log "observabilidade: ${GRAFANA_HOST} / ${TRACING_HOST}"
 # se trabalha. Qual branch do GitHub originou o espelho e decisao de quem roda o
 # gitlab-seed.sh, e nao muda a URL que o portal le.
 
-export DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_URL DEMO_REPO_URL_BLOB GRAFANA_HOST TRACING_HOST CONSOLE_HOST DEVSPACES_HOST
+export CATALOG_SVC DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_URL DEMO_REPO_URL_BLOB GRAFANA_HOST TRACING_HOST CONSOLE_HOST DEVSPACES_HOST
 _log "hosts da demo: ${DEMO_API_HOST} / ${DEMO_ECHO_HOST}"
 
 # ----- 2. entidades renderizadas -------------------------------------------
 _rendered="$(mktemp)"
 trap 'rm -f "$_rendered"' EXIT
-envsubst '${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_URL} ${DEMO_REPO_URL_BLOB} ${GRAFANA_HOST} ${TRACING_HOST} ${CONSOLE_HOST} ${DEVSPACES_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
+envsubst '${CATALOG_SVC} ${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_URL} ${DEMO_REPO_URL_BLOB} ${GRAFANA_HOST} ${TRACING_HOST} ${CONSOLE_HOST} ${DEVSPACES_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
   || _die "falha ao renderizar catalog/travel-agency.yaml"
 
 # Espelho ausente: TechDocs e source-location sairiam com URL vazia, e o portal
@@ -185,7 +185,11 @@ _log "publicando as entidades..."
 # esbarra em array vazio sob 'set -u' no bash 3.2 que o macOS ainda traz.
 _cmdir="$(mktemp -d)"
 trap 'rm -f "$_rendered" "$_present" "$_filtered" "$_dropped"; rm -rf "$_cmdir"' EXIT
-cp "${_here}/catalog/travels-openapi.yaml" "${_cmdir}/travels-openapi.yaml"
+# envsubst, e nao cp: o spec declara servers[0].url, e um placeholder ali vira
+# "Try it out" apontando para outro cluster assim que o Swagger UI aparecer.
+# Era cp ate 2026-08-27, e passava despercebido porque nada renderizava o spec.
+envsubst '${DEMO_API_HOST}' < "${_here}/catalog/travels-openapi.yaml" > "${_cmdir}/travels-openapi.yaml" \
+  || _die "falha ao renderizar catalog/travels-openapi.yaml"
 cp "$_rendered" "${_cmdir}/travel-agency.yaml"
 
 # Template do job template do AAP, se o sync do survey ja rodou. Ele vem pelo

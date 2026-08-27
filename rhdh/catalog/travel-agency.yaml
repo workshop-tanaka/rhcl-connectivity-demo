@@ -376,6 +376,47 @@ spec:
   dependsOn:
     - resource:default/travel-agency-authpolicy
 ---
+# A API como ENTIDADE, e nao so como texto.
+#
+# Quatro componentes ja declaravam relacao com 'travels-api' -- travels a
+# fornece, os tres parceiros a consomem -- e a entidade nunca existiu. As
+# relacoes ficavam penduradas e o grafo do portal quebrava justamente na API
+# central da demo. O APIProduct do devportal tem o mesmo nome, mas e outro
+# kind: nao resolve providesApis/consumesApis, e o api-docs nao o enxerga.
+#
+# O que isto destrava ja esta pago: o @backstage/plugin-api-docs vem compilado
+# na imagem do RHDH e renderiza spec OpenAPI em Swagger UI, com Authorize e
+# Try it out. O spec declara ApiKeyQuery em query string (APIKEY), que e
+# exatamente o esquema que o Swagger UI preenche sozinho -- a chave emitida no
+# Ato 6 pode ser colada ali e a chamada sai do proprio portal.
+#
+# definition.$text busca pelo httpd interno, o mesmo que serve as entidades. O
+# host precisa estar em backend.reading.allow (esta) e sai de CATALOG_SVC, que
+# carrega o namespace dentro -- por isso a variavel entrou no envsubst.
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: travels-api
+  title: Travels API
+  description: >-
+    A API que os parceiros consomem, com autenticacao por API key na query
+    string. O tier de cada chave vem do label kuadrant.io/plan-id no Secret, e
+    e o PlanPolicy travels-plans que o converte em limite.
+  annotations:
+    grafana/dashboard-selector: rhcl
+  links:
+    - url: https://${DEMO_API_HOST}
+      title: Endpoint do gateway
+      icon: web
+spec:
+  type: openapi
+  lifecycle: production
+  owner: group:default/platform-team
+  system: travel-agency
+  definition:
+    $text: http://${CATALOG_SVC}/travels-openapi.yaml
+
+---
 apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
