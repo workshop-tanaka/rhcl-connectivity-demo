@@ -480,6 +480,42 @@ A versão do Backstage é o eixo, não a minor do RHDH.
 
 ---
 
+### Onde a procedência aparece na tela — e onde não dá
+
+O portal mistura três cadeias de entrega, e **o cliente não tem como distinguir
+sozinho**. Numa demo isso é problema: uma aba comunitária ao lado de uma do
+produto lê-se como produto, e a pergunta *"isso vem no produto?"* recebe a
+resposta errada por omissão.
+
+| Marca | O que significa |
+| --- | --- |
+| *sem marca* | entregue pela Red Hat — na imagem do RHDH (Kubernetes, Topology) **ou** compilada por ela no `rhdh-plugin-export-overlays` (Kiali, Imagem/Quay) |
+| **(comunidade)** | de terceiro, fora dessas duas vias — `@kuadrant/*`, do npm público |
+| **(customizado)** | construído nesta base — Traces e Connectivity Link |
+
+O critério é a **cadeia de entrega**, não a camada de suporte da doc. O Kiali não
+aparece em nenhuma das quatro listas do *Dynamic plugins reference*, mas a Red
+Hat compila e publica os builds dele no registry de overlays — a doc atrasa, a
+cadeia não. Marcá-lo diria ao cliente algo mais grave do que é verdade.
+
+**Onde a marca cabe, e onde não cabe:**
+
+| Superfície | Serve? |
+| --- | --- |
+| título de **aba** de entidade | sim — vem do nosso `pluginConfig` |
+| **menu lateral** | **não** — o texto é curto por desenho, e o sufixo quebra o layout (visto em 2026-08-27, no Connectivity Link) |
+| **título de página** (`Header type=`) | sim, mas só em plugin cujo código temos |
+
+Por isso o **Kuadrant** fica marcado nas abas e **não** na página do menu: não
+temos o código dele, e o `pluginConfig` não expõe título de página. E o
+**Connectivity Link** deve receber `type="plugin customizado desta demo"` no
+`Header` de `OverviewPage.tsx` — uma linha, que pega carona no próximo build.
+
+O roteiro cobre o que a interface não alcança: `scripts/demo.sh ato6` traz a
+fala de dez segundos que nomeia as três procedências antes de navegar.
+
+---
+
 ### De onde vem cada plugin — e o que isso custa num upgrade
 
 Levantado em 2026-08-26, ao avaliar a subida para o RHDH 1.10.3. **É este mapa

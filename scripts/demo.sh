@@ -450,6 +450,16 @@ step_ato6() {
   echo
   printf '  %sPortal%s  https://%s\n' "$_BLD" "$_RST" "$r"
   echo
+    _say  "Antes de navegar, diga de onde vem cada aba. O portal mistura tres"
+    _say  "procedencias, e o cliente nao tem como distinguir sozinho:"
+    _why "   sem marca       entregue pela Red Hat -- na imagem do RHDH (Kubernetes,"
+    _why "                   Topology) ou compilada por ela no rhdh-plugin-export-"
+    _why "                   overlays (Kiali, Imagem/Quay)"
+    _why "   (comunidade)    de terceiro, do npm publico -- as abas do Kuadrant"
+    _why "   (customizado)   construido para esta demo -- Traces e Connectivity Link"
+    _say  "Dizer isso ANTES custa dez segundos. Descobrir depois, quando alguem"
+    _say  "perguntar 'isso vem no produto?', custa a credibilidade do resto."
+    echo
   _why "a) O catalogo. As policies estao modeladas como recursos, separadas pelo"
   _why "   escopo do targetRef — que e o que decide o alcance de cada uma:"
   _why "   rhcl-ingress    = prod-web e as policies que miram o Gateway"
