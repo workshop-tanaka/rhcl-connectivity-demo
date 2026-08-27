@@ -908,6 +908,31 @@ else
     _warn "portal não respondeu" "oc get pods -n ${_rhdh_ns}"
   fi
 
+    # O RHDH nao aplica mudanca nenhuma se o reconciler do operator estiver em
+    # erro -- e ele falha SEM sintoma visivel. Em 2026-08-27 um YAML invalido na
+    # ConfigMap de plugins (indentacao errada de UMA entrada) matou o reconciler:
+    #
+    #   failed to merge dynamic plugins config: ... yaml: line 68
+    #
+    # A partir dali o operator congelou a ConfigMap que gera para o pod. O pod
+    # seguiu 2/2 com os plugins do PVC, o portal seguiu em 200, e ESTE preflight
+    # seguiu verde -- enquanto toda alteracao nova era descartada em silencio.
+    #
+    # Custou uma tarde de diagnostico por caminhos errados. A checagem le o log
+    # do proprio operator, que era o unico lugar onde a verdade estava.
+    _opns="$(oc get subscription -A --no-headers 2>/dev/null | awk '$2=="rhdh"{print $1; exit}')"
+    if [[ -n "$_opns" ]]; then
+      _operr="$(oc logs -n "$_opns" deploy/rhdh-operator --tail=120 2>/dev/null \
+                 | grep -c 'ERROR.*Reconciler error')"
+      if [[ "${_operr:-0}" -gt 0 ]]; then
+        _bad "operator do RHDH com erro de reconciliacao -- mudancas no portal nao sao aplicadas" \
+             "costuma ser YAML invalido na ConfigMap de plugins: oc logs -n ${_opns} deploy/rhdh-operator --tail=40 | grep ERROR"
+      else
+        _ok "operator do RHDH reconciliando (mudancas chegam ao portal)"
+      fi
+    fi
+
+
   if oc get cm app-config-rhdh-catalog -n "$_rhdh_ns" >/dev/null 2>&1; then
     _ok "catálogo configurado"
   else
