@@ -452,8 +452,19 @@ parecem uma lista só, e são três grupos com riscos muito diferentes.
 | Origem | Quais | Num upgrade de RHDH |
 | --- | --- | --- |
 | **Embutidos na imagem** (`./dynamic-plugins/dist/…`) | kubernetes (+backend), topology, notifications (+backend), signals (+backend), **módulo GitLab do scaffolder**, http-request | **sobem junto, sem ação** |
-| **OCI do pipeline Red Hat** (`ghcr.io/redhat-developer/rhdh-plugin-export-overlays`) | Kiali frontend e backend | **repin obrigatório** — a tag carrega a versão do Backstage |
+| **OCI do pipeline Red Hat** (`ghcr.io/redhat-developer/rhdh-plugin-export-overlays`) | Kiali (frontend e backend), Quay | **repin só se o Backstage mudar** — e ele **não** muda a cada minor de RHDH |
 | **npm de terceiro** | `@kuadrant/kuadrant-backstage-plugin-frontend` e `-backend-dynamic` | **sem garantia nenhuma** |
+
+> **Correção de 2026-08-27.** O parágrafo abaixo foi escrito supondo que a
+> versão do Backstage acompanha a minor do RHDH. **Não acompanha:** o RHDH
+> 1.10.3 embute Backstage **1.49.4**, o mesmo do 1.9.8. Foi por isso que os pins
+> `bs_1.49.4__*` do Kiali sobreviveram intactos ao upgrade, e por isso o Quay
+> entrou também com `bs_1.49.4__1.32.1` — a tag mais recente do overlay
+> (`bs_1.52.0__*`) instalaria um build para um Backstage que não temos.
+>
+> A regra correta é: **fixe pela versão do Backstage, que se lê em
+> `/opt/app-root/src/backstage.json` dentro do pod** — nunca pela minor do RHDH
+> nem pela tag mais nova do registry.
 
 **O grupo do meio não é perigoso, é trabalhoso.** As tags têm a forma
 `bs_<backstage>__<plugin>`, e as nossas são `bs_1.49.4__*` — compiladas para o

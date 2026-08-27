@@ -326,6 +326,11 @@ metadata:
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
+    # A aba 'Imagem' do plugin Quay so aparece com esta anotacao. Ela
+    # aponta para um repositorio PUBLICO de verdade: os servicos da demo
+    # rodam as imagens do proprio Kiali, entao a aba mostra tags e data
+    # de push reais, e nao um exemplo vazio.
+    quay.io/repository-slug: kiali/demo_travels_travels
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -382,6 +387,7 @@ metadata:
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
+    quay.io/repository-slug: kiali/demo_travels_flights
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -426,6 +432,7 @@ metadata:
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
+    quay.io/repository-slug: kiali/demo_travels_hotels
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -470,6 +477,7 @@ metadata:
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
+    quay.io/repository-slug: kiali/demo_travels_cars
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -514,6 +522,7 @@ metadata:
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
+    quay.io/repository-slug: kiali/demo_travels_insurances
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -560,6 +569,7 @@ metadata:
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
+    quay.io/repository-slug: kiali/demo_travels_discounts
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.

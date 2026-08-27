@@ -188,6 +188,54 @@ if [[ "${WITH_KIALI:-false}" == "true" ]]; then
   _warn "Kiali incluido -- fora do conjunto documentado pela Red Hat, e baixado do ghcr.io."
 fi
 
+# Quay: a aba de imagem do componente. Ligado por padrao porque os servicos da
+# demo rodam imagens PUBLICAS do Quay (quay.io/kiali/demo_travels_*), entao a
+# aba mostra dado real -- tags, data de push, tamanho -- e nao uma tela vazia.
+# WITH_QUAY=false exclui.
+#
+# A tag bs_1.49.4__1.32.1 NAO e a mais nova do overlay (existe bs_1.52.0__1.37.1)
+# e isso e deliberado: o RHDH 1.10.3 traz Backstage 1.49.4 -- o MESMO do 1.9.8.
+# A versao do Backstage nao acompanha a minor do RHDH, e foi por isso que os
+# pins do Kiali sobreviveram ao upgrade de 2026-08-26. Escolher a tag pela "mais
+# recente" instalaria um build para um Backstage que este cluster nao tem.
+if [[ "${WITH_QUAY:-true}" == "true" ]]; then
+  _quay_tag="bs_1.49.4__1.32.1"
+  _plugins="${_plugins}
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-quay:${_quay_tag}!backstage-community-plugin-quay
+        disabled: false
+        pluginConfig:
+          # O plugin chama a API do Quay pelo PROXY do backend, e nao do
+          # navegador: sem este endpoint a aba carrega e fica em branco.
+          proxy:
+            endpoints:
+              '/quay/api':
+                target: 'https://quay.io'
+                headers:
+                  X-Requested-With: 'XMLHttpRequest'
+                changeOrigin: true
+          quay:
+            uiUrl: 'https://quay.io'
+          dynamicPlugins:
+            frontend:
+              backstage-community.plugin-quay:
+                entityTabs:
+                  - path: /image-registry
+                    title: Imagem
+                    mountPoint: entity.page.image-registry
+                mountPoints:
+                  - mountPoint: entity.page.image-registry/cards
+                    importName: QuayPage
+                    config:
+                      layout:
+                        gridColumn: '1 / -1'
+                      if:
+                        allOf:
+                          - isKind: component
+                          - hasAnnotation: quay.io/repository-slug"
+  _log "Quay incluido -- aba 'Imagem' nos componentes com quay.io/repository-slug"
+fi
+
+
 # Kuadrant / Connectivity Link. EXISTE plugin -- @kuadrant/*, no npm publico,
 # v0.4.0. A doc oficial declara suporte ao RHDH 1.8.4 (Backstage 1.42.5) e aqui
 # roda 1.10.3 (Backstage 1.49.4): combinacao nao testada pelo projeto. O backend
