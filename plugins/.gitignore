@@ -1,0 +1,10 @@
+# Artefatos de build dos pacotes. Nada aqui e versionavel: o .tgz e produzido
+# pelo 'yarn export-dynamic' + 'npm pack' e vai para o plugin-registry, nao para
+# o git -- versionar um bundle de alguns MB por release deixaria o clone da demo
+# impraticavel em pouco tempo.
+node_modules/
+dist/
+dist-dynamic/
+dist-scalprum/
+dist-types/
+*.tgz

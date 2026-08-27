@@ -368,6 +368,76 @@ if [[ "${WITH_KUADRANT:-false}" == "true" ]]; then
   _warn "plugin Kuadrant incluido (v${_kd_ver}) -- versao de RHDH nao coberta pela doc do projeto."
 fi
 
+# Connectivity Link Ops -- o plugin PROPRIO desta demo (ver plugins/). E a camada
+# que nem o console plugin do RHCL nem o @kuadrant/* levam para o portal:
+# trafego granular, cadeia efetiva de policies, saude de Gateway, DNS e TLS.
+#
+# NAO vem do npm: e servido pelo plugin-registry interno, o mesmo caminho dos
+# pacotes do Ansible. Por isso e opt-in -- exige que o .tgz ja tenha sido
+# construido e publicado. O como esta em plugins/connectivity-link-ops/README.md.
+#
+# Reaproveita a ServiceAccount rhdh-kubernetes em vez de criar identidade nova:
+# o ClusterRole rhdh-kubernetes-reader ja concede list em gateways, httproutes e
+# nas policies de kuadrant.io -- verificado com
+#   oc auth can-i list gateways.gateway.networking.k8s.io \
+#     --as=system:serviceaccount:${RHDH_NS}:rhdh-kubernetes
+# Certificates do cert-manager e DNSRecords NAO estao la: entram junto com a
+# fase de confiabilidade, e ate la a tela de DNS/TLS mostra o estado vazio que
+# explica qual verbo falta.
+if [[ "${WITH_CL_OPS:-false}" == "true" ]]; then
+  _clo_ver="${CL_OPS_VERSION:-0.1.0}"
+  _clo_be="${CL_OPS_BACKEND_TGZ:-rhcl-backstage-plugin-connectivity-link-ops-backend-dynamic-${_clo_ver}.tgz}"
+  _clo_fe="${CL_OPS_FRONTEND_TGZ:-rhcl-backstage-plugin-connectivity-link-ops-${_clo_ver}.tgz}"
+
+  # Integrity e obrigatorio tambem para pacote vindo por HTTP: sem ele o init
+  # container aborta com 'No integrity hash provided' e o pod fica em
+  # Init:CrashLoopBackOff -- sem mensagem que aponte para o plugin certo.
+  [[ -n "${CL_OPS_BACKEND_INTEGRITY:-}" && -n "${CL_OPS_FRONTEND_INTEGRITY:-}" ]] \
+    || _die "WITH_CL_OPS=true exige CL_OPS_BACKEND_INTEGRITY e CL_OPS_FRONTEND_INTEGRITY; gere com 'openssl dgst -sha512 -binary <tgz> | openssl base64 -A' e prefixe com 'sha512-' (ver plugins/connectivity-link-ops/README.md)."
+
+  _plugins="${_plugins}
+      - package: http://plugin-registry:8080/${_clo_be}
+        integrity: \"${CL_OPS_BACKEND_INTEGRITY}\"
+        disabled: false
+        # O backend fala com o cluster pela SA rhdh-kubernetes, a mesma do
+        # plugin Kubernetes. skipTLSVerify fica FALSE de proposito: o pod ja
+        # confia no CA interno por NODE_EXTRA_CA_CERTS (ver secao 1), entao
+        # desligar a verificacao aqui seria perder seguranca sem ganhar nada.
+        pluginConfig:
+          connectivityLinkOps:
+            kubernetes:
+              name: ${K8S_CLUSTER_NAME}
+              url: ${K8S_CLUSTER_URL}
+              serviceAccountToken: \${K8S_CLUSTER_TOKEN}
+              serviceAccountName: system:serviceaccount:${RHDH_NS}:rhdh-kubernetes
+              skipTLSVerify: false
+      - package: http://plugin-registry:8080/${_clo_fe}
+        integrity: \"${CL_OPS_FRONTEND_INTEGRITY}\"
+        disabled: false
+        # Sem dynamicRoutes o frontend carrega e nao aparece em lugar nenhum.
+        # A chave e o nome scalprum declarado no package.json do pacote.
+        pluginConfig:
+          dynamicPlugins:
+            frontend:
+              rhcl.backstage-plugin-connectivity-link-ops:
+                # Sem apiFactories a pagina sobe e quebra com
+                # 'No implementation available for apiRef
+                # plugin.connectivity-link-ops.service'.
+                apiFactories:
+                  - importName: connectivityLinkOpsApiFactory
+                appIcons:
+                  - name: connectivityLinkIcon
+                    importName: ConnectivityLinkIcon
+                dynamicRoutes:
+                  - path: /connectivity-link
+                    importName: ConnectivityLinkOpsPage
+                    menuItem:
+                      icon: connectivityLinkIcon
+                      text: Connectivity Link"
+  _log "Connectivity Link Ops incluido (v${_clo_ver}, do plugin-registry)"
+fi
+
+
 # Ansible / AAP. Os pacotes NAO vem de OCI nem do npm: sao servidos pelo
 # plugin-registry interno (ver 05-plugin-registry.yaml), construido a partir do
 # bundle baixado do Customer Portal. Integrity vem dos .integrity do bundle --

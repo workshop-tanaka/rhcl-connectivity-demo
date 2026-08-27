@@ -1,0 +1,159 @@
+# @rhcl/backstage-plugin-connectivity-link-ops
+
+Frontend do plugin de Connectivity Link para o Red Hat Developer Hub. Anda junto
+com [`connectivity-link-ops-backend`](../connectivity-link-ops-backend) — um sem
+o outro não entrega tela nenhuma.
+
+## O que a F0 entrega
+
+Uma página só, `/connectivity-link`, e o caminho inteiro provado: o Scalprum
+carrega o frontend, o frontend acha o backend pela discovery, o backend pergunta
+ao cluster se pode ler, e a tela responde com a verdade que voltou.
+
+Os cartões mostram `N/A` com o motivo, e não zero. Esse é o comportamento
+definitivo deles quando a medição não existir no cluster do cliente — não um
+placeholder a ser substituído.
+
+## Construir
+
+**Node 20.12 ou mais novo.** Não é preferência: o `backstage-cli` usa
+`util.styleText`, que só existe a partir dessa versão — em Node 20.11 e 21.5 o
+build morre com `styleText is not a function`, sem dizer que o problema é a
+versão. Nesta máquina o `node` do PATH é o 16 e falha antes disso, no
+`engine check`. Construído e verificado no **22.23.2**.
+
+O alvo continua sendo **Backstage 1.49.4**, que é o que o RHDH 1.10.3 traz — as
+versões de dependência dos dois `package.json` saíram de um repositório que já
+roda nessa linha.
+
+```bash
+nvm use 22
+
+# backend
+cd plugins/connectivity-link-ops-backend
+yarn install                 # com lockfile: o export-dynamic exige o yarn.lock
+yarn tsc                     # emite dist-types/
+yarn build
+yarn export-dynamic          # gera dist-dynamic/, auto-contido
+npm pack ./dist-dynamic --pack-destination /tmp/cl-ops
+
+# frontend
+cd ../connectivity-link-ops
+yarn install
+yarn tsc
+yarn build
+yarn export-dynamic          # gera dist/ + dist-scalprum/
+npm pack --pack-destination /tmp/cl-ops
+```
+
+Três armadilhas que custam tempo se descobertas na ordem errada:
+
+- **`yarn tsc` antes de `yarn build`**, sempre. Sem os `.d.ts` o build para com
+  `No declaration files found at dist-types/src/index.d.ts` — que parece erro de
+  configuração e é só ordem.
+- **O backend precisa de `yarn.lock`.** Instalar com `--no-lockfile` faz o
+  `export-dynamic` abortar com `Could not find the static plugin yarn.lock
+  file`. Os dois lockfiles são versionados de propósito.
+- **`cpu-features` falhando no `node-gyp` é ruído.** É dependência opcional e
+  nativa, puxada pelo `ssh2` por baixo do cliente do Kubernetes; o `ssh2`
+  funciona sem ela. O `yarn install` sai com 1 e o pacote fica correto.
+
+O backend é empacotado a partir de `dist-dynamic/` e o frontend a partir da
+raiz. Não é inconsistência: plugin de frontend é empacotado pelo webpack do app,
+então basta o fonte mais os assets de Scalprum; plugin de backend roda em Node e
+é carregado em runtime, então precisa vir pré-bundlado com as dependências
+dentro.
+
+O que sai:
+
+```
+rhcl-backstage-plugin-connectivity-link-ops-0.1.0.tgz                  ~4,7 MB
+rhcl-backstage-plugin-connectivity-link-ops-backend-dynamic-0.1.0.tgz  ~3,7 MB
+```
+
+O módulo Scalprum publicado chama-se
+`rhcl.backstage-plugin-connectivity-link-ops` — é essa a chave que o
+`pluginConfig` do `setup-plugins.sh` usa. Errar esse nome faz o frontend carregar
+e não aparecer em lugar nenhum, sem erro no log.
+
+## Publicar no plugin-registry
+
+Os pacotes não vão para o npm. Vão para o `plugin-registry` interno — o mesmo
+httpd que serve os plugins do Ansible, descrito em
+[`rhdh/05-plugin-registry.yaml`](../../rhdh/05-plugin-registry.yaml).
+
+Esse manifesto só implanta o resultado de um build; a ImageStream e a
+BuildConfig ficam fora dele porque dependem de um diretório local. Num cluster
+onde o Ansible nunca foi instalado elas não existem — foi o caso do cluster onde
+isto foi verificado. Criar custa dois comandos:
+
+```bash
+oc new-build httpd --name=plugin-registry --binary -n "$RHDH_NS"
+oc start-build plugin-registry --from-dir=/tmp/cl-ops --wait -n "$RHDH_NS"
+envsubst '${RHDH_NS}' < rhdh/05-plugin-registry.yaml | oc apply -f -
+```
+
+## Instalar
+
+O `integrity` é obrigatório mesmo para pacote vindo por HTTP. Sem ele o init
+container aborta com `No integrity hash provided` e o pod fica em
+`Init:CrashLoopBackOff`, sem mensagem que aponte para o plugin certo.
+
+```bash
+integrity() { printf 'sha512-%s' "$(openssl dgst -sha512 -binary "$1" | openssl base64 -A)"; }
+
+export RHDH_NS=rhdh-rhcl
+export WITH_CL_OPS=true
+export CL_OPS_BACKEND_INTEGRITY="$(integrity /tmp/cl-ops/*backend-dynamic-*.tgz)"
+export CL_OPS_FRONTEND_INTEGRITY="$(integrity /tmp/cl-ops/*connectivity-link-ops-0*.tgz)"
+
+bash rhdh/setup-plugins.sh
+```
+
+O bloco de instalação vive no `setup-plugins.sh` porque **ele é o dono** do
+ConfigMap `dynamic-plugins-rhdh` — o CR do RHDH aceita um único
+`dynamicPluginsConfigMapName`, então a lista de plugins tem que ser escrita num
+lugar só.
+
+## Identidade no cluster
+
+O backend fala com o cluster pela ServiceAccount `rhdh-kubernetes`, a mesma que
+o `setup-plugins.sh` já cria para o plugin Kubernetes. Não há identidade nova.
+
+O ClusterRole `rhdh-kubernetes-reader` já concede o que as três primeiras fases
+precisam — verificado no cluster, não deduzido do YAML:
+
+| Recurso | `list` |
+| --- | --- |
+| `gateways.gateway.networking.k8s.io` | sim |
+| `httproutes.gateway.networking.k8s.io` | sim |
+| `ratelimitpolicies.kuadrant.io` | sim |
+| `authpolicies.kuadrant.io` | sim |
+| `certificates.cert-manager.io` | **não** |
+| `dnsrecords.kuadrant.io` | **não** |
+
+As duas últimas entram junto com a fase de confiabilidade. Até lá a tela de DNS
+e TLS mostra o estado vazio que diz qual verbo falta — que é exatamente o
+comportamento que se quer no cluster de um cliente.
+
+## Permissões do RHDH
+
+O plugin exige `permission.enabled: true` e a permissão
+`connectivity-link.ops.read` na política em CSV. São duas autorizações
+diferentes, e elas respondem a perguntas diferentes:
+
+- **permission framework** — esta *pessoa* pode abrir a tela? Negar é 403.
+- **SelfSubjectAccessReview** — a *ServiceAccount* pode ler o cluster? Negar é
+  uma tela explicativa, não um erro: o portal está inteiro, o cluster é que
+  ainda não concedeu o RBAC.
+
+## Verificar
+
+```bash
+oc -n "$RHDH_NS" logs deploy/backstage-developer-hub -c install-dynamic-plugins | grep -i connectivity
+oc -n "$RHDH_NS" rollout status deploy/backstage-developer-hub
+```
+
+Depois: abrir o portal, item **Connectivity Link** na barra lateral. Com o
+`@kuadrant/*` carregado ao mesmo tempo, os dois têm que conviver — o oficial
+ocupa `/kuadrant`, este ocupa `/connectivity-link`.

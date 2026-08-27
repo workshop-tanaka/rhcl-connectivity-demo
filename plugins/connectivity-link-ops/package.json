@@ -1,0 +1,68 @@
+{
+  "name": "@rhcl/backstage-plugin-connectivity-link-ops",
+  "version": "0.1.0",
+  "description": "Camada operacional do Connectivity Link no Red Hat Developer Hub",
+  "license": "Apache-2.0",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "publishConfig": {
+    "access": "public",
+    "main": "dist/index.esm.js",
+    "types": "dist/index.d.ts"
+  },
+  "backstage": {
+    "role": "frontend-plugin",
+    "pluginId": "connectivity-link-ops",
+    "pluginPackages": [
+      "@rhcl/backstage-plugin-connectivity-link-ops",
+      "@rhcl/backstage-plugin-connectivity-link-ops-backend"
+    ]
+  },
+  "scalprum": {
+    "name": "rhcl.backstage-plugin-connectivity-link-ops",
+    "exposedModules": {
+      "PluginRoot": "./src/index.ts"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "dist-scalprum"
+  ],
+  "scripts": {
+    "build": "backstage-cli package build",
+    "clean": "backstage-cli package clean",
+    "lint": "backstage-cli package lint",
+    "test": "backstage-cli package test",
+    "tsc": "tsc",
+    "prepack": "backstage-cli package prepack",
+    "postpack": "backstage-cli package postpack",
+    "export-dynamic": "rhdh-cli plugin export && cp -r dist-dynamic/dist-scalprum dist-scalprum"
+  },
+  "dependencies": {
+    "@backstage/core-components": "^0.18.8",
+    "@backstage/core-plugin-api": "^1.12.4",
+    "@backstage/plugin-permission-common": "^0.9.7",
+    "@backstage/plugin-permission-react": "^0.4.41",
+    "@backstage/theme": "^0.7.2",
+    "@material-ui/core": "^4.9.13",
+    "@material-ui/icons": "^4.9.1",
+    "@material-ui/lab": "^4.0.0-alpha.61",
+    "react-router-dom": "^6.0.0",
+    "react-use": "^17.2.4"
+  },
+  "peerDependencies": {
+    "react": "^16.13.1 || ^17.0.0 || ^18.0.0",
+    "react-dom": "^16.13.1 || ^17.0.0 || ^18.0.0"
+  },
+  "devDependencies": {
+    "@backstage/cli": "^0.36.0",
+    "@red-hat-developer-hub/cli": "~1.10.0",
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "typescript": "^5.9.3"
+  }
+}
