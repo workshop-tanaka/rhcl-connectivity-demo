@@ -68,6 +68,36 @@ async function alvoNoCluster(
   return { namespace: ns, name: comp.metadata.name };
 }
 
+/**
+ * A cadeia efetiva, em texto.
+ *
+ * Não basta dizer que há policy: numa tela de operação a pergunta é "por que a
+ * minha não está valendo?", e a resposta é a linha logo acima. Nenhum CR
+ * responde isso — a HTTPRoute lista quem a afeta e para por aí.
+ */
+const CadeiaNoTooltip = ({ c }: { c: ConcernResult }) => {
+  const cadeia = c.cadeia ?? [];
+  const divergente = (c.conferencias ?? []).some(x => x.confere === false);
+
+  return (
+    <div>
+      {cadeia.map(e => (
+        <div key={`${e.namespace}/${e.name}`}>
+          {e.vence ? '✓ ' : '✗ '}
+          {e.kind}/{e.name} — {e.porque}
+          {e.sobreposta ? ` (sobreposta por ${e.sobrepostaPor})` : ''}
+        </div>
+      ))}
+      {divergente && (
+        <div>
+          ⚠ a cadeia calculada diverge do que a HTTPRoute declara — pode faltar
+          permissão de leitura em algum tipo de policy
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Estado = ({ c }: { c: ConcernResult }) => {
   if (c.status === 'unknown') {
     return (
@@ -81,13 +111,16 @@ const Estado = ({ c }: { c: ConcernResult }) => {
       </Tooltip>
     );
   }
-  const rotulo = c.status === 'enforced' ? 'aplicada' : 'anexada, não aplicada';
+  const vencedor = (c.cadeia ?? []).find(e => e.vence);
+  const sobrepostas = (c.cadeia ?? []).filter(e => e.sobreposta).length;
+  const rotulo =
+    c.status !== 'enforced'
+      ? 'anexada, não aplicada'
+      : sobrepostas
+      ? `${vencedor?.scope === 'gateway' ? 'gateway' : 'rota'} vence · +${sobrepostas}`
+      : 'aplicada';
   return (
-    <Tooltip
-      title={c.policies
-        .map(p => `${p.kind}/${p.name} (${p.scope === 'route' ? 'na rota' : 'no gateway'})`)
-        .join(' · ')}
-    >
+    <Tooltip title={<CadeiaNoTooltip c={c} />}>
       {/* Sempre 'outlined'. Com color="primary" o tema do RHDH pinta o chip e o
           texto da MESMA cor: o rotulo some e sobra uma pilula vazia, que nao
           diz nada e parece defeito. Quem carrega o significado e a palavra. */}

@@ -19,7 +19,13 @@ export interface K8sObject {
   kind?: string;
   metadata?: { name?: string; namespace?: string };
   spec?: any;
-  status?: { conditions?: Array<{ type?: string; status?: string }> };
+  /** Status de objeto do Kubernetes é aberto por natureza: uma policy carrega
+   *  `conditions`, uma HTTPRoute carrega `parents`. Fechar a forma aqui só
+   *  obrigaria a mentir com cast em quem lê a outra metade. */
+  status?: {
+    conditions?: Array<{ type?: string; status?: string }>;
+    [k: string]: any;
+  };
 }
 
 export type Concern = 'auth' | 'rateLimit' | 'tls' | 'dns';

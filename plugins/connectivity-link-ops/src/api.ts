@@ -60,11 +60,30 @@ export interface AttachedPolicy {
   enforced: boolean;
 }
 
+export interface Elo extends AttachedPolicy {
+  nivel: 'override' | 'default';
+  vence: boolean;
+  sobreposta: boolean;
+  sobrepostaPor?: string;
+  /** A razão em uma frase — a tela mostra, não deduz. */
+  porque: string;
+}
+
+export interface Conferencia {
+  kind: string;
+  /** false = a cadeia calculada diverge do que o cluster declara. */
+  confere?: boolean;
+  declaradas?: string[];
+}
+
 export interface ConcernResult {
   concern: 'auth' | 'rateLimit' | 'tls' | 'dns';
   policies: AttachedPolicy[];
   /** `none` é uma resposta; `unknown` é a ausência dela. Nunca confundir. */
   status: 'enforced' | 'attached' | 'none' | 'unknown';
+  /** A cadeia resolvida por GEP-713, do vencedor para os sobrepostos. */
+  cadeia?: Elo[];
+  conferencias?: Conferencia[];
 }
 
 export interface Posture {

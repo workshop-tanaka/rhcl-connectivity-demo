@@ -12,6 +12,7 @@ import { connectivityLinkReadPermission } from './permissions';
 import { KubeClient } from './service/KubeClient';
 import { MetricsClient } from './service/MetricsClient';
 import { KindResult, ResourceCache, WATCHED_KINDS } from './service/ResourceCache';
+import { conferirComRota, Nivel, nivelDe, resolverCadeia } from './service/effective';
 import {
   computePosture,
   findGatewayForRoute,
@@ -173,17 +174,42 @@ export async function createRouter(
     }
 
     const gateway = findGatewayForRoute(route);
+    const porKind = cache.objectsByKind();
+
+    // O nível (override ou default) mora no objeto, e a cadeia trabalha só com
+    // a referência. Este mapa é a ponte entre os dois.
+    const niveis = new Map<string, Nivel>();
+    for (const objs of Object.values(porKind)) {
+      for (const o of objs) {
+        niveis.set(`${o.metadata?.namespace}/${o.metadata?.name}`, nivelDe(o));
+      }
+    }
+
+    const concerns = computePosture(
+      route,
+      gateway,
+      porKind,
+      cache.unreadableKinds(),
+    ).map(c => {
+      const cadeia = resolverCadeia(c.policies, niveis);
+      // A conferência é por Kind porque a condição da rota também é: existe uma
+      // `kuadrant.io/<Kind>Affected` para cada tipo, e comparar a cadeia inteira
+      // contra uma delas acusaria divergência onde não há.
+      const conferencias = [...new Set(cadeia.map(e => e.kind))]
+        .map(kind => ({
+          kind,
+          ...conferirComRota(route, kind, cadeia.filter(e => e.kind === kind)),
+        }))
+        .filter(x => x.confere !== undefined);
+
+      return { ...c, cadeia, conferencias };
+    });
 
     res.json({
       exposed: true,
       route: routeRefOf(route),
       gateway,
-      concerns: computePosture(
-        route,
-        gateway,
-        cache.objectsByKind(),
-        cache.unreadableKinds(),
-      ),
+      concerns,
     });
   });
 
