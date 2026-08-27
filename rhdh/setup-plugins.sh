@@ -748,6 +748,29 @@ if oc get secret rhdh-ansible-secret -n "$RHDH_NS" >/dev/null 2>&1; then
   _log "creator-service entra como sidecar (${_adt_image})."
 fi
 
+# COPIA do service-ca, e nao o ConfigMap do cluster. Motivo medido em
+# 2026-08-27, com o RHDH 1.10.3:
+#
+#   O openshift-service-ca.crt e reescrito continuamente pelo service-ca-operator.
+#   O operator do RHDH 1.10 tenta marcar como seu todo ConfigMap citado em
+#   extraFiles -- e perde a corrida a cada tentativa:
+#
+#     Operation cannot be fulfilled on configmaps "openshift-service-ca.crt":
+#     the object has been modified
+#
+#   525 erros em 10 minutos, ZERO reconciles bem-sucedidos. E o sintoma visivel
+#   era nenhum: pod 2/2, portal 200. Nada que se mudasse no portal era aplicado.
+#
+# Funcionava no 1.9.8. Copiar resolve porque o operator pode possuir um
+# ConfigMap nosso sem disputar com ninguem. O conteudo e o mesmo certificado.
+_log "copiando o service-ca para um ConfigMap proprio (o do cluster faz o operator 1.10 entrar em loop)..."
+oc get cm openshift-service-ca.crt -n "$RHDH_NS" -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null \
+  | oc create cm rhdh-cluster-ca -n "$RHDH_NS" --from-file=service-ca.crt=/dev/stdin \
+      --dry-run=client -o yaml 2>/dev/null \
+  | oc apply -f - >/dev/null 2>&1 \
+  && _ok "rhdh-cluster-ca atualizado" \
+  || _warn "nao consegui copiar o service-ca" "o RHDH sobe sem a CA do cluster; Thanos e Kiali podem falhar no TLS"
+
 _log "atualizando a instancia..."
 oc patch backstage "$RHDH_CR" -n "$RHDH_NS" --type=merge -p "{
   \"spec\": {\"application\": {
@@ -757,7 +780,7 @@ oc patch backstage "$RHDH_CR" -n "$RHDH_NS" --type=merge -p "{
       \"mountPath\": \"${CA_MOUNT}\",
       \"configMaps\": [
         {\"name\": \"kube-root-ca.crt\", \"key\": \"ca.crt\"},
-        {\"name\": \"openshift-service-ca.crt\", \"key\": \"service-ca.crt\"}
+        {\"name\": \"rhdh-cluster-ca\", \"key\": \"service-ca.crt\"}
       ]
     },
     \"extraEnvs\": {
