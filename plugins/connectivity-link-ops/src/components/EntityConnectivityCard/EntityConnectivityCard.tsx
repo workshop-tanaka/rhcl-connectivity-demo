@@ -1,5 +1,6 @@
 import React from 'react';
-import useAsync from 'react-use/lib/useAsync';
+import useAsyncFn from 'react-use/lib/useAsyncFn';
+import { useEffect } from 'react';
 import {
   Box,
   Chip,
@@ -20,6 +21,7 @@ import type { Entity } from '@backstage/catalog-model';
 
 import { ConcernResult, connectivityLinkOpsApiRef } from '../../api';
 import { NotAvailable } from '../common';
+import { useMudancasDoCluster } from '../../hooks/useMudancasDoCluster';
 
 const ROTULO: Record<ConcernResult['concern'], string> = {
   auth: 'Autenticação',
@@ -105,11 +107,15 @@ export const EntityConnectivityCard = () => {
   const api = useApi(connectivityLinkOpsApiRef);
   const catalogApi = useApi(catalogApiRef);
 
-  const { value, loading, error } = useAsync(async () => {
+  const [{ value, loading, error }, recarregar] = useAsyncFn(async () => {
     const alvo = await alvoNoCluster(entity, catalogApi);
     if (!alvo) return undefined;
     return await api.getPosture(alvo.namespace, alvo.name);
   }, [api, catalogApi, entity]);
+  useEffect(() => {
+    recarregar();
+  }, [recarregar]);
+  useMudancasDoCluster(recarregar);
 
   const pronto = !loading && !error;
 

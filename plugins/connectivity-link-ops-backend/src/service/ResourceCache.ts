@@ -78,10 +78,39 @@ const isNotFound = (err: unknown): boolean => {
 export class ResourceCache {
   private readonly entries = new Map<string, Entry>();
 
+  /** Avisado quando algo muda, ja coalescido. Ver agendarAviso(). */
+  private aoMudar?: () => void;
+  private avisoPendente?: ReturnType<typeof setTimeout>;
+
   constructor(
     private readonly kube: KubeClient,
     private readonly logger: LoggerService,
   ) {}
+
+  /**
+   * Registra quem quer saber que o cluster mudou.
+   *
+   * NAO passa o objeto que mudou, e isso e deliberado. Aplicar uma policy
+   * dispara 'add' e varios 'update' enquanto o reconciler escreve status: mandar
+   * cada um faria a tela piscar e obrigaria o cliente a reconciliar deltas.
+   * Um aviso coalescido de "algo mudou, pergunte de novo" e mais barato de
+   * produzir, mais barato de consumir, e nao tem como ficar dessincronizado.
+   */
+  onChange(cb: () => void): void {
+    this.aoMudar = cb;
+  }
+
+  private agendarAviso(): void {
+    if (!this.aoMudar || this.avisoPendente) return;
+    this.avisoPendente = setTimeout(() => {
+      this.avisoPendente = undefined;
+      try {
+        this.aoMudar?.();
+      } catch (err) {
+        this.logger.warn(`falha ao avisar mudanca: ${err}`);
+      }
+    }, 800);
+  }
 
   async start(): Promise<void> {
     await Promise.all(WATCHED_KINDS.map(kind => this.startKind(kind)));
@@ -114,6 +143,13 @@ export class ResourceCache {
     informer.on('connect', () => {
       entry.state = 'ready';
       entry.reason = undefined;
+      // So a partir daqui os eventos valem a pena. Antes do 'connect' o informer
+      // emite um 'add' por objeto existente -- avisar durante a carga inicial
+      // seria uma rajada que nao diz nada, porque nada mudou de fato.
+      for (const verbo of ['add', 'update', 'delete'] as const) {
+        informer.on(verbo, () => this.agendarAviso());
+      }
+      this.agendarAviso();
     });
 
     // Watch cai por motivo banal — rotação de token, reinício do apiserver. Sem

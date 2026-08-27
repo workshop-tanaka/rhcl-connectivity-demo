@@ -3,6 +3,8 @@ import {
   createBackendPlugin,
 } from '@backstage/backend-plugin-api';
 
+import { signalsServiceRef } from '@backstage/plugin-signals-node';
+
 import { createRouter } from './router';
 import { KubeClient } from './service/KubeClient';
 import { MetricsClient } from './service/MetricsClient';
@@ -19,6 +21,7 @@ export const connectivityLinkOpsPlugin = createBackendPlugin({
         httpRouter: coreServices.httpRouter,
         lifecycle: coreServices.rootLifecycle,
         permissions: coreServices.permissions,
+        signals: signalsServiceRef,
       },
       async init({
         logger,
@@ -27,6 +30,7 @@ export const connectivityLinkOpsPlugin = createBackendPlugin({
         httpRouter,
         lifecycle,
         permissions,
+        signals,
       }) {
         const kube = new KubeClient(config);
         const cache = new ResourceCache(kube, logger);
@@ -59,6 +63,19 @@ export const connectivityLinkOpsPlugin = createBackendPlugin({
         cache.start().catch(err =>
           logger.error(`falha ao iniciar o cache de recursos: ${err}`),
         );
+
+        // A tela vira sozinha. O canal e o mesmo WebSocket que o RHDH ja mantem
+        // para o plugin de signals -- nao ha transporte novo a inventar, e o
+        // broadcast nao carrega dado nenhum sobre o cluster: so o aviso.
+        cache.onChange(() => {
+          signals
+            .publish({
+              recipients: { type: 'broadcast' },
+              channel: 'connectivity-link-ops',
+              message: { changed: true },
+            })
+            .catch(err => logger.warn(`falha ao publicar signal: ${err}`));
+        });
 
         lifecycle.addShutdownHook(() => cache.stop());
 

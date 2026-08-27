@@ -1,5 +1,6 @@
 import React from 'react';
-import useAsync from 'react-use/lib/useAsync';
+import useAsyncFn from 'react-use/lib/useAsyncFn';
+import { useEffect } from 'react';
 import {
   Grid,
   Table,
@@ -22,6 +23,7 @@ import {
 import { useApi } from '@backstage/core-plugin-api';
 
 import { connectivityLinkOpsApiRef, KindResult } from '../../api';
+import { useMudancasDoCluster } from '../../hooks/useMudancasDoCluster';
 import { NotAvailable, RbacEmptyState } from '../common';
 
 /** Um número medido, ou o N/A com o motivo. Nunca um zero de conveniência. */
@@ -37,7 +39,14 @@ const Value = ({ result }: { result?: KindResult }) => {
 
 export const OverviewPage = () => {
   const api = useApi(connectivityLinkOpsApiRef);
-  const { value, loading, error } = useAsync(() => api.getSummary(), [api]);
+  const [{ value, loading, error }, recarregar] = useAsyncFn(
+    () => api.getSummary(),
+    [api],
+  );
+  useEffect(() => {
+    recarregar();
+  }, [recarregar]);
+  useMudancasDoCluster(recarregar);
 
   const blocked = value && typeof value.gateways?.count !== 'number';
 
