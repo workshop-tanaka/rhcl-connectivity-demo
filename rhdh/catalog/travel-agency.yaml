@@ -354,8 +354,8 @@ metadata:
     - url: https://${DEVSPACES_HOST}/#${DEMO_REPO_URL}
       title: Abrir no Dev Spaces
       icon: code
-    - url: https://${TRACING_HOST}/search?service=travels.travel-agency
-      title: Traces (Tempo)
+    - url: https://${CONSOLE_HOST}/observe/traces
+      title: Traces — travels.travel-agency
       icon: dashboard
 spec:
   type: service
@@ -411,8 +411,8 @@ metadata:
     - url: https://${DEVSPACES_HOST}/#${DEMO_REPO_URL}
       title: Abrir no Dev Spaces
       icon: code
-    - url: https://${TRACING_HOST}/search?service=flights.travel-agency
-      title: Traces (Tempo)
+    - url: https://${CONSOLE_HOST}/observe/traces
+      title: Traces — flights.travel-agency
       icon: dashboard
 spec:
   type: service
@@ -456,8 +456,8 @@ metadata:
     - url: https://${DEVSPACES_HOST}/#${DEMO_REPO_URL}
       title: Abrir no Dev Spaces
       icon: code
-    - url: https://${TRACING_HOST}/search?service=hotels.travel-agency
-      title: Traces (Tempo)
+    - url: https://${CONSOLE_HOST}/observe/traces
+      title: Traces — hotels.travel-agency
       icon: dashboard
 spec:
   type: service
@@ -501,8 +501,8 @@ metadata:
     - url: https://${DEVSPACES_HOST}/#${DEMO_REPO_URL}
       title: Abrir no Dev Spaces
       icon: code
-    - url: https://${TRACING_HOST}/search?service=cars.travel-agency
-      title: Traces (Tempo)
+    - url: https://${CONSOLE_HOST}/observe/traces
+      title: Traces — cars.travel-agency
       icon: dashboard
 spec:
   type: service
@@ -546,8 +546,8 @@ metadata:
     - url: https://${DEVSPACES_HOST}/#${DEMO_REPO_URL}
       title: Abrir no Dev Spaces
       icon: code
-    - url: https://${TRACING_HOST}/search?service=insurances.travel-agency
-      title: Traces (Tempo)
+    - url: https://${CONSOLE_HOST}/observe/traces
+      title: Traces — insurances.travel-agency
       icon: dashboard
 spec:
   type: service
@@ -593,8 +593,8 @@ metadata:
     - url: https://${DEVSPACES_HOST}/#${DEMO_REPO_URL}
       title: Abrir no Dev Spaces
       icon: code
-    - url: https://${TRACING_HOST}/search?service=discounts.travel-agency
-      title: Traces (Tempo)
+    - url: https://${CONSOLE_HOST}/observe/traces
+      title: Traces — discounts.travel-agency
       icon: dashboard
 spec:
   type: service
@@ -622,8 +622,8 @@ metadata:
     - url: https://${DEVSPACES_HOST}/#${DEMO_REPO_URL}
       title: Abrir no Dev Spaces
       icon: code
-    - url: https://${TRACING_HOST}/search?service=echo-api.echo-api
-      title: Traces (Tempo)
+    - url: https://${CONSOLE_HOST}/observe/traces
+      title: Traces — echo-api.echo-api
       icon: dashboard
     - url: https://${DEMO_ECHO_HOST}
       title: Endpoint

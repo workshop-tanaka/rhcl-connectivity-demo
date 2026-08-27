@@ -76,6 +76,12 @@ DEVSPACES_HOST="${DEVSPACES_HOST:-$(oc get checluster devspaces -n openshift-dev
   -o jsonpath='{.status.cheURL}' 2>/dev/null | sed -E 's|^https?://||; s|/$||')}"
 GRAFANA_HOST="${GRAFANA_HOST:-$(_route_of grafana-route monitoring)}"
 TRACING_HOST="${TRACING_HOST:-$(_route_of tempo-tempo-jaegerui tracing-system)}"
+# O console e o destino dos links de trace, e nao a rota do Tempo. Motivo medido
+# em 2026-08-27: a rota do Tempo aponta para o tempo-gateway, que exige Bearer
+# token e devolve 401 SECO -- sem WWW-Authenticate, sem Location. Navegador
+# clicando de fora leva 401 e para ali. O caminho tambem estava errado: o
+# gateway serve por tenant, em /api/traces/v1/dev/.
+CONSOLE_HOST="${CONSOLE_HOST:-$(oc get route console -n openshift-console -o jsonpath='{.spec.host}' 2>/dev/null)}"
 [[ -n "$GRAFANA_HOST" ]] || { GRAFANA_HOST="grafana.example.com"; _warn "rota do Grafana nao encontrada; link com placeholder."; }
 [[ -n "$TRACING_HOST" ]] || { TRACING_HOST="tracing.example.com"; _warn "rota do Tempo nao encontrada; link com placeholder."; }
 _log "observabilidade: ${GRAFANA_HOST} / ${TRACING_HOST}"
@@ -88,13 +94,13 @@ _log "observabilidade: ${GRAFANA_HOST} / ${TRACING_HOST}"
 # se trabalha. Qual branch do GitHub originou o espelho e decisao de quem roda o
 # gitlab-seed.sh, e nao muda a URL que o portal le.
 
-export DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_URL DEMO_REPO_URL_BLOB GRAFANA_HOST TRACING_HOST DEVSPACES_HOST
+export DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_URL DEMO_REPO_URL_BLOB GRAFANA_HOST TRACING_HOST CONSOLE_HOST DEVSPACES_HOST
 _log "hosts da demo: ${DEMO_API_HOST} / ${DEMO_ECHO_HOST}"
 
 # ----- 2. entidades renderizadas -------------------------------------------
 _rendered="$(mktemp)"
 trap 'rm -f "$_rendered"' EXIT
-envsubst '${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_URL} ${DEMO_REPO_URL_BLOB} ${GRAFANA_HOST} ${TRACING_HOST} ${DEVSPACES_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
+envsubst '${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_URL} ${DEMO_REPO_URL_BLOB} ${GRAFANA_HOST} ${TRACING_HOST} ${CONSOLE_HOST} ${DEVSPACES_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
   || _die "falha ao renderizar catalog/travel-agency.yaml"
 
 # Espelho ausente: TechDocs e source-location sairiam com URL vazia, e o portal
