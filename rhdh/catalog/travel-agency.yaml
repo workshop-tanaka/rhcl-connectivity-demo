@@ -404,6 +404,12 @@ metadata:
     e o PlanPolicy travels-plans que o converte em limite.
   annotations:
     grafana/dashboard-selector: rhcl
+    # Hash do spec renderizado. NAO e enfeite: sem ele, mudar o
+    # travels-openapi.yaml nao muda esta entidade, o Backstage nao a
+    # reprocessa, e o definition.$text abaixo continua servindo a copia
+    # resolvida na PRIMEIRA ingestao -- para sempre, sem erro. O setup-catalog
+    # calcula e substitui.
+    rhcl.demo/openapi-sha: "${OPENAPI_SHA}"
   links:
     - url: https://${DEMO_API_HOST}
       title: Endpoint do gateway

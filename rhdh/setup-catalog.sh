@@ -107,13 +107,30 @@ _log "observabilidade: ${GRAFANA_HOST} / ${TRACING_HOST}"
 # se trabalha. Qual branch do GitHub originou o espelho e decisao de quem roda o
 # gitlab-seed.sh, e nao muda a URL que o portal le.
 
-export CATALOG_SVC DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_URL DEMO_REPO_URL_BLOB GRAFANA_HOST TRACING_HOST CONSOLE_HOST DEVSPACES_HOST
+# O spec e renderizado AQUI, antes das entidades, para que seu hash possa
+# entrar na entidade kind: API.
+#
+# POR QUE O HASH EXISTE: definition.$text e resolvido UMA vez, na primeira
+# ingestao, e o resultado fica no banco do catalogo. O Backstage so reprocessa
+# a entidade quando o conteudo DELA muda -- mudar so o arquivo apontado nao
+# dispara nada. O portal seguia servindo o spec antigo indefinidamente, sem
+# erro em lugar nenhum. Medido em 2026-08-27: httpd com 2388 bytes e host
+# certo, entidade no banco com 1992 e o host de outro cluster.
+#
+# Com o hash dentro da entidade, mudar o spec muda a entidade, e o
+# reprocessamento acontece por consequencia.
+_openapi="$(mktemp)"
+envsubst '${DEMO_API_HOST}' < "${_here}/catalog/travels-openapi.yaml" > "$_openapi" \
+  || _die "falha ao renderizar catalog/travels-openapi.yaml"
+OPENAPI_SHA="$(shasum -a 256 "$_openapi" | cut -c1-12)"
+
+export OPENAPI_SHA CATALOG_SVC DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_URL DEMO_REPO_URL_BLOB GRAFANA_HOST TRACING_HOST CONSOLE_HOST DEVSPACES_HOST
 _log "hosts da demo: ${DEMO_API_HOST} / ${DEMO_ECHO_HOST}"
 
 # ----- 2. entidades renderizadas -------------------------------------------
 _rendered="$(mktemp)"
-trap 'rm -f "$_rendered"' EXIT
-envsubst '${CATALOG_SVC} ${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_URL} ${DEMO_REPO_URL_BLOB} ${GRAFANA_HOST} ${TRACING_HOST} ${CONSOLE_HOST} ${DEVSPACES_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
+trap 'rm -f "$_rendered" "$_openapi"' EXIT
+envsubst '${OPENAPI_SHA} ${CATALOG_SVC} ${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_URL} ${DEMO_REPO_URL_BLOB} ${GRAFANA_HOST} ${TRACING_HOST} ${CONSOLE_HOST} ${DEVSPACES_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
   || _die "falha ao renderizar catalog/travel-agency.yaml"
 
 # Espelho ausente: TechDocs e source-location sairiam com URL vazia, e o portal
@@ -146,7 +163,7 @@ fi
 # objeto no cluster. Entidades sem esse prefixo (Component, System, API...) nao
 # sao filtradas.
 _present="$(mktemp)"; _filtered="$(mktemp)"; _dropped="$(mktemp)"
-trap 'rm -f "$_rendered" "$_present" "$_filtered" "$_dropped"' EXIT
+trap 'rm -f "$_rendered" "$_openapi" "$_present" "$_filtered" "$_dropped"' EXIT
 
 for _k in gateway dnspolicy tlspolicy authpolicy ratelimitpolicy planpolicy telemetrypolicy; do
   oc get "$_k" -A -o jsonpath="{range .items[*]}${_k}/{.metadata.name}{'\n'}{end}" 2>/dev/null
@@ -163,6 +180,35 @@ for doc in open(sys.argv[1]).read().split('\n---\n'):
         dropped.append(name.group(1))
     else:
         kept.append(doc)
+
+# Descartar a entidade nao basta: quem apontava para ela continua apontando, e o
+# Backstage mostra na pagina do vizinho "entities not found: resource:default/X".
+# O erro aparece longe da causa -- na pagina do componente, e nao na policy que
+# nao existe -- entao a limpeza tem de acontecer aqui, junto do descarte, e nao
+# no arquivo de origem: la a relacao esta certa para um cluster 1.2.
+if dropped:
+    alvos = {f"resource:default/{n}" for n in dropped}
+    limpos = []
+    for doc in kept:
+        linhas, saida = doc.split('\n'), []
+        for l in linhas:
+            m = re.match(r'^(\s*)-\s*(\S+)\s*$', l)
+            if m and m.group(2) in alvos:
+                continue                       # referencia orfa: sai
+            saida.append(l)
+        # uma lista que ficou sem itens vira 'chave:' seguida de nao-item, o que
+        # o Backstage le como null e reclama; a chave sai junto.
+        final = []
+        for i, l in enumerate(saida):
+            m = re.match(r'^(\s*)(dependsOn|dependencyOf|providesApis|consumesApis|subcomponentOf):\s*$', l)
+            if m:
+                prox = saida[i+1] if i+1 < len(saida) else ''
+                if not re.match(rf'^{m.group(1)}\s+-\s', prox):
+                    continue                   # chave sem item: sai
+            final.append(l)
+        limpos.append('\n'.join(final))
+    kept = limpos
+
 open(sys.argv[3], 'w').write(', '.join(dropped))
 print('\n---\n'.join(kept))
 PY
@@ -184,12 +230,11 @@ _log "publicando as entidades..."
 # depois do rhdh/sync-survey.sh), e montar a lista de flags condicionalmente
 # esbarra em array vazio sob 'set -u' no bash 3.2 que o macOS ainda traz.
 _cmdir="$(mktemp -d)"
-trap 'rm -f "$_rendered" "$_present" "$_filtered" "$_dropped"; rm -rf "$_cmdir"' EXIT
+trap 'rm -f "$_rendered" "$_openapi" "$_present" "$_filtered" "$_dropped"; rm -rf "$_cmdir"' EXIT
 # envsubst, e nao cp: o spec declara servers[0].url, e um placeholder ali vira
 # "Try it out" apontando para outro cluster assim que o Swagger UI aparecer.
 # Era cp ate 2026-08-27, e passava despercebido porque nada renderizava o spec.
-envsubst '${DEMO_API_HOST}' < "${_here}/catalog/travels-openapi.yaml" > "${_cmdir}/travels-openapi.yaml" \
-  || _die "falha ao renderizar catalog/travels-openapi.yaml"
+cp "$_openapi" "${_cmdir}/travels-openapi.yaml"
 cp "$_rendered" "${_cmdir}/travel-agency.yaml"
 
 # Template do job template do AAP, se o sync do survey ja rodou. Ele vem pelo
