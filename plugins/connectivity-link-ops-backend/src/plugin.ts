@@ -32,6 +32,26 @@ export const connectivityLinkOpsPlugin = createBackendPlugin({
         const cache = new ResourceCache(kube, logger);
         const metrics = new MetricsClient(config, logger);
 
+        // Diz em voz alta se a primeira camada de autorização está de fato
+        // valendo. Com 'permission.enabled' falso — que é o default do
+        // Backstage — o authorize() deste plugin SEMPRE devolve ALLOW, e as
+        // "duas camadas" viram uma: só o RBAC do cluster protege os dados.
+        //
+        // O código não muda de comportamento por causa disto, e nem deveria:
+        // quem decide se o portal aplica permissões é o portal. O que muda é a
+        // visibilidade. Uma camada de segurança inerte e silenciosa é pior do
+        // que não tê-la, porque alguém vai contar com ela.
+        if (config.getOptionalBoolean('permission.enabled') === true) {
+          logger.info('autorização: permission framework do Backstage ativo');
+        } else {
+          logger.warn(
+            'autorização: permission.enabled é falso ou ausente — o authorize() ' +
+              'do Backstage devolve ALLOW para todos. Quem lê este plugin é ' +
+              'qualquer pessoa autenticada no portal; a única barreira real é o ' +
+              'RBAC da ServiceAccount no cluster.',
+          );
+        }
+
         // Sem await: o start faz uma checagem de CRD e de RBAC por tipo, e
         // segurar a subida do backend por causa disso deixaria o portal inteiro
         // esperando. Enquanto o cache não sincroniza, a tela mostra N/A — que é

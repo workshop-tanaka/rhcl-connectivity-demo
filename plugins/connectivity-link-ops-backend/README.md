@@ -38,6 +38,46 @@ vem com `partial: true` quando algum tipo não pôde ser lido: somar só o que s
 enxerga e apresentar como total seria a mentira silenciosa que a regra do N/A
 existe para evitar — o número estaria certo e a leitura, errada.
 
+## A primeira camada de autorização está inerte neste cluster
+
+O plugin faz duas checagens, e elas respondem a perguntas diferentes: o
+permission framework decide se a **pessoa** abre a tela, o
+`SelfSubjectAccessReview` decide se a **ServiceAccount** lê o cluster.
+
+Hoje só a segunda vale. O `permission.enabled` não está ligado nesta instância,
+e com ele desligado o `authorize()` do Backstage **sempre devolve ALLOW** — o
+que faz das duas camadas uma. Quem lê este plugin é qualquer pessoa autenticada
+no portal.
+
+O código não muda de comportamento por causa disso, e nem deveria: quem decide
+se o portal aplica permissões é o portal. O que o plugin faz é **avisar**, no
+log, a cada inicialização:
+
+```
+[warn] autorização: permission.enabled é falso ou ausente — o authorize() do
+Backstage devolve ALLOW para todos...
+```
+
+Uma camada de segurança inerte **e silenciosa** é pior do que não tê-la: alguém
+vai contar com ela.
+
+### Ligar não é uma hora de trabalho
+
+A estimativa inicial estava errada, e a imagem do RHDH 1.10.3 é a evidência: dos
+42 pacotes que ela traz, o de RBAC é **só o frontend** —
+`backstage-community-plugin-rbac`, com `"role": "frontend-plugin"`. O motor de
+política, que lê o CSV, não vem junto.
+
+Ligar de verdade exige:
+
+1. trazer o `...-rbac-backend-dynamic` de um overlay OCI, pinado em `bs_1.49.4`
+   — mesmo caminho do Kiali e do Quay;
+2. `permission.enabled: true` mais um CSV montado;
+3. **revalidar o golden path inteiro**, porque a política é deny-by-default: um
+   CSV incompleto não quebra este plugin, quebra o Ato 6.
+
+Meio dia com risco sobre uma demo que funciona, não uma hora.
+
 ## Métricas: a porta 9092, e por quê
 
 O `thanos-querier` expõe duas portas, e a diferença entre elas é de privilégio:
