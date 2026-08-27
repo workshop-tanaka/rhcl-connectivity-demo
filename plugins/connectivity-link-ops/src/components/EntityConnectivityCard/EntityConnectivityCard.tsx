@@ -1,11 +1,9 @@
 import React from 'react';
 import useAsync from 'react-use/lib/useAsync';
 import {
+  Box,
   Chip,
-  Table,
-  TableBody,
-  TableCell,
-  TableRow,
+  Divider,
   Tooltip,
   Typography,
 } from '@material-ui/core';
@@ -51,11 +49,10 @@ const Estado = ({ c }: { c: ConcernResult }) => {
         .map(p => `${p.kind}/${p.name} (${p.scope === 'route' ? 'na rota' : 'no gateway'})`)
         .join(' · ')}
     >
-      <Chip
-        size="small"
-        color={c.status === 'enforced' ? 'primary' : 'default'}
-        label={rotulo}
-      />
+      {/* Sempre 'outlined'. Com color="primary" o tema do RHDH pinta o chip e o
+          texto da MESMA cor: o rotulo some e sobra uma pilula vazia, que nao
+          diz nada e parece defeito. Quem carrega o significado e a palavra. */}
+      <Chip size="small" variant="outlined" label={rotulo} />
     </Tooltip>
   );
 };
@@ -109,18 +106,27 @@ export const EntityConnectivityCard = () => {
               : `${value.route?.namespace}/${value.route?.name}`}
             {value.gateway ? ` · gateway ${value.gateway.name}` : ''}
           </Typography>
-          <Table size="small">
-            <TableBody>
-              {(value.concerns ?? []).map(c => (
-                <TableRow key={c.concern}>
-                  <TableCell>{ROTULO[c.concern]}</TableCell>
-                  <TableCell align="right">
-                    <Estado c={c} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <Box>
+            {(value.concerns ?? []).map((c, i) => (
+              <React.Fragment key={c.concern}>
+                {i > 0 && <Divider />}
+                {/* Flex, e nao tabela: numa coluna estreita a tabela empurra a
+                    segunda celula para fora do card e o estado some cortado na
+                    borda. O flex quebra a linha em vez de vazar. */}
+                <Box
+                  display="flex"
+                  alignItems="center"
+                  justifyContent="space-between"
+                  flexWrap="wrap"
+                  gridGap={8}
+                  py={1}
+                >
+                  <Typography variant="body2">{ROTULO[c.concern]}</Typography>
+                  <Estado c={c} />
+                </Box>
+              </React.Fragment>
+            ))}
+          </Box>
         </>
       )}
     </InfoCard>
