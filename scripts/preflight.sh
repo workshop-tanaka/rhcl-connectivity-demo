@@ -1243,6 +1243,63 @@ done
 fi
 
 # ---------------------------------------------------------------------------
+# Anotacoes cujo formato quem valida e o plugin, nao o catalogo.
+#
+# O Backstage aceita qualquer string; quem reprova e o consumidor, ja na tela.
+# Sao os dois casos que ja custaram investigacao aqui, e os dois falham de um
+# jeito que nao aponta para a anotacao.
+_cat_ns="${RHDH_NS:-rhdh-rhcl}"
+# -o jsonpath e nao -o yaml: o yaml traz junto a anotacao
+# last-applied-configuration, que e uma COPIA do catalogo inteiro. Lendo o yaml
+# o guard mede duas versoes ao mesmo tempo -- e acusaria um valor velho preso
+# na anotacao como se fosse o que esta no ar.
+_cat_cm="$(oc get cm rhdh-catalog-entities -n "$_cat_ns" -o jsonpath='{.data}' 2>/dev/null)"
+
+if [[ -n "$_cat_cm" ]]; then
+  # 1) lookback do Jaeger. O plugin valida com /^(\d+)([mh])$/ e nao conhece
+  #    'd'. Com '7d' a aba inteira morre em "Invalid time format", e o erro
+  #    estoura ANTES da requisicao -- entao Tempo, proxy e token aparecem
+  #    inocentes no diagnostico, porque nunca foram chamados. Em 2026-08-27
+  #    isso passou por problema de instrumentacao.
+  _lb_ruim="$(printf '%s' "$_cat_cm" \
+               | grep -oE 'jaegertracing\.io/lookback: *[^ ]+' \
+               | awk '{print $2}' | sed 's/\\n.*$//; s/[",]*$//' \
+               | grep -vE '^[0-9]+[mh]$' | sort -u | tr '\n' ' ')"
+  if [[ -n "$_lb_ruim" ]]; then
+    _bad "lookback do Jaeger em formato que o plugin rejeita: ${_lb_ruim}" \
+         "so <n>m ou <n>h — sete dias se escreve 168h; corrija em rhdh/catalog/ e rode setup-catalog.sh"
+  else
+    _ok "anotacoes de lookback no formato que o plugin aceita"
+  fi
+
+  # 2) selector do Grafana. Selector de UMA palavra vira busca por TAG; se
+  #    nenhum dashboard carrega a tag, o card aparece vazio -- que no palco
+  #    le-se como 'nao ha metrica', e nao como 'faltou etiquetar'.
+  _gsel="$(printf '%s' "$_cat_cm" \
+            | grep -oE 'grafana/dashboard-selector: *[^ ]+' \
+            | awk '{print $2}' | sed 's/\\n.*$//; s/[",]*$//' | sort -u)"
+  if [[ -n "$_gsel" ]]; then
+    _dash="$(oc get grafanadashboard -A -o jsonpath='{range .items[*]}{.spec.json}{"\n"}{end}' 2>/dev/null)"
+    _orfaos=""
+    while IFS= read -r _s; do
+      [[ -z "$_s" ]] && continue
+      # so selector de uma palavra vira busca por tag; o resto e busca por titulo
+      [[ "$_s" == *" "* ]] && continue
+      if ! printf '%s' "$_dash" | grep -qE "\"tags\"[[:space:]]*:[[:space:]]*\[[^]]*\"${_s}\""; then
+        _orfaos="${_orfaos}${_s} "
+      fi
+    done <<< "$_gsel"
+    if [[ -n "$_orfaos" ]]; then
+      _warn "selector do Grafana sem dashboard com a tag: ${_orfaos}" \
+            "os cards abrem vazios — etiquete o dashboard com \"tags\": [\"${_orfaos%% *}\"]"
+    else
+      _ok "todo selector do Grafana casa com pelo menos um dashboard etiquetado"
+    fi
+  fi
+fi
+
+
+# ---------------------------------------------------------------------------
 printf '\n'
 if [[ "$FAIL" == "0" && "$WARN" == "0" ]]; then
   printf '%s[OK]%s demo pronta.\n' "$_GRN" "$_RST"

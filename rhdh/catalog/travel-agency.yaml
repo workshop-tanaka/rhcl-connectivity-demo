@@ -331,27 +331,46 @@ metadata:
     # rodam as imagens do proprio Kiali, entao a aba mostra tags e data
     # de push reais, e nao um exemplo vazio.
     quay.io/repository-slug: kiali/demo_travels_travels
-    # INERTE ate o plugin @backstage-community/plugin-jaeger existir como
-    # dynamic plugin -- ele nao esta no registry de overlays da Red Hat e
-    # precisa passar pelo 'yarn export-dynamic' + plugin-registry interno.
+    # ATIVA. O @backstage-community/plugin-jaeger nao esta no registry de
+    # overlays da Red Hat, entao passou pelo 'yarn export-dynamic' e vive no
+    # plugin-registry interno -- ver o bloco WITH_JAEGER do setup-plugins.sh.
     #
     # Fica pronta desde ja porque o valor NAO e adivinhavel: e o nome que o
     # Tempo conhece, no formato <servico>.<namespace>, e foi lido da API dele
     # em 2026-08-27 (/api/traces/v1/dev/api/services). Errar aqui produz uma
     # aba que abre vazia, que no palco parece 'nao ha trafego'.
     #
-    # A versao do plugin que casa com este Backstage e a 0.9.0 (core-components
-    # ^0.17.5); as 0.18.x pedem Backstage mais novo.
+    # A versao que casa e a 0.15.0, cujo workspace mira Backstage 1.49.2 -- a
+    # linha do 1.49.4 que o RHDH 1.10.3 embute. A 0.9.0 parece casar melhor
+    # pelo range que declara no npm, e nao casa: o range publicado engana, e
+    # quem decide e o backstage.json do WORKSPACE.
     jaegertracing.io/service: travels.travel-agency
-    # 7d, e nao o default de 1h. Medido em 2026-08-27: num cluster sem trafego
-    # recente a janela de 1h deixa a aba em 'No records to display' -- que na
-    # frente de um cliente le-se como 'a instrumentacao nao funciona', e nao
-    # como 'ninguem chamou a API hoje'.
+    # 168h (sete dias), e nao o default de 1h. Num cluster sem trafego recente a
+    # janela de 1h deixa a aba em 'No records to display' -- que na frente de um
+    # cliente le-se como 'a instrumentacao nao funciona', e nao como 'ninguem
+    # chamou a API hoje'.
+    #
+    # EM HORAS, obrigatoriamente. O plugin valida com /^(\d+)([mh])$/ e nao
+    # conhece 'd': '7d' derruba a aba inteira com "Invalid time format", e o
+    # erro estoura ANTES de qualquer requisicao -- entao nada do Tempo, do
+    # proxy ou do token aparece no diagnostico. Custou uma investigacao em
+    # 2026-08-27.
+    #
+    # Sete dias e generoso de proposito: a retencao real do Tempo aqui nao esta
+    # declarada, e pedir alem do que existe nao custa nada -- o backend devolve
+    # o que tem. Cravar um numero 'realista' seria codificar um palpite.
     #
     # A janela larga e a rede de seguranca; o trafego ao vivo do roteiro e o que
     # mostra o dado se mexendo. As duas juntas: nunca vazia, e viva quando
     # importa.
-    jaegertracing.io/lookback: 7d
+    jaegertracing.io/lookback: 168h
+    # Consulta de UMA palavra, de proposito: o plugin trata selector de uma
+    # palavra como busca por TAG e qualquer outra coisa como busca por titulo.
+    # Por isso os tres dashboards autorais levam "tags": ["rhcl"] -- assim um
+    # dashboard novo aparece nos componentes so por ganhar a tag, sem mexer
+    # aqui. Os de persona vem do upstream do Kuadrant e ficam de fora: tem job
+    # anti-drift no CI, e etiquetar quebraria a comparacao.
+    grafana/dashboard-selector: rhcl
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -410,7 +429,8 @@ metadata:
     kiali.io/namespace: travel-agency
     quay.io/repository-slug: kiali/demo_travels_flights
     jaegertracing.io/service: flights.travel-agency
-    jaegertracing.io/lookback: 7d
+    jaegertracing.io/lookback: 168h
+    grafana/dashboard-selector: rhcl
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -457,7 +477,8 @@ metadata:
     kiali.io/namespace: travel-agency
     quay.io/repository-slug: kiali/demo_travels_hotels
     jaegertracing.io/service: hotels.travel-agency
-    jaegertracing.io/lookback: 7d
+    jaegertracing.io/lookback: 168h
+    grafana/dashboard-selector: rhcl
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -504,7 +525,8 @@ metadata:
     kiali.io/namespace: travel-agency
     quay.io/repository-slug: kiali/demo_travels_cars
     jaegertracing.io/service: cars.travel-agency
-    jaegertracing.io/lookback: 7d
+    jaegertracing.io/lookback: 168h
+    grafana/dashboard-selector: rhcl
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -551,7 +573,8 @@ metadata:
     kiali.io/namespace: travel-agency
     quay.io/repository-slug: kiali/demo_travels_insurances
     jaegertracing.io/service: insurances.travel-agency
-    jaegertracing.io/lookback: 7d
+    jaegertracing.io/lookback: 168h
+    grafana/dashboard-selector: rhcl
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -600,7 +623,8 @@ metadata:
     kiali.io/namespace: travel-agency
     quay.io/repository-slug: kiali/demo_travels_discounts
     jaegertracing.io/service: discounts.travel-agency
-    jaegertracing.io/lookback: 7d
+    jaegertracing.io/lookback: 168h
+    grafana/dashboard-selector: rhcl
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -694,6 +718,12 @@ metadata:
   name: globex-travel
   title: Globex Travel
   description: Parceiro tier gold — 30 req/10s, 5000/dia (apikey-gold-globex).
+  # Os parceiros nao tem servico nem trace proprio -- sao consumidores. O que
+  # existe deles e consumo, e e exatamente o que o dashboard rhcl-parceiros
+  # mede. A tag 'rhcl' traz os tres dashboards autorais para a pagina de cada
+  # um; o de consumo e o que faz sentido aqui.
+  annotations:
+    grafana/dashboard-selector: rhcl
 spec:
   type: api-consumer
   lifecycle: production
@@ -708,6 +738,12 @@ metadata:
   name: initech-voyages
   title: Initech Voyages
   description: Parceiro tier silver — 10 req/10s, 500/dia (apikey-silver-initech).
+  # Os parceiros nao tem servico nem trace proprio -- sao consumidores. O que
+  # existe deles e consumo, e e exatamente o que o dashboard rhcl-parceiros
+  # mede. A tag 'rhcl' traz os tres dashboards autorais para a pagina de cada
+  # um; o de consumo e o que faz sentido aqui.
+  annotations:
+    grafana/dashboard-selector: rhcl
 spec:
   type: api-consumer
   lifecycle: production
@@ -722,6 +758,12 @@ metadata:
   name: acme-trips
   title: ACME Trips
   description: Parceiro tier free (avaliacao) — 3 req/10s, 50/dia (apikey-free-acme).
+  # Os parceiros nao tem servico nem trace proprio -- sao consumidores. O que
+  # existe deles e consumo, e e exatamente o que o dashboard rhcl-parceiros
+  # mede. A tag 'rhcl' traz os tres dashboards autorais para a pagina de cada
+  # um; o de consumo e o que faz sentido aqui.
+  annotations:
+    grafana/dashboard-selector: rhcl
 spec:
   type: api-consumer
   lifecycle: production
