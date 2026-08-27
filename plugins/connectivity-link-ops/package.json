@@ -1,6 +1,6 @@
 {
   "name": "@rhcl/backstage-plugin-connectivity-link-ops",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Camada operacional do Connectivity Link no Red Hat Developer Hub",
   "license": "Apache-2.0",
   "main": "src/index.ts",
@@ -37,7 +37,7 @@
     "tsc": "tsc",
     "prepack": "backstage-cli package prepack",
     "postpack": "backstage-cli package postpack",
-    "export-dynamic": "rhdh-cli plugin export && cp -r dist-dynamic/dist-scalprum dist-scalprum"
+    "export-dynamic": "rhdh-cli plugin export && rm -rf dist-scalprum && cp -r dist-dynamic/dist-scalprum dist-scalprum"
   },
   "dependencies": {
     "@backstage/core-components": "^0.18.8",

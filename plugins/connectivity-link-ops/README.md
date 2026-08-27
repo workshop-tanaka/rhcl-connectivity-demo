@@ -56,6 +56,15 @@ Três armadilhas que custam tempo se descobertas na ordem errada:
 - **O backend precisa de `yarn.lock`.** Instalar com `--no-lockfile` faz o
   `export-dynamic` abortar com `Could not find the static plugin yarn.lock
   file`. Os dois lockfiles são versionados de propósito.
+- **Nunca copie o `dist-scalprum` sem apagar antes.** O script de export faz
+  `rm -rf dist-scalprum` de propósito. Sem isso, `cp -r dist-dynamic/dist-scalprum
+  dist-scalprum` acerta na primeira execução (destino não existe, `cp` cria) e
+  erra em todas as seguintes: o destino já existe, então `cp -r` copia *para
+  dentro* dele e nasce um `dist-scalprum/dist-scalprum`. O topo continua sendo o
+  build da primeira vez, o `npm pack` empacota esse topo, e o RHDH serve um
+  bundle antigo com número de versão novo — sem erro em lugar nenhum. O sintoma é
+  a tela não mudar depois do deploy. Para conferir antes de publicar:
+  `python3 -c "import json;print(json.load(open('dist-scalprum/plugin-manifest.json'))['version'])"`.
 - **`cpu-features` falhando no `node-gyp` é ruído.** É dependência opcional e
   nativa, puxada pelo `ssh2` por baixo do cliente do Kubernetes; o `ssh2`
   funciona sem ela. O `yarn install` sai com 1 e o pacote fica correto.
