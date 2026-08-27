@@ -331,6 +331,18 @@ metadata:
     # rodam as imagens do proprio Kiali, entao a aba mostra tags e data
     # de push reais, e nao um exemplo vazio.
     quay.io/repository-slug: kiali/demo_travels_travels
+    # INERTE ate o plugin @backstage-community/plugin-jaeger existir como
+    # dynamic plugin -- ele nao esta no registry de overlays da Red Hat e
+    # precisa passar pelo 'yarn export-dynamic' + plugin-registry interno.
+    #
+    # Fica pronta desde ja porque o valor NAO e adivinhavel: e o nome que o
+    # Tempo conhece, no formato <servico>.<namespace>, e foi lido da API dele
+    # em 2026-08-27 (/api/traces/v1/dev/api/services). Errar aqui produz uma
+    # aba que abre vazia, que no palco parece 'nao ha trafego'.
+    #
+    # A versao do plugin que casa com este Backstage e a 0.9.0 (core-components
+    # ^0.17.5); as 0.18.x pedem Backstage mais novo.
+    jaegertracing.io/service: travels.travel-agency
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -388,6 +400,7 @@ metadata:
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
     quay.io/repository-slug: kiali/demo_travels_flights
+    jaegertracing.io/service: flights.travel-agency
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -433,6 +446,7 @@ metadata:
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
     quay.io/repository-slug: kiali/demo_travels_hotels
+    jaegertracing.io/service: hotels.travel-agency
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -478,6 +492,7 @@ metadata:
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
     quay.io/repository-slug: kiali/demo_travels_cars
+    jaegertracing.io/service: cars.travel-agency
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -523,6 +538,7 @@ metadata:
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
     quay.io/repository-slug: kiali/demo_travels_insurances
+    jaegertracing.io/service: insurances.travel-agency
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
@@ -570,6 +586,7 @@ metadata:
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
     kiali.io/namespace: travel-agency
     quay.io/repository-slug: kiali/demo_travels_discounts
+    jaegertracing.io/service: discounts.travel-agency
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
