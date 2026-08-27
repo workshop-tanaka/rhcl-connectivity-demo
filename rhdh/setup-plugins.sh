@@ -422,15 +422,21 @@ if [[ "${WITH_CL_OPS:-false}" == "true" ]]; then
               serviceAccountToken: \${K8S_CLUSTER_TOKEN}
               serviceAccountName: system:serviceaccount:${RHDH_NS}:rhdh-kubernetes
               skipTLSVerify: false
-          # Porta 9092, e nao 9091: a 9091 exige cluster-monitoring-view, que da
-          # leitura de TODAS as metricas do cluster e respondeu 403 para esta SA.
-          # A 9092 e multi-tenant e se contenta com 'get' em namespaces, que a SA
-          # ja tem -- medido, respondeu 200. O preco e que toda consulta leva um
-          # namespace, entao nao existe pergunta cluster-wide: o total e a soma
-          # dos namespaces que o cache de informers conhece.
-          prometheus:
-            url: https://thanos-querier.openshift-monitoring.svc:9092
-            caFile: ${CA_MOUNT}/service-ca.crt
+            # ATENCAO A INDENTACAO: 'prometheus' e irmao de 'kubernetes' DENTRO
+            # de connectivityLinkOps. Um nivel a menos faz dele chave de topo, o
+            # backend nao encontra 'connectivityLinkOps.prometheus', cai no
+            # default sem CA e a consulta morre com 'self-signed certificate in
+            # certificate chain' -- que parece problema de TLS e e de YAML.
+            #
+            # Porta 9092, e nao 9091: a 9091 exige cluster-monitoring-view, que
+            # da leitura de TODAS as metricas do cluster e respondeu 403 para
+            # esta SA. A 9092 e multi-tenant e se contenta com 'get' em
+            # namespaces, que a SA ja tem -- medido, respondeu 200. O preco e que
+            # toda consulta leva um namespace, entao nao existe pergunta
+            # cluster-wide: o total e a soma dos namespaces que o cache conhece.
+            prometheus:
+              url: https://thanos-querier.openshift-monitoring.svc:9092
+              caFile: ${CA_MOUNT}/service-ca.crt
       - package: http://plugin-registry:8080/${_clo_fe}
         integrity: \"${CL_OPS_FRONTEND_INTEGRITY}\"
         disabled: false

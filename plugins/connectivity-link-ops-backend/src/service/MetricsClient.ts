@@ -59,6 +59,16 @@ export class MetricsClient {
       config.getOptionalString(
         'connectivityLinkOps.kubernetes.serviceAccountToken',
       );
+
+    // Diz em voz alta o que resolveu. Sem isto, um bloco de config no nivel
+    // errado de indentacao vira silencio: o cliente cai nos defaults, tenta sem
+    // CA, e a falha aparece como 'self-signed certificate in certificate chain'
+    // -- que manda quem depura investigar TLS quando o problema e YAML.
+    this.logger.info(
+      `métricas: ${this.url} · CA ${this.ca ? 'carregado' : 'AUSENTE'} · ` +
+        `token ${this.token ? 'presente' : 'AUSENTE'}` +
+        (prom ? '' : ' · bloco connectivityLinkOps.prometheus NAO ENCONTRADO'),
+    );
   }
 
   private query(namespace: string, promql: string): Promise<any> {
