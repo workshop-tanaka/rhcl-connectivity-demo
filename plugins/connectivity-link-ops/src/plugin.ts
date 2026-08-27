@@ -1,4 +1,8 @@
-import { createPlugin, createRoutableExtension } from '@backstage/core-plugin-api';
+import {
+  createComponentExtension,
+  createPlugin,
+  createRoutableExtension,
+} from '@backstage/core-plugin-api';
 
 import { connectivityLinkOpsApiFactory } from './apis';
 import { rootRouteRef } from './routes';
@@ -10,6 +14,19 @@ export const connectivityLinkOpsPlugin = createPlugin({
     root: rootRouteRef,
   },
 });
+
+/** Card de postura para a aba Overview de um Component ou API do catálogo. */
+export const EntityConnectivityCard = connectivityLinkOpsPlugin.provide(
+  createComponentExtension({
+    name: 'EntityConnectivityCard',
+    component: {
+      lazy: () =>
+        import('./components/EntityConnectivityCard').then(
+          m => m.EntityConnectivityCard,
+        ),
+    },
+  }),
+);
 
 export const ConnectivityLinkOpsPage = connectivityLinkOpsPlugin.provide(
   createRoutableExtension({

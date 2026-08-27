@@ -1,4 +1,8 @@
-export { connectivityLinkOpsPlugin, ConnectivityLinkOpsPage } from './plugin';
+export {
+  connectivityLinkOpsPlugin,
+  ConnectivityLinkOpsPage,
+  EntityConnectivityCard,
+} from './plugin';
 export { ConnectivityLinkIcon } from './components/ConnectivityLinkIcon';
 export { NotAvailable, metric } from './components/common';
 export {
@@ -8,6 +12,9 @@ export {
   type Readiness,
   type Summary,
   type KindResult,
+  type Posture,
+  type ConcernResult,
+  type AttachedPolicy,
 } from './api';
 export { connectivityLinkOpsApiFactory } from './apis';
 export {

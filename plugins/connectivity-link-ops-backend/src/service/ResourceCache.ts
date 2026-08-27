@@ -2,9 +2,14 @@ import { LoggerService } from '@backstage/backend-plugin-api';
 
 import { CachingInformer, KubeClient } from './KubeClient';
 
+/** O mínimo que este cache precisa saber sobre um objeto do cluster. */
+type K8sish = { metadata?: { name?: string; namespace?: string }; spec?: any; status?: any };
+
 export interface WatchedKind {
   key: string;
   label: string;
+  /** O Kind do objeto — o que aparece em targetRef.kind e no próprio recurso. */
+  kind: string;
   group: string;
   version: string;
   plural: string;
@@ -19,14 +24,14 @@ export interface WatchedKind {
  * vira N/A, e não um zero que parece resposta.
  */
 export const WATCHED_KINDS: WatchedKind[] = [
-  { key: 'gateways', label: 'Gateways', group: 'gateway.networking.k8s.io', version: 'v1', plural: 'gateways' },
-  { key: 'httproutes', label: 'HTTPRoutes', group: 'gateway.networking.k8s.io', version: 'v1', plural: 'httproutes' },
-  { key: 'authpolicies', label: 'AuthPolicy', group: 'kuadrant.io', version: 'v1', plural: 'authpolicies', isPolicy: true },
-  { key: 'ratelimitpolicies', label: 'RateLimitPolicy', group: 'kuadrant.io', version: 'v1', plural: 'ratelimitpolicies', isPolicy: true },
-  { key: 'tokenratelimitpolicies', label: 'TokenRateLimitPolicy', group: 'kuadrant.io', version: 'v1alpha1', plural: 'tokenratelimitpolicies', isPolicy: true },
-  { key: 'dnspolicies', label: 'DNSPolicy', group: 'kuadrant.io', version: 'v1', plural: 'dnspolicies', isPolicy: true },
-  { key: 'tlspolicies', label: 'TLSPolicy', group: 'kuadrant.io', version: 'v1', plural: 'tlspolicies', isPolicy: true },
-  { key: 'planpolicies', label: 'PlanPolicy', group: 'extensions.kuadrant.io', version: 'v1alpha1', plural: 'planpolicies', isPolicy: true },
+  { key: 'gateways', label: 'Gateways', kind: 'Gateway', group: 'gateway.networking.k8s.io', version: 'v1', plural: 'gateways' },
+  { key: 'httproutes', label: 'HTTPRoutes', kind: 'HTTPRoute', group: 'gateway.networking.k8s.io', version: 'v1', plural: 'httproutes' },
+  { key: 'authpolicies', label: 'AuthPolicy', kind: 'AuthPolicy', group: 'kuadrant.io', version: 'v1', plural: 'authpolicies', isPolicy: true },
+  { key: 'ratelimitpolicies', label: 'RateLimitPolicy', kind: 'RateLimitPolicy', group: 'kuadrant.io', version: 'v1', plural: 'ratelimitpolicies', isPolicy: true },
+  { key: 'tokenratelimitpolicies', label: 'TokenRateLimitPolicy', kind: 'TokenRateLimitPolicy', group: 'kuadrant.io', version: 'v1alpha1', plural: 'tokenratelimitpolicies', isPolicy: true },
+  { key: 'dnspolicies', label: 'DNSPolicy', kind: 'DNSPolicy', group: 'kuadrant.io', version: 'v1', plural: 'dnspolicies', isPolicy: true },
+  { key: 'tlspolicies', label: 'TLSPolicy', kind: 'TLSPolicy', group: 'kuadrant.io', version: 'v1', plural: 'tlspolicies', isPolicy: true },
+  { key: 'planpolicies', label: 'PlanPolicy', kind: 'PlanPolicy', group: 'extensions.kuadrant.io', version: 'v1alpha1', plural: 'planpolicies', isPolicy: true },
 ];
 
 export interface KindResult {
@@ -157,6 +162,34 @@ export class ResourceCache {
       }
       return { key: kind.key, label: kind.label, count: entry.informer.list().length };
     });
+  }
+
+  /** Os objetos em cache de um tipo. Vazio quando o tipo não pôde ser lido —
+   *  quem precisa distinguir isso de "vazio de verdade" usa unreadableKinds(). */
+  objects(key: string): K8sish[] {
+    const entry = this.entries.get(key);
+    if (entry?.state !== 'ready' || !entry.informer) return [];
+    return entry.informer.list() as K8sish[];
+  }
+
+  /** Um mapa Kind -> objetos, para quem raciocina por Kind e não pela chave
+   *  interna do cache — que é o caso de tudo que lê targetRef. */
+  objectsByKind(): Record<string, K8sish[]> {
+    const out: Record<string, K8sish[]> = {};
+    for (const kind of WATCHED_KINDS) {
+      out[kind.kind] = this.objects(kind.key);
+    }
+    return out;
+  }
+
+  /** Os Kinds que NÃO puderam ser lidos. Sem isto, "nenhuma policy deste tipo"
+   *  e "não pude olhar" viram a mesma resposta na tela — que é exatamente o
+   *  erro que este plugin existe para não cometer. */
+  unreadableKinds(): string[] {
+    return WATCHED_KINDS.filter(k => {
+      const e = this.entries.get(k.key);
+      return !e || e.state !== 'ready';
+    }).map(k => k.kind);
   }
 
   /**

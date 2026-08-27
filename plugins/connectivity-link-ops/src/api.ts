@@ -52,9 +52,34 @@ export interface Summary {
   };
 }
 
+export interface AttachedPolicy {
+  kind: string;
+  name: string;
+  namespace: string;
+  scope: 'route' | 'gateway';
+  enforced: boolean;
+}
+
+export interface ConcernResult {
+  concern: 'auth' | 'rateLimit' | 'tls' | 'dns';
+  policies: AttachedPolicy[];
+  /** `none` é uma resposta; `unknown` é a ausência dela. Nunca confundir. */
+  status: 'enforced' | 'attached' | 'none' | 'unknown';
+}
+
+export interface Posture {
+  exposed: boolean;
+  /** Preenchido quando exposed é falso — e isso não é erro. */
+  reason?: string;
+  route?: { name: string; namespace: string; hostnames: string[] };
+  gateway?: { name: string; namespace: string };
+  concerns?: ConcernResult[];
+}
+
 export interface ConnectivityLinkOpsApi {
   getReadiness(): Promise<Readiness>;
   getSummary(): Promise<Summary>;
+  getPosture(namespace: string, name: string): Promise<Posture>;
 }
 
 export const connectivityLinkOpsApiRef = createApiRef<ConnectivityLinkOpsApi>({
@@ -89,5 +114,10 @@ export class ConnectivityLinkOpsClient implements ConnectivityLinkOpsApi {
 
   async getSummary(): Promise<Summary> {
     return this.get<Summary>('/summary');
+  }
+
+  async getPosture(namespace: string, name: string): Promise<Posture> {
+    const q = new URLSearchParams({ namespace, name });
+    return this.get<Posture>(`/posture?${q}`);
   }
 }

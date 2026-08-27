@@ -1,6 +1,6 @@
 {
   "name": "@rhcl/backstage-plugin-connectivity-link-ops-backend",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Backend do plugin de Connectivity Link para o Red Hat Developer Hub",
   "license": "Apache-2.0",
   "main": "src/index.ts",
@@ -30,7 +30,7 @@
     "build": "backstage-cli package build",
     "clean": "backstage-cli package clean",
     "lint": "backstage-cli package lint",
-    "test": "backstage-cli package test",
+    "test": "jest",
     "tsc": "tsc",
     "prepack": "backstage-cli package prepack",
     "postpack": "backstage-cli package postpack",
@@ -52,6 +52,7 @@
     "@types/express": "^4.17.6",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",
+    "jest": "^29.7.0",
     "typescript": "^5.9.3"
   }
 }

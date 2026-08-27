@@ -12,6 +12,12 @@ import { connectivityLinkReadPermission } from './permissions';
 import { KubeClient } from './service/KubeClient';
 import { MetricsClient } from './service/MetricsClient';
 import { KindResult, ResourceCache, WATCHED_KINDS } from './service/ResourceCache';
+import {
+  computePosture,
+  findGatewayForRoute,
+  findRouteForComponent,
+  routeRefOf,
+} from './service/posture';
 
 export interface RouterOptions {
   logger: LoggerService;
@@ -126,6 +132,58 @@ export async function createRouter(
         unreadableCount: unreadable.length,
       },
       traffic: await metrics.requestRate(cache.namespaces()),
+    });
+  });
+
+  /**
+   * A postura de conectividade de UMA entidade do catálogo.
+   *
+   * É a pergunta que console nenhum consegue responder, porque nenhum deles
+   * sabe quem é dono do quê: "desta API pela qual meu time responde, o que
+   * está protegido e o que não está?". O console mostra as policies do
+   * cluster; aqui elas chegam filtradas pelo componente que o time abriu.
+   */
+  router.get('/posture', async (req, res) => {
+    await requireRead(req);
+
+    const namespace = String(req.query.namespace ?? '');
+    const name = String(req.query.name ?? '');
+    if (!namespace || !name) {
+      res.status(400).json({
+        error: 'informe namespace e name — vêm das anotações da entidade',
+      });
+      return;
+    }
+
+    const route = findRouteForComponent(
+      cache.objects('httproutes'),
+      namespace,
+      name,
+    );
+
+    if (!route) {
+      // Sem rota não há postura a apurar, e isso NÃO é um erro: a maioria dos
+      // componentes de um catálogo não é exposta por um gateway. A tela
+      // precisa saber a diferença entre "não exposto" e "não consegui olhar".
+      res.json({
+        exposed: false,
+        reason: `nenhuma HTTPRoute em ${namespace} com backendRef para ${name}`,
+      });
+      return;
+    }
+
+    const gateway = findGatewayForRoute(route);
+
+    res.json({
+      exposed: true,
+      route: routeRefOf(route),
+      gateway,
+      concerns: computePosture(
+        route,
+        gateway,
+        cache.objectsByKind(),
+        cache.unreadableKinds(),
+      ),
     });
   });
 
