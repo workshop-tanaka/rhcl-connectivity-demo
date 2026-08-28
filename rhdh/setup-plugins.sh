@@ -51,7 +51,9 @@ set -uo pipefail
 _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${_here}/lib.sh" || { echo "rhdh/lib.sh ausente" >&2; exit 1; }
 
-_need oc envsubst
+# yq entra na lista por causa da validacao do YAML dos plugins, logo abaixo --
+# o setup-catalog.sh, no mesmo diretorio, ja o exigia.
+_need oc envsubst yq
 _need_cluster
 
 RHDH_NS="${RHDH_NS:-$(_discover_rhdh_ns)}"
@@ -604,6 +606,100 @@ if [[ "${WITH_ACS:-true}" == "true" ]]; then
 fi
 
 
+# Nexus: os artefatos publicados, na pagina do componente.
+#
+# Build oficial da Red Hat, tag exata bs_1.49.4__1.23.2, por OCI.
+#
+# A credencial e admin/admin123, fixada pelo NEXUS_SECURITY_RANDOMPASSWORD=false
+# no manifesto -- lab-grade e assumido como tal. O proxy manda Basic porque a
+# API REST do Nexus nao aceita token de portador; e o unico esquema que ela tem.
+#
+# experimentalAnnotations liga a leitura da anotacao por entidade. Sem ela o
+# plugin so olha a anotacao padrao de imagem do Backstage, e nao a nossa.
+if [[ "${WITH_NEXUS:-true}" == "true" ]]; then
+  _nexus_tag="bs_1.49.4__1.23.2"
+  if ! oc get secret rhdh-nexus-secret -n "$RHDH_NS" >/dev/null 2>&1; then
+    _warn "rhdh-nexus-secret ausente -- a aba de artefatos fica sem dados" \
+          "crie com NEXUS_URL e NEXUS_AUTH (usuario:senha em base64)"
+  fi
+  _plugins="${_plugins}
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-nexus-repository-manager:${_nexus_tag}!backstage-community-plugin-nexus-repository-manager
+        disabled: false
+        pluginConfig:
+          proxy:
+            endpoints:
+              '/nexus-repository-manager':
+                target: \${NEXUS_URL}
+                headers:
+                  X-Requested-With: 'XMLHttpRequest'
+                  Authorization: 'Basic \${NEXUS_AUTH}'
+                changeOrigin: true
+                secure: false
+          nexusRepositoryManager:
+            experimentalAnnotations: true
+          dynamicPlugins:
+            frontend:
+              backstage-community.plugin-nexus-repository-manager:
+                mountPoints:
+                  - mountPoint: entity.page.image-registry/cards
+                    importName: NexusRepositoryManagerPage
+                    config:
+                      layout:
+                        gridColumn: '1 / -1'
+                      if:
+                        allOf:
+                          - isKind: component
+                          - hasAnnotation: nexus-repository-manager/docker.image-name"
+  _log "Nexus incluido -- artefatos na aba Imagem dos componentes anotados"
+fi
+
+# SonarQube: qualidade de codigo na pagina do componente.
+#
+# DESLIGADO POR PADRAO, e nao por falta de plugin: os builds existem e sao
+# exatos (bs_1.49.4__1.1.0 no frontend, __1.1.1 no backend). Falta a
+# CREDENCIAL.
+#
+# O SonarQube deste cluster forca troca de senha no primeiro acesso, a troca
+# aconteceu, e a senha nova nao esta em ACESSOS.md nem em Secret nenhum. O
+# proprio manifesto (platform-reference/cicd/sonarqube.yaml) diz que um
+# setup-cicd.sh trocaria a senha e criaria o token da pipeline -- esse script
+# ainda nao existe.
+#
+# Para ligar: crie um token no Sonar (My Account -> Security), guarde em
+# rhdh-sonarqube-secret com SONARQUBE_URL e SONARQUBE_TOKEN, e rode com
+# WITH_SONARQUBE=true.
+if [[ "${WITH_SONARQUBE:-false}" == "true" ]]; then
+  _sonar_front="bs_1.49.4__1.1.0"
+  _sonar_back="bs_1.49.4__1.1.1"
+  oc get secret rhdh-sonarqube-secret -n "$RHDH_NS" >/dev/null 2>&1 \
+    || _die "WITH_SONARQUBE=true exige o secret rhdh-sonarqube-secret com SONARQUBE_URL e SONARQUBE_TOKEN"
+  _plugins="${_plugins}
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-sonarqube-backend:${_sonar_back}!backstage-community-plugin-sonarqube-backend-dynamic
+        disabled: false
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-sonarqube:${_sonar_front}!backstage-community-plugin-sonarqube
+        disabled: false
+        pluginConfig:
+          sonarqube:
+            baseUrl: \${SONARQUBE_URL}
+            apiKey: \${SONARQUBE_TOKEN}
+          dynamicPlugins:
+            frontend:
+              backstage-community.plugin-sonarqube:
+                mountPoints:
+                  - mountPoint: entity.page.overview/cards
+                    importName: EntitySonarQubeCard
+                    config:
+                      layout:
+                        gridColumnEnd:
+                          lg: \"span 6\"
+                      if:
+                        allOf:
+                          - isKind: component
+                          - hasAnnotation: sonarqube.org/project-key"
+  _log "SonarQube incluido -- card nos componentes com sonarqube.org/project-key"
+fi
+
+
 
 
 # Kuadrant / Connectivity Link. EXISTE plugin -- @kuadrant/*, no npm publico,
@@ -935,6 +1031,29 @@ if oc get secret rhdh-gitlab-secret -n "$RHDH_NS" >/dev/null 2>&1; then
       - package: ./dynamic-plugins/dist/backstage-plugin-scaffolder-backend-module-gitlab-dynamic
         disabled: false"
   _log "camada GitLab detectada -- modulo de scaffolder incluido."
+fi
+
+# VALIDA ANTES DE APLICAR. O pod NAO le este ConfigMap: le um DERIVADO, que o
+# operator do RHDH monta a partir dele. Se o operator nao conseguir parsear o
+# que esta aqui, ele nao atualiza o derivado -- e o pod segue com a ultima
+# configuracao valida, de versoes atras.
+#
+# O modo de falhar e cruel e foi medido em 2026-08-28: uma indentacao errada em
+# um item de lista fez este script imprimir "plugins habilitados", o rollout
+# concluir, e o portal continuar servindo a versao ANTERIOR. Duas versoes se
+# perderam antes de alguem pensar em olhar o log do operator, tres camadas
+# abaixo, onde a unica pista dizia:
+#
+#   failed to merge dynamic plugins config: failed to unmarshal second
+#   ConfigMap data: yaml: line 360: did not find expected key
+#
+# Vinte minutos de caca que estas linhas transformam numa mensagem imediata,
+# com o numero da linha do bloco que voce acabou de editar.
+_plugins_yaml="$(printf 'includes:\n  - dynamic-plugins.default.yaml\nplugins:\n%s\n' "$_plugins")"
+if ! printf '%s' "$_plugins_yaml" | yq -e '.' >/dev/null 2>&1; then
+  printf '%s' "$_plugins_yaml" | yq '.' 2>&1 | head -3 | sed 's/^/    /' >&2
+  printf '%s' "$_plugins_yaml" | grep -n '' | sed -n '1,400p' > /tmp/dynamic-plugins-invalido.yaml
+  _die "a lista de plugins nao e YAML valido -- o operator recusaria em silencio e o portal ficaria na versao anterior. Numerado em /tmp/dynamic-plugins-invalido.yaml"
 fi
 
 _log "escrevendo a lista de plugins..."
