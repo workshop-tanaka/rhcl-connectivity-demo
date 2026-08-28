@@ -121,7 +121,22 @@ export class ResourceCache {
     this.aoPiorar = cb;
   }
 
+  /**
+   * Decide se este evento e uma piora, e guarda o estado para o proximo.
+   *
+   * SO POLICY: Gateway e HTTPRoute nao tem condicao Enforced, entao entrariam
+   * aqui para sempre responder 'nao vale' -- ocupando uma entrada no mapa por
+   * rota observada e sem nunca poder virar aviso.
+   *
+   * A CARGA INICIAL nao precisa de tratamento especial, e este e o ponto que a
+   * primeira versao errou ao tentar 'primar' o mapa: o informer emite o 'add'
+   * de cada objeto existente DEPOIS do 'connect', nao antes. Quem prima o mapa
+   * e a propria rajada, e ela nao avisa nada porque a primeira vez que se ve um
+   * objeto o anterior e undefined -- e so a transicao de true para falso conta.
+   */
   private avaliarPostura(kind: WatchedKind, obj: K8sish, sumiu: boolean): void {
+    if (!kind.isPolicy) return;
+
     const ref = `${kind.kind}/${obj.metadata?.namespace}/${obj.metadata?.name}`;
     const agora =
       !sumiu &&
@@ -187,30 +202,24 @@ export class ResourceCache {
     );
     entry.informer = informer;
 
+    // REGISTRADOS UMA VEZ, e nao dentro do 'connect'.
+    //
+    // O 'on' do informer faz push num array de callbacks e nao deduplica, e o
+    // 'connect' e reemitido a cada religada do watch -- que o apiserver provoca
+    // por rotina, nao so em erro. Registrar aqui dentro acrescentava uma copia
+    // dos handlers por religada. Enquanto o unico efeito era agendarAviso(),
+    // coalescido, a duplicacao passava despercebida; com a Sineta ela virou
+    // sintoma, porque uma policy que deixa de valer gerava N+1 avisos iguais.
+    for (const verbo of ['add', 'update', 'delete'] as const) {
+      informer.on(verbo, (obj: any) => {
+        this.avaliarPostura(kind, obj as K8sish, verbo === 'delete');
+        this.agendarAviso();
+      });
+    }
+
     informer.on('connect', () => {
       entry.state = 'ready';
       entry.reason = undefined;
-      // So a partir daqui os eventos valem a pena. Antes do 'connect' o informer
-      // emite um 'add' por objeto existente -- avisar durante a carga inicial
-      // seria uma rajada que nao diz nada, porque nada mudou de fato.
-      for (const verbo of ['add', 'update', 'delete'] as const) {
-        informer.on(verbo, (obj: any) => {
-          this.avaliarPostura(kind, obj as K8sish, verbo === 'delete');
-          this.agendarAviso();
-        });
-      }
-
-      // A carga inicial popula o estado conhecido SEM avisar: no arranque nada
-      // piorou, tudo apenas passou a ser observado.
-      for (const obj of informer.list() as K8sish[]) {
-        const ref = `${kind.kind}/${obj.metadata?.namespace}/${obj.metadata?.name}`;
-        this.enforcedAnterior.set(
-          ref,
-          ((obj.status?.conditions ?? []) as Array<{ type?: string; status?: string }>).some(
-            c => c.type === 'Enforced' && c.status === 'True',
-          ),
-        );
-      }
       this.agendarAviso();
     });
 
