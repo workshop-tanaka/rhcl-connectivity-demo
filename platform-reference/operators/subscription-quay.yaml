@@ -1,0 +1,28 @@
+# ===========================================================================
+# Red Hat Quay (operador).
+#
+# POR QUE O QUAY DENTRO DO CLUSTER, e nao uma conta no quay.io: o mesmo
+# criterio que ja governa o GitLab aqui -- o ambiente inteiro tem de sair do
+# provision.sh. Conta externa e exatamente o motivo pelo qual o Microcks e o
+# Postman foram descartados em 2026-08-27: introduzem estado que o repo nao
+# reconstroi, e num cluster novo a aba nasce vazia.
+#
+# Canal stable-3.18 (quay-operator.v3.18.0), o mais novo ofertado por este
+# catalogo. Para reconferir no cluster:
+#   oc get packagemanifest quay-operator -n openshift-marketplace \
+#     -o jsonpath='{range .status.channels[*]}{.name}{"\t"}{.currentCSV}{"\n"}{end}'
+#
+# AllNamespaces em openshift-operators, como os demais deste repo -- o
+# QuayRegistry vive em 'quay' e o operador precisa alcanca-lo.
+# ===========================================================================
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: quay-operator
+  namespace: openshift-operators
+spec:
+  channel: stable-3.18
+  name: quay-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

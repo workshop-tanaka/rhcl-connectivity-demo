@@ -1,0 +1,142 @@
+# ===========================================================================
+# Red Hat Quay dentro do cluster -- o destino das imagens que a pipeline
+# constroi e o Tekton Chains assina.
+#
+# POR QUE AQUI E NAO NO quay.io: mesmo criterio do GitLab. O ambiente inteiro
+# tem de sair do provision.sh; conta externa e o motivo pelo qual o Microcks e
+# o Postman foram descartados em 2026-08-27. E ha um ganho de cena: a aba
+# Imagem do portal passa a mostrar a imagem que ESTA pipeline construiu, em
+# vez dos repositorios publicos do kiali.
+#
+# ---------------------------------------------------------------------------
+# O QUE FICA DESLIGADO, E POR QUE
+#
+#   clair, clairpostgres   O Clair e a peca mais cara do Quay gerenciado, e
+#                          nesta demo ele DUPLICA o ACS, que ja varre imagem.
+#                          Duas telas dizendo a mesma coisa foi exatamente o
+#                          que reprovou o Kyverno em 2026-08-27 -- ali por
+#                          colidir na palavra 'policy', aqui na varredura.
+#                          Para ligar: managed: true nos dois (o clairpostgres
+#                          sozinho nao faz nada).
+#   mirror                 Espelhar registries externos nao aparece em ato
+#                          nenhum.
+#   horizontalpodautoscaler  Num cluster de workshop, autoescalar o Quay
+#                          disputa recurso com a demo. Replicas fixas.
+#   monitoring             Instala ServiceMonitor e regras proprias. O
+#                          Prometheus deste cluster ja tem o user workload
+#                          monitoring com os alvos da demo; mais um conjunto
+#                          nao acrescenta nada ao roteiro.
+#
+# O objectstorage FICA GERENCIADO: a CRD do NooBaa esta presente e existe a
+# StorageClass openshift-storage.noobaa.io com provisionador de OBC (conferido
+# em 2026-08-28). Esse costuma ser o bloqueio do Quay gerenciado, e aqui ele
+# nao existe -- o operador cria o bucket sozinho.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: quay
+---
+# ===========================================================================
+# Config bundle. Duas chaves, e as duas existem para o provisionamento nao
+# depender de alguem abrir a tela.
+#
+# FEATURE_USER_INITIALIZE permite criar o PRIMEIRO usuario por
+# POST /api/v1/user/initialize, que devolve um token de acesso na resposta.
+# Sem isso o unico caminho para o primeiro superusuario e a UI, e a etapa do
+# provision.sh viraria "abra o navegador e depois volte" -- que e o oposto do
+# que este repo faz.
+#
+# BROWSER_API_CALLS_XHR_ONLY: false porque, ligado (o padrao), o Quay recusa
+# chamadas de API que nao venham com cabecalho de XHR. O curl da etapa nao
+# manda, e a recusa vem como 400 falando de CSRF -- mensagem que manda
+# procurar o erro na autenticacao.
+#
+# A senha do superusuario NAO mora aqui: a etapa 'registry' do provision.sh a
+# gera e a guarda num Secret do cluster.
+# ===========================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: quay-config-bundle
+  namespace: quay
+stringData:
+  config.yaml: |
+    FEATURE_USER_INITIALIZE: true
+    BROWSER_API_CALLS_XHR_ONLY: false
+    FEATURE_USER_CREATION: false
+    SUPER_USERS:
+      - quayadmin
+---
+apiVersion: quay.redhat.com/v1
+kind: QuayRegistry
+metadata:
+  name: registry
+  namespace: quay
+spec:
+  configBundleSecret: quay-config-bundle
+  components:
+    - kind: quay
+      managed: true
+      # ------------------------------------------------------------------
+      # SEM ISTO O QUAY NAO SOBE NESTE CLUSTER, e o sintoma nao fala de
+      # tamanho: o operador reporta 'Available: False / ComponentNotReady' e
+      # so o describe do pod diz a verdade --
+      #
+      #   0/5 nodes are available: 2 Insufficient memory, 5 Insufficient cpu
+      #
+      # O padrao do operador e 2 REPLICAS de 2 CPU e 8Gi cada: 4 CPU e 16Gi
+      # so para a app. Uma delas escalona, a outra fica Pending para sempre,
+      # e o registry nunca fica Available.
+      #
+      # Uma replica basta: este registry serve alguns pushes por demo, nao
+      # uma organizacao. O request cai para o que ele de fato usa parado, e o
+      # limit da folga para o pico do push. Medido em 2026-08-28.
+      overrides:
+        replicas: 1
+        # ------------------------------------------------------------------
+        # REDUZIR A DEMANDA ANTES DE LEVANTAR O TETO. A primeira tentativa so
+        # baixou o limite para 4Gi e o pod morreu OOMKilled (exit 137) --
+        # sintoma cruel, porque o que aparece na tela e um readiness probe
+        # falhando com 502 do nginx ("connect() to unix:/tmp/gunicorn_web.sock
+        # failed"), como se fosse problema de configuracao. O gunicorn nem
+        # chegou a abrir o socket: foi morto antes.
+        #
+        # O Quay dimensiona os workers pelo numero de CORES DO NODE, e nao
+        # pelo limite do container -- num node grande ele sobe dezenas deles
+        # dentro de um limite pequeno. Fixar as tres contagens e o que de fato
+        # corta memoria; o limite maior e so a folga do pico de push.
+        env:
+          - name: WORKER_COUNT_WEB
+            value: "2"
+          - name: WORKER_COUNT_REGISTRY
+            value: "2"
+          - name: WORKER_COUNT_SECSCAN
+            value: "1"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 6Gi
+    - kind: postgres
+      managed: true
+    - kind: redis
+      managed: true
+    - kind: objectstorage
+      managed: true
+    - kind: route
+      managed: true
+    - kind: tls
+      managed: true
+    - kind: clair
+      managed: false
+    - kind: clairpostgres
+      managed: false
+    - kind: mirror
+      managed: false
+    - kind: horizontalpodautoscaler
+      managed: false
+    - kind: monitoring
+      managed: false

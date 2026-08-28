@@ -351,7 +351,7 @@ spec:
     - name: repo
       value: https://gitlab.__DOMAIN__/rhcl/apps/travel-packages.git
     - name: imagem
-      value: quay.io/__QUAY_ORG__/travel-packages
+      value: __IMAGEM__
     - name: tag
       value: latest
   workspaces:

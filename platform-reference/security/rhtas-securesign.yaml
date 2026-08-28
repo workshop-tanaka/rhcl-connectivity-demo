@@ -1,0 +1,48 @@
+# ===========================================================================
+# RHTAS -- Securesign: Fulcio, Rekor, TUF, CTlog e Trillian.
+#
+# O papel na demo e duplo:
+#   - o Rekor recebe as entradas de transparencia que o Tekton Chains envia
+#     ao assinar cada PipelineRun (assinatura por CHAVE, nao keyless -- ver
+#     scripts/setup-supply-chain.sh, que explica a escolha);
+#   - as telas de Fulcio/Rekor/TUF sao o argumento visual de que assinatura
+#     nao e um cosign solto, e infraestrutura de confianca.
+#
+# __SSO_HOST__ e substituido pelo setup-supply-chain.sh -- o issuer OIDC e
+# por cluster. O client 'trusted-artifact-signer' so e exigido no realm se
+# alguem fizer login keyless ao vivo; o Fulcio valida token por requisicao,
+# nao no bootstrap.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trusted-artifact-signer
+---
+apiVersion: rhtas.redhat.com/v1alpha1
+kind: Securesign
+metadata:
+  name: securesign
+  namespace: trusted-artifact-signer
+spec:
+  fulcio:
+    externalAccess:
+      enabled: true
+    config:
+      OIDCIssuers:
+        - Issuer: https://__SSO_HOST__/realms/sso
+          IssuerURL: https://__SSO_HOST__/realms/sso
+          ClientID: trusted-artifact-signer
+          Type: email
+    certificate:
+      organizationName: Red Hat Connectivity Demo
+      commonName: fulcio.trusted-artifact-signer
+  rekor:
+    externalAccess:
+      enabled: true
+  trillian:
+    database:
+      create: true
+  tuf:
+    externalAccess:
+      enabled: true
+  ctlog: {}

@@ -1,0 +1,21 @@
+# ===========================================================================
+# Red Hat Trusted Artifact Signer (RHTAS).
+#
+# A parte do Trusted Software Supply Chain que esta demo instala: Fulcio,
+# Rekor e TUF, para assinar e atestar a imagem que a pipeline constroi. O
+# Trusted Profile Analyzer (rhtpa-operator) ficou DE FORA por decisao de
+# 2026-08-28: ele sozinho custa mais CPU que o resto da cadeia, e o que a
+# demo mostra na tela (assinatura, atestacao, verificacao) sai daqui + Tekton
+# Chains + ACS.
+# ===========================================================================
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: rhtas-operator
+  namespace: openshift-operators
+spec:
+  channel: stable
+  name: rhtas-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

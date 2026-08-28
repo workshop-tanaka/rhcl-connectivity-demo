@@ -51,7 +51,7 @@ PR="${_here}/platform-reference"
 TIMEOUT="${TIMEOUT:-600}"
 DRY_RUN=0
 
-STAGES_ALL=(operators gitlab mesh platform gateway devportal demo pacotes consoles tracing dashboards gitops cicd entrega security identity)
+STAGES_ALL=(operators gitlab mesh platform gateway devportal demo pacotes consoles tracing dashboards gitops cicd registry entrega security identity)
 
 _usage() {
   cat <<EOF
@@ -86,9 +86,12 @@ Etapas, na ordem em que dependem umas das outras:
     cicd        OpenShift Pipelines (Tekton) e a pipeline que valida as
                 policies -- o que da conteudo a aba CI do portal --, mais o
                 Nexus (mirror Maven e tela de repositorio) e o SonarQube
-    entrega     o build ASSINADO do travel-packages: credenciais do Quay e do
-                Sonar, cache do Maven, a pipeline de build e o WildFlyServer.
-                Exige QUAY_ORG e QUAY_TOKEN no ambiente
+    registry    Red Hat Quay NO PROPRIO CLUSTER: operador, QuayRegistry (sem
+                Clair), o superusuario por API, a organizacao e o robot de
+                push. LENTA -- sobe banco, cache e bucket de objeto
+    entrega     o build ASSINADO do travel-packages: credenciais, cache do
+                Maven, a pipeline de build e o WildFlyServer. Usa o Quay da
+                etapa anterior; QUAY_HOST/ORG/USER/TOKEN apontam para outro
     security    RHACS: operador, Central, o init bundle e o SecuredCluster.
                 LENTA -- o Central sobe banco e scanner
     identity    unifica o login no Keycloak: personas, clients, e o GitLab
@@ -193,6 +196,25 @@ _vcs_topology() {
 }
 
 _has_crd() { oc get crd "$1" >/dev/null 2>&1; }
+_aplica_pipeline() { # arquivo ja renderizado em stdin -> aplica tudo MENOS PipelineRun
+  # POR QUE FILTRAR: a Pipeline e o PipelineRun modelo moram no mesmo arquivo,
+  # de proposito -- o par nunca se separa, e quem le encontra o exemplo ao lado
+  # da definicao. Mas 'oc apply' recusa generateName ("cannot use generate name
+  # with apply") e ABORTA O ARQUIVO INTEIRO: a Pipeline nao e criada, e o aviso
+  # fala de generateName, nao de pipeline ausente. Medido em 2026-08-28.
+  #
+  # O modelo e disparado por scripts/build-app.sh, que faz o recorte inverso.
+  #
+  # SEM PyYAML: o modulo nao esta no python3 deste ambiente, e o resto do repo
+  # so usa a biblioteca padrao. O corte e textual -- separa nos '---' que
+  # comecam linha e descarta o documento cujo 'kind:' e PipelineRun. Funciona
+  # porque estes arquivos sao escritos a mao, com o separador na coluna 1.
+  python3 -c 'import sys
+docs = sys.stdin.read().split(chr(10) + "---" + chr(10))
+manter = [d for d in docs
+          if not any(l.strip() == "kind: PipelineRun" for l in d.splitlines())]
+sys.stdout.write((chr(10) + "---" + chr(10)).join(manter))' | oc apply -f - >/dev/null
+}
 _descobre_overlay() { # define OVERLAY se ainda nao veio do ambiente
   # Estava embutido no st_demo ate 2026-08-28. Saiu para ca quando a etapa
   # 'cicd' passou a precisar do mesmo valor: a valida-policies agora renderiza
@@ -1103,7 +1125,7 @@ st_cicd() {
   else
     sed -e "s|__DOMAIN__|${DOMAIN}|g" -e "s|__OVERLAY__|${OVERLAY}|g" \
       "${_here}/platform-reference/pipelines/valida-policies.yaml" \
-      | oc apply -f - >/dev/null \
+      | _aplica_pipeline \
       && _ok "pipeline valida-policies aplicada, validando ${OVERLAY} (ela agora REPROVA)" \
       || _warn "falha ao aplicar a valida-policies"
   fi
@@ -1143,6 +1165,111 @@ st_cicd() {
 }
 
 # ===========================================================================
+# 11a. registry (Red Hat Quay no proprio cluster)
+# ===========================================================================
+# POR QUE DENTRO DO CLUSTER e nao numa conta no quay.io: mesmo criterio do
+# GitLab. Tudo tem de sair do provision.sh, e conta externa e exatamente o que
+# reprovou o Microcks e o Postman em 2026-08-27 -- estado que o repo nao
+# reconstroi, e num cluster novo a aba nasce vazia.
+#
+# NAO HA PASSO MANUAL DE UI aqui, e isso e deliberado: o config bundle liga
+# FEATURE_USER_INITIALIZE, que permite criar o primeiro superusuario por API e
+# receber um token na resposta. Sem isso a etapa viraria "abra o navegador e
+# depois volte".
+#
+# LENTA: sobe Postgres, Redis, um bucket de objeto e a aplicacao.
+st_registry() {
+  _sec "registry (Quay no cluster)"
+
+  if _has_crd quayregistries.quay.redhat.com; then
+    _ok "operador do Quay ja instalado"
+  else
+    _apply platform-reference/operators/subscription-quay.yaml || return 0
+    _wait_csv openshift-operators quay-operator 0 || {
+      _warn "operador do Quay nao ficou pronto -- a etapa 'entrega' fica sem destino de imagem"
+      return 0
+    }
+  fi
+
+  _apply platform-reference/cicd/quay.yaml || return 0
+  [[ $DRY_RUN -eq 1 ]] && { _cmd "aguardar o QuayRegistry, criar superusuario, org e robot"; return 0; }
+
+  _log "aguardando o Quay (sobe banco, cache e bucket -- leva minutos)..."
+  local t=0 cond=""
+  while [[ $t -lt 60 ]]; do
+    cond="$(oc get quayregistry registry -n quay \
+             -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null)"
+    [[ "$cond" == "True" ]] && break
+    sleep 15; t=$((t + 1))
+  done
+  if [[ "$cond" != "True" ]]; then
+    _warn "QuayRegistry nao ficou Available -- oc get quayregistry registry -n quay -o yaml"
+    return 0
+  fi
+
+  local host org
+  host="$(oc get quayregistry registry -n quay -o jsonpath='{.status.registryEndpoint}' | sed 's|https://||')"
+  org="${QUAY_ORG:-rhcl}"
+  _ok "Quay em https://${host}"
+
+  # ----- superusuario -----------------------------------------------------
+  # Idempotente pelo SECRET, e nao pela API: o /user/initialize so funciona
+  # com o banco sem usuario nenhum, entao uma segunda chamada falha. Se o
+  # secret existe, o usuario existe.
+  local token
+  if oc get secret quay-admin -n quay >/dev/null 2>&1; then
+    _ok "superusuario quayadmin ja existe"
+    token="$(oc get secret quay-admin -n quay -o jsonpath='{.data.token}' | base64 -d)"
+  else
+    local pw resp
+    pw="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-16)Aa1"
+    resp="$(curl -sk -X POST "https://${host}/api/v1/user/initialize" \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"quayadmin\",\"password\":\"${pw}\",\"email\":\"quayadmin@travel-agency.demo\",\"access_token\":true}")"
+    token="$(printf '%s' "$resp" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("access_token",""))' 2>/dev/null)"
+    if [[ -z "$token" ]]; then
+      _warn "nao consegui inicializar o superusuario: $(printf '%s' "$resp" | head -c 160)"
+      return 0
+    fi
+    oc create secret generic quay-admin -n quay \
+      --from-literal=username=quayadmin --from-literal=password="$pw" \
+      --from-literal=token="$token" >/dev/null
+    _ok "superusuario quayadmin criado (credenciais em quay/quay-admin)"
+  fi
+
+  # ----- organizacao, repositorio e robot ---------------------------------
+  # Todos idempotentes do jeito barato: repetir devolve 4xx e segue. Criar de
+  # novo nao quebra nada, e conferir antes custaria tres requests a mais para
+  # a mesma conclusao.
+  local api=(-sk -H "Authorization: Bearer ${token}" -H 'Content-Type: application/json')
+  curl "${api[@]}" -o /dev/null -X POST \
+    -d "{\"name\":\"${org}\",\"email\":\"${org}@travel-agency.demo\"}" \
+    "https://${host}/api/v1/organization/" 2>/dev/null
+  curl "${api[@]}" -o /dev/null -X POST \
+    -d "{\"namespace\":\"${org}\",\"repository\":\"travel-packages\",\"visibility\":\"private\",\"description\":\"Imagem do travel-packages, construida e assinada pela pipeline\",\"repo_kind\":\"image\"}" \
+    "https://${host}/api/v1/repository" 2>/dev/null
+  curl "${api[@]}" -o /dev/null -X PUT \
+    -d '{"description":"Push da pipeline build-travel-packages"}' \
+    "https://${host}/api/v1/organization/${org}/robots/tekton" 2>/dev/null
+  curl "${api[@]}" -o /dev/null -X PUT -d '{"role":"write"}' \
+    "https://${host}/api/v1/repository/${org}/travel-packages/permissions/user/${org}+tekton" 2>/dev/null
+  _ok "organizacao ${org}, repositorio travel-packages e robot ${org}+tekton"
+
+  local rtok
+  rtok="$(curl "${api[@]}" "https://${host}/api/v1/organization/${org}/robots/tekton" 2>/dev/null \
+          | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))' 2>/dev/null)"
+  if [[ -z "$rtok" ]]; then
+    _warn "nao consegui ler o token do robot -- a etapa 'entrega' vai pular"
+    return 0
+  fi
+  oc delete secret quay-robot -n quay --ignore-not-found >/dev/null 2>&1
+  oc create secret generic quay-robot -n quay \
+    --from-literal=username="${org}+tekton" --from-literal=token="$rtok" >/dev/null
+  _ok "credencial do robot em quay/quay-robot"
+  _log "imagem de destino: ${host}/${org}/travel-packages"
+}
+
+# ===========================================================================
 # 11b. entrega (build assinado do travel-packages)
 # ===========================================================================
 # A etapa que faz os produtos da cadeia pararem de ser decoracao. Ate aqui o
@@ -1170,11 +1297,22 @@ st_entrega() {
     _warn "operador do EAP ausente -- rode 'provision.sh pacotes' antes"
     return 0
   fi
-  if [[ -z "${QUAY_ORG:-}" || -z "${QUAY_TOKEN:-}" ]]; then
-    _warn "QUAY_ORG e QUAY_TOKEN nao definidos -- etapa pulada"
-    printf '        %s\n' "QUAY_ORG=<org> QUAY_TOKEN=<robot-token> bash scripts/provision.sh entrega"
+  # A CREDENCIAL VEM DO CLUSTER, e nao do ambiente: a etapa 'registry' subiu o
+  # Quay aqui dentro e guardou o robot em quay/quay-robot. QUAY_HOST, QUAY_ORG,
+  # QUAY_USER e QUAY_TOKEN continuam valendo para apontar para um registry
+  # externo, mas ninguem precisa deles no caminho normal.
+  local qhost qorg quser qtok
+  qhost="${QUAY_HOST:-$(oc get quayregistry registry -n quay -o jsonpath='{.status.registryEndpoint}' 2>/dev/null | sed 's|https://||')}"
+  qorg="${QUAY_ORG:-rhcl}"
+  quser="${QUAY_USER:-$(oc get secret quay-robot -n quay -o jsonpath='{.data.username}' 2>/dev/null | base64 -d)}"
+  qtok="${QUAY_TOKEN:-$(oc get secret quay-robot -n quay -o jsonpath='{.data.token}' 2>/dev/null | base64 -d)}"
+  if [[ -z "$qhost" || -z "$quser" || -z "$qtok" ]]; then
+    _warn "sem registry de destino -- rode 'provision.sh registry' antes"
+    printf '        %s\n' "ou aponte para um externo: QUAY_HOST=quay.io QUAY_ORG=<org> QUAY_USER=<user> QUAY_TOKEN=<token>"
     return 0
   fi
+  local imagem="${qhost}/${qorg}/travel-packages"
+  _log "destino da imagem: ${imagem}"
 
   _ns travel-packages
 
@@ -1209,15 +1347,12 @@ json.dump(d, sys.stdout)' \
       _ok "secret ${_s} ja existe"
     else
       oc create secret docker-registry "$_s" -n travel-packages \
-        --docker-server=quay.io \
-        --docker-username="${QUAY_USER:-$QUAY_ORG}" \
-        --docker-password="$QUAY_TOKEN" >/dev/null 2>&1 \
+        --docker-server="$qhost" \
+        --docker-username="$quser" \
+        --docker-password="$qtok" >/dev/null 2>&1 \
         && _ok "secret ${_s} criado" || _warn "falha ao criar ${_s}"
     fi
   done
-  _run oc secrets link travel-packages quay-pull --for=pull -n travel-packages >/dev/null 2>&1 \
-    && _ok "quay-pull vinculado a ServiceAccount travel-packages" \
-    || _warn "nao consegui vincular quay-pull (a ServiceAccount ja existe?)"
 
   # ----- 3. token do SonarQube ---------------------------------------------
   # NAO da para emitir sozinho: o Sonar nasce admin/admin e forca troca no
@@ -1271,11 +1406,11 @@ spec:
 
   # ----- 6. pipeline de build ----------------------------------------------
   if [[ $DRY_RUN -eq 1 ]]; then
-    _cmd "sed __DOMAIN__/__QUAY_ORG__ | oc apply -f platform-reference/pipelines/build-travel-packages.yaml"
+    _cmd "sed __DOMAIN__/__IMAGEM__ | oc apply -f platform-reference/pipelines/build-travel-packages.yaml"
   else
-    sed -e "s/__DOMAIN__/${DOMAIN}/g" -e "s/__QUAY_ORG__/${QUAY_ORG}/g" \
+    sed -e "s|__DOMAIN__|${DOMAIN}|g" -e "s|__IMAGEM__|${imagem}|g" \
       "${_here}/platform-reference/pipelines/build-travel-packages.yaml" \
-      | oc apply -f - >/dev/null \
+      | _aplica_pipeline \
       && _ok "pipeline build-travel-packages aplicada" \
       || _warn "falha ao aplicar a pipeline de build"
   fi
@@ -1286,17 +1421,25 @@ spec:
   # build passar deixaria a etapa silenciosa sobre a metade que falta.
   local _pkg_host="${PKG_HOST:-pacotes-travels.${DOMAIN}}"
   if [[ $DRY_RUN -eq 1 ]]; then
-    _cmd "sed __QUAY_ORG__/__PKG_HOST__ | oc apply -f platform-reference/travel-packages/06-eap.yaml"
+    _cmd "sed __IMAGEM__/__PKG_HOST__ | oc apply -f platform-reference/travel-packages/06-eap.yaml"
   else
-    sed -e "s/__QUAY_ORG__/${QUAY_ORG}/g" -e "s/__PKG_HOST__/${_pkg_host}/g" \
+    sed -e "s|__IMAGEM__|${imagem}|g" -e "s|__PKG_HOST__|${_pkg_host}|g" \
       "${_here}/platform-reference/travel-packages/06-eap.yaml" \
       | oc apply -f - >/dev/null \
       && _ok "WildFlyServer e HTTPRoute aplicados (host: ${_pkg_host})" \
       || _warn "falha ao aplicar o 06-eap.yaml"
   fi
 
+  # DEPOIS do 06-eap, e nao antes: e ele que cria a ServiceAccount, e
+  # 'oc secrets link' numa SA inexistente falha com uma mensagem que parece
+  # problema de permissao. A ordem estava invertida ate 2026-08-28.
+  _run oc secrets link travel-packages quay-pull --for=pull -n travel-packages >/dev/null 2>&1 \
+    && _ok "quay-pull vinculado a ServiceAccount travel-packages" \
+    || _warn "nao consegui vincular quay-pull -- oc get sa travel-packages -n travel-packages"
+
+
   _log "o build NAO foi disparado -- dispare quando quiser:"
-  _cmd "oc create -f <(sed -e 's/__DOMAIN__/${DOMAIN}/g' -e 's/__QUAY_ORG__/${QUAY_ORG}/g' platform-reference/pipelines/build-travel-packages.yaml | python3 -c 'import sys,yaml;print(yaml.dump([d for d in yaml.safe_load_all(sys.stdin) if d and d[\"kind\"]==\"PipelineRun\"][0]))')"
+  _cmd "bash scripts/build-app.sh"
 }
 
 # ===========================================================================
@@ -1443,6 +1586,8 @@ _check() {
   _c "dados do travel-packages" "$(oc get clusters.postgresql.cnpg.io travel-packages-db -n travel-db >/dev/null 2>&1 && echo sim)" "provision.sh pacotes"
   _c "CDC do Debezium"         "$(oc get kafkaconnector travel-cdc -n travel-streams >/dev/null 2>&1 && echo sim)" "provision.sh pacotes"
   _c "JBoss EAP"               "$(_has_crd wildflyservers.wildfly.org && echo sim)"           "provision.sh pacotes"
+  _c "Quay no cluster"          "$(oc get quayregistry registry -n quay >/dev/null 2>&1 && echo sim)" "provision.sh registry"
+  _c "robot de push do Quay"   "$(oc get secret quay-robot -n quay >/dev/null 2>&1 && echo sim)"     "provision.sh registry"
   _c "servico travel-packages" "$(oc get wildflyserver travel-packages -n travel-packages >/dev/null 2>&1 && echo sim)" "provision.sh entrega"
   _c "pipeline de build"       "$(oc get pipeline build-travel-packages -n travel-packages >/dev/null 2>&1 && echo sim)" "provision.sh entrega"
   _c "RHACS"                   "$(_has_crd centrals.platform.stackrox.io && echo sim)"         "provision.sh security"

@@ -1,0 +1,61 @@
+# ===========================================================================
+# Par de chaves do Tekton Chains -- gerado DENTRO do cluster.
+#
+# O cosign nao existe na maquina de quem provisiona (medido em 2026-08-28), e
+# instalar ferramenta local para gerar um Secret e fragilidade: este Job roda
+# o cosign da sigstore com escrita direta no Secret signing-secrets, que e
+# onde o Chains procura. Idempotente por preguica honesta: se o Secret ja tem
+# cosign.key, o Job nao recria (o proprio cosign se recusa a sobrescrever).
+#
+# A senha da chave e lab-grade como as demais; o Chains le a chave pelo
+# Secret, nunca pela senha em si.
+# ===========================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chains-keygen
+  namespace: openshift-pipelines
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: chains-keygen
+  namespace: openshift-pipelines
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chains-keygen
+  namespace: openshift-pipelines
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: chains-keygen
+subjects:
+  - kind: ServiceAccount
+    name: chains-keygen
+    namespace: openshift-pipelines
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: chains-keygen
+  namespace: openshift-pipelines
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      serviceAccountName: chains-keygen
+      restartPolicy: OnFailure
+      containers:
+        - name: keygen
+          image: ghcr.io/sigstore/cosign/cosign:v2.4.1
+          args: [generate-key-pair, "k8s://openshift-pipelines/signing-secrets"]
+          env:
+            - name: COSIGN_PASSWORD
+              value: chains-lab-2026

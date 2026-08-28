@@ -46,15 +46,16 @@ metadata:
     # Mesma armadilha medida em 2026-08-28 com os PipelineRun.
     backstage.io/kubernetes-id: travel-packages
 spec:
-  # A imagem e a NOSSA, construida pela pipeline e publicada no Quay -- entao
-  # nao depende de resolver nome de repositorio da Red Hat. O que ainda
-  # depende e a imagem BASE do Dockerfile: em 2026-08-28 nenhum dos caminhos
-  # tentados resolveu com o pull secret do cluster (o operador mora sob
-  # registry.redhat.io/jboss-eap/, e nao jboss-eap-8/). Settle com:
-  #   oc get secret pull-secret -n openshift-config \
-  #     -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/auth.json
-  #   oc image info -a /tmp/auth.json registry.redhat.io/jboss-eap/<repo>:<tag>
-  applicationImage: quay.io/__QUAY_ORG__/travel-packages:latest
+  # __IMAGEM__ e substituido pelo provision.sh: por padrao o Quay DO PROPRIO
+  # CLUSTER (registry-quay-quay.<dominio>/rhcl/travel-packages), pelo mesmo
+  # motivo do GitLab morar aqui -- nada de conta externa que o repo nao
+  # reconstroi. QUAY_HOST e QUAY_ORG no ambiente apontam para outro registry,
+  # se um dia fizer sentido.
+  #
+  # A imagem BASE do Dockerfile e outra coisa e ja esta resolvida:
+  # registry.redhat.io/jboss-eap-8/eap81-openjdk17-runtime-openshift-rhel9,
+  # conferida rodando-a no cluster (ver o cabecalho do Dockerfile).
+  applicationImage: __IMAGEM__:latest
   replicas: 2
   serviceAccountName: travel-packages
 
