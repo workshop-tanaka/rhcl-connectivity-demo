@@ -957,6 +957,12 @@ EOF
   rt="$(oc get route openshift-gitops-server -n openshift-gitops -o jsonpath='{.spec.host}' 2>/dev/null)"
   [[ -n "$rt" ]] && _log "Argo CD: https://${rt}  (login: OpenShift SSO)"
   _log "projeto criado em rhcl/apis aparece em ate ~3 min (requeueAfterSeconds)"
+
+  # O Argo CD tambem traz plugin de console, e tambem nao se habilita sozinho.
+  # E ele que poe a secao GitOps no console do OpenShift.
+  if oc get consoleplugin gitops-plugin >/dev/null 2>&1 || [[ $DRY_RUN -eq 1 ]]; then
+    _enable_console_plugin gitops-plugin
+  fi
 }
 
 # ===========================================================================
@@ -1126,6 +1132,13 @@ st_cicd() {
     _rollout nexus cicd
     _warn "CloudNativePG ausente -- SonarQube fora (precisa do Cluster sonar-db)"
     printf '        %s\n' "rode 'provision.sh gitlab', que instala o CNPG, e repita esta etapa"
+  fi
+
+  # O operador cria o ConsolePlugin e NAO se habilita sozinho -- mesmo
+  # comportamento do Connectivity Link e do Service Mesh. Sem isto o console do
+  # OpenShift nao ganha a secao Pipelines, e a execucao so aparece pela CLI.
+  if oc get consoleplugin pipelines-console-plugin >/dev/null 2>&1 || [[ $DRY_RUN -eq 1 ]]; then
+    _enable_console_plugin pipelines-console-plugin
   fi
 }
 
@@ -1308,6 +1321,13 @@ st_security() {
   fi
 
   _apply platform-reference/security/acs-central.yaml
+
+  # ANTES do early return do dry-run, de proposito: o plugin de console nao
+  # depende do Central estar de pe, e deixar depois faz o --dry-run esconder a
+  # unica parte da etapa que o dry-run conseguiria mostrar.
+  if oc get consoleplugin advanced-cluster-security >/dev/null 2>&1 || [[ $DRY_RUN -eq 1 ]]; then
+    _enable_console_plugin advanced-cluster-security
+  fi
   [[ $DRY_RUN -eq 1 ]] && { _cmd "emitir init bundle e aplicar o SecuredCluster"; return 0; }
 
   _log "aguardando o Central (sobe banco e scanner -- leva minutos)..."
