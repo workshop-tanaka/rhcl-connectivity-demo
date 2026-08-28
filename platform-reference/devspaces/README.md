@@ -39,8 +39,24 @@ quer editar no palco (as policies), não o binário do serviço.
 ### 2. O decorator "edit code" do plugin Topology (**não** aponta para o Dev Spaces)
 
 O lápis no canto do nó do Topology. Ele aparece — o par
-`app.openshift.io/vcs-uri` + `app.openshift.io/vcs-ref` está nos Deployments de
-`platform-reference/workloads/` —, mas leva ao **GitHub**, não ao IDE.
+`app.openshift.io/vcs-uri` + `app.openshift.io/vcs-ref` está nos Deployments —,
+mas leva ao **repositório**, não ao IDE.
+
+> **Mudou em 2026-08-28.** As duas anotações não moram mais nos manifestos de
+> `platform-reference/workloads/`: elas apontavam fixo para o
+> `github.com/devhub-tanaka/rhcl-connectivity-demo`, que é **privado** (a seção
+> logo abaixo detalha), então o lápis abria uma tela de login no meio da demo —
+> num ambiente que é só GitLab desde 2026-08-25.
+>
+> Quem as escreve agora é `_vcs_topology()` no `scripts/provision.sh`, com o
+> host lido do cluster, apontando para o espelho
+> `rhcl/base/rhcl-connectivity-demo` em `main`. O host do GitLab é específico
+> do cluster e o `_apply` é `oc apply` seco, sem render — fixar um host no YAML
+> quebraria o próximo ambiente.
+>
+> Sem GitLab no cluster, as anotações não são escritas e o nó aparece sem o
+> lápis. É a mesma degradação descrita acima, e é preferível a um link que pede
+> senha.
 
 Isso não é configuração faltando; é uma incompatibilidade estrutural entre o
 plugin e o modelo de catálogo desta demo. Medido neste cluster, o plugin faz:
@@ -68,7 +84,7 @@ A terceira linha foi verificada de ponta a ponta e o lápis passou a apontar par
 o selector de cada componente é `app=travels`, `app=flights`, `app=cars`… e um
 único CheCluster não pode ter a chave `app` com sete valores. Habilitá-la daria
 o decorator em **um** componente e deixaria os outros seis apontando para o
-GitHub — inconsistência que custa mais numa demo do que o ícone vale.
+repositório — inconsistência que custa mais numa demo do que o ícone vale.
 
 Há um segundo motivo, já registrado em `rhdh/README.md`: `kubernetes-id` exige
 rotular os Deployments, e eles são do Argo com `selfHeal` — o label volta atrás

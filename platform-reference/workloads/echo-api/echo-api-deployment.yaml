@@ -18,12 +18,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    # Dev Spaces: este par e o UNICO gatilho do decorator "edit code" na aba
-    # Topology do RHDH -- sem ele o no aparece igual, so que sem o lapis, e nao
-    # ha erro em lugar nenhum. Ver platform-reference/devspaces/README.md.
-    app.openshift.io/vcs-uri: https://github.com/devhub-tanaka/rhcl-connectivity-demo
-    app.openshift.io/vcs-ref: rhcl-1.4-ocp-4.21
+  # O par app.openshift.io/vcs-uri + vcs-ref (o lapis "edit code" do
+  # Topology) NAO fica aqui: o destino e o espelho no GitLab, cujo host e
+  # especifico do cluster, e o _apply do provision.sh e "oc apply" seco,
+  # sem render -- fixar um host quebraria o proximo ambiente.
+  #
+  # Quem escreve as duas e _vcs_topology() no scripts/provision.sh, com o
+  # host lido do cluster. Sem GitLab, elas nao entram e o no do Topology
+  # aparece sem o lapis -- que e degradacao correta, nao defeito.
+  #
+  # Ate 2026-08-28 estavam fixas aqui apontando para o github.com. O repo e
+  # PRIVADO (platform-reference/devspaces/README.md), entao o lapis levava a
+  # uma tela de login no meio da demo, num ambiente que e so GitLab.
   name: echo-api
   namespace: echo-api
   labels:

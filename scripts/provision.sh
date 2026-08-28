@@ -146,6 +146,49 @@ _ns() { # cria namespace se nao existir; NUNCA a partir de platform-reference/na
     else _run oc create ns "$n" >/dev/null && _ok "namespace ${n} criado"; fi
   done
 }
+# ---------------------------------------------------------------------------
+# _vcs_topology — o lapis "edit code" do Topology, apontando para o GitLab.
+#
+# app.openshift.io/vcs-uri + vcs-ref sao o UNICO gatilho do decorator. Ate
+# 2026-08-28 eles vinham FIXOS nos manifestos de platform-reference/workloads/,
+# apontando para https://github.com/devhub-tanaka/rhcl-connectivity-demo -- que
+# e PRIVADO (ver platform-reference/devspaces/README.md). Na demo, o lapis
+# levava a uma tela de login do GitHub, num ambiente que e so GitLab desde
+# 2026-08-25.
+#
+# Nao da para so trocar a URL no manifesto: o host do GitLab e especifico do
+# cluster, e o _apply e 'oc apply' seco, sem render -- fixar o host de um
+# ambiente quebraria o proximo. Por isso as anotacoes saem do YAML e sao
+# escritas aqui, com o host lido do cluster.
+#
+# Sem GitLab, nada e escrito: o no do Topology aparece sem o lapis, que e a
+# degradacao que o README do devspaces ja descreve ("o no aparece igual, so que
+# sem o lapis"). Melhor do que um link para um destino que pede senha.
+#
+# A ref e 'main' porque o espelho tem um branch so -- ele e artefato do
+# gitlab-seed.sh, nao um repositorio onde se trabalha.
+_vcs_topology() {
+  local host uri n ns
+  host="$(oc get route -n gitlab-system \
+    -o jsonpath='{range .items[?(@.spec.to.name=="gitlab-webservice-default")]}{.spec.host}{"\n"}{end}' \
+    2>/dev/null | head -1)"
+  if [[ -z "$host" ]]; then
+    _warn "GitLab ausente — o lapis 'edit code' do Topology fica de fora"
+    return 0
+  fi
+  uri="https://${host}/rhcl/base/rhcl-connectivity-demo"
+  for ns in travel-agency echo-api; do
+    while read -r n; do
+      [[ -z "$n" ]] && continue
+      _run oc annotate deployment "$n" -n "$ns" --overwrite \
+        "app.openshift.io/vcs-uri=${uri}" \
+        "app.openshift.io/vcs-ref=main" >/dev/null
+    done < <(oc get deploy -n "$ns" \
+               -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+  done
+  _ok "decorator 'edit code' apontando para ${uri}"
+}
+
 _has_crd() { oc get crd "$1" >/dev/null 2>&1; }
 _csv_phase() { # ns prefixo -> fase, ou vazio
   oc get csv -n "$1" -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\n"}{end}' 2>/dev/null \
@@ -492,6 +535,8 @@ st_platform() {
   # pareca: sem MySQL, 4 dos 6 backends respondem 200 com corpo VAZIO e os
   # Atos 1-4, que medem codigo de status, continuam passando.
   _apply platform-reference/workloads/travel-db
+
+  _vcs_topology
 
   # O mesmo Secret precisa existir em travel-agency, de onde os 4 backends o
   # leem. A captura nunca o trouxe para ca — secao 4 do PROVISIONING.
