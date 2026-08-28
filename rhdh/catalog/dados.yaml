@@ -179,3 +179,72 @@ spec:
   system: travel-packages
   dependsOn:
     - resource:default/travel-packages-db
+---
+# ---------------------------------------------------------------------------
+# A APLICACAO EAP -- o que consome tudo o que esta acima.
+#
+# Entrou em 2026-08-28. Ate aqui o System travel-packages tinha seis Resources
+# e nenhum Component: o portal descrevia o lastro de dados e nao dizia quem o
+# le. Consequencia pratica, e nao estetica: o SonarQube, a pipeline e o ACS ja
+# mediam este servico, e nao havia entidade onde pendurar as abas.
+#
+# TODA anotacao abaixo foi conferida na FONTE antes de entrar -- a regra
+# real-only vale aqui na forma mais dura: anotacao que aponta para o nada
+# produz aba que abre vazia, e vazio no palco le-se como integracao quebrada.
+#   sonarqube      api/components/search -> com.redhat.travel:travel-packages
+#   acs            api/v1/deployments    -> travel-packages/travel-packages
+#   jaeger         api/.../services      -> travel-packages.travel-packages
+#   gitlab         api/v4/projects       -> rhcl/travel/travel-packages
+#
+# SEM anotacao do Quay, de proposito: a pipeline empurra para o registry DO
+# CLUSTER, e o plugin de Quay do portal aponta para o quay.io publico. A
+# anotacao existiria e mostraria repositorio de outra pessoa.
+#
+# SEM anotacao do Nexus (nexus-repository-manager/maven.*): o Nexus deste
+# cluster esta VAZIO -- nao ha artefato deste build la. Ver o comentario da
+# maven-settings em platform-reference/pipelines/build-travel-packages.yaml.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: travel-packages
+  title: Pacotes de viagem — EAP
+  description: >-
+    A aplicacao JBoss EAP que serve o catalogo de pacotes. Le do cache do Data
+    Grid, nao do Postgres: quem escreve no cache e o CDC, entao pacote
+    desatualizado na tela e sintoma do conector, nao desta aplicacao.
+  annotations:
+    # StatefulSet, e nao Deployment: quem o cria e o operator do EAP a partir
+    # do WildFlyServer. Procurar 'deployment/travel-packages' nao acha nada.
+    rhcl.demo/cluster-object: statefulset/travel-packages/travel-packages
+    # A CHAVE DO SONARQUBE E groupId:artifactId, nao o nome do repositorio.
+    # A pipeline nao passa -Dsonar.projectKey: o maven-sonar-plugin a deriva do
+    # POM, entao o valor certo so se descobre perguntando ao proprio SonarQube.
+    sonarqube.org/project-key: com.redhat.travel:travel-packages
+    # O ACS conhece pelo nome do workload, que aqui coincide com o do servico
+    # -- diferente do travel-agency, onde os deployments levam sufixo -v1.
+    acs/deployment-name: travel-packages
+    janus-idp.io/tekton: travel-packages
+    gitlab.com/instance: ${GITLAB_HOST}
+    gitlab.com/project-slug: rhcl/travel/travel-packages
+    backstage.io/kubernetes-label-selector: app=travel-packages
+    backstage.io/kubernetes-namespace: travel-packages
+    kiali.io/namespace: travel-packages
+    jaegertracing.io/service: travel-packages.travel-packages
+    # 168h pelo mesmo motivo dos demais: 'd' derruba a aba inteira, e a janela
+    # de 1h deixa vazio num cluster sem trafego recente.
+    jaegertracing.io/lookback: 168h
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - ato-6
+spec:
+  type: service
+  lifecycle: production
+  owner: group:default/platform-team
+  system: travel-packages
+  dependsOn:
+    - resource:default/travel-cache
+    - resource:default/travel-packages-db
