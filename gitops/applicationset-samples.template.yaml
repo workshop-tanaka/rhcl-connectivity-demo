@@ -6,9 +6,10 @@
 # arquivo direto — o placeholder viraria host literal.
 #
 # ---------------------------------------------------------------------------
-# ESTE É O ÚNICO DOS TRÊS APPLICATIONSET QUE **APLICA** DE VERDADE
+# ESTE APPLICATIONSET **APLICA**, E O rhcl-travel NÃO — a diferença não é
+# acidente, e é ela que decide se 'automated' pode existir.
 #
-# Compare com os vizinhos, porque a diferença não é acidente:
+# Compare os três:
 #
 #   rhcl-travel        OBSERVA. Quem aplica os seis backends é o provision.sh
 #                      (etapa 'platform'); dois donos para o mesmo objeto

@@ -150,11 +150,11 @@ rodou, e trocar a origem é uma decisão de quem apresenta, não um pré-requisi
 `gitlab-seed.sh` cria `rhcl/samples/<nome>` e o `ApplicationSet` `rhcl-samples`
 os descobre pelo subgrupo. **Não há passo de deploy.**
 
-Este é o único dos três `ApplicationSet` que **aplica** de verdade
-(`automated` ligado): ninguém mais aplica as amostras, ao contrário do
-`rhcl-travel`, onde dois donos para o mesmo objeto deixaram as `Applications`
-presas em `phase=Running`. `selfHeal` continua desligado — vários movimentos
-são edições ao vivo.
+Ele **aplica** (`automated` ligado), como o do golden path — e ao contrário do
+`rhcl-travel`, que apenas *observa*: lá quem aplica os seis backends é o
+`provision.sh`, e com dois donos para o mesmo objeto as `Applications` ficaram
+presas em `phase=Running`. `selfHeal` continua desligado — vários movimentos são
+edições ao vivo.
 
 **As amostras são semeadas RENDERIZADAS.** É a única parte do seed em que o
 conteúdo commitado difere do arquivo do repositório: o Argo não substitui

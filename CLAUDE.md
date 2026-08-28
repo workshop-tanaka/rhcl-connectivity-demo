@@ -30,6 +30,7 @@ funcionar ao vivo.
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | o *porquê* de cada ato, as perguntas frequentes e as 13 armadilhas |
 | [docs/DEMO-PASSO-A-PASSO.md](docs/DEMO-PASSO-A-PASSO.md) | a sequência de execução: o que rodar, a saída esperada e o que dizer |
 | [docs/PROVISIONING-1.4.md](docs/PROVISIONING-1.4.md) | por que cada passo do provisionamento existe e como cada um quebra |
+| [docs/SAMPLES.md](docs/SAMPLES.md) | as amostras do Istio: o que dizer, o que medir, e as quatro armadilhas já medidas |
 
 **O cluster é efêmero.** Hostname, senha e nome de cluster que aparecem em doc
 envelhecem; descobrir do cluster na hora, nunca copiar de documento. Nenhum
@@ -47,6 +48,10 @@ provisionamento; ambos executam `scripts/demo.sh` e `scripts/provision.sh`, e
 oc apply -k overlays/rhcl-1.4        # RHCL 1.4 / OCP 4.21 — release suportada
 bash scripts/preflight.sh            # verifica a cadeia inteira (~45s); 'core' = só o caminho de dados
 bash scripts/traffic.sh tiers        # os três planos lado a lado
+
+# amostras do Istio (material de apoio; NÃO usar 'oc apply -k' direto — há __DOMAIN__)
+bash scripts/provision.sh samples            # as quatro
+SAMPLES=bookinfo bash scripts/provision.sh samples
 
 # cluster novo
 bash scripts/new-env.sh              # gera env/<cluster>/ + overlays/<cluster>/ (não versionados)
@@ -95,7 +100,7 @@ no pod — não a minor do RHDH.
 
 ## Arquitetura
 
-### As três faixas de governança
+### As quatro faixas de governança
 
 A fronteira nasceu no cluster 1.2, onde o Argo CD com `selfHeal` revertia
 `oc apply` em segundos, e continua valendo por separar o que a demo **governa**
@@ -107,6 +112,14 @@ do que ela **pressupõe**:
 - **`gitops/`** — Argo CD com escopo estreito: governa **apenas** os
   repositórios que o golden path do RHDH gera. `selfHeal` fica desligado,
   porque vários movimentos do roteiro são edições ao vivo.
+- **`samples/`** — as amostras do Istio (`bookinfo`, `websockets`,
+  `open-telemetry`, `grpc-echo`). Aplicáveis, mas **fora do render do overlay
+  da demo**: material de apoio entra e sai sem tocar no roteiro. Pô-las em
+  `base/` mudaria o que `oc apply -k overlays/<...>` aplica no palco. Aplicadas
+  por `provision.sh samples` (que substitui o `__DOMAIN__` das rotas) e, depois
+  do seed, pelo Argo — o `ApplicationSet` `rhcl-samples` **aplica**, como o do
+  golden path, e ao contrário do `rhcl-travel`, que apenas observa. Ver
+  [docs/SAMPLES.md](docs/SAMPLES.md).
 
 `scripts/capture.sh` só roteia arquivos automaticamente quando há
 `argocd.argoproj.io/tracking-id` para consultar; sem Argo ele **desliga** o

@@ -90,6 +90,14 @@ serviço do desenvolvedor. A plataforma continua sendo montada por
 uma terceira faixa; e `selfHeal` fica **desligado**, porque vários movimentos do
 roteiro são edições ao vivo que o 1.2 revertia em segundos.
 
+E há uma **quarta faixa**, [`samples/`](samples/): as amostras do Istio
+(`bookinfo`, `websockets`, `open-telemetry`, `grpc-echo`), aplicáveis mas
+**fora do render do overlay da demo**. Material de apoio entra e sai sem tocar
+no roteiro — pô-las em `base/` mudaria o que `oc apply -k overlays/rhcl-1.4`
+aplica no palco, que é exatamente a troca que não se faz. Cada uma defende um
+pedaço da tese, e o porquê de cada uma está em
+[docs/SAMPLES.md](docs/SAMPLES.md).
+
 ## Golden path
 
 Três software templates no RHDH, e a ordem deles é a jornada de uma API:
@@ -147,9 +155,15 @@ rhdh/                      Red Hat Developer Hub: catalogo + golden path
   templates/rhcl-api-subscription/  pede chave por pull request
   templates/rhcl-api-canary/        publica v2 e move peso, por pull request
 gitops/                    ApplicationSet que descobre os repos gerados (topic)
+samples/                   amostras do Istio sob RHCL e OSSM (material de apoio)
+  bookinfo/                duas HTTPRoute no mesmo host: UI publica, API sob plano
+  websockets/              o que a policy alcanca depois do Upgrade -- e o que nao
+  grpc-echo/               a MESMA AuthPolicy sobre gRPC, mais canario em gRPC
+  open-telemetry/          access log do mesh em OTLP; a unica sem rota
 docs/DEMO-PASSO-A-PASSO.md sequencia de execucao (o que rodar, e o que dizer)
 docs/RUNBOOK.md            roteiro de execucao + as 13 armadilhas
 docs/PROVISIONING-1.4.md   como o cluster 1.4 foi montado do zero
+docs/SAMPLES.md            as amostras: o que dizer, o que medir, o que nao funciona
 ```
 
 A ordem dos diretórios de policy é a ordem do roteiro.

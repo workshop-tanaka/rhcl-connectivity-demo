@@ -245,7 +245,8 @@ metadata:
   name: bookinfo-details
   title: bookinfo — details
   description: >-
-    Metadados do livro (Ruby). So o productpage pode chama-lo, e isso e DECLARADO pela AuthorizationPolicy -- nao um acidente de roteamento.
+    Metadados do livro (Ruby). So o productpage pode chama-lo, e isso e
+    DECLARADO pela AuthorizationPolicy -- nao um acidente de roteamento.
   annotations:
     rhcl.demo/cluster-object: deployment/bookinfo/details-v1
     acs/deployment-name: details-v1
@@ -280,7 +281,9 @@ metadata:
   name: bookinfo-ratings
   title: bookinfo — ratings
   description: >-
-    As estrelas (Node.js). Chamado apenas por reviews v2 e v3 -- e a policy nao distingue versao, porque o principal vem da ServiceAccount, que e uma so para as tres.
+    As estrelas (Node.js). Chamado apenas por reviews v2 e v3 -- e a policy nao
+    distingue versao, porque o principal vem da ServiceAccount, que e uma so
+    para as tres.
   annotations:
     rhcl.demo/cluster-object: deployment/bookinfo/ratings-v1
     acs/deployment-name: ratings-v1
@@ -315,7 +318,9 @@ metadata:
   name: bookinfo-reviews
   title: bookinfo — reviews
   description: >-
-    TRES versoes vivas, e e por elas que esta amostra entra: v2 esta declarada, saudavel, no grafo, e com ZERO por cento do trafego -- porque quem decide isso e o VirtualService, nao o deploy.
+    TRES versoes vivas, e e por elas que esta amostra entra: v2 esta declarada,
+    saudavel, no grafo, e com ZERO por cento do trafego -- porque quem decide
+    isso e o VirtualService, nao o deploy.
   annotations:
     rhcl.demo/cluster-object: deployment/bookinfo/reviews-v1
     acs/deployment-name: reviews-v1,reviews-v2,reviews-v3
@@ -480,7 +485,9 @@ metadata:
   name: bookinfo-ui-route
   title: HTTPRoute — bookinfo (UI)
   description: >-
-    A rota publica. Path prefix '/', sem AuthPolicy: quem entra e qualquer um, e o que a governa e um limite de capacidade no hostname inteiro. 'Sem chave' nao pode significar 'sem governanca'.
+    A rota publica. Path prefix '/', sem AuthPolicy: quem entra e qualquer um, e
+    o que a governa e um limite de capacidade no hostname inteiro. 'Sem chave'
+    nao pode significar 'sem governanca'.
   annotations:
     rhcl.demo/cluster-object: httproute/bookinfo/bookinfo-ui
     backstage.io/kubernetes-namespace: bookinfo
@@ -505,7 +512,9 @@ metadata:
   name: bookinfo-api-route
   title: HTTPRoute — bookinfo (API)
   description: >-
-    A rota da API. Path prefix '/api/v1', e e sobre ela que valem a AuthPolicy e o PlanPolicy. Os quatro caminhos que o bookinfo publica de verdade estao descritos na API bookinfo-api.
+    A rota da API. Path prefix '/api/v1', e e sobre ela que valem a AuthPolicy e
+    o PlanPolicy. Os quatro caminhos que o bookinfo publica de verdade estao
+    descritos na API bookinfo-api.
   annotations:
     rhcl.demo/cluster-object: httproute/bookinfo/bookinfo-api
     backstage.io/kubernetes-namespace: bookinfo
@@ -530,7 +539,9 @@ metadata:
   name: bookinfo-api-authpolicy
   title: AuthPolicy — bookinfo-api
   description: >-
-    A MESMA AuthPolicy do travels, com dois campos diferentes: o targetRef e o seletor, que exige devportal.kuadrant.io/apiproduct=bookinfo-api. E esse segundo campo que da o isolamento -- a chave do travels nao abre o bookinfo.
+    A MESMA AuthPolicy do travels, com dois campos diferentes: o targetRef e o
+    seletor, que exige devportal.kuadrant.io/apiproduct=bookinfo-api. E esse
+    segundo campo que da o isolamento -- a chave do travels nao abre o bookinfo.
   annotations:
     rhcl.demo/cluster-object: authpolicy/bookinfo/bookinfo-api-authpolicy
     backstage.io/kubernetes-namespace: bookinfo
@@ -556,7 +567,9 @@ metadata:
   name: bookinfo-plans
   title: PlanPolicy — bookinfo
   description: >-
-    Planos gold, silver e free sobre a rota da API, com limites baixos de proposito: a cena e ver o 429 com dez curls na mao, e nao medir capacidade. O catch-all 'unclassified' e o que separa fail-closed de fail-open.
+    Planos gold, silver e free sobre a rota da API, com limites baixos de
+    proposito: a cena e ver o 429 com dez curls na mao, e nao medir capacidade.
+    O catch-all 'unclassified' e o que separa fail-closed de fail-open.
   annotations:
     rhcl.demo/cluster-object: planpolicy/bookinfo/bookinfo-plans
     backstage.io/kubernetes-namespace: bookinfo
@@ -582,7 +595,9 @@ metadata:
   name: bookinfo-ui-ratelimit
   title: RateLimitPolicy — bookinfo (UI)
   description: >-
-    Protecao de capacidade da rota anonima, e nao cota comercial. Sem identidade do outro lado, o limite so pode ser do hostname -- perder essa distincao e o erro comum de quem le rate limit como cobranca.
+    Protecao de capacidade da rota anonima, e nao cota comercial. Sem identidade
+    do outro lado, o limite so pode ser do hostname -- perder essa distincao e o
+    erro comum de quem le rate limit como cobranca.
   annotations:
     rhcl.demo/cluster-object: ratelimitpolicy/bookinfo/bookinfo-ui-ratelimit
     backstage.io/kubernetes-namespace: bookinfo
@@ -608,7 +623,9 @@ metadata:
   name: websockets-route
   title: HTTPRoute — websockets
   description: >-
-    A rota do WebSocket, e o que NAO esta escrito nela e o ponto: nao ha configuracao de upgrade em lugar nenhum. Mesmo Gateway, mesmo listener HTTPS/443 das demais rotas.
+    A rota do WebSocket, e o que NAO esta escrito nela e o ponto: nao ha
+    configuracao de upgrade em lugar nenhum. Mesmo Gateway, mesmo listener
+    HTTPS/443 das demais rotas.
   annotations:
     rhcl.demo/cluster-object: httproute/websockets/websockets
     backstage.io/kubernetes-namespace: websockets
@@ -633,7 +650,10 @@ metadata:
   name: websockets-authpolicy
   title: AuthPolicy — websockets
   description: >-
-    Confere a credencial na requisicao que carrega 'Upgrade: websocket'. Sem chave o upgrade nao acontece e a conexao nunca chega a existir. Depois dele, os frames nao sao requisicoes HTTP e esta policy nao os ve. A chave vai na query string porque a API do navegador nao permite cabecalho.
+    Confere a credencial na requisicao que carrega 'Upgrade: websocket'. Sem
+    chave o upgrade nao acontece e a conexao nunca chega a existir. Depois dele,
+    os frames nao sao requisicoes HTTP e esta policy nao os ve. A chave vai na
+    query string porque a API do navegador nao permite cabecalho.
   annotations:
     rhcl.demo/cluster-object: authpolicy/websockets/websockets-authpolicy
     backstage.io/kubernetes-namespace: websockets
@@ -685,7 +705,9 @@ metadata:
   name: grpc-echo-route
   title: GRPCRoute — grpc-echo
   description: >-
-    gRPC no MESMO Gateway das rotas HTTP: o listener e HTTPS na 443 e negocia h2 por ALPN, entao nao ha porta nova nem Gateway novo. UMA regra, sem match por metodo -- com duas, o Kuadrant ancora o limite so numa delas.
+    gRPC no MESMO Gateway das rotas HTTP: o listener e HTTPS na 443 e negocia h2
+    por ALPN, entao nao ha porta nova nem Gateway novo. UMA regra, sem match por
+    metodo -- com duas, o Kuadrant ancora o limite so numa delas.
   annotations:
     rhcl.demo/cluster-object: grpcroute/grpc-echo/grpc-echo
     backstage.io/kubernetes-namespace: grpc-echo
@@ -710,7 +732,9 @@ metadata:
   name: grpc-echo-authpolicy
   title: AuthPolicy — grpc-echo
   description: >-
-    Identica a do bookinfo em tudo menos dois campos, e os dois sao do protocolo: targetRef kind GRPCRoute, e credencial em metadata (customHeader) porque gRPC nao tem query string. A policy nao muda com o protocolo.
+    Identica a do bookinfo em tudo menos dois campos, e os dois sao do
+    protocolo: targetRef kind GRPCRoute, e credencial em metadata (customHeader)
+    porque gRPC nao tem query string. A policy nao muda com o protocolo.
   annotations:
     rhcl.demo/cluster-object: authpolicy/grpc-echo/grpc-echo-authpolicy
     backstage.io/kubernetes-namespace: grpc-echo
@@ -736,7 +760,11 @@ metadata:
   name: grpc-echo-ratelimit
   title: RateLimitPolicy — grpc-echo (nao aplicada)
   description: >-
-    DECLARADA E SEM EFEITO, e isso esta medido: a policy irma de base/grpc/, de desenho identico, reporta Enforced=True com o limite correto no Limitador e deixa passar oito chamadas num teto de cinco. No mesmo minuto a de HTTP funciona. Fica declarada porque esta correta -- omiti-la ensinaria que gRPC nao se limita, o que e falso.
+    DECLARADA E SEM EFEITO, e isso esta medido: a policy irma de base/grpc/, de
+    desenho identico, reporta Enforced=True com o limite correto no Limitador e
+    deixa passar oito chamadas num teto de cinco. No mesmo minuto a de HTTP
+    funciona. Fica declarada porque esta correta -- omiti-la ensinaria que gRPC
+    nao se limita, o que e falso.
   annotations:
     rhcl.demo/cluster-object: ratelimitpolicy/grpc-echo/grpc-echo-ratelimit
     backstage.io/kubernetes-namespace: grpc-echo
@@ -770,7 +798,9 @@ metadata:
   name: bookinfo-strict
   title: PeerAuthentication — bookinfo (STRICT)
   description: >-
-    mTLS obrigatorio no namespace inteiro. E ele que prova os principals que a AuthorizationPolicy compara -- aplicar a segunda sem esta nao daria erro, daria uma regra que nunca casa.
+    mTLS obrigatorio no namespace inteiro. E ele que prova os principals que a
+    AuthorizationPolicy compara -- aplicar a segunda sem esta nao daria erro,
+    daria uma regra que nunca casa.
   annotations:
     rhcl.demo/cluster-object: peerauthentication/bookinfo/bookinfo-strict
     backstage.io/kubernetes-namespace: bookinfo
@@ -818,7 +848,9 @@ metadata:
   name: bookinfo-authz-leste-oeste
   title: AuthorizationPolicy — bookinfo
   description: >-
-    Quem pode falar COM QUEM, por identidade SPIFFE e nao por rede. Torna DECLARADO o que hoje e verdade por acidente: um pod novo no mesmo namespace, com outra ServiceAccount, recebe 'RBAC: access denied'.
+    Quem pode falar COM QUEM, por identidade SPIFFE e nao por rede. Torna
+    DECLARADO o que hoje e verdade por acidente: um pod novo no mesmo namespace,
+    com outra ServiceAccount, recebe 'RBAC: access denied'.
   annotations:
     rhcl.demo/cluster-object: authorizationpolicy/bookinfo/ratings-so-do-reviews
     backstage.io/kubernetes-namespace: bookinfo
@@ -842,7 +874,10 @@ metadata:
   name: websockets-strict
   title: PeerAuthentication — websockets (STRICT)
   description: >-
-    mTLS negociado no ESTABELECIMENTO da conexao, e a identidade provada ali vale por ela inteira -- o inverso da policy de borda, que e por requisicao. Ter os dois comportamentos no mesmo namespace e o que torna a diferenca visivel em vez de teorica.
+    mTLS negociado no ESTABELECIMENTO da conexao, e a identidade provada ali
+    vale por ela inteira -- o inverso da policy de borda, que e por requisicao.
+    Ter os dois comportamentos no mesmo namespace e o que torna a diferenca
+    visivel em vez de teorica.
   annotations:
     rhcl.demo/cluster-object: peerauthentication/websockets/websockets-strict
     backstage.io/kubernetes-namespace: websockets
@@ -890,7 +925,9 @@ metadata:
   name: grpc-echo-strict
   title: PeerAuthentication — grpc-echo (STRICT)
   description: >-
-    Em gRPC o handshake mTLS acontece uma vez por CONEXAO e nao por chamada -- o overhead que se teme em mTLS e amortizado por centenas de chamadas. E resposta medivel para a objecao 'mTLS em tudo nao fica caro?'.
+    Em gRPC o handshake mTLS acontece uma vez por CONEXAO e nao por chamada -- o
+    overhead que se teme em mTLS e amortizado por centenas de chamadas. E
+    resposta medivel para a objecao 'mTLS em tudo nao fica caro?'.
   annotations:
     rhcl.demo/cluster-object: peerauthentication/grpc-echo/grpc-echo-strict
     backstage.io/kubernetes-namespace: grpc-echo
@@ -914,7 +951,9 @@ metadata:
   name: grpc-echo-canary
   title: VirtualService — echo (80/20 sobre gRPC)
   description: >-
-    Canario sobre gRPC, e a pegadinha vale ser dita: o campo se chama 'http' TAMBEM para gRPC, porque gRPC e HTTP/2 e o Istio o trata na mesma secao. As pessoas procuram uma secao 'grpc' que nao existe.
+    Canario sobre gRPC, e a pegadinha vale ser dita: o campo se chama 'http'
+    TAMBEM para gRPC, porque gRPC e HTTP/2 e o Istio o trata na mesma secao. As
+    pessoas procuram uma secao 'grpc' que nao existe.
   annotations:
     rhcl.demo/cluster-object: virtualservice/grpc-echo/echo
     backstage.io/kubernetes-namespace: grpc-echo
@@ -938,7 +977,10 @@ metadata:
   name: otel-als-telemetry
   title: Telemetry — access log em OTLP
   description: >-
-    Liga o access log do namespace bookinfo ao coletor da amostra. SUBSTITUI a Telemetry que o bookinfo ja tinha, e nao acrescenta uma segunda: o Istio aplica UMA por nivel, e duas de nivel de namespace nao sao mescladas -- uma delas nao vale, e nada diz qual.
+    Liga o access log do namespace bookinfo ao coletor da amostra. SUBSTITUI a
+    Telemetry que o bookinfo ja tinha, e nao acrescenta uma segunda: o Istio
+    aplica UMA por nivel, e duas de nivel de namespace nao sao mescladas -- uma
+    delas nao vale, e nada diz qual.
   annotations:
     rhcl.demo/cluster-object: telemetry/bookinfo/bookinfo-dimensoes
     backstage.io/kubernetes-namespace: bookinfo
@@ -978,7 +1020,13 @@ metadata:
   name: bookinfo-supply-chain
   title: Pipeline — cadeia de suprimento (bookinfo)
   description: >-
-    Valida o render e o hostname dos manifests, passa pelo portao do SonarQube sobre o YAML, espelha a imagem de terceiro no Quay com skopeo, deixa o Tekton Chains assinar e registrar no Rekor, varre a copia com o roxctl e publica o bundle renderizado no Nexus. NAO COMPILA NADA: uma amostra do Istio nao tem codigo nosso, e o que se governa aqui e o manifesto e a imagem de terceiro -- as duas coisas que a maioria poe em producao sem cadeia nenhuma.
+    Valida o render e o hostname dos manifests, passa pelo portao do SonarQube
+    sobre o YAML, espelha a imagem de terceiro no Quay com skopeo, deixa o
+    Tekton Chains assinar e registrar no Rekor, varre a copia com o roxctl e
+    publica o bundle renderizado no Nexus. NAO COMPILA NADA: uma amostra do
+    Istio nao tem codigo nosso, e o que se governa aqui e o manifesto e a imagem
+    de terceiro -- as duas coisas que a maioria poe em producao sem cadeia
+    nenhuma.
   annotations:
     rhcl.demo/cluster-object: pipeline/bookinfo/samples-supply-chain
     backstage.io/kubernetes-namespace: bookinfo
@@ -1012,7 +1060,13 @@ metadata:
   name: websockets-supply-chain
   title: Pipeline — cadeia de suprimento (websockets)
   description: >-
-    Valida o render e o hostname dos manifests, passa pelo portao do SonarQube sobre o YAML, espelha a imagem de terceiro no Quay com skopeo, deixa o Tekton Chains assinar e registrar no Rekor, varre a copia com o roxctl e publica o bundle renderizado no Nexus. NAO COMPILA NADA: uma amostra do Istio nao tem codigo nosso, e o que se governa aqui e o manifesto e a imagem de terceiro -- as duas coisas que a maioria poe em producao sem cadeia nenhuma.
+    Valida o render e o hostname dos manifests, passa pelo portao do SonarQube
+    sobre o YAML, espelha a imagem de terceiro no Quay com skopeo, deixa o
+    Tekton Chains assinar e registrar no Rekor, varre a copia com o roxctl e
+    publica o bundle renderizado no Nexus. NAO COMPILA NADA: uma amostra do
+    Istio nao tem codigo nosso, e o que se governa aqui e o manifesto e a imagem
+    de terceiro -- as duas coisas que a maioria poe em producao sem cadeia
+    nenhuma.
   annotations:
     rhcl.demo/cluster-object: pipeline/websockets/samples-supply-chain
     backstage.io/kubernetes-namespace: websockets
@@ -1046,7 +1100,13 @@ metadata:
   name: grpc-echo-supply-chain
   title: Pipeline — cadeia de suprimento (grpc-echo)
   description: >-
-    Valida o render e o hostname dos manifests, passa pelo portao do SonarQube sobre o YAML, espelha a imagem de terceiro no Quay com skopeo, deixa o Tekton Chains assinar e registrar no Rekor, varre a copia com o roxctl e publica o bundle renderizado no Nexus. NAO COMPILA NADA: uma amostra do Istio nao tem codigo nosso, e o que se governa aqui e o manifesto e a imagem de terceiro -- as duas coisas que a maioria poe em producao sem cadeia nenhuma.
+    Valida o render e o hostname dos manifests, passa pelo portao do SonarQube
+    sobre o YAML, espelha a imagem de terceiro no Quay com skopeo, deixa o
+    Tekton Chains assinar e registrar no Rekor, varre a copia com o roxctl e
+    publica o bundle renderizado no Nexus. NAO COMPILA NADA: uma amostra do
+    Istio nao tem codigo nosso, e o que se governa aqui e o manifesto e a imagem
+    de terceiro -- as duas coisas que a maioria poe em producao sem cadeia
+    nenhuma.
   annotations:
     rhcl.demo/cluster-object: pipeline/grpc-echo/samples-supply-chain
     backstage.io/kubernetes-namespace: grpc-echo
@@ -1080,7 +1140,11 @@ metadata:
   name: bookinfo-argo-app
   title: Application do Argo CD — bookinfo
   description: >-
-    Quem APLICA esta amostra. E o unico dos tres ApplicationSet deste ambiente que aplica de verdade: ninguem mais aplica as amostras, ao contrario do rhcl-travel, onde dois donos para o mesmo objeto deixaram as Applications presas em phase=Running. selfHeal continua desligado -- varios movimentos sao edicoes ao vivo.
+    Quem APLICA esta amostra -- como o ApplicationSet do golden path, e ao
+    contrario do rhcl-travel, que apenas observa: la o provision.sh ja aplica
+    os seis backends, e dois donos para o mesmo objeto deixaram as Applications
+    presas em phase=Running. selfHeal continua desligado -- varios movimentos
+    sao edicoes ao vivo.
   annotations:
     rhcl.demo/cluster-object: application/openshift-gitops/sample-bookinfo
     backstage.io/kubernetes-namespace: openshift-gitops
@@ -1108,7 +1172,11 @@ metadata:
   name: websockets-argo-app
   title: Application do Argo CD — websockets
   description: >-
-    Quem APLICA esta amostra. E o unico dos tres ApplicationSet deste ambiente que aplica de verdade: ninguem mais aplica as amostras, ao contrario do rhcl-travel, onde dois donos para o mesmo objeto deixaram as Applications presas em phase=Running. selfHeal continua desligado -- varios movimentos sao edicoes ao vivo.
+    Quem APLICA esta amostra -- como o ApplicationSet do golden path, e ao
+    contrario do rhcl-travel, que apenas observa: la o provision.sh ja aplica
+    os seis backends, e dois donos para o mesmo objeto deixaram as Applications
+    presas em phase=Running. selfHeal continua desligado -- varios movimentos
+    sao edicoes ao vivo.
   annotations:
     rhcl.demo/cluster-object: application/openshift-gitops/sample-websockets
     backstage.io/kubernetes-namespace: openshift-gitops
@@ -1136,7 +1204,11 @@ metadata:
   name: grpc-echo-argo-app
   title: Application do Argo CD — grpc-echo
   description: >-
-    Quem APLICA esta amostra. E o unico dos tres ApplicationSet deste ambiente que aplica de verdade: ninguem mais aplica as amostras, ao contrario do rhcl-travel, onde dois donos para o mesmo objeto deixaram as Applications presas em phase=Running. selfHeal continua desligado -- varios movimentos sao edicoes ao vivo.
+    Quem APLICA esta amostra -- como o ApplicationSet do golden path, e ao
+    contrario do rhcl-travel, que apenas observa: la o provision.sh ja aplica
+    os seis backends, e dois donos para o mesmo objeto deixaram as Applications
+    presas em phase=Running. selfHeal continua desligado -- varios movimentos
+    sao edicoes ao vivo.
   annotations:
     rhcl.demo/cluster-object: application/openshift-gitops/sample-grpc-echo
     backstage.io/kubernetes-namespace: openshift-gitops
@@ -1164,7 +1236,11 @@ metadata:
   name: open-telemetry-argo-app
   title: Application do Argo CD — open-telemetry
   description: >-
-    Quem APLICA esta amostra. E o unico dos tres ApplicationSet deste ambiente que aplica de verdade: ninguem mais aplica as amostras, ao contrario do rhcl-travel, onde dois donos para o mesmo objeto deixaram as Applications presas em phase=Running. selfHeal continua desligado -- varios movimentos sao edicoes ao vivo.
+    Quem APLICA esta amostra -- como o ApplicationSet do golden path, e ao
+    contrario do rhcl-travel, que apenas observa: la o provision.sh ja aplica
+    os seis backends, e dois donos para o mesmo objeto deixaram as Applications
+    presas em phase=Running. selfHeal continua desligado -- varios movimentos
+    sao edicoes ao vivo.
   annotations:
     rhcl.demo/cluster-object: application/openshift-gitops/sample-open-telemetry
     backstage.io/kubernetes-namespace: openshift-gitops
