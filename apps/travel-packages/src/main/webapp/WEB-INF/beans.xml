@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ===========================================================================
+  SEM ESTE ARQUIVO O DEPLOY FALHA. Custou duas rodadas de build para achar:
+
+    RESTEASY003190: Could not find constructor for class ...PacoteResource
+
+  O caminho ate aqui, na ordem, porque cada passo parecia a solucao:
+
+    1. As classes de recurso usavam injecao em CAMPO. O SonarQube reprovou
+       (regra de injecao por construtor) e a troca satisfez o linter.
+    2. Com injecao por construtor e sem construtor publico sem argumentos, o
+       RESTEasy nao consegue instanciar a classe por conta propria.
+    3. Acrescentar @RequestScoped nas classes as torna candidatas a bean CDI --
+       e ainda assim NAO bastou: o WAR nao tinha beans.xml, e descoberta
+       implicita nao fez o RESTEasy delegar a instanciacao ao CDI.
+
+  Com bean-discovery-mode="all" o arquivo e um bean archive EXPLICITO: o Weld
+  gerencia as classes, o RESTEasy delega, e a injecao por construtor funciona.
+
+  O SINTOMA E CRUEL porque nao parece erro: o EAP registra
+  "Deployed travel-packages.war", sobe "started (with errors)" e o pod fica
+  1/2 Running para sempre -- sem CrashLoop, sem restart, sem nada que chame
+  atencao numa lista de pods. So o log do container conta a verdade.
+  ===========================================================================
+-->
+<beans xmlns="https://jakarta.ee/xml/ns/jakartaee"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee
+                           https://jakarta.ee/xml/ns/jakartaee/beans_4_0.xsd"
+       version="4.0"
+       bean-discovery-mode="all">
+</beans>
