@@ -20,9 +20,12 @@
 #   |-- travel/
 #   |   `-- travel-packages  <- apps/travel-packages/ deste repo: o CODIGO que
 #   |                           a pipeline de build compila e assina
-#   `-- policies/
-#       `-- rhcl-policies    <- base/ + env/ + overlays/, com os caminhos
-#                               preservados, para a CI renderizar o OVERLAY
+#   |-- policies/
+#   |   `-- rhcl-policies    <- base/ + env/ + overlays/, com os caminhos
+#   |                           preservados, para a CI renderizar o OVERLAY
+#   `-- samples/             <- as quatro amostras do Istio, um projeto cada,
+#                               SEMEADAS RENDERIZADAS (o Argo nao substitui
+#                               placeholder). Ver a secao 3d.
 #
 # apis/ e travel/ sao coisas diferentes: em apis/ o Ato 6 cria CONTRATO, em
 # travel/ mora o que o time de negocio opera -- codigo e servicos. O ApplicationSet descobre por apis/, e um
@@ -69,7 +72,15 @@ printf '  fonte : %s/{base,env,overlays} e %s/apps\n' "$_here" "$_here"
 [[ $DRY -eq 1 ]] && printf '  %s(dry-run: nada sera alterado)%s\n' "$_YEL" "$_RST"
 echo
 
-export GITLAB_HOST TOKEN DRY SEED_ROOT="${_here}/base"
+# O dominio de apps entra aqui porque as amostras (secao 3d) sao semeadas
+# RENDERIZADAS: quem as aplica no cluster e o Argo, direto do GitLab, e o Argo
+# nao substitui placeholder nenhum. E o mesmo motivo pelo qual o
+# gitops/*.template.yaml e renderizado antes do apply -- so que o ponto de
+# substituicao, aqui, e o push.
+APPS_DOMAIN="${APPS_DOMAIN:-$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)}"
+[[ -n "$APPS_DOMAIN" ]] || _warn "nao consegui ler o dominio de apps -- as amostras ficariam com __DOMAIN__ literal"
+
+export GITLAB_HOST TOKEN DRY APPS_DOMAIN SEED_ROOT="${_here}/base"
 
 python3 - <<'PY'
 import os, sys, json, ssl, base64, datetime, urllib.request, urllib.error, urllib.parse
@@ -78,6 +89,7 @@ HOST  = os.environ["GITLAB_HOST"]
 TOKEN = os.environ["TOKEN"]
 DRY   = os.environ["DRY"] == "1"
 ROOT  = os.environ["SEED_ROOT"]
+APPS_DOMAIN = os.environ.get("APPS_DOMAIN", "")
 ROOT_REPO = os.path.dirname(ROOT)   # a raiz do repo; SEED_ROOT aponta para base/
 API   = f"https://{HOST}/api/v4"
 CTX   = ssl.create_default_context()
@@ -139,6 +151,12 @@ policies_id = ensure_group("policies", "Policies", root_id)
 # um projeto cada. Agrupar por tipo de artefato ('apps') dava uma pasta; agrupar
 # por dono da uma organizacao -- ver docs/ESTRATEGIA-REPOS.md.
 travel_id   = ensure_group("travel", "Travel", root_id)
+# 'samples' e o quarto subgrupo, e ele existe pela mesma razao que 'travel':
+# agrupar por DONO e nao por tipo de artefato. As amostras do Istio nao sao do
+# time de negocio (travel/), nao sao contrato do golden path (apis/) e nao sao
+# policy da demo (policies/) -- sao material de apoio, e entram e saem sem tocar
+# no roteiro. Ver samples/README.md.
+samples_id  = ensure_group("samples", "Samples", root_id)
 
 # ----- 2. o projeto de policies -----
 proj_path = "rhcl/policies/rhcl-policies"
@@ -545,6 +563,151 @@ if travel_id:
         semeia(_pid, _path, _desejado,
                f"Semeadura do servico {_svc} a partir de platform-reference/workloads")
 
+# ----- 3d. um repositorio por amostra do Istio ------------------------------
+# POR QUE ELAS SAO SEMEADAS RENDERIZADAS, e esta e a unica secao deste script
+# em que o conteudo commitado DIFERE do arquivo do repositorio.
+#
+# Quem aplica as amostras no cluster e o ApplicationSet 'rhcl-samples', direto
+# do GitLab -- e o Argo nao substitui placeholder nenhum. Um __DOMAIN__ que
+# chegasse ao commit viraria hostname literal na HTTPRoute: a rota SOBE, o
+# status fica Accepted, e o DNS simplesmente nao resolve. O sintoma e "nao
+# abre", sem erro em lugar nenhum, e a causa esta num arquivo que parece certo.
+#
+# Nos manifests do repositorio o placeholder FICA: e ele que faz o proximo
+# cluster funcionar sem editar arquivo. O ponto de substituicao e o push.
+#
+# O LAYOUT E manifests/, e nao a raiz: o ApplicationSet sincroniza
+# 'manifests/[0-9]*.yaml'. Isso deixa o kustomization.yaml de fora do sync sem
+# precisar de exclusao -- se ele entrasse, o sync falharia com 'kind not set'.
+# E e por isso que todo manifest de samples/ comeca com digito: renomear um
+# para algo que nao comece o tira do Argo EM SILENCIO.
+#
+# Sem lista de remocao, como no travel-packages: estes projetos nunca tiveram
+# outro layout, e um dia podem receber commit de gente -- apagar por diferenca
+# seria destrutivo.
+SAMPLES = ["bookinfo", "websockets", "grpc-echo", "open-telemetry"]
+
+FONTE_SAMPLES = os.path.join(ROOT_REPO, "samples")
+
+_SAMPLE_RESUMO = {
+    "bookinfo":       "A amostra canonica do Istio: duas HTTPRoute no mesmo hostname, fronteiras diferentes.",
+    "websockets":     "HTTP/1.1 Upgrade: a policy confere o handshake e nao ve os frames. Governar conexao longa e decisao de desenho.",
+    "grpc-echo":      "A MESMA AuthPolicy sobre gRPC -- muda o targetRef e o lugar da credencial --, mais canario sobre gRPC.",
+    "open-telemetry": "Access log do mesh em OTLP. A unica sem rota: observabilidade e decisao do control plane.",
+}
+
+def _readme_sample(nome):
+    return f"""# {nome}
+
+{_SAMPLE_RESUMO.get(nome, "Amostra do Istio adaptada para RHCL e OSSM.")}
+
+Adaptada de https://github.com/istio/istio/tree/master/samples/{nome} para
+Red Hat Connectivity Link e Red Hat OpenShift Service Mesh.
+
+## O que ha aqui
+
+`manifests/` -- os manifests, na ordem da explicacao:
+
+- `00-`       namespace, com a injecao do Service Mesh
+- `0x-`       os workloads
+- `1x-`       Service Mesh: mTLS, subsets, roteamento, quem-fala-com-quem, telemetria
+- `2x-`       borda (RHCL): rota, AuthPolicy, limite, plano, chaves
+
+## Quem aplica isto
+
+O **Argo CD**, pelo ApplicationSet `rhcl-samples`, que descobre este projeto por
+estar no subgrupo `rhcl/samples`. Nao ha passo de deploy.
+
+`selfHeal` fica desligado: varios movimentos sao edicoes ao vivo (o peso do
+canario, o modo da PeerAuthentication). Sob enforcement, o Argo desfaz o
+movimento no meio da explicacao.
+
+O caminho do laptop, equivalente e idempotente:
+
+```
+SAMPLES={nome} bash scripts/provision.sh samples
+```
+
+## Estes arquivos sao RENDERIZADOS
+
+No repositorio base (`samples/{nome}/`) as rotas trazem `__DOMAIN__`. Aqui elas
+ja tem o dominio deste cluster: quem aplica e o Argo, que nao substitui
+placeholder. Editar o hostname aqui vale so ate a proxima semeadura -- a fonte e
+o repositorio base.
+
+## A cadeia de suprimento
+
+A pipeline `samples-supply-chain` valida estes manifests (render e hostname),
+passa pelo portao do SonarQube, espelha as imagens de terceiro no Quay do
+cluster, deixa o Tekton Chains assinar e registrar no Rekor, varre a copia com o
+ACS e publica o bundle renderizado no Nexus.
+"""
+
+CODEOWNERS_SAMPLES = """# As amostras sao material de apoio da plataforma, nao produto de negocio.
+* @plat-eng
+"""
+
+if samples_id:
+    import tempfile as _tf
+    _tmp_s = _tf.mkdtemp(prefix="rhcl-sample-")
+    for _sm in SAMPLES:
+        _fonte = os.path.join(FONTE_SAMPLES, _sm)
+        if not os.path.isdir(_fonte):
+            warn(f"samples/{_sm} nao existe neste repo -- nada a semear")
+            continue
+        _path = f"rhcl/samples/{_sm}"
+        st, pr = call("GET", "/projects/" + urllib.parse.quote(_path, safe=""))
+        if st == 200:
+            ok(f"projeto {_path} ja existe"); _pid = pr["id"]
+        elif DRY:
+            print(f"    $ criar projeto {_path}"); _pid = -1
+        else:
+            st, pr = call("POST", "/projects", {
+                "name": _sm, "path": _sm, "namespace_id": samples_id,
+                "visibility": "public",
+                "description": _SAMPLE_RESUMO.get(_sm, "Amostra do Istio sob RHCL e OSSM."),
+                "initialize_with_readme": True})
+            if st in (200, 201):
+                ok(f"projeto {pr['path_with_namespace']} criado"); _pid = pr["id"]
+            else:
+                warn(f"falha ao criar {_path}: {pr.get('message')}"); continue
+
+        # O render passa por um diretorio temporario porque semeia() le de
+        # arquivo local -- mesmo caminho que o README gerado ja usava.
+        _dir = os.path.join(_tmp_s, _sm, "manifests")
+        os.makedirs(_dir, exist_ok=True)
+        _desejado, _pendentes = [], 0
+        for _rel, _full in arquivos_de(_fonte):
+            if os.sep in _rel:                     # samples/ e plano; nada aninhado
+                continue
+            if _rel == "README.md":
+                _desejado.append(("README.md", os.path.join(_tmp_s, _sm, "README.md")))
+                continue
+            with open(_full, "rb") as _fh:
+                _raw = _fh.read()
+            if b"__DOMAIN__" in _raw:
+                if not APPS_DOMAIN:
+                    _pendentes += 1
+                _raw = _raw.replace(b"__DOMAIN__", APPS_DOMAIN.encode())
+            _alvo = os.path.join(_dir, _rel)
+            with open(_alvo, "wb") as _fh:
+                _fh.write(_raw)
+            _desejado.append((f"manifests/{_rel}", _alvo))
+
+        if _pendentes:
+            warn(f"{_sm}: {_pendentes} arquivo(s) com __DOMAIN__ e sem dominio para substituir "
+                 "-- a rota subiria com hostname literal e o DNS nao resolveria")
+
+        with open(os.path.join(_tmp_s, _sm, "README.md"), "w") as _fh:
+            _fh.write(_readme_sample(_sm))
+        with open(os.path.join(_tmp_s, _sm, "CODEOWNERS"), "w") as _fh:
+            _fh.write(CODEOWNERS_SAMPLES)
+        _desejado.append(("CODEOWNERS", os.path.join(_tmp_s, _sm, "CODEOWNERS")))
+
+        print(f"  [*] {len(_desejado)} arquivo(s) em samples/{_sm}")
+        semeia(_pid, _path, _desejado,
+               f"Amostra {_sm} renderizada para este cluster (fonte: samples/{_sm})")
+
 # ----- 4. o espelho do repo, para o portal nao depender do GitHub -----------
 # POR QUE ISTO EXISTE: o RHDH lia os templates de uma URL do github.com. Com a
 # integracao GitHub fora do portal (decisao de 2026-08-25 -- ambiente de demo e
@@ -586,6 +749,7 @@ ESPELHO = [
     "docs/RUNBOOK.md",
     "docs/PROVISIONING-1.4.md",
     "docs/CATALOGO.md",
+    "docs/SAMPLES.md",
 ]
 ESPELHO_DIRS = [
     "rhdh/templates",              # os 3 templates e seus skeletons
@@ -677,6 +841,7 @@ if [[ $_rc -eq 0 && $DRY -eq 0 ]]; then
   _log "o subgrupo rhcl/apis nasce VAZIO -- e o Ato 6 que o povoa"
   _log "a CI valida o OVERLAY do repo de policies, nao a base (provision.sh cicd)"
   _log "o build do servico clona rhcl/travel/travel-packages (provision.sh entrega)"
+  _log "as amostras vao renderizadas para rhcl/samples/ -- o AppSet rhcl-samples as aplica"
   _log "confira: https://${GITLAB_HOST}/rhcl"
 fi
 exit $_rc

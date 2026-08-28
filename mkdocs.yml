@@ -15,6 +15,7 @@ nav:
   - Roteiro: RUNBOOK.md
   - Provisionamento 1.4: PROVISIONING-1.4.md
   - Vocabulário do catálogo: CATALOGO.md
+  - Amostras do Istio: SAMPLES.md
 
 plugins:
   - techdocs-core
