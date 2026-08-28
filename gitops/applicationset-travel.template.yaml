@@ -47,6 +47,31 @@ metadata:
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
+  # ---------------------------------------------------------------------------
+  # ISTO SALVA OS SEIS SERVICOS. Nao remova sem ler.
+  #
+  # Por padrao o ApplicationSet carimba 'resources-finalizer.argocd.argoproj.io'
+  # em cada Application que gera. Com ele, apagar um Application APAGA DO CLUSTER
+  # os recursos que ele observa -- e aqui os recursos nao sao do Argo: sao os
+  # backends que o provision.sh aplicou e dos quais os Atos 1 a 5 dependem.
+  #
+  # Aconteceu em 2026-08-28, neste cluster: ao recriar as Applications para
+  # trocar a syncPolicy, o controller registrou
+  #
+  #   "Deleting application's resources with Foreground propagation policy"
+  #     app=travel-travels
+  #
+  # e levou junto o Deployment travels-v1 e o Service travels -- a porta de
+  # entrada da demo. Restaurados com 'oc apply -f platform-reference/...'.
+  #
+  # preserveResourcesOnDeletion: true tira o finalizer. Apagar um Application
+  # passa a apagar so o Application, que e o unico comportamento correto quando
+  # o Argo esta OBSERVANDO e nao possuindo. Vale para o dia em que alguem
+  # renomear um repositorio em rhcl/travel/ -- o AppSet apaga o Application
+  # antigo sozinho, sem avisar.
+  # ---------------------------------------------------------------------------
+  syncPolicy:
+    preserveResourcesOnDeletion: true
   generators:
     - scmProvider:
         cloneProtocol: https
@@ -92,7 +117,20 @@ spec:
           jqPathExpressions:
             - '.metadata.annotations["app.openshift.io/vcs-uri"]'
             - '.metadata.annotations["app.openshift.io/vcs-ref"]'
+      # SEM 'automated', e isto e a decisao central deste arquivo.
+      #
+      # Quem aplica os seis backends e o provision.sh (etapa 'platform'). Se o
+      # Argo tambem sincronizasse, haveria dois donos para o mesmo objeto: o
+      # que aplica no bootstrap e o que reconcilia depois. Medido neste cluster
+      # em 2026-08-28: com 'automated', as seis Applications ficaram presas em
+      # phase=Running -- o controller inicia a operacao, compara, e nunca
+      # conclui, com o cluster inteiro no cache dele (ODF, ACS, Service Mesh,
+      # Tekton). Uma sincronizacao pendurada e pior na tela do que uma
+      # diferenca declarada: a segunda se explica, a primeira parece defeito.
+      #
+      # Sem 'automated' o Application e OBSERVACAO: mostra o repositorio, a
+      # revisao e o que difere do cluster, e o botao Sync fica disponivel para
+      # quem quiser demonstrar a adocao ao vivo.
       syncPolicy:
-        automated:
-          prune: false
-          selfHeal: false
+        syncOptions:
+          - CreateNamespace=false
