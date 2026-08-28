@@ -3,7 +3,9 @@ import useAsyncFn from 'react-use/lib/useAsyncFn';
 import { useEffect } from 'react';
 import {
   Box,
+  Button,
   Chip,
+  Collapse,
   Divider,
   Tooltip,
   Typography,
@@ -21,6 +23,7 @@ import type { Entity } from '@backstage/catalog-model';
 
 import { ConcernResult, connectivityLinkOpsApiRef } from '../../api';
 import { NotAvailable } from '../common';
+import { CadeiaEfetiva } from './CadeiaEfetiva';
 import { useMudancasDoCluster } from '../../hooks/useMudancasDoCluster';
 
 const ROTULO: Record<ConcernResult['concern'], string> = {
@@ -68,36 +71,6 @@ async function alvoNoCluster(
   return { namespace: ns, name: comp.metadata.name };
 }
 
-/**
- * A cadeia efetiva, em texto.
- *
- * Não basta dizer que há policy: numa tela de operação a pergunta é "por que a
- * minha não está valendo?", e a resposta é a linha logo acima. Nenhum CR
- * responde isso — a HTTPRoute lista quem a afeta e para por aí.
- */
-const CadeiaNoTooltip = ({ c }: { c: ConcernResult }) => {
-  const cadeia = c.cadeia ?? [];
-  const divergente = (c.conferencias ?? []).some(x => x.confere === false);
-
-  return (
-    <div>
-      {cadeia.map(e => (
-        <div key={`${e.namespace}/${e.name}`}>
-          {e.vence ? '✓ ' : '✗ '}
-          {e.kind}/{e.name} — {e.porque}
-          {e.sobreposta ? ` (sobreposta por ${e.sobrepostaPor})` : ''}
-        </div>
-      ))}
-      {divergente && (
-        <div>
-          ⚠ a cadeia calculada diverge do que a HTTPRoute declara — pode faltar
-          permissão de leitura em algum tipo de policy
-        </div>
-      )}
-    </div>
-  );
-};
-
 const Estado = ({ c }: { c: ConcernResult }) => {
   if (c.status === 'unknown') {
     return (
@@ -120,7 +93,11 @@ const Estado = ({ c }: { c: ConcernResult }) => {
       ? `${vencedor?.scope === 'gateway' ? 'gateway' : 'rota'} vence · +${sobrepostas}`
       : 'aplicada';
   return (
-    <Tooltip title={<CadeiaNoTooltip c={c} />}>
+    <Tooltip
+      title={c.policies
+        .map(p => `${p.kind}/${p.name} (${p.scope === 'route' ? 'na rota' : 'no gateway'})`)
+        .join(' · ')}
+    >
       {/* Sempre 'outlined'. Com color="primary" o tema do RHDH pinta o chip e o
           texto da MESMA cor: o rotulo some e sobra uma pilula vazia, que nao
           diz nada e parece defeito. Quem carrega o significado e a palavra. */}
@@ -140,6 +117,7 @@ export const EntityConnectivityCard = () => {
   const api = useApi(connectivityLinkOpsApiRef);
   const catalogApi = useApi(catalogApiRef);
 
+  const [aberto, setAberto] = React.useState(false);
   const [{ value, loading, error }, recarregar] = useAsyncFn(async () => {
     const alvo = await alvoNoCluster(entity, catalogApi);
     if (!alvo) return undefined;
@@ -203,6 +181,34 @@ export const EntityConnectivityCard = () => {
                 </Box>
               </React.Fragment>
             ))}
+          </Box>
+
+          {/* A cadeia sai do tooltip e ganha lugar próprio: um tooltip não é
+              linkável, não abre no toque e não é copiável para um chamado. */}
+          <Box mt={1}>
+            <Button size="small" onClick={() => setAberto(!aberto)}>
+              {aberto ? 'ocultar a resolução' : 'como isto foi resolvido'}
+            </Button>
+            <Collapse in={aberto}>
+              <Box mt={1}>
+                <Typography variant="caption" color="textSecondary" component="div">
+                  Ordem de resolução do Gateway API (GEP-713). Override do
+                  Gateway vence override da rota — o teto da plataforma não se
+                  contorna.
+                </Typography>
+                {(value.concerns ?? []).map(c => (
+                  <Box key={c.concern} mt={1.5}>
+                    <Typography variant="body2">
+                      <b>{ROTULO[c.concern]}</b>
+                    </Typography>
+                    <Divider />
+                    <Box mt={0.75}>
+                      <CadeiaEfetiva c={c} />
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            </Collapse>
           </Box>
         </>
       )}

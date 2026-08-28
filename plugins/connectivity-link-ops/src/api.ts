@@ -52,12 +52,20 @@ export interface Summary {
   };
 }
 
+export interface Limite {
+  tier?: string;
+  quantidade: number;
+  janela: string;
+}
+
 export interface AttachedPolicy {
   kind: string;
   name: string;
   namespace: string;
   scope: 'route' | 'gateway';
   enforced: boolean;
+  /** Vazio quando a policy não impõe quantidade — Auth, DNS, TLS. */
+  limites: Limite[];
 }
 
 export interface Elo extends AttachedPolicy {

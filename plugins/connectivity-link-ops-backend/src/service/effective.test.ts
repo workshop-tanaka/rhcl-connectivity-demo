@@ -6,7 +6,7 @@ const p = (
   namespace: string,
   scope: 'route' | 'gateway',
   kind = 'RateLimitPolicy',
-): AttachedPolicy => ({ kind, name, namespace, scope, enforced: true });
+): AttachedPolicy => ({ kind, name, namespace, scope, enforced: true, limites: [] });
 
 const niveis = (...pares: [string, Nivel][]) => new Map(pares);
 

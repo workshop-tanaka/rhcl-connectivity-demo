@@ -1,6 +1,6 @@
 {
   "name": "@rhcl/backstage-plugin-connectivity-link-ops-backend",
-  "version": "0.9.5",
+  "version": "0.10.0",
   "description": "Backend do plugin de Connectivity Link para o Red Hat Developer Hub",
   "license": "Apache-2.0",
   "main": "src/index.ts",

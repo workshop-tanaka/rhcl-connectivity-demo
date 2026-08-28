@@ -40,6 +40,8 @@ export const CONCERN_BY_KIND: Record<string, Concern> = {
   DNSPolicy: 'dns',
 };
 
+import { extrairLimites, Limite, ordenar } from './limits';
+
 export interface AttachedPolicy {
   kind: string;
   name: string;
@@ -47,6 +49,9 @@ export interface AttachedPolicy {
   /** Anexada à própria rota, ou herdada do Gateway em que ela se pendura. */
   scope: 'route' | 'gateway';
   enforced: boolean;
+  /** O que ela impõe, quando impõe quantidade. Vazio para Auth, DNS e TLS —
+   *  ausência de limite, e não ausência de dado. */
+  limites: Limite[];
 }
 
 export interface ConcernResult {
@@ -161,6 +166,7 @@ export function computePosture(
         ...ref(p),
         scope: onRoute ? 'route' : 'gateway',
         enforced: isEnforced(p),
+        limites: ordenar(extrairLimites({ ...p, kind })),
       });
     }
   }
