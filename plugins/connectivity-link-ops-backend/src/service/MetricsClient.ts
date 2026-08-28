@@ -30,6 +30,8 @@ export class MetricsClient {
   private readonly token: string | undefined;
   private readonly ca: Buffer | undefined;
   private readonly skipTLSVerify: boolean;
+  /** Onde o Limitador roda, e portanto onde vivem as séries dele. */
+  private readonly limitadorNamespace: string;
 
   constructor(
     config: RootConfigService,
@@ -40,6 +42,8 @@ export class MetricsClient {
       prom?.getOptionalString('url') ??
       'https://thanos-querier.openshift-monitoring.svc:9092';
     this.skipTLSVerify = prom?.getOptionalBoolean('skipTLSVerify') ?? false;
+    this.limitadorNamespace =
+      prom?.getOptionalString('limitadorNamespace') ?? 'kuadrant-system';
 
     // O certificado do thanos é assinado pelo service CA do OpenShift, que NÃO
     // é o kube root CA que o pod já confia por NODE_EXTRA_CA_CERTS. Sem este
@@ -65,7 +69,8 @@ export class MetricsClient {
     // CA, e a falha aparece como 'self-signed certificate in certificate chain'
     // -- que manda quem depura investigar TLS quando o problema e YAML.
     this.logger.info(
-      `métricas: ${this.url} · CA ${this.ca ? 'carregado' : 'AUSENTE'} · ` +
+      `métricas: ${this.url} · limitador em ${this.limitadorNamespace} · ` +
+        `CA ${this.ca ? 'carregado' : 'AUSENTE'} · ` +
         `token ${this.token ? 'presente' : 'AUSENTE'}` +
         (prom ? '' : ' · bloco connectivityLinkOps.prometheus NAO ENCONTRADO'),
     );
@@ -105,6 +110,63 @@ export class MetricsClient {
       req.on('error', reject);
       req.end();
     });
+  }
+
+  /**
+   * Consumo e barramento por plano, para uma rota.
+   *
+   * A fonte é o Limitador, e é o que a torna confiável: o rótulo `plan` vem da
+   * policy que o gateway APLICOU, não de um cabeçalho que o cliente enviou.
+   * Comparar com o limite declarado responde a pergunta comercial inteira --
+   * quem está batendo no teto -- sem depender de atribuição forjável.
+   *
+   * `limitador_namespace` é '<ns>/<rota>', a mesma chave que o Limitador usa
+   * para contabilizar.
+   */
+  async porPlano(
+    namespace: string,
+    rota: string,
+  ): Promise<{ plano: string; autorizadas: number; barradas: number }[] | undefined> {
+    const chave = `${namespace}/${rota}`;
+    const alvo = `{limitador_namespace="${chave}"}`;
+
+    // O NAMESPACE DA CONSULTA NÃO É O DA ROTA. A porta multi-tenant do Thanos
+    // filtra pelo namespace da SÉRIE, e as séries do Limitador vivem onde o
+    // Limitador roda -- kuadrant-system --, não onde vive a rota que elas
+    // medem. Perguntar por 'travel-agency' devolve silêncio, que é
+    // indistinguível de "não houve tráfego" e manda procurar no lugar errado.
+    // O recorte da rota vem do rótulo limitador_namespace, e não da tenancy.
+    const tenancy = this.limitadorNamespace;
+
+    try {
+      const [aut, bar] = await Promise.all([
+        this.query(tenancy, `sum by (plan) (increase(authorized_calls${alvo}[24h]))`),
+        this.query(tenancy, `sum by (plan) (increase(limited_calls${alvo}[24h]))`),
+      ]);
+
+      const mapa = new Map<string, { autorizadas: number; barradas: number }>();
+      const juntar = (corpo: any, campo: 'autorizadas' | 'barradas') => {
+        for (const s of corpo?.data?.result ?? []) {
+          const plano = s.metric?.plan ?? 'sem plano';
+          const atual = mapa.get(plano) ?? { autorizadas: 0, barradas: 0 };
+          atual[campo] = Math.round(Number(s.value?.[1]) || 0);
+          mapa.set(plano, atual);
+        }
+      };
+      juntar(aut, 'autorizadas');
+      juntar(bar, 'barradas');
+
+      // Sem série alguma, devolve undefined e não uma lista vazia: "ninguém
+      // mediu" e "mediram e deu zero" continuam sendo respostas diferentes.
+      if (!mapa.size) return undefined;
+
+      return [...mapa.entries()]
+        .map(([plano, v]) => ({ plano, ...v }))
+        .sort((a, b) => b.autorizadas - a.autorizadas);
+    } catch (err) {
+      this.logger.warn(`consumo por plano falhou para ${chave}: ${err}`);
+      return undefined;
+    }
   }
 
   /**

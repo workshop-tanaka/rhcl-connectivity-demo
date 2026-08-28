@@ -187,14 +187,15 @@ export const EntityConnectivityCard = () => {
               linkável, não abre no toque e não é copiável para um chamado. */}
           <Box mt={1}>
             <Button size="small" onClick={() => setAberto(!aberto)}>
-              {aberto ? 'ocultar a resolução' : 'como isto foi resolvido'}
+              {aberto ? 'ocultar detalhes' : 'resolução, limites e consumo'}
             </Button>
             <Collapse in={aberto}>
               <Box mt={1}>
                 <Typography variant="caption" color="textSecondary" component="div">
                   Ordem de resolução do Gateway API (GEP-713). Override do
                   Gateway vence override da rota — o teto da plataforma não se
-                  contorna.
+                  contorna. O consumo vem do Limitador, rotulado pelo plano que
+                  o gateway aplicou.
                 </Typography>
                 {(value.concerns ?? []).map(c => (
                   <Box key={c.concern} mt={1.5}>
@@ -203,7 +204,7 @@ export const EntityConnectivityCard = () => {
                     </Typography>
                     <Divider />
                     <Box mt={0.75}>
-                      <CadeiaEfetiva c={c} />
+                      <CadeiaEfetiva c={c} consumo={value.consumo} />
                     </Box>
                   </Box>
                 ))}

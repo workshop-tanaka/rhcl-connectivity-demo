@@ -459,7 +459,7 @@ metadata:
   # de PR) nem no npm (o pacote nao traz build dinamico). O link direto ao
   # dashboard resolve o mesmo problema numa demo: sair do portal para o numero.
   links:
-    - url: https://${GRAFANA_HOST}/d/rhcl-planos
+    - url: https://${GRAFANA_HOST}/d/rhcl-negocio-planos
       title: Planos comerciais (Grafana)
       icon: dashboard
   labels:
@@ -594,8 +594,14 @@ metadata:
   name: travels
   description: Frontend da agencia; agrega os demais servicos. Unico exposto pela HTTPRoute.
   annotations:
-    # Liga a aba CI as PipelineRun rotuladas com
-    # backstage.io/kubernetes-id: travels. So o travels tem pipeline: os
+    # O deployment tem sufixo de versao, que NAO e o nome da entidade --
+    # errar aqui da uma aba Security que carrega e nao acha nada.
+    acs/deployment-name: travels-v1
+    # Liga a aba CI. O que o plugin ENXERGA, porem, sai do
+    # backstage.io/kubernetes-label-selector abaixo (app=travels) -- esta
+    # anotacao so decide se a aba aparece. Rotular as PipelineRun apenas com
+    # backstage.io/kubernetes-id nao adianta: a aba abre, nao da erro, e lista
+    # vazio. So o travels tem pipeline: os
     # demais servicos rodam imagem de exemplo do Kiali e nao teriam o que
     # executar -- anotar todos daria quatro abas vazias.
     janus-idp.io/tekton: travels
@@ -712,6 +718,7 @@ metadata:
   name: flights
   description: Servico de voos.
   annotations:
+    acs/deployment-name: flights-v1
     # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
@@ -770,6 +777,7 @@ metadata:
   name: hotels
   description: Servico de hoteis.
   annotations:
+    acs/deployment-name: hotels-v1
     # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
@@ -828,6 +836,7 @@ metadata:
   name: cars
   description: Servico de locacao de veiculos.
   annotations:
+    acs/deployment-name: cars-v1
     # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
@@ -886,6 +895,7 @@ metadata:
   name: insurances
   description: Servico de seguros.
   annotations:
+    acs/deployment-name: insurances-v1
     # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
@@ -946,6 +956,7 @@ metadata:
     Servico de descontos, com duas versoes em paralelo (v1 e v2) atras do mesmo
     Service -- e o alvo natural para demonstrar roteamento por peso na HTTPRoute.
   annotations:
+    acs/deployment-name: discounts-v1,discounts-v2
     # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
@@ -1126,7 +1137,7 @@ metadata:
   title: Globex Travel
   description: Parceiro tier gold — 30 req/10s, 5000/dia (apikey-gold-globex).
   # Os parceiros nao tem servico nem trace proprio -- sao consumidores. O que
-  # existe deles e consumo, e e exatamente o que o dashboard rhcl-parceiros
+  # existe deles e consumo, e e exatamente o que o dashboard rhcl-negocio-parceiros
   # mede. A tag 'rhcl' traz os tres dashboards autorais para a pagina de cada
   # um; o de consumo e o que faz sentido aqui.
   annotations:
@@ -1135,7 +1146,7 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/kuadrant-system/core~v1~Secret/apikey-gold-globex
       title: Chave de API no console
       icon: web
-    - url: https://${GRAFANA_HOST}/d/rhcl-parceiros
+    - url: https://${GRAFANA_HOST}/d/rhcl-negocio-parceiros
       title: Consumo deste parceiro
       icon: dashboard
   tags:
@@ -1150,7 +1161,10 @@ metadata:
 spec:
   type: api-consumer
   lifecycle: production
-  owner: group:default/platform-team
+  # O parceiro responde pelo proprio consumo. Com o dono no platform-team,
+  # a aba Owned do grupo 'parceiros' abria VAZIA -- o grupo existia e nao
+  # tinha nada, que e um beco sem saida no meio da demo.
+  owner: group:default/parceiros
   system: travel-agency
   consumesApis:
     - travels-api
@@ -1162,7 +1176,7 @@ metadata:
   title: Initech Voyages
   description: Parceiro tier silver — 10 req/10s, 500/dia (apikey-silver-initech).
   # Os parceiros nao tem servico nem trace proprio -- sao consumidores. O que
-  # existe deles e consumo, e e exatamente o que o dashboard rhcl-parceiros
+  # existe deles e consumo, e e exatamente o que o dashboard rhcl-negocio-parceiros
   # mede. A tag 'rhcl' traz os tres dashboards autorais para a pagina de cada
   # um; o de consumo e o que faz sentido aqui.
   annotations:
@@ -1171,7 +1185,7 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/kuadrant-system/core~v1~Secret/apikey-silver-initech
       title: Chave de API no console
       icon: web
-    - url: https://${GRAFANA_HOST}/d/rhcl-parceiros
+    - url: https://${GRAFANA_HOST}/d/rhcl-negocio-parceiros
       title: Consumo deste parceiro
       icon: dashboard
   tags:
@@ -1186,7 +1200,10 @@ metadata:
 spec:
   type: api-consumer
   lifecycle: production
-  owner: group:default/platform-team
+  # O parceiro responde pelo proprio consumo. Com o dono no platform-team,
+  # a aba Owned do grupo 'parceiros' abria VAZIA -- o grupo existia e nao
+  # tinha nada, que e um beco sem saida no meio da demo.
+  owner: group:default/parceiros
   system: travel-agency
   consumesApis:
     - travels-api
@@ -1198,7 +1215,7 @@ metadata:
   title: ACME Trips
   description: Parceiro tier free (avaliacao) — 3 req/10s, 50/dia (apikey-free-acme).
   # Os parceiros nao tem servico nem trace proprio -- sao consumidores. O que
-  # existe deles e consumo, e e exatamente o que o dashboard rhcl-parceiros
+  # existe deles e consumo, e e exatamente o que o dashboard rhcl-negocio-parceiros
   # mede. A tag 'rhcl' traz os tres dashboards autorais para a pagina de cada
   # um; o de consumo e o que faz sentido aqui.
   annotations:
@@ -1207,7 +1224,7 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/kuadrant-system/core~v1~Secret/apikey-free-acme
       title: Chave de API no console
       icon: web
-    - url: https://${GRAFANA_HOST}/d/rhcl-parceiros
+    - url: https://${GRAFANA_HOST}/d/rhcl-negocio-parceiros
       title: Consumo deste parceiro
       icon: dashboard
   tags:
@@ -1222,7 +1239,10 @@ metadata:
 spec:
   type: api-consumer
   lifecycle: production
-  owner: group:default/platform-team
+  # O parceiro responde pelo proprio consumo. Com o dono no platform-team,
+  # a aba Owned do grupo 'parceiros' abria VAZIA -- o grupo existia e nao
+  # tinha nada, que e um beco sem saida no meio da demo.
+  owner: group:default/parceiros
   system: travel-agency
   consumesApis:
     - travels-api

@@ -94,6 +94,12 @@ export interface ConcernResult {
   conferencias?: Conferencia[];
 }
 
+export interface ConsumoDoPlano {
+  plano: string;
+  autorizadas: number;
+  barradas: number;
+}
+
 export interface Posture {
   exposed: boolean;
   /** Preenchido quando exposed é falso — e isso não é erro. */
@@ -101,6 +107,8 @@ export interface Posture {
   route?: { name: string; namespace: string; hostnames: string[] };
   gateway?: { name: string; namespace: string };
   concerns?: ConcernResult[];
+  /** Ausente quando não há série — não confundir com lista vazia. */
+  consumo?: ConsumoDoPlano[];
 }
 
 export interface ConnectivityLinkOpsApi {

@@ -205,11 +205,18 @@ export async function createRouter(
       return { ...c, cadeia, conferencias };
     });
 
+    const rota = routeRefOf(route);
+
     res.json({
       exposed: true,
-      route: routeRefOf(route),
+      route: rota,
       gateway,
       concerns,
+      // O consumo ao lado do limite. Separado dos concerns de propósito: o
+      // limite é configuração e o consumo é medição, e misturá-los na mesma
+      // estrutura faria a tela perder de vista qual é qual quando um dos dois
+      // faltar.
+      consumo: await metrics.porPlano(rota.namespace, rota.name),
     });
   });
 
