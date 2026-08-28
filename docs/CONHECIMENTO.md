@@ -38,7 +38,7 @@ seção 5 (armadilhas) não.
 | OpenShift | 4.21.28 — **5 nodes**: 3 `control-plane,master,worker` + 2 `worker` |
 | RHCL | `rhcl-operator.v1.4.2` (canal `stable`) |
 | Service Mesh | OSSM `servicemeshoperator3.v3.4.1`, Istio **1.30.3** |
-| Kiali / RHDH | operator 2.27.2 / `rhdh-operator.v1.9.8` |
+| Kiali / RHDH | operator 2.27.2 / `rhdh-operator.v1.10.3` (subiu de 1.9.8 em 2026-08-27; embute o **mesmo** Backstage 1.49.4) |
 | Observabilidade | Tempo 0.21.0-3, OTel 0.152.0-3, COO 1.5.1 |
 | Authorino / Limitador | 1.4.2 / 1.4.1 |
 | Storage | ODF 4.20.17, `ocs-external-storagecluster` **Ceph externo** `Ready` |
@@ -56,6 +56,33 @@ Comando único para reconfirmar tudo:
 ```bash
 oc get clusterversion; oc get csv -A | grep -E 'rhcl|servicemesh'; oc get nodes
 ```
+
+### Onde o portal parou — 2026-08-27, fim do dia
+
+Verificado **no navegador**, logado como `plat-eng`:
+
+| Tela | Estado |
+| --- | --- |
+| Traces | 20 traces, tabela de spans — o `lookback` precisa ser `168h`, nunca `7d` |
+| Cards do Grafana | os três dashboards `rhcl` na página do componente |
+| Swagger UI | renderiza, com **Authorize**; "APIs" aparece na barra lateral |
+| Try it out | **não testado** — depende de CORS no gateway, que ninguém mediu ainda |
+
+**Pendência única e concreta:** rodar `bash rhdh/setup-catalog.sh`. A última
+execução falhou porque o API server parou de responder (`i/o timeout`, não
+token expirado). Sem ela, o spec publicado sai com o servidor errado e o
+APIProduct não rebusca.
+
+**Cuidado com o `plugin-registry`.** O `oc start-build --from-dir` é
+substituição **total**: quem publica por último apaga o que o outro pôs. Isso
+desfez trabalho quatro vezes em 2026-08-27. Antes de publicar, extraia o que
+já está no pod e acrescente — e depois `oc rollout restart deploy/plugin-registry`,
+porque **não há gatilho de imagem**: sem o restart o pod segue servindo a
+imagem velha, e o sintoma parece "o build não pegou".
+
+Pela mesma razão, rode o `setup-plugins.sh` sempre com **todas** as flags
+(`WITH_KIALI WITH_QUAY WITH_KUADRANT WITH_CL_OPS WITH_JAEGER WITH_GRAFANA`):
+omitir uma remove o que ela havia ligado.
 
 ### Namespaces que importam
 
