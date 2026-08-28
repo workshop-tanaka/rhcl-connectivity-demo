@@ -145,5 +145,26 @@ jobs:
                   falhou = 1
               elif vistos:
                   print("ok    %s() identica em %d arquivo(s)" % (fn, len(vistos)))
+
+          # O nav do mkdocs.yml e a lista ESPELHO do gitlab-seed.sh sao a MESMA
+          # decisao escrita duas vezes: o que o TechDocs publica. Divergiram em
+          # 2026-08-28 -- docs/CATALOGO.md entrou no nav e nao no espelho --, e
+          # o sintoma seria um item de menu levando a lugar nenhum no portal
+          # que a plateia abre. O seed nao acusa: o aviso dele so dispara no
+          # caso inverso, arquivo listado que sumiu do repo.
+          import re
+          nav = re.findall(r'^\s+-\s+.+?:\s*(\S+\.md)\s*$',
+                           open("mkdocs.yml").read(), re.M)
+          seed = open("scripts/gitlab-seed.sh").read()
+          espelho = set(re.findall(r'"(docs/[^"]+\.md)"', seed))
+          for md in nav:
+              alvo = md if md.startswith("docs/") else "docs/" + md
+              if alvo in espelho:
+                  print("ok    %s no nav e no espelho" % alvo)
+              else:
+                  print("FALHA %s esta no nav do mkdocs e NAO no ESPELHO "
+                        "do gitlab-seed.sh" % alvo)
+                  falhou = 1
+
           sys.exit(falhou)
           EOF

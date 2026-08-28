@@ -329,10 +329,19 @@ else:
 ESPELHO = [
     "mkdocs.yml",              # raiz do TechDocs
     "devfile.yaml",            # o que o Dev Spaces abre
-    "docs/index.md",           # os quatro do nav do mkdocs -- e so eles
+    # ESTA LISTA E O NAV DO mkdocs.yml, E TEM DE ACOMPANHA-LO. Entrada no nav
+    # sem arquivo no espelho nao falha aqui -- o aviso abaixo so dispara no
+    # caso inverso (arquivo listado que sumiu do repo). O que acontece e o
+    # TechDocs publicar um item de menu que leva a lugar nenhum, dentro do
+    # portal que a plateia abre.
+    #
+    # Aconteceu em 2026-08-28: docs/CATALOGO.md entrou no nav e nao entrou
+    # aqui. Ao mexer no nav, mexa nesta lista.
+    "docs/index.md",
     "docs/DEMO-PASSO-A-PASSO.md",
     "docs/RUNBOOK.md",
     "docs/PROVISIONING-1.4.md",
+    "docs/CATALOGO.md",
 ]
 ESPELHO_DIRS = ["rhdh/templates"]   # os 3 templates e seus skeletons
 
