@@ -63,9 +63,14 @@ trap 'rm -rf "$_STAGE"' EXIT
 # o stage incompleto -- que é exatamente o estado que este script existe para
 # impedir. Medido em 2026-08-27.
 _log "extraindo o que o registry já serve"
-oc exec -n "$RHDH_NS" "$_P" -- tar cf - -C /opt/app-root/src . 2>/dev/null \
-  | tar xf - -C "$_STAGE" 2>/dev/null \
-  || _die "falha ao extrair o conteúdo atual do registry"
+# Em DUAS etapas, e não num pipe: com `set -o pipefail` o status do `oc exec`
+# derruba o pipeline inteiro mesmo tendo escrito todos os bytes, e a mensagem
+# resultante ("falha ao extrair") acusa o lugar errado.
+_TARBALL="${_STAGE}/.registro.tar"
+oc exec -n "$RHDH_NS" "$_P" -- tar cf - -C /opt/app-root/src . > "$_TARBALL" 2>/dev/null || true
+[[ -s "$_TARBALL" ]] || _die "extração vazia do registry -- não publique por cima disso"
+tar xf "$_TARBALL" -C "$_STAGE" 2>/dev/null || _die "o tar extraído do registry está corrompido"
+rm -f "$_TARBALL"
 find "$_STAGE" -type f ! -name '*.tgz' -delete 2>/dev/null || true
 
 for _d in "${_DROP[@]:-}"; do
