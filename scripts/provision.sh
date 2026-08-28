@@ -1922,11 +1922,19 @@ st_samples() {
   # Dizer o que ficou de fora, e como traze-lo. Uma amostra que existe no repo,
   # tem entidade no catalogo e nao sobe seria descoberta por acidente -- por
   # alguem procurando o pod. O aviso custa uma linha.
-  local _fora
-  for _fora in "${SAMPLES_ORDEM[@]}"; do
-    [[ " ${alvos[*]} " == *" ${_fora} "* ]] && continue
-    _log "adiada: ${_fora}  ->  SAMPLES=${_fora} bash scripts/provision.sh samples"
-  done
+  #
+  # SO NO CAMINHO PADRAO: com SAMPLES=<nome> o operador ESCOLHEU, e chamar de
+  # 'adiada' tudo que ele nao pediu e mentira -- na primeira execucao com
+  # SAMPLES=bookinfo o script anunciou grpc-echo e open-telemetry como adiadas,
+  # que nao sao. O que se quer avisar e a diferenca entre ORDEM e PADRAO, e ela
+  # so existe quando ninguem escolheu.
+  if [[ -z "${SAMPLES:-}" ]]; then
+    local _fora
+    for _fora in "${SAMPLES_ORDEM[@]}"; do
+      [[ " ${SAMPLES_PADRAO[*]} " == *" ${_fora} "* ]] && continue
+      _log "adiada: ${_fora}  ->  SAMPLES=${_fora} bash scripts/provision.sh samples"
+    done
+  fi
 
   # O provider do access log entra ANTES dos manifests: a Telemetry que o
   # referencia e aplicada junto com a amostra open-telemetry, e um provider que

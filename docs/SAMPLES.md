@@ -286,7 +286,31 @@ upstream que use `selector: istio: ingressgateway` fica **aceito e sem
 endereço** — o que se lê como "aplicado" e não está. Vale para
 `bookinfo/networking/` e para `websockets/route.yaml`.
 
-### 8.2 `TelemetryPolicy` só aceita `Gateway`
+### 8.2 `Programmed=False` num gateway que funciona
+
+A `GatewayClass istio` cria o `Service` do gateway como **LoadBalancer** por
+padrão. Este ambiente não tem LoadBalancer — `EXTERNAL-IP` fica `<pending>`
+para sempre, e o `Gateway` reporta:
+
+```
+Programmed=False  AddressNotAssigned: ... address pending for hostname
+"<gw>-istio.<ns>.svc.cluster.local"
+```
+
+**E a amostra funciona assim** (medido em 2026-08-28): o *listener* fica
+`Programmed=True`, o `Route` alcança os endpoints, e o `/productpage` responde
+200. Quem conferir por `oc get gateway` lê "não publicou" sobre algo publicado.
+
+A correção é uma anotação no `Gateway`, já nos manifests:
+
+```yaml
+networking.istio.io/service-type: ClusterIP
+```
+
+É a mesma família de problema que faz o `prod-web` ser publicado por `Route`
+passthrough.
+
+### 8.3 `TelemetryPolicy` só aceita `Gateway`
 
 Uma `TelemetryPolicy` mirando uma `HTTPRoute` foi escrita e o servidor a recusou
 (2026-08-28, `oc apply --dry-run=server`):
@@ -300,7 +324,7 @@ Nesta release, `TelemetryPolicy` é policy de **Gateway** e ponto — diferente 
 `AuthPolicy`, `RateLimitPolicy` e `PlanPolicy`, que aceitam rota. Vale saber
 disso antes de prometer "métrica por rota" a um cliente.
 
-### 8.3 `RateLimitPolicy` não morde em `GRPCRoute`
+### 8.4 `RateLimitPolicy` não morde em `GRPCRoute`
 
 Medição de 2026-08-28 com a policy irmã de `base/grpc/`, de desenho idêntico:
 `Accepted=True`, `Enforced=True`, limite correto no Limitador, e **oito chamadas
@@ -310,14 +334,14 @@ específico de `GRPCRoute`; a `AuthPolicy` no mesmo `GRPCRoute` funciona.
 Vale para a camada `samples/grpc-echo/rhcl/`, que a declara mesmo assim —
 omiti-la ensinaria que gRPC não se limita, o que é falso.
 
-### 8.4 `runAsUser` fixo é recusado pela SCC
+### 8.5 `runAsUser` fixo é recusado pela SCC
 
 O `bookinfo-psa.yaml` do upstream fixa `runAsUser: 1000`. Sob a `restricted-v2`
 o UID sai da faixa do namespace, e um valor fixo fora dela faz o pod ser
 **recusado na admissão** — com mensagem sobre SCC, que no meio de um deploy se
 lê como problema de imagem.
 
-### 8.5 O `extensionProvider` do ALS não pode substituir a lista
+### 8.6 O `extensionProvider` do ALS não pode substituir a lista
 
 Um merge patch em `meshConfig.extensionProviders` com apenas o provider novo
 apagaria o `otel-tracing`, e o Ato 5 pararia de emitir span — sem erro, porque
@@ -326,24 +350,37 @@ istiod. A etapa `samples` lê a lista, acrescenta e reescreve.
 
 ---
 
-## 9. O que ainda não foi executado num cluster
+## 9. O que já subiu, e o que falta
 
-Os manifests passam no `oc apply --dry-run=server` contra os CRDs deste cluster
-— o **esquema** está certo, e foi assim que a §8.2 apareceu. A **subida de
-verdade não foi medida**, e a cadeia de suprimento **não foi executada**.
+### Subiu — `bookinfo`, 2026-08-28
 
-Os riscos conhecidos estão no `README.md` de cada amostra. Os principais:
+`SAMPLES=bookinfo bash scripts/provision.sh samples`, zero avisos, seis pods em
+`Running 2/2` em ~45s. `/productpage` 200, `/api/v1/products` 200, `/` 404
+(correto), e o canário em 20 chamadas: **19 v1, 1 v3, nenhuma v2**.
 
-- imagens do `bookinfo` e do `grpc-echo` sob a SCC `restricted-v2`;
-- `docker.io` anônimo para a imagem do `tornado` (limite aparece como
-  `ImagePullBackOff`, não como erro de manifest);
-- **WebSocket através do router do OpenShift** — o HAProxy trata `Upgrade` em
-  rota *edge* como túnel, mas isso é o comportamento documentado dele, não uma
-  medição daqui;
-- o Nexus deste ambiente, cujo mirror Maven já se sabe *gated* por licença — a
-  task de publicação usa repositório **raw** e não derruba a cadeia se falhar;
-- as policies de build do ACS, que reprovam imagens upstream por coisas fora do
-  nosso controle — a task registra o achado e não interrompe, de propósito.
+Dois riscos que estavam em aberto **não se materializaram**: as imagens rodam
+sob a SCC `restricted-v2` sem ajuste além de não fixar `runAsUser`, e
+`registry.istio.io` responde a partir deste cluster. A subida expôs, em troca, a
+§8.2 — que já está corrigida nos manifests.
 
-Ao rodar, registre o resultado aqui e na §7 do
+### Falta
+
+- **`grpc-echo` e `open-telemetry`** — aplicáveis a qualquer momento; o segundo
+  é o único que mexe no CR `Istio` (§8.6).
+- **`websockets`** — adiada por decisão (§1). Riscos abertos: `docker.io`
+  anônimo (o limite aparece como `ImagePullBackOff`, não como erro de manifest)
+  e a imagem antiga sob a SCC `restricted-v2`. E **WebSocket através do router**
+  — o HAProxy trata `Upgrade` em rota *edge* como túnel, mas isso é o
+  comportamento documentado dele, não uma medição daqui.
+- **A cadeia de suprimento** — a pipeline foi aplicada no namespace do
+  `bookinfo`, mas nenhuma `PipelineRun` executou. Faltam dois secrets que não há
+  como criar sozinho: `acs-api-token` e `nexus-admin`. Riscos conhecidos: o
+  Nexus deste ambiente, cujo mirror Maven já se sabe *gated* por licença (a task
+  usa repositório **raw** e não derruba a cadeia se falhar), e as policies de
+  build do ACS, que reprovam imagens upstream por coisas fora do nosso controle
+  (a task registra o achado e não interrompe, de propósito).
+- **GitOps** — `gitlab-seed.sh`, `provision.sh gitops` e `rhdh/setup-catalog.sh`
+  ainda não rodaram.
+
+Ao rodar o que falta, registre o resultado aqui e na §7 do
 [CONHECIMENTO](CONHECIMENTO.md) se algum ruído for benigno.

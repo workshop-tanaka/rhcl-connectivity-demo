@@ -34,6 +34,30 @@ kind: Gateway
 metadata:
   name: websockets-gateway
   namespace: websockets
+  annotations:
+    # ---------------------------------------------------------------------
+    # ClusterIP, E NAO O DEFAULT -- MEDIDO NESTE CLUSTER EM 2026-08-28.
+    #
+    # A GatewayClass 'istio' cria o Service do gateway como LoadBalancer por
+    # padrao. Este ambiente nao tem LoadBalancer, entao o EXTERNAL-IP fica
+    # <pending> PARA SEMPRE e o Gateway reporta:
+    #
+    #   Programmed=False  AddressNotAssigned: ... address pending for hostname
+    #   "<gw>-istio.<ns>.svc.cluster.local"
+    #
+    # O QUE TORNA ISSO CARO: a amostra FUNCIONA assim. O listener fica
+    # Programmed=True, o Route do OpenShift alcanca os endpoints, e o
+    # /productpage responde 200 -- com o Gateway dizendo Programmed=False.
+    # Quem for conferir o estado pelo 'oc get gateway' le "nao publicou" sobre
+    # algo que esta publicado, e vai investigar o lado errado.
+    #
+    # Com a anotacao: Service ClusterIP, ADDRESS preenchido, Programmed=True, e
+    # a rota continua respondendo 200. Verificado nos dois estados.
+    #
+    # E a mesma familia de problema do prod-web, que e publicado por Route
+    # passthrough pelo mesmo motivo -- nao ha LoadBalancer neste sandbox.
+    # ---------------------------------------------------------------------
+    networking.istio.io/service-type: ClusterIP
   labels:
     app: tornado
 spec:
