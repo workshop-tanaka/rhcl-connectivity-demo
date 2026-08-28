@@ -41,6 +41,17 @@ const NS_ANNOTATION = 'backstage.io/kubernetes-namespace';
 const ROTA_ANNOTATION = 'connectivity-link.rhcl/httproute';
 
 /**
+ * Presente quando a entidade é uma POLICY: '<Kind>/<ns>/<nome>' do que ela mira.
+ *
+ * Uma policy não tem postura própria — ela É parte da postura de outra coisa. A
+ * pergunta que a página dela responde é 'o que isto governa, e está valendo?', e
+ * quem sabe responder é o alvo. Sem esta anotação a policy cairia no ramo do
+ * namespace logo abaixo, seria procurada como se fosse um componente com o nome
+ * dela, e a tela diria 'sem policy' numa página de policy.
+ */
+const ALVO_ANNOTATION = 'connectivity-link.rhcl/target';
+
+/**
  * Onde procurar no cluster, a partir da entidade aberta.
  *
  * Num Component é direto: o nome dele é o nome do Service, e a anotação diz o
@@ -67,6 +78,19 @@ async function alvoNoCluster(
     return { namespace, name, kind: 'httproute' };
   }
 
+  // A entidade é uma POLICY: quem responde é o alvo dela.
+  const alvo = entity.metadata.annotations?.[ALVO_ANNOTATION];
+  if (alvo) {
+    const [kind, namespace, name] = alvo.split('/');
+    // Só HTTPRoute tem cadeia a mostrar. Policy de Gateway devolve undefined de
+    // propósito: o card então renderiza o estado que explica a ausência, em vez
+    // de consultar a rota errada e responder com confiança sobre outra coisa.
+    if (kind === 'HTTPRoute' && namespace && name) {
+      return { namespace, name, kind: 'httproute' };
+    }
+    return undefined;
+  }
+
   const direto = entity.metadata.annotations?.[NS_ANNOTATION];
   if (direto) {
     return { namespace: direto, name: entity.metadata.name };
@@ -82,6 +106,35 @@ async function alvoNoCluster(
   if (!comp || !ns) return undefined;
 
   return { namespace: ns, name: comp.metadata.name };
+}
+
+/**
+ * Por que não há alvo — em vez de UMA frase para todos os casos.
+ *
+ * A frase única dizia 'falta a anotação de namespace'. Numa policy de Gateway
+ * isso é FALSO: a anotação está lá, e a recusa é deliberada, porque cadeia
+ * efetiva se calcula por rota. Um motivo plausível e errado é pior que um
+ * genérico, porque manda quem lê consertar o que não está quebrado.
+ */
+function porQueSemAlvo(entity: Entity): React.ReactNode {
+  const alvo = entity.metadata.annotations?.[ALVO_ANNOTATION];
+  if (alvo) {
+    const [kind, , name] = alvo.split('/');
+    return (
+      <>
+        Esta policy mira <strong>{kind} {name}</strong>. A cadeia efetiva é
+        calculada por rota, então o efeito dela aparece na página de cada rota
+        que este {kind} atende — e não aqui.
+      </>
+    );
+  }
+  return (
+    <>
+      Não há como saber onde procurar esta entidade no cluster: falta a anotação{' '}
+      <code>{NS_ANNOTATION}</code>, e ela também não declara relação com um
+      componente que a proveja.
+    </>
+  );
 }
 
 const Estado = ({ c }: { c: ConcernResult }) => {
@@ -147,9 +200,7 @@ export const EntityConnectivityCard = () => {
     return (
       <InfoCard title="Conectividade">
         <Typography variant="body2" color="textSecondary">
-          Não há como saber onde procurar esta entidade no cluster: falta a
-          anotação <code>{NS_ANNOTATION}</code>, e ela também não declara
-          relação com um componente que a proveja.
+          {porQueSemAlvo(entity)}
         </Typography>
       </InfoCard>
     );

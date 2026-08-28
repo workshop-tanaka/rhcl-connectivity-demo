@@ -13,6 +13,7 @@ import {
 } from '@backstage/plugin-catalog-node';
 
 import { HTTPRouteEntityProvider } from './providers/HTTPRouteEntityProvider';
+import { PolicyEntityProvider } from './providers/PolicyEntityProvider';
 import { KubeClient } from './service/KubeClient';
 
 /**
@@ -71,8 +72,32 @@ export const connectivityLinkCatalogModule = createBackendModule({
           },
         });
 
+        // As policies vêm por um provider SEPARADO, e não por mais um kind
+        // dentro do de rotas: cada provider tem seu próprio conjunto 'full', e
+        // juntá-los faria uma falha ao listar policies apagar as rotas do
+        // catálogo -- e vice-versa. Separados, um kind opaco custa o que deve
+        // custar: aquele conjunto parado, o outro em dia.
+        const policies = new PolicyEntityProvider(
+          new KubeClient(config),
+          catalogApi,
+          auth,
+          logger,
+          escopo,
+        );
+        catalog.addEntityProvider(policies);
+
+        await scheduler.scheduleTask({
+          id: 'connectivity-link-ops:policies',
+          frequency: { minutes: minutos },
+          timeout: { minutes: 2 },
+          initialDelay: { seconds: 45 },
+          fn: async () => {
+            await policies.sincronizar();
+          },
+        });
+
         logger.info(
-          `catálogo: provider de HTTPRoute a cada ${minutos}min` +
+          `catálogo: providers de HTTPRoute e policy a cada ${minutos}min` +
             (escopo.length ? ` · namespaces ${escopo.join(', ')}` : ' · todos os namespaces'),
         );
       },
