@@ -1,0 +1,211 @@
+# ===========================================================================
+# Realm 'sso' do Red Hat build of Keycloak — o diretorio unico do ambiente.
+#
+# ATE 2026-08-28 este realm existia SO no cluster, com um usuario (admin), e o
+# ambiente tinha duas ilhas de identidade: o OpenShift (e com ele Dev Spaces,
+# console, ACS e Argo CD) entrava por aqui, e o portal do RHDH entrava pelo
+# GitLab. Quem logasse no portal como parceiro nao conseguia abrir o Dev
+# Spaces -- nao por permissao, mas porque a pessoa nao existia deste lado.
+#
+# As quatro personas entram com os MESMOS e-mails que ja tem no GitLab
+# (@example.invalid, falsos de proposito mas consistentes). E isso que permite
+# o vinculo automatico do OmniAuth: o GitLab casa a conta existente em vez de
+# criar uma duplicata.
+#
+# CLIENTS:
+#   idp-4-ocp  ja existia -- e o que o OAuth do OpenShift usa
+#   gitlab     novo -- o GitLab passa a delegar login para ca
+#   rhdh       novo -- o portal passa a entrar por aqui
+#
+# O provedor GitLab do RHDH NAO sai: ele deixa de ser o sign-in e continua
+# sendo a fonte do token que o requestUserCredentials dos templates exige. E o
+# que preserva a autoria pessoal nas MRs -- sem isso o scaffolder passa a
+# assinar como conta de servico, e o Ato 6 perde o argumento.
+#
+# SEGREDOS SAO PLACEHOLDER. Este arquivo vai para o git; os valores nao. Quem
+# renderiza e aplica e o scripts/setup-identity.sh, que descobre o que ja
+# existe no cluster e gera o que falta.
+# ===========================================================================
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: KeycloakRealmImport
+metadata:
+  name: sso
+  namespace: keycloak
+spec:
+  keycloakCRName: keycloak
+  realm:
+    {
+      "clients": [
+        {
+          "clientAuthenticatorType": "client-secret",
+          "clientId": "idp-4-ocp",
+          "directAccessGrantsEnabled": true,
+          "enabled": true,
+          "frontchannelLogout": false,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "redirectUris": [
+            "*"
+          ],
+          "secret": "${KC_OCP_SECRET}",
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": true
+        },
+        {
+          "clientId": "gitlab",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "${KC_GITLAB_SECRET}",
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "redirectUris": [
+            "https://${GITLAB_HOST}/users/auth/openid_connect/callback"
+          ],
+          "webOrigins": [
+            "+"
+          ],
+          "defaultClientScopes": [
+            "email",
+            "profile",
+            "roles",
+            "web-origins"
+          ]
+        },
+        {
+          "clientId": "rhdh",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "secret": "${KC_RHDH_SECRET}",
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "redirectUris": [
+            "https://${PORTAL_HOST}/api/auth/oidc/handler/frame"
+          ],
+          "webOrigins": [
+            "+"
+          ],
+          "defaultClientScopes": [
+            "email",
+            "profile",
+            "roles",
+            "web-origins"
+          ]
+        }
+      ],
+      "duplicateEmailsAllowed": false,
+      "enabled": true,
+      "groups": [
+        {
+          "name": "admins"
+        },
+        {
+          "name": "users"
+        }
+      ],
+      "id": "sso",
+      "loginWithEmailAllowed": true,
+      "realm": "sso",
+      "registrationAllowed": true,
+      "roles": {
+        "realm": [
+          {
+            "description": "Default user role",
+            "name": "user"
+          },
+          {
+            "description": "Administrator role",
+            "name": "admin"
+          }
+        ]
+      },
+      "sslRequired": "external",
+      "users": [
+        {
+          "credentials": [
+            {
+              "type": "password",
+              "value": "${KC_ADMIN_PASSWORD}"
+            }
+          ],
+          "email": "admin@demo.redhat.com",
+          "emailVerified": true,
+          "enabled": true,
+          "firstName": "Admin",
+          "lastName": "Demo",
+          "realmRoles": [
+            "admin"
+          ],
+          "username": "admin"
+        },
+        {
+          "username": "plat-eng",
+          "email": "plataforma@example.invalid",
+          "firstName": "Plataforma",
+          "lastName": "",
+          "enabled": true,
+          "emailVerified": true,
+          "credentials": [
+            {
+              "type": "password",
+              "value": "${KC_PERSONA_PASSWORD}"
+            }
+          ],
+          "groups": [
+            "/admins"
+          ]
+        },
+        {
+          "username": "globex-travel",
+          "email": "globex@example.invalid",
+          "firstName": "Globex Travel",
+          "lastName": "",
+          "enabled": true,
+          "emailVerified": true,
+          "credentials": [
+            {
+              "type": "password",
+              "value": "${KC_PERSONA_PASSWORD}"
+            }
+          ],
+          "groups": [
+            "/users"
+          ]
+        },
+        {
+          "username": "initech-voyages",
+          "email": "initech@example.invalid",
+          "firstName": "Initech Voyages",
+          "lastName": "",
+          "enabled": true,
+          "emailVerified": true,
+          "credentials": [
+            {
+              "type": "password",
+              "value": "${KC_PERSONA_PASSWORD}"
+            }
+          ],
+          "groups": [
+            "/users"
+          ]
+        },
+        {
+          "username": "acme-trips",
+          "email": "acme@example.invalid",
+          "firstName": "ACME Trips",
+          "lastName": "",
+          "enabled": true,
+          "emailVerified": true,
+          "credentials": [
+            {
+              "type": "password",
+              "value": "${KC_PERSONA_PASSWORD}"
+            }
+          ],
+          "groups": [
+            "/users"
+          ]
+        }
+      ]
+    }
