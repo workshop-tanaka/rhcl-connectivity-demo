@@ -64,26 +64,50 @@ CAT="${_here}/rhdh/catalog"
 
 [[ $QUIETO -eq 1 ]] || printf '\n%sVigia do catalogo%s  (%s)\n\n' "$_BLD" "$_RST" "$(oc whoami --show-server 2>/dev/null)"
 
-# ----- 1. seletores de label que nao casam Deployment -----------------------
+# ----- 1. cluster-object declarado que nao existe --------------------------
+# NAO E QUEBRA, e AVISO -- essa distincao custou uma execucao inteira gritando.
+# O filtro do setup-catalog.sh JA descarta a entidade cujo cluster-object nao
+# existe: e a degradacao graciosa funcionando, nao um defeito. Um subsistema
+# opcional ausente (as amostras, o travel-packages num cluster sem a etapa)
+# produz dezenas destes, e todos legitimos.
+#
+# O que o aviso serve: dizer QUANTO do catalogo nao esta sendo publicado. Um
+# catalogo que encolheu pela metade sem ninguem perceber e o problema real.
+_ausentes=""
+while IFS= read -r obj; do
+  [[ -z "$obj" ]] && continue
+  r="${obj%%/*}"; resto="${obj#*/}"; ns="${resto%%/*}"; nm="${resto##*/}"
+  if ! oc get "$r" "$nm" -n "$ns" >/dev/null 2>&1; then
+    _ausentes="${_ausentes}${_ausentes:+ }${obj}"
+  fi
+done < <(yq -N '.metadata.annotations."rhcl.demo/cluster-object" // ""' "$CAT"/*.yaml 2>/dev/null | grep -v '^$' | sort -u)
+if [[ -n "$_ausentes" ]]; then
+  _n=$(printf '%s\n' $_ausentes | wc -l | tr -d ' ')
+  _warn "${_n} entidade(s) nao serao publicadas -- o objeto nao existe neste cluster"
+  [[ $QUIETO -eq 1 ]] || printf '      %s\n' $_ausentes
+else
+  _ok "cluster-objects existem"
+fi
+
+# ----- 2. seletores de label que nao casam Deployment -----------------------
 # So Component: e neles que a aba Topology aparece. O seletor e casado contra o
 # OBJETO Deployment, e nao contra os pods -- essa e a distincao que custou caro.
-while IFS=$'\t' read -r nome ns sel; do
+#
+# ENTIDADE QUE O FILTRO VAI DESCARTAR NAO CONTA. Ela nao chega ao portal, entao
+# nao pode ter Topology vazia. Conferir seletor nela produz alarme sobre uma
+# tela que ninguem vai abrir.
+while IFS=$'\t' read -r nome ns sel obj; do
   [[ -z "$sel" || "$sel" == "null" ]] && continue
+  # descartada pelo filtro? entao nao ha o que conferir
+  if [[ -n "$obj" && "$obj" != "null" ]]; then
+    case " $_ausentes " in *" $obj "*) continue ;; esac
+  fi
   n=$(oc get deploy -n "$ns" -l "$sel" --no-headers 2>/dev/null | wc -l | tr -d ' ')
   if [[ "$n" -eq 0 ]]; then
     _bad "topology vazia: ${nome} -- '${sel}' em ${ns} nao casa Deployment nenhum"
   fi
-done < <(yq -N $'select(.kind == "Component") | [.metadata.name, (.metadata.annotations."backstage.io/kubernetes-namespace" // ""), (.metadata.annotations."backstage.io/kubernetes-label-selector" // "")] | @tsv' "$CAT"/*.yaml 2>/dev/null | grep -v '^\s*$')
-_ok "seletores de label casam Deployment"
-
-# ----- 2. cluster-object declarado que sumiu do cluster ---------------------
-while IFS= read -r obj; do
-  [[ -z "$obj" ]] && continue
-  r="${obj%%/*}"; resto="${obj#*/}"; ns="${resto%%/*}"; nm="${resto##*/}"
-  oc get "$r" "$nm" -n "$ns" >/dev/null 2>&1 \
-    || _bad "cluster-object ausente: ${obj} -- a entidade sai do portal calada"
-done < <(yq -N '.metadata.annotations."rhcl.demo/cluster-object" // ""' "$CAT"/*.yaml 2>/dev/null | grep -v '^$' | sort -u)
-_ok "cluster-objects existem"
+done < <(yq -N $'select(.kind == "Component") | [.metadata.name, (.metadata.annotations."backstage.io/kubernetes-namespace" // ""), (.metadata.annotations."backstage.io/kubernetes-label-selector" // ""), (.metadata.annotations."rhcl.demo/cluster-object" // "")] | @tsv' "$CAT"/*.yaml 2>/dev/null | grep -v '^\s*$')
+_ok "seletores de label casam Deployment (nas entidades publicadas)"
 
 # ----- 3. links de entidade que nao respondem ------------------------------
 # Renderiza os placeholders com os valores reais antes de testar: um link com
@@ -111,11 +135,18 @@ if [[ -n "$GITLAB_HOST" ]]; then
             | grep -F "$GITLAB_HOST" | grep -v '\${' | sort -u)
   # project-slug e outra coisa: nao e URL, e o caminho que o plugin do GitLab
   # concatena. Slug errado nao da erro -- a aba abre e lista vazio.
-  while IFS= read -r slug; do
+  # Mesmo escopo da checagem 2: slug de entidade que o filtro vai descartar nao
+  # interessa. As amostras declaram rhcl/samples/<x> antes de o seed criar os
+  # projetos, e enquanto os objetos delas nao existirem no cluster a entidade
+  # nem chega ao portal -- acusar seria alarme sobre uma aba que ninguem abre.
+  while IFS=$'\t' read -r slug obj; do
     [[ -z "$slug" ]] && continue
+    if [[ -n "$obj" && "$obj" != "null" ]]; then
+      case " $_ausentes " in *" $obj "*) continue ;; esac
+    fi
     c=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "https://${GITLAB_HOST}/${slug}" 2>/dev/null)
     [[ "$c" == "200" ]] || _bad "project-slug inexistente: ${slug} -> HTTP ${c} (a aba GitLab abre vazia)"
-  done < <(yq -N '.metadata.annotations."gitlab.com/project-slug" // ""' "$CAT"/*.yaml 2>/dev/null | grep -v '^$' | sort -u)
+  done < <(yq -N $'select(.metadata.annotations."gitlab.com/project-slug") | [.metadata.annotations."gitlab.com/project-slug", (.metadata.annotations."rhcl.demo/cluster-object" // "")] | @tsv' "$CAT"/*.yaml 2>/dev/null | grep -v '^\s*$' | sort -u)
   _ok "destinos no GitLab respondem"
 else
   _warn "GitLab nao encontrado -- links e project-slug nao conferidos"
@@ -139,6 +170,66 @@ if [[ -n "$RHDH_NS" ]]; then
   [[ -n "$faltando" ]] && _warn "no repo e nao servido: ${faltando} (rode rhdh/setup-catalog.sh, ou o filtro esvaziou)"
   [[ -n "$sobrando" ]] && _bad "servido e NAO existe mais no repo: ${sobrando} -- o portal segue publicando"
   [[ -z "$faltando$sobrando" ]] && _ok "repositorio e portal servem o mesmo conjunto"
+
+  # ----- 5. deriva de CONTEUDO, e nao so de nome de arquivo ----------------
+  # A checagem acima compara NOMES. Ela passava enquanto o portal servia uma
+  # versao antiga do mesmo arquivo -- foi o que aconteceu em 2026-08-28: o
+  # commit fbedd75 repontou os seis backends para rhcl/travel/<svc>, o
+  # setup-catalog.sh nao rodou, e o portal seguiu mandando os seis para o
+  # projeto unico. Quatro passadas verdes sobre a divergencia.
+  #
+  # O QUE DA PARA COMPARAR: o servido passou por envsubst e pelo filtro, entao
+  # comparar byte a byte daria falso positivo sempre. Compara-se so o que NAO
+  # depende de render nem de filtro -- rotulos, tags, os campos literais do
+  # spec, e as anotacoes sem placeholder. E ai que moram as decisoes.
+  #
+  # Entidade que existe no repo e nao no servido NAO e deriva: e o filtro de
+  # fidelidade fazendo o trabalho dele. So se compara o que esta nos dois.
+  _cmp="$(mktemp)"; _repo="$(mktemp)"; _serv="$(mktemp)"
+  yq -N -o=json -I=0 'select(.kind) | [(.kind + ":" + .metadata.name), {"labels": (.metadata.labels // {}), "tags": (.metadata.tags // []), "type": (.spec.type // ""), "system": (.spec.system // ""), "owner": (.spec.owner // ""), "ann": (.metadata.annotations // {})}]' \
+    "$CAT"/*.yaml 2>/dev/null > "$_repo"
+  for _f in $servidos; do
+    oc get cm rhdh-catalog-entities -n "$RHDH_NS" -o jsonpath="{.data.${_f//./\\.}}" 2>/dev/null \
+      | yq -N -o=json -I=0 'select(.kind) | [(.kind + ":" + .metadata.name), {"labels": (.metadata.labels // {}), "tags": (.metadata.tags // []), "type": (.spec.type // ""), "system": (.spec.system // ""), "owner": (.spec.owner // ""), "ann": (.metadata.annotations // {})}]' 2>/dev/null
+  done > "$_serv"
+  python3 - "$_repo" "$_serv" > "$_cmp" <<'PY'
+import json, sys
+def carrega(p):
+    d = {}
+    for l in open(p):
+        l = l.strip()
+        if not l: continue
+        par = json.loads(l)
+        # documento sem kind sai do yq como '[]' -- e o separador entre
+        # arquivos, nao uma entidade. Sem esta guarda o unpack estoura e a
+        # checagem inteira vira um traceback que o '|| true' esconderia.
+        if not isinstance(par, list) or len(par) != 2: continue
+        k, v = par
+        d[k] = v
+    return d
+repo, serv = carrega(sys.argv[1]), carrega(sys.argv[2])
+for k in sorted(set(repo) & set(serv)):
+    r, s = repo[k], serv[k]
+    for campo in ('labels', 'tags', 'type', 'system', 'owner'):
+        if r[campo] != s[campo]:
+            print(f"{k}|{campo}|{r[campo]}|{s[campo]}")
+    # anotacao com ${...} e renderizada no caminho -- comparar seria ruido
+    for a, rv in (r['ann'] or {}).items():
+        if '${' in str(rv): continue
+        sv = (s['ann'] or {}).get(a)
+        if sv != rv:
+            print(f"{k}|{a}|{rv}|{sv}")
+PY
+  if [[ -s "$_cmp" ]]; then
+    while IFS='|' read -r ent campo no_repo servido; do
+      _bad "desatualizado no portal: ${ent} ${campo} = '${servido}' (repo: '${no_repo}')"
+    done < "$_cmp"
+    _bad "-> rode: bash rhdh/setup-catalog.sh"
+    FALHAS=$((FALHAS-1))   # a linha acima e instrucao, nao uma quebra a mais
+  else
+    _ok "conteudo servido bate com o repositorio"
+  fi
+  rm -f "$_cmp" "$_repo" "$_serv"
 else
   _warn "instancia do RHDH nao encontrada -- deriva nao conferida"
 fi
