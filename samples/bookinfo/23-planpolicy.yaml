@@ -1,0 +1,67 @@
+# ===========================================================================
+# Os planos comerciais da API do bookinfo.
+#
+# MESMO PREDICADO GUARDADO do travels-plans, e as duas guardas continuam tendo
+# motivos diferentes:
+#
+#   has(...) && "chave" in ...   indexar chave ausente em CEL não devolve
+#                                false: ERRA -- e o erro aborta a classificação
+#                                inteira, inclusive o catch-all, e a requisição
+#                                passa SEM LIMITE.
+#   fallback para a annotation   chave aprovada no developer portal nasce com o
+#                                plano em annotation e SEM o label; sem este
+#                                ramo, aprovar no portal cunha chave sem limite.
+#
+# Não é cópia por descuido: é a mesma armadilha, e uma variante "mais limpa"
+# aqui reintroduziria o fail-open num arquivo que ninguém revisita.
+#
+# OS LIMITES SÃO MENORES que os do travels de propósito. Aqui a cena é ver o
+# 429 acontecer com dez curls na mão, e não medir capacidade.
+# ===========================================================================
+apiVersion: extensions.kuadrant.io/v1alpha1
+kind: PlanPolicy
+metadata:
+  name: bookinfo-plans
+  namespace: bookinfo
+  labels:
+    app: bookinfo
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: bookinfo-api
+
+  plans:
+    - tier: gold
+      predicate: '(has(auth.identity.metadata.labels) && "kuadrant.io/plan-id" in auth.identity.metadata.labels ? auth.identity.metadata.labels["kuadrant.io/plan-id"] : (has(auth.identity.metadata.annotations) && "secret.kuadrant.io/plan-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] : "")) == "gold"'
+      limits:
+        daily: 10000
+        custom:
+          - limit: 20
+            window: 10s
+
+    - tier: silver
+      predicate: '(has(auth.identity.metadata.labels) && "kuadrant.io/plan-id" in auth.identity.metadata.labels ? auth.identity.metadata.labels["kuadrant.io/plan-id"] : (has(auth.identity.metadata.annotations) && "secret.kuadrant.io/plan-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] : "")) == "silver"'
+      limits:
+        daily: 1000
+        custom:
+          - limit: 5
+            window: 10s
+
+    - tier: free
+      predicate: '(has(auth.identity.metadata.labels) && "kuadrant.io/plan-id" in auth.identity.metadata.labels ? auth.identity.metadata.labels["kuadrant.io/plan-id"] : (has(auth.identity.metadata.annotations) && "secret.kuadrant.io/plan-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] : "")) == "free"'
+      limits:
+        daily: 100
+        custom:
+          - limit: 2
+            window: 10s
+
+    # CATCH-ALL, e ele é a diferença entre fail-closed e fail-open. Chave válida
+    # cujo plano não classifica em nenhum dos três cai aqui em vez de passar sem
+    # limite. Ver base/identity/apikeys.yaml.
+    - tier: unclassified
+      predicate: 'true'
+      limits:
+        custom:
+          - limit: 1
+            window: 60s

@@ -1,0 +1,228 @@
+# ===========================================================================
+# echo -- o servidor de teste do proprio Istio, em duas versoes.
+#
+# ---------------------------------------------------------------------------
+# COM SIDECAR, E NAO PROXYLESS -- e a mudanca mais importante em relacao ao
+# upstream.
+#
+# O grpc-echo.yaml do istio/istio traz 'inject.istio.io/templates: grpc-agent'
+# e '--xds-grpc-server=17070': e a amostra de gRPC PROXYLESS, onde a biblioteca
+# gRPC fala xDS direto com o control plane e nao ha Envoy no caminho.
+#
+# Aqui isso sai, por duas razoes:
+#
+#   1. O QUE ESTA AMOSTRA EXISTE PARA MOSTRAR e que a MESMA policy governa
+#      gRPC. Sem proxy no caminho nao ha onde a policy da borda agir -- o
+#      proxyless resolveria justamente o contrario do argumento.
+#
+#   2. Proxyless e alpha no upstream. Numa demo, uma feature alpha que falha
+#      leva junto a credibilidade do que funcionava.
+#
+# Consequencia: '--crt' e '--key' tambem saem. Eles apontam para /cert.crt, que
+# QUEM MONTA e o template grpc-agent. Sem o template e com as flags, o
+# container morre no arranque procurando um arquivo que ninguem criou -- e o
+# erro fala de certificado, o que se le como problema de mTLS.
+# ---------------------------------------------------------------------------
+#
+# holdApplicationUntilProxyStarts: true fica. Ele resolve uma corrida real: o
+# app abre a conexao gRPC antes de o sidecar estar pronto, a chamada falha, e o
+# sintoma e um pod Ready que responde Unavailable nos primeiros segundos.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: grpc-echo
+  labels:
+    app: echo
+    service: echo
+spec:
+  selector:
+    app: echo
+  type: ClusterIP
+  ports:
+    # O NOME DA PORTA decide o protocolo para o Istio. 'grpc' e o que faz o
+    # proxy falar HTTP/2 com semantica de gRPC -- sem ele o trafego vira TCP
+    # opaco, o roteamento por metodo para de existir e a policy perde o
+    # contexto de requisicao. Mesma armadilha de base/grpc/bookings-grpc.yaml.
+    - name: grpc
+      port: 7070
+      targetPort: 17070
+      appProtocol: grpc
+    - name: http
+      port: 80
+      targetPort: 18080
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: echo
+  namespace: grpc-echo
+  labels:
+    account: echo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-v1
+  namespace: grpc-echo
+  labels:
+    app: echo
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: echo
+      version: v1
+  template:
+    metadata:
+      annotations:
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+      labels:
+        app: echo
+        version: v1
+    spec:
+      serviceAccountName: echo
+      containers:
+        - name: app
+          image: registry.istio.io/testing/app:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - --metrics=15014
+            - --port
+            - "18080"
+            - --tcp
+            - "19090"
+            - --grpc
+            - "17070"
+            - --port
+            - "3333"
+            - --version
+            - v1
+          env:
+            - name: INSTANCE_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+          ports:
+            - containerPort: 17070
+              name: grpc
+              protocol: TCP
+            - containerPort: 18080
+              name: http
+              protocol: TCP
+            - containerPort: 19090
+              protocol: TCP
+            - containerPort: 3333
+              name: tcp-health
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: tcp-health
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            tcpSocket:
+              port: tcp-health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-v2
+  namespace: grpc-echo
+  labels:
+    app: echo
+    version: v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: echo
+      version: v2
+  template:
+    metadata:
+      annotations:
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+      labels:
+        app: echo
+        version: v2
+    spec:
+      serviceAccountName: echo
+      containers:
+        - name: app
+          image: registry.istio.io/testing/app:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - --metrics=15014
+            - --port
+            - "18080"
+            - --tcp
+            - "19090"
+            - --grpc
+            - "17070"
+            - --port
+            - "3333"
+            - --version
+            - v2
+          env:
+            - name: INSTANCE_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+          ports:
+            - containerPort: 17070
+              name: grpc
+              protocol: TCP
+            - containerPort: 18080
+              name: http
+              protocol: TCP
+            - containerPort: 19090
+              protocol: TCP
+            - containerPort: 3333
+              name: tcp-health
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: tcp-health
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            tcpSocket:
+              port: tcp-health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

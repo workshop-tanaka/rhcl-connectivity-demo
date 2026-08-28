@@ -1,0 +1,39 @@
+# ===========================================================================
+# A ROTA DA API -- a outra metade. Mesmo hostname, mesma aplicação, mesmo
+# backend, fronteira diferente.
+#
+# O bookinfo publica de verdade estes caminhos (o swagger.yaml do upstream os
+# descreve):
+#
+#   GET /api/v1/products
+#   GET /api/v1/products/{id}
+#   GET /api/v1/products/{id}/reviews
+#   GET /api/v1/products/{id}/ratings
+#
+# Sobre esta rota valem a AuthPolicy de 22- e o PlanPolicy de 23-. Sobre a de
+# 20- não vale nenhuma das duas -- e o teste que mostra isso em dez segundos:
+#
+#   curl -s -o /dev/null -w '%{http_code}\n' https://bookinfo.<dominio>/            # 200
+#   curl -s -o /dev/null -w '%{http_code}\n' https://bookinfo.<dominio>/api/v1/products  # 401
+# ===========================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: bookinfo-api
+  namespace: bookinfo
+  labels:
+    app: bookinfo
+spec:
+  parentRefs:
+    - name: prod-web
+      namespace: ingress-gateway
+  hostnames:
+    - bookinfo.__DOMAIN__
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/v1
+      backendRefs:
+        - name: productpage
+          port: 9080

@@ -1,0 +1,48 @@
+# ===========================================================================
+# O canário: 90% em v1, 10% em v3. v2 existe e NÃO recebe nada.
+#
+# É esse terceiro subset que faz esta amostra valer o espaço. Com dois
+# destinos, "canário" e "troca de versão" se confundem. Com três, dá para
+# dizer no palco a frase que separa as duas: *v2 está declarada, saudável, no
+# grafo, e com zero por cento do tráfego -- porque quem decide isso é o
+# VirtualService, não o deploy*.
+#
+# MOVIMENTO AO VIVO (o mesmo que o Ato 7 faz em discounts):
+#
+#   oc patch virtualservice reviews -n bookinfo --type=json \
+#     -p '[{"op":"replace","path":"/spec/http/0/route/1/weight","value":50},
+#          {"op":"replace","path":"/spec/http/0/route/0/weight","value":50}]'
+#
+# e o Kiali redesenha em ~15s. Para voltar, 'oc apply -f' neste arquivo.
+#
+# hosts: 'reviews' e não o FQDN. Curto resolve dentro do próprio namespace, e
+# é o que se quer aqui -- o FQDN seria necessário só para o VirtualService
+# valer de outro namespace.
+# ===========================================================================
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: reviews
+  namespace: bookinfo
+spec:
+  hosts:
+    - reviews
+  http:
+    - route:
+        - destination:
+            host: reviews
+            subset: v1
+          weight: 90
+        - destination:
+            host: reviews
+            subset: v3
+          weight: 10
+      # Retentativa e timeout aqui, e não na borda, DE PROPÓSITO: a falha que
+      # eles cobrem é leste-oeste (reviews chamando ratings por baixo), e a
+      # borda não a enxerga. Repetir na HTTPRoute daria a impressão de que
+      # resiliência é assunto de gateway.
+      retries:
+        attempts: 2
+        perTryTimeout: 2s
+        retryOn: gateway-error,connect-failure,refused-stream
+      timeout: 10s

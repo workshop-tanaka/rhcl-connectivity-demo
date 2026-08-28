@@ -1,0 +1,67 @@
+# ===========================================================================
+# Os subsets -- "quais versões existem".
+#
+# DestinationRule NÃO roteia. Ela nomeia. É o VirtualService de 12- que decide
+# quanto vai para cada nome, e essa separação é o ponto: a lista de versões
+# existentes é um fato do serviço, e a divisão de tráfego é uma decisão de
+# quem opera. Trocar a decisão não mexe na lista.
+#
+# SEM trafficPolicy.tls: ISTIO_MUTUAL, que o destination-rule-all-mtls.yaml do
+# upstream traz. Aqui o mTLS já é obrigatório pela PeerAuthentication de 10-,
+# que vale para o namespace inteiro. Declarar nos dois lugares faria a origem
+# do mTLS depender de qual arquivo alguém abriu primeiro -- e é a
+# PeerAuthentication que o Ato 7 desta demo usa para explicar identidade.
+# ===========================================================================
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: productpage
+  namespace: bookinfo
+spec:
+  host: productpage
+  subsets:
+    - name: v1
+      labels:
+        version: v1
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: reviews
+  namespace: bookinfo
+spec:
+  host: reviews
+  subsets:
+    - name: v1
+      labels:
+        version: v1
+    - name: v2
+      labels:
+        version: v2
+    - name: v3
+      labels:
+        version: v3
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: ratings
+  namespace: bookinfo
+spec:
+  host: ratings
+  subsets:
+    - name: v1
+      labels:
+        version: v1
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: details
+  namespace: bookinfo
+spec:
+  host: details
+  subsets:
+    - name: v1
+      labels:
+        version: v1

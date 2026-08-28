@@ -1,0 +1,201 @@
+# ===========================================================================
+# reviews -- TRES versoes vivas, e e por isso que esta amostra entra.
+#
+#   v1  sem estrelas          (nao chama o ratings)
+#   v2  estrelas pretas       (chama o ratings)
+#   v3  estrelas vermelhas    (chama o ratings)
+#
+# A travel-agency desta demo tem UM canario (discounts v1/v2, Ato 7). Aqui sao
+# tres destinos no mesmo Service, o que permite mostrar o que dois nao mostram:
+# um subset que existe e NAO recebe trafego continua aparecendo no grafo do
+# Kiali e no DestinationRule -- declarado, ocioso, e a um patch de distancia.
+#
+# Os DOIS emptyDir nao sao decoracao: a imagem e WebSphere Liberty e escreve em
+# /tmp e em /opt/ibm/wlp/output. Sob a SCC restricted-v2, com UID aleatorio,
+# sem os volumes o servidor nao sobe -- e o log fala de permissao de escrita,
+# nao de SCC.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviews
+  namespace: bookinfo
+  labels:
+    app: reviews
+    service: reviews
+spec:
+  ports:
+    - port: 9080
+      name: http
+  selector:
+    app: reviews
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bookinfo-reviews
+  namespace: bookinfo
+  labels:
+    account: reviews
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-v1
+  namespace: bookinfo
+  labels:
+    app: reviews
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reviews
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: reviews
+        version: v1
+    spec:
+      serviceAccountName: bookinfo-reviews
+      containers:
+        - name: reviews
+          image: registry.istio.io/release/examples-bookinfo-reviews-v1:1.20.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: LOG_DIR
+              value: "/tmp/logs"
+          ports:
+            - containerPort: 9080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: wlp-output
+              mountPath: /opt/ibm/wlp/output
+          resources:
+            requests:
+              cpu: 20m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 640Mi
+      volumes:
+        - name: wlp-output
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-v2
+  namespace: bookinfo
+  labels:
+    app: reviews
+    version: v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reviews
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: reviews
+        version: v2
+    spec:
+      serviceAccountName: bookinfo-reviews
+      containers:
+        - name: reviews
+          image: registry.istio.io/release/examples-bookinfo-reviews-v2:1.20.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: LOG_DIR
+              value: "/tmp/logs"
+          ports:
+            - containerPort: 9080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: wlp-output
+              mountPath: /opt/ibm/wlp/output
+          resources:
+            requests:
+              cpu: 20m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 640Mi
+      volumes:
+        - name: wlp-output
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviews-v3
+  namespace: bookinfo
+  labels:
+    app: reviews
+    version: v3
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reviews
+      version: v3
+  template:
+    metadata:
+      labels:
+        app: reviews
+        version: v3
+    spec:
+      serviceAccountName: bookinfo-reviews
+      containers:
+        - name: reviews
+          image: registry.istio.io/release/examples-bookinfo-reviews-v3:1.20.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: LOG_DIR
+              value: "/tmp/logs"
+          ports:
+            - containerPort: 9080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: wlp-output
+              mountPath: /opt/ibm/wlp/output
+          resources:
+            requests:
+              cpu: 20m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 640Mi
+      volumes:
+        - name: wlp-output
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

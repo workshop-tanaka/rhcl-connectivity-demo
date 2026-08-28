@@ -1,0 +1,65 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# bookinfo -- a amostra do Istio sob RHCL e OSSM.
+#
+# A ORDEM DOS ARQUIVOS É A ORDEM DA EXPLICAÇÃO, e o prefixo numérico existe
+# para isso e para uma segunda razão prática: o ApplicationSet 'rhcl-samples'
+# sincroniza 'manifests/[0-9]*.yaml', o que deixa este kustomization.yaml de
+# fora do sync sem precisar de exclusão. Renomear um arquivo para algo que não
+# comece com dígito o tira do Argo EM SILÊNCIO.
+#
+#   00-       namespace, com a injeção do Service Mesh
+#   01-..04-  os quatro serviços, cada um com sua ServiceAccount
+#   1x-       Service Mesh: mTLS, subsets, canário, quem-fala-com-quem, métrica
+#   2x-       borda (RHCL): duas rotas, duas fronteiras, plano e telemetria
+#
+# NÃO APLICAR COM 'oc apply -k' DIRETO: as rotas trazem __DOMAIN__. Quem
+# substitui é 'bash scripts/provision.sh samples'. Ver samples/README.md.
+# ===========================================================================
+
+resources:
+  - 00-namespace.yaml
+  - 01-details.yaml
+  - 02-ratings.yaml
+  - 03-reviews.yaml
+  - 04-productpage.yaml
+  - 10-mesh-peerauthentication.yaml
+  - 11-mesh-destinationrules.yaml
+  - 12-mesh-virtualservice-reviews.yaml
+  - 13-mesh-authorizationpolicy.yaml
+  - 14-mesh-telemetry.yaml
+  - 20-httproute-ui.yaml
+  - 21-httproute-api.yaml
+  - 22-authpolicy.yaml
+  - 23-planpolicy.yaml
+  - 24-ratelimitpolicy-ui.yaml
+  - 25-telemetrypolicy.yaml
+  - 26-identity-apikeys.yaml
+
+# ---------------------------------------------------------------------------
+# A CÓPIA ASSINADA NO QUAY DO CLUSTER -- comentada de propósito.
+#
+# A pipeline 'samples-supply-chain' espelha estas cinco imagens no Quay do
+# próprio cluster, o Tekton Chains as assina e registra no Rekor, e o ACS as
+# varre. Ainda assim o default aqui é o upstream, porque a amostra tem de subir
+# num cluster onde a etapa 'registry' ainda não rodou -- fazer o contrário
+# colocaria uma demonstração de Service Mesh atrás de um registry.
+#
+# Trocar a origem é descomentar e ajustar o host (que é do cluster):
+#
+#   images:
+#     - name: registry.istio.io/release/examples-bookinfo-details-v1
+#       newName: <quay-host>/rhcl/examples-bookinfo-details-v1
+#     - name: registry.istio.io/release/examples-bookinfo-ratings-v1
+#       newName: <quay-host>/rhcl/examples-bookinfo-ratings-v1
+#     - name: registry.istio.io/release/examples-bookinfo-reviews-v1
+#       newName: <quay-host>/rhcl/examples-bookinfo-reviews-v1
+#     - name: registry.istio.io/release/examples-bookinfo-reviews-v2
+#       newName: <quay-host>/rhcl/examples-bookinfo-reviews-v2
+#     - name: registry.istio.io/release/examples-bookinfo-reviews-v3
+#       newName: <quay-host>/rhcl/examples-bookinfo-reviews-v3
+#     - name: registry.istio.io/release/examples-bookinfo-productpage-v1
+#       newName: <quay-host>/rhcl/examples-bookinfo-productpage-v1
+# ---------------------------------------------------------------------------

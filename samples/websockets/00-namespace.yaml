@@ -1,0 +1,19 @@
+# ===========================================================================
+# Namespace do websockets (tornado).
+#
+# Mesmo desenho do bookinfo: injeção do Service Mesh ligada, PSA em audit/warn.
+# A imagem é upstream e antiga (ver 01-), então enforce aqui recusaria o pod e a
+# mensagem falaria de PodSecurity, não da amostra.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: websockets
+  labels:
+    kubernetes.io/metadata.name: websockets
+    istio-injection: enabled
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    rhcl.demo/sample: websockets

@@ -1,0 +1,80 @@
+# ===========================================================================
+# productpage -- a fachada (Python/Flask). É o único serviço desta amostra que
+# a borda alcança: as HTTPRoutes de 20- e 21- apontam para ele, e os outros
+# três só existem leste-oeste. É essa assimetria que a AuthorizationPolicy de
+# 13- torna EXPLÍCITA em vez de deixar como acidente de roteamento.
+#
+# A anotação prometheus.io/scrape do upstream fica FORA: neste cluster quem
+# raspa é o user workload monitoring, por ServiceMonitor
+# (platform-reference/monitoring/), e uma anotação que ninguém lê é pista falsa
+# para quem for investigar por que a métrica não aparece.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: productpage
+  namespace: bookinfo
+  labels:
+    app: productpage
+    service: productpage
+spec:
+  ports:
+    - port: 9080
+      name: http
+  selector:
+    app: productpage
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bookinfo-productpage
+  namespace: bookinfo
+  labels:
+    account: productpage
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: productpage-v1
+  namespace: bookinfo
+  labels:
+    app: productpage
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: productpage
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: productpage
+        version: v1
+    spec:
+      serviceAccountName: bookinfo-productpage
+      containers:
+        - name: productpage
+          image: registry.istio.io/release/examples-bookinfo-productpage-v1:1.20.3
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 10m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 384Mi
+      volumes:
+        - name: tmp
+          emptyDir: {}

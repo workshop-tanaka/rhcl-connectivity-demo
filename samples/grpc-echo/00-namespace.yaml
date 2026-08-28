@@ -1,0 +1,19 @@
+# ===========================================================================
+# Namespace do grpc-echo.
+#
+# 'grpc-echo' e nao 'echo-grpc' (o nome do upstream): este cluster ja tem um
+# namespace 'echo-api', e dois namespaces cujos nomes so diferem na ordem das
+# palavras e uma armadilha de 'oc -n' no palco.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: grpc-echo
+  labels:
+    kubernetes.io/metadata.name: grpc-echo
+    istio-injection: enabled
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    rhcl.demo/sample: grpc-echo

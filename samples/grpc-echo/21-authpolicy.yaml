@@ -1,0 +1,53 @@
+# ===========================================================================
+# A MESMA AuthPolicy do HTTP, apontando para um GRPCRoute.
+#
+# Compare campo a campo com samples/bookinfo/22-authpolicy.yaml: mesmo tipo,
+# mesmo seletor de Secret, mesma exportacao de identidade como cabecalho. As
+# DUAS diferencas, e ambas sao do protocolo, nao da policy:
+#
+#   targetRef.kind      GRPCRoute no lugar de HTTPRoute
+#   credentials         customHeader no lugar de queryString
+#
+# gRPC NAO TEM QUERY STRING. A chave entra em METADATA, que e o equivalente de
+# cabecalho em HTTP/2. No grpcurl: -H 'apikey: <valor>'.
+#
+# Este e o argumento inteiro do ato de gRPC desta demo, e ele so e forte porque
+# a policy e reconheciveis identica -- se fosse "a versao gRPC da AuthPolicy",
+# nao provaria nada.
+# ===========================================================================
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: grpc-echo-authpolicy
+  namespace: grpc-echo
+  labels:
+    app: echo
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: GRPCRoute
+    name: grpc-echo
+  rules:
+    authentication:
+      api-key-authn:
+        apiKey:
+          allNamespaces: false
+          selector:
+            matchLabels:
+              app: partner
+              devportal.kuadrant.io/apiproduct: grpc-echo
+        credentials:
+          customHeader:
+            name: apikey
+        metrics: false
+        priority: 0
+    response:
+      success:
+        headers:
+          x-partner:
+            plain:
+              expression: >-
+                has(auth.identity.metadata.annotations) &&
+                "secret.kuadrant.io/user-id" in auth.identity.metadata.annotations ?
+                auth.identity.metadata.annotations["secret.kuadrant.io/user-id"] :
+                auth.identity.metadata.name

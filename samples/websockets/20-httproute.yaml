@@ -1,0 +1,38 @@
+# ===========================================================================
+# A rota do WebSocket -- e o que NÃO precisa estar escrita nela é o ponto.
+#
+# NÃO HÁ CONFIGURAÇÃO DE UPGRADE AQUI. Nem na HTTPRoute, nem no Gateway, nem no
+# VirtualService. O README do upstream ainda avisa que "o suporte a upgrade de
+# websockets em regras v1alpha3 só foi adicionado depois do Istio v0.8" -- isso
+# tem anos, e desde então o upgrade é o comportamento padrão do proxy para
+# porta com nome 'http'.
+#
+# Por que isso vale ser dito no palco: a pergunta que aparece é sempre "e para
+# WebSocket, precisa de outro gateway?". A resposta é o arquivo inteiro: mesma
+# HTTPRoute, mesmo Gateway, mesmo listener HTTPS/443 dos demais. O que muda é
+# o que a policy consegue observar depois do upgrade -- e isso é uma
+# propriedade a declarar, não uma configuração a ligar (ver o README).
+#
+# __DOMAIN__ é substituído por 'scripts/provision.sh samples'.
+# ===========================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: websockets
+  namespace: websockets
+  labels:
+    app: tornado
+spec:
+  parentRefs:
+    - name: prod-web
+      namespace: ingress-gateway
+  hostnames:
+    - websockets.__DOMAIN__
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: tornado
+          port: 8888

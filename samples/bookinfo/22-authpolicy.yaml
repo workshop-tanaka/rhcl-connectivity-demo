@@ -1,0 +1,59 @@
+# ===========================================================================
+# A MESMA AuthPolicy da travel-agency, com dois campos diferentes.
+#
+# Compare com base/policies-security/travel-agency-authpolicy.yaml: o desenho é
+# idêntico -- API key em Secret, seletor por label, identidade exportada como
+# cabeçalho para a métrica poder quebrar por consumidor. O que muda:
+#
+#   targetRef.name    bookinfo-api, e não travel-agency
+#   selector          + devportal.kuadrant.io/apiproduct: bookinfo-api
+#
+# O segundo é o que dá ISOLAMENTO ENTRE PRODUTOS: a chave do travels não abre o
+# bookinfo, e a do bookinfo não abre o travels. É o mesmo patch que o
+# env/rhcl-1.4_ocp-4.21/patch-authpolicy-apiproduct.yaml aplica ao travels, aqui
+# escrito direto porque esta amostra nasce depois daquela decisão.
+#
+# 'rules' direto, NÃO 'defaults.rules': a descoberta do developer portal lê
+# spec.rules e IGNORA spec.defaults.rules -- com o wrapper, o APIProduct fica
+# sem status.discoveredAuthScheme e todo APIKey morre em AuthSchemeNotFound.
+# Mesma armadilha do travels; ver o RUNBOOK.
+# ===========================================================================
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: bookinfo-api-authpolicy
+  namespace: bookinfo
+  # 'app: bookinfo' não é lido por controlador nenhum do Kuadrant -- serve ao
+  # portal: é por ele que o RHDH liga esta policy ao componente na aba
+  # Kubernetes (backstage.io/kubernetes-label-selector).
+  labels:
+    app: bookinfo
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: bookinfo-api
+  rules:
+    authentication:
+      api-key-authn:
+        apiKey:
+          allNamespaces: false
+          selector:
+            matchLabels:
+              app: partner
+              devportal.kuadrant.io/apiproduct: bookinfo-api
+        credentials:
+          queryString:
+            name: APIKEY
+        metrics: false
+        priority: 0
+    response:
+      success:
+        headers:
+          x-partner:
+            plain:
+              expression: >-
+                has(auth.identity.metadata.annotations) &&
+                "secret.kuadrant.io/user-id" in auth.identity.metadata.annotations ?
+                auth.identity.metadata.annotations["secret.kuadrant.io/user-id"] :
+                auth.identity.metadata.name

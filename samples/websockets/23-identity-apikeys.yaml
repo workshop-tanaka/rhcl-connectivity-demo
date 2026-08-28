@@ -1,0 +1,25 @@
+# ===========================================================================
+# A chave do produto 'websockets'. Uma só, e é uma decisão.
+#
+# Plano não faz sentido aqui: 'gold recebe 30 conexões por 10s e free recebe 3'
+# descreveria mal o que acontece -- o consumo de uma conexão longa é tempo, não
+# frequência. Modelar plano sem ter como cobrá-lo ensinaria a coisa errada, e
+# esta demo já tem dois produtos (travels, bookinfo) onde plano é o argumento.
+#
+# Em kuadrant-system pelo mesmo motivo das demais: com allNamespaces: false o
+# Authorino indexa Secret do namespace da INSTÂNCIA.
+# ===========================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-websockets
+  namespace: kuadrant-system
+  labels:
+    app: partner
+    authorino.kuadrant.io/managed-by: authorino
+    devportal.kuadrant.io/apiproduct: websockets
+  annotations:
+    kuadrant.io/partner-name: "Painel de tempo real (websockets)"
+type: Opaque
+stringData:
+  api_key: ws-tempo-real-8a5f31

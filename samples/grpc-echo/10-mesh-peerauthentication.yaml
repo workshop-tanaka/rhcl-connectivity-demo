@@ -1,0 +1,20 @@
+# ===========================================================================
+# mTLS obrigatorio no namespace do grpc-echo.
+#
+# Mesmo desenho das outras amostras. O que muda e o que ele custa: gRPC e
+# HTTP/2 sobre uma conexao persistente, entao a negociacao mTLS acontece uma
+# vez por conexao e nao por chamada. O overhead que as pessoas temem em mTLS e
+# do handshake -- e em gRPC ele e amortizado por centenas de chamadas.
+#
+# E um argumento util no palco, porque a objecao "mTLS em tudo nao fica caro?"
+# aparece sempre, e aqui ela tem resposta medivel: comparar
+# istio_request_duration_milliseconds entre este namespace e um sem STRICT.
+# ===========================================================================
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: grpc-echo-strict
+  namespace: grpc-echo
+spec:
+  mtls:
+    mode: STRICT

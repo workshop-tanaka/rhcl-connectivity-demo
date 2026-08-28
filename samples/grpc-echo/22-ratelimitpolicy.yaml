@@ -1,0 +1,49 @@
+# ===========================================================================
+# ATENCAO -- ESTA POLICY PROVAVELMENTE NAO SERA APLICADA. NAO CONTE COM O
+# RESOURCE_EXHAUSTED NO PALCO.
+#
+# NAO E ESPECULACAO SOBRE ESTE ARQUIVO: e a repeticao de uma medicao feita
+# neste cluster em 2026-08-28 com a policy irma,
+# base/grpc/bookings-grpc-policies.yaml, que tem exatamente este desenho. La:
+#
+#   - a policy e ACEITA (Accepted=True) e reporta Enforced=True;
+#   - o limite chega correto ao Limitador (max_value 5, seconds 60,
+#     variables []), e o EnvoyFilter do gateway cita o scope e a chave;
+#   - e oito chamadas seguidas passam, num teto de cinco.
+#
+# EXPERIMENTO DE CONTROLE, no mesmo cluster e no mesmo minuto: a
+# RateLimitPolicy de HTTP funciona -- o tier free devolve 429 na segunda
+# chamada. Entao nao e o Limitador, nem a rede, nem a chave: e especifico de
+# GRPCRoute. As duas hipoteses obvias ja foram descartadas la (counter por
+# auth.identity.userid; GRPCRoute com duas regras).
+#
+# A AuthPolicy de 21-, no MESMO GRPCRoute, funciona nos dois sentidos.
+# Autenticacao atravessa para gRPC; contagem de limite, nao.
+#
+# POR QUE O ARQUIVO FICA: a policy esta correta. No dia em que a versao do RHCL
+# fechar a lacuna, ela passa a valer sem edicao -- e uma amostra que omitisse o
+# limite ensinaria que gRPC nao se limita, o que e falso. Nao contar com ela no
+# roteiro e a decisao; apaga-la nao e.
+#
+# Conferir se mudou, num cluster novo:
+#   for i in $(seq 8); do grpcurl -insecure -H 'apikey: grpc-echo-3f71b2' \
+#     grpc-echo.<dominio>:443 proto.EchoTestService/Echo >/dev/null 2>&1 \
+#     && echo ok || echo negado; done
+# ===========================================================================
+apiVersion: kuadrant.io/v1
+kind: RateLimitPolicy
+metadata:
+  name: grpc-echo-ratelimit
+  namespace: grpc-echo
+  labels:
+    app: echo
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: GRPCRoute
+    name: grpc-echo
+  limits:
+    por-hostname:
+      rates:
+        - limit: 5
+          window: 60s

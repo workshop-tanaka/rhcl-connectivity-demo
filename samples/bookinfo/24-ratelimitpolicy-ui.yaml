@@ -1,0 +1,38 @@
+# ===========================================================================
+# A UI é pública -- e não é ilimitada. Este é o par da rota 20-.
+#
+# POR QUE ELE IMPORTA NA NARRATIVA: "sem chave" não pode significar "sem
+# governança". A rota da UI não sabe quem está do outro lado, então o limite
+# não pode ser por consumidor -- e é por isso que ele é do HOSTNAME inteiro.
+# Perder essa distinção é o erro comum: as pessoas leem rate limit como
+# cota comercial, e aqui ele é proteção de capacidade.
+#
+# variables: [] NÃO É DESCUIDO. Contar por 'auth.identity.userid' não fecha
+# nunca: a AuthPolicy exporta a identidade como CABEÇALHO (x-partner), não como
+# metadado dinâmico, então o descritor não é populado, a chave do contador não
+# existe e o limite não conta -- com a policy reportando Enforced=True. É a
+# mesma medição que está registrada em base/grpc/bookings-grpc-policies.yaml.
+# Aqui, além disso, não haveria identidade nenhuma para contar: a rota é
+# anônima por decisão.
+#
+# 60 em 10s é folgado de propósito: a tela do bookinfo faz várias chamadas por
+# carregamento, e um teto apertado transformaria "abrir a página" em 429 --
+# a cena errada, no lugar errado.
+# ===========================================================================
+apiVersion: kuadrant.io/v1
+kind: RateLimitPolicy
+metadata:
+  name: bookinfo-ui-ratelimit
+  namespace: bookinfo
+  labels:
+    app: bookinfo
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: bookinfo-ui
+  limits:
+    por-hostname:
+      rates:
+        - limit: 60
+          window: 10s

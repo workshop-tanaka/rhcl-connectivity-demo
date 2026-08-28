@@ -1,0 +1,43 @@
+# ===========================================================================
+# CANARIO SOBRE gRPC -- e e isto que esta amostra acrescenta ao que
+# base/grpc/ ja mostra.
+#
+# base/grpc/ prova que a AuthPolicy nao muda com o protocolo. Aqui a pergunta e
+# outra e igualmente frequente: "da para fazer canario em gRPC?". Da, e o
+# arquivo e o mesmo VirtualService do canario HTTP -- so que o campo e 'http'
+# tambem para gRPC, porque gRPC E HTTP/2 e o Istio o trata na mesma secao.
+#
+# ESSE CAMPO 'http' PARA TRAFEGO gRPC E A PEGADINHA que faz as pessoas
+# procurarem uma secao 'grpc' que nao existe. Vale dizer em voz alta.
+#
+# A resposta do echo carrega a versao que atendeu, entao o canario e VISIVEL
+# sem instrumentar nada:
+#
+#   for i in $(seq 20); do
+#     grpcurl -insecure -H 'apikey: grpc-echo-3f71b2' \
+#       grpc-echo.<dominio>:443 proto.EchoTestService/Echo | grep -i version
+#   done | sort | uniq -c
+#   # ~16 v1, ~4 v2
+#
+# 80/20 e nao 90/10 (que e o do bookinfo): com 90/10 seriam precisas ~30
+# chamadas para ver a segunda versao aparecer com confianca, e no palco isso e
+# tempo morto.
+# ===========================================================================
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: echo
+  namespace: grpc-echo
+spec:
+  hosts:
+    - echo
+  http:
+    - route:
+        - destination:
+            host: echo
+            subset: v1
+          weight: 80
+        - destination:
+            host: echo
+            subset: v2
+          weight: 20

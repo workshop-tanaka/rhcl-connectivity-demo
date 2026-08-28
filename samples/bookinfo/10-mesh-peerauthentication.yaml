@@ -1,0 +1,23 @@
+# ===========================================================================
+# mTLS obrigatório no namespace inteiro -- o mesmo desenho de
+# base/mesh/peerauthentication-strict.yaml, e pelo mesmo motivo: sem ele a
+# AuthorizationPolicy de 13- comparia principals que nada provou.
+#
+# STRICT aqui é mais barato que na travel-agency: o namespace nasce com tudo
+# dentro do mesh, então não existe cliente sem sidecar para quebrar. O caso
+# doloroso é o inverso -- ligar STRICT num namespace onde algo ficou de fora --
+# e ele não existe nesta amostra.
+#
+# O QUE ISSO CUSTA NA BORDA: nada. O Gateway prod-web tem sidecar/proxy do
+# próprio Service Mesh, então a chamada que vem da HTTPRoute já entra como
+# mTLS. Sem essa propriedade, STRICT devolveria 503 na porta de entrada e a
+# amostra pareceria quebrada por causa de policy leste-oeste.
+# ===========================================================================
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: bookinfo-strict
+  namespace: bookinfo
+spec:
+  mtls:
+    mode: STRICT

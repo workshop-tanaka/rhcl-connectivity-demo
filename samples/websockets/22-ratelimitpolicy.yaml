@@ -1,0 +1,38 @@
+# ===========================================================================
+# O limite conta HANDSHAKES, e é assim que ele deve ser lido.
+#
+# 5 por minuto parece absurdamente baixo para uma API REST. Para conexões
+# WebSocket é generoso: um cliente saudável abre UMA conexão e a mantém. Cinco
+# tentativas por minuto é o teto de quem está reconectando em laço -- que é
+# justamente o comportamento que se quer conter.
+#
+# LER ESTE NÚMERO COMO "5 REQUISIÇÕES POR MINUTO" É O ERRO. É a mesma unidade
+# com um significado diferente, e a diferença é o que a amostra ensina: em
+# conexão longa, a unidade de cobrança e de proteção é a CONEXÃO, não a
+# mensagem. Quem quiser limitar mensagem precisa de outra camada -- e essa
+# camada é a aplicação, não a borda.
+#
+# variables: [] pelo mesmo motivo das demais RateLimitPolicy deste repositório:
+# a AuthPolicy exporta a identidade como CABEÇALHO (x-partner), não como
+# metadado dinâmico. Um counter por 'auth.identity.userid' não é populado, a
+# chave do contador não existe, e o limite NÃO CONTA -- com a policy reportando
+# Enforced=True. Medição registrada em base/grpc/bookings-grpc-policies.yaml.
+# Quem separa por consumidor neste repositório é o PlanPolicy, por plano.
+# ===========================================================================
+apiVersion: kuadrant.io/v1
+kind: RateLimitPolicy
+metadata:
+  name: websockets-ratelimit
+  namespace: websockets
+  labels:
+    app: tornado
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: websockets
+  limits:
+    handshakes:
+      rates:
+        - limit: 5
+          window: 60s

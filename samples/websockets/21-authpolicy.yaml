@@ -1,0 +1,66 @@
+# ===========================================================================
+# A AuthPolicy do handshake -- e a honestidade sobre o que ela alcança.
+#
+# O QUE ELA FAZ: exige a chave na requisição HTTP que carrega
+# 'Upgrade: websocket'. Sem chave, o upgrade não acontece -- o cliente recebe
+# 401 e a conexão nunca chega a existir. Isso é forte: a credencial é conferida
+# ANTES de haver canal.
+#
+# O QUE ELA NÃO FAZ, e precisa ser dito antes que alguém pergunte: depois do
+# upgrade, os frames não são requisições HTTP. Não passam por AuthPolicy, não
+# incrementam RateLimitPolicy, não aparecem em istio_requests_total. Uma
+# conexão autenticada uma vez fica autenticada enquanto viver.
+#
+# ISSO NÃO É LIMITAÇÃO DO RHCL -- é o que HTTP/1.1 Upgrade significa. E é
+# exatamente por isso que a amostra vale: a governança de uma conexão longa é
+# uma DECISÃO DE DESENHO (quanto tempo a conexão pode viver, quantas conexões
+# por consumidor), e não um efeito colateral de ter posto um proxy no caminho.
+# Quem trata gateway como caixa de policy por requisição não tem onde colocar
+# essa decisão. As duas alavancas que sobram estão declaradas:
+#
+#   idleTimeout / maxConnections   em 11-, no DestinationRule
+#   limite de handshakes           em 22-, na RateLimitPolicy
+#
+# A CREDENCIAL VAI NA QUERY STRING, e aqui não é preferência: a API de
+# WebSocket do navegador (new WebSocket(url)) NÃO PERMITE definir cabeçalho.
+# Chave em header funcionaria de um cliente de linha de comando e falharia na
+# tela -- e a tela é o que se abre no palco. Mesmo raciocínio do gRPC em
+# base/grpc/bookings-grpc-policies.yaml, onde a credencial vai em metadata: em
+# ambos os casos quem escolhe é o protocolo, não a policy.
+# ===========================================================================
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: websockets-authpolicy
+  namespace: websockets
+  labels:
+    app: tornado
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: websockets
+  rules:
+    authentication:
+      api-key-authn:
+        apiKey:
+          allNamespaces: false
+          selector:
+            matchLabels:
+              app: partner
+              devportal.kuadrant.io/apiproduct: websockets
+        credentials:
+          queryString:
+            name: APIKEY
+        metrics: false
+        priority: 0
+    response:
+      success:
+        headers:
+          x-partner:
+            plain:
+              expression: >-
+                has(auth.identity.metadata.annotations) &&
+                "secret.kuadrant.io/user-id" in auth.identity.metadata.annotations ?
+                auth.identity.metadata.annotations["secret.kuadrant.io/user-id"] :
+                auth.identity.metadata.name

@@ -1,0 +1,36 @@
+# ===========================================================================
+# Telemetria da amostra de WebSocket -- e a dimensão aqui responde a pergunta
+# que a conexão longa levanta.
+#
+# 'upgrade' vem do cabeçalho de requisição, e é ele que separa no painel o que
+# foi HANDSHAKE do que foi requisição HTTP comum ao mesmo serviço (a página que
+# serve o JavaScript, por exemplo). Sem essa dimensão, istio_requests_total
+# soma as duas e a série passa a dizer que há muito mais tráfego WebSocket do
+# que há -- cada carregamento de página conta como se fosse conexão nova.
+#
+# O QUE NENHUMA DIMENSÃO RESOLVE: os FRAMES depois do upgrade não são
+# requisições e não entram em istio_requests_total. Para volume de dados na
+# conexão estabelecida, a série é istio_tcp_sent_bytes_total /
+# istio_tcp_received_bytes_total. Está escrito aqui porque é exatamente a
+# pergunta que aparece na plateia.
+# ===========================================================================
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: websockets-dimensoes
+  namespace: websockets
+spec:
+  metrics:
+    - providers:
+        - name: prometheus
+      overrides:
+        - match:
+            metric: REQUEST_COUNT
+            mode: CLIENT_AND_SERVER
+          tagOverrides:
+            upgrade:
+              value: 'request.headers["upgrade"]'
+  tracing:
+    - providers:
+        - name: otel-tracing
+      randomSamplingPercentage: 100.00

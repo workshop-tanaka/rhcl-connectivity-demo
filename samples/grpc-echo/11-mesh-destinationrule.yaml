@@ -1,0 +1,23 @@
+# ===========================================================================
+# Os subsets do echo -- v1 e v2, para o canario de 12-.
+#
+# h2UpgradePolicy nao entra aqui DE PROPOSITO: a porta ja se chama 'grpc' e o
+# appProtocol ja diz grpc (01-), entao o proxy ja fala HTTP/2. Declarar de novo
+# criaria uma segunda origem para o mesmo fato -- e a pergunta "de onde vem o
+# HTTP/2?" passaria a depender de qual arquivo se abriu primeiro. Mesmo
+# criterio do mTLS nos DestinationRule do bookinfo.
+# ===========================================================================
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: echo
+  namespace: grpc-echo
+spec:
+  host: echo
+  subsets:
+    - name: v1
+      labels:
+        version: v1
+    - name: v2
+      labels:
+        version: v2

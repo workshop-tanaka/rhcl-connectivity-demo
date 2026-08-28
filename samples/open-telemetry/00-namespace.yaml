@@ -1,0 +1,25 @@
+# ===========================================================================
+# Namespace do coletor da amostra.
+#
+# SEM istio-injection -- e e a unica das quatro amostras onde a ausencia do
+# rotulo e a decisao certa. O coletor e QUEM RECEBE a telemetria do mesh; um
+# sidecar nele criaria o laco obvio (o proxy do coletor emitindo log de acesso
+# para o coletor) e, pior, poe o coletor atras de uma PeerAuthentication que
+# ele nao tem como negociar com os proxies que lhe mandam dados.
+#
+# O upstream faz a mesma coisa por outro caminho: sidecar.istio.io/inject:
+# "false" no POD. Aqui esta no namespace, e o rotulo do pod fica junto em 01-
+# como cinto e suspensorio -- se alguem rotular este namespace por engano, o
+# pod continua de fora.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: otel-sample
+  labels:
+    kubernetes.io/metadata.name: otel-sample
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    rhcl.demo/sample: open-telemetry

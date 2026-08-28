@@ -1,0 +1,34 @@
+# ===========================================================================
+# GRPCRoute no MESMO Gateway das rotas HTTP.
+#
+# NAO HA PORTA NOVA E NAO HA GATEWAY NOVO: o listener do prod-web e HTTPS na
+# 443 e negocia h2 por ALPN, entao gRPC entra pelo mesmo endereco de todo o
+# resto. E a primeira metade da resposta a "e para gRPC, precisa de outro
+# gateway?".
+#
+# UMA REGRA, SEM MATCH POR METODO -- e a escolha custou uma investigacao, que
+# esta registrada em base/grpc/bookings-grpcroute.yaml e vale igual aqui: o
+# Kuadrant gera uma entrada de filtro POR REGRA, e com duas regras a
+# RateLimitPolicy ancorou apenas nas regras de reflection do grpcurl. Chamadas
+# ao servico passavam sem contar, com a policy reportando Enforced=True.
+#
+# Hostname de UM rotulo sob .apps: o wildcard do cluster cobre um nivel so.
+# __DOMAIN__ e substituido por 'scripts/provision.sh samples'.
+# ===========================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: grpc-echo
+  namespace: grpc-echo
+  labels:
+    app: echo
+spec:
+  parentRefs:
+    - name: prod-web
+      namespace: ingress-gateway
+  hostnames:
+    - grpc-echo.__DOMAIN__
+  rules:
+    - backendRefs:
+        - name: echo
+          port: 7070

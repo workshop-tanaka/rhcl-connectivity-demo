@@ -1,0 +1,34 @@
+# ===========================================================================
+# A dimensao que faz o canario de gRPC virar numero.
+#
+# grpc_response_status e a dimensao que HTTP nao tem: em gRPC o codigo de erro
+# vive no trailer, e o status HTTP e 200 mesmo quando a chamada falhou. Um
+# painel que so olhe o codigo HTTP mostra 100% de sucesso enquanto o servico
+# devolve UNAVAILABLE em tudo -- e essa e uma das confusoes mais caras de
+# operar gRPC.
+#
+# 'versao_destino' pelo mesmo motivo do bookinfo: sem ela a serie nao sabe qual
+# subset respondeu, e o 80/20 declarado em 12- nao tem como ser conferido.
+# ===========================================================================
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: grpc-echo-dimensoes
+  namespace: grpc-echo
+spec:
+  metrics:
+    - providers:
+        - name: prometheus
+      overrides:
+        - match:
+            metric: REQUEST_COUNT
+            mode: CLIENT_AND_SERVER
+          tagOverrides:
+            versao_destino:
+              value: destination.workload.name
+            grpc_status:
+              value: response.grpc_status
+  tracing:
+    - providers:
+        - name: otel-tracing
+      randomSamplingPercentage: 100.00

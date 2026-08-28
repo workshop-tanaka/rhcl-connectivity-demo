@@ -1,0 +1,95 @@
+# ===========================================================================
+# O coletor da amostra -- LOG DE ACESSO em OTLP, e nao trace.
+#
+# ---------------------------------------------------------------------------
+# POR QUE ACCESS LOG E NAO TRACE, sendo que a amostra do upstream faz trace
+#
+# Este cluster JA TEM a ponta de trace montada e funcionando: coletor em
+# tracing-system, Tempo com multitenancy, e a aba Observe -> Traces do console
+# (platform-reference/tracing/). Repetir isso numa amostra nao acrescentaria
+# nada -- seria um segundo caminho para o mesmo destino, e a primeira duvida de
+# quem operasse seria "qual dos dois esta valendo?".
+#
+# O que o ambiente NAO tem e o log de acesso do mesh como TELEMETRIA
+# ESTRUTURADA. Hoje o log de acesso do Envoy e texto no stdout do sidecar: para
+# le-lo e preciso saber em qual pod olhar, e ele morre com o pod. O upstream do
+# Istio cobre exatamente isso em samples/open-telemetry/als/.
+#
+# E o argumento que a demo precisa: o MESMO control plane que aplica policy
+# decide o que vira telemetria e para onde ela vai -- por configuracao, sem
+# tocar em aplicacao nenhuma. Um gateway nao tem onde colocar essa decisao.
+# ---------------------------------------------------------------------------
+#
+# CR do operador, e nao Deployment cru. O upstream traz ConfigMap + Service +
+# Deployment escritos a mao porque nao pode pressupor operador; aqui o
+# OpenTelemetry Operator ja esta instalado (e ele que sustenta
+# platform-reference/tracing/otel-collector.yaml), e usar o CR e o que faz esta
+# amostra parecer com o resto do cluster em vez de um corpo estranho.
+#
+# DOIS exportadores, e cada um tem um papel:
+#
+#   debug   imprime o log de acesso no stdout DESTE pod. E o que se abre no
+#           palco -- 'oc logs -f' e a linha aparece no momento do curl. Sem
+#           ele, a amostra funcionaria e nao teria o que mostrar.
+#   otlp    manda para o mesmo Tempo do resto do cluster, com o tenant 'dev'.
+#           E o que faz o dado sobreviver ao pod.
+#
+# O bloco de auth do exportador otlp e copiado de
+# platform-reference/tracing/otel-collector.yaml, e nao inventado: o gateway do
+# Tempo exige bearer token da ServiceAccount e o CA da service CA. Sem os dois,
+# a ingestao para em silencio -- o coletor reporta sucesso e nada chega.
+# ===========================================================================
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel-als
+  namespace: otel-sample
+  labels:
+    app: otel-als
+spec:
+  mode: deployment
+  replicas: 1
+  podLabels:
+    # Cinto e suspensorio: o namespace ja nao tem injecao (00-), e este rotulo
+    # mantem o pod de fora se alguem rotular o namespace por engano.
+    sidecar.istio.io/inject: "false"
+    app: otel-als
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  config:
+    extensions:
+      bearertokenauth:
+        filename: /var/run/secrets/kubernetes.io/serviceaccount/token
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      batch: {}
+    exporters:
+      debug:
+        verbosity: detailed
+      otlp:
+        endpoint: tempo-tempo-gateway.tracing-system.svc.cluster.local:4317
+        tls:
+          insecure: false
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
+        auth:
+          authenticator: bearertokenauth
+        headers:
+          X-Scope-OrgID: dev
+    service:
+      extensions: [bearertokenauth]
+      pipelines:
+        logs:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [debug, otlp]

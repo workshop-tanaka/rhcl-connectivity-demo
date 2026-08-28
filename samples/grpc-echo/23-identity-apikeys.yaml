@@ -1,0 +1,26 @@
+# ===========================================================================
+# A chave do produto 'grpc-echo'.
+#
+# Ela nao abre o bookinfo nem o travels, pelo mesmo par de labels que isola os
+# outros produtos -- e o teste e mais interessante aqui porque atravessa
+# protocolo:
+#
+#   grpcurl -insecure -H 'apikey: grpc-echo-3f71b2' grpc-echo.<d>:443 list   # ok
+#   curl -o /dev/null -w '%{http_code}\n' "https://api-travels.<d>/?APIKEY=grpc-echo-3f71b2"  # 401
+#
+# A fronteira e do produto. Nao do protocolo, e nao do endereco.
+# ===========================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-grpc-echo
+  namespace: kuadrant-system
+  labels:
+    app: partner
+    authorino.kuadrant.io/managed-by: authorino
+    devportal.kuadrant.io/apiproduct: grpc-echo
+  annotations:
+    kuadrant.io/partner-name: "Integrador gRPC (grpc-echo)"
+type: Opaque
+stringData:
+  api_key: grpc-echo-3f71b2

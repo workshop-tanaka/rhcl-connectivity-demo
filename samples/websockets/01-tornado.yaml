@@ -1,0 +1,89 @@
+# ===========================================================================
+# tornado -- o servidor WebSocket da amostra do Istio.
+#
+# A IMAGEM É A DO UPSTREAM, e ela é velha: docker.io/hiroakis/tornado-websocket-example,
+# citada pelo README do samples/websockets do Istio. Duas coisas a saber antes
+# de investigar um pod que não sobe:
+#
+#   1. docker.io SEM AUTENTICAÇÃO. Num cluster de workshop que já puxou muita
+#      imagem, o limite anônimo do Docker Hub aparece como ImagePullBackOff --
+#      e não como erro de manifest. 'oc describe pod' antes de suspeitar daqui.
+#      É o mesmo aviso que platform-reference/cicd/ carrega para Nexus e Sonar.
+#
+#   2. UID ALEATÓRIO. A imagem não foi construída para a SCC restricted-v2 do
+#      OpenShift. O app é Python e não escreve no filesystem, então a
+#      expectativa é que rode -- MAS ISSO NÃO FOI MEDIDO NESTE CLUSTER. Se ela
+#      recusar o UID, o caminho é a cópia no Quay que a pipeline
+#      'samples-supply-chain' já produz, reconstruída sobre uma base UBI.
+#
+# O nome da porta é 'http', e isso é OBRIGATÓRIO para esta amostra funcionar: o
+# Istio decide o protocolo pelo nome da porta, e é o protocolo HTTP que faz o
+# proxy tratar o cabeçalho 'Upgrade: websocket'. Com a porta sem nome (TCP
+# opaco) o WebSocket até conecta -- e a amostra perde o ponto, porque não há
+# camada L7 nenhuma no caminho para governar.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: tornado
+  namespace: websockets
+  labels:
+    app: tornado
+    service: tornado
+spec:
+  ports:
+    - port: 8888
+      name: http
+      targetPort: 8888
+  selector:
+    app: tornado
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tornado
+  namespace: websockets
+  labels:
+    account: tornado
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tornado-v1
+  namespace: websockets
+  labels:
+    app: tornado
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tornado
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: tornado
+        version: v1
+    spec:
+      serviceAccountName: tornado
+      containers:
+        - name: tornado
+          image: docker.io/hiroakis/tornado-websocket-example
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8888
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

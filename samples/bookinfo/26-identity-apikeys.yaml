@@ -1,0 +1,71 @@
+# ===========================================================================
+# As chaves da API do bookinfo -- e a prova de isolamento entre produtos.
+#
+# EM kuadrant-system, e não em 'bookinfo': com allNamespaces: false, o Authorino
+# procura os Secrets no namespace da INSTÂNCIA, não no da policy. É a mesma
+# escolha de base/identity/apikeys.yaml, e o sintoma de errar é 401 em chave
+# correta, sem nada no log da AuthPolicy.
+#
+# O LABEL devportal.kuadrant.io/apiproduct É O ISOLAMENTO. Estas três chaves
+# têm 'app: partner' igual às do travels, e mesmo assim não abrem o travels: o
+# seletor da AuthPolicy de cada produto exige o par completo. Teste de dez
+# segundos, com os dois hostnames:
+#
+#   curl -o /dev/null -w '%{http_code}\n' "https://bookinfo.<d>/api/v1/products?APIKEY=gold-bookinfo-9c2e14"   # 200
+#   curl -o /dev/null -w '%{http_code}\n' "https://api-travels.<d>/?APIKEY=gold-bookinfo-9c2e14"               # 401
+#
+# CHAVES LITERAIS NUM REPOSITÓRIO: são de demonstração, e o valor delas não
+# concede nada além de ler resenhas de livros num cluster efêmero. As chaves que
+# o developer portal cunha ao vivo são as de verdade, e nunca passam por aqui.
+#
+# authorino.kuadrant.io/managed-by: authorino é obrigatório -- sem ele o Secret
+# não entra no índice do Authorino e a chave nunca vale, sem erro em lugar
+# nenhum.
+# ===========================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-bookinfo-gold
+  namespace: kuadrant-system
+  labels:
+    app: partner
+    authorino.kuadrant.io/managed-by: authorino
+    devportal.kuadrant.io/apiproduct: bookinfo-api
+    kuadrant.io/plan-id: gold
+  annotations:
+    kuadrant.io/partner-name: "Livraria Central (bookinfo)"
+type: Opaque
+stringData:
+  api_key: gold-bookinfo-9c2e14
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-bookinfo-silver
+  namespace: kuadrant-system
+  labels:
+    app: partner
+    authorino.kuadrant.io/managed-by: authorino
+    devportal.kuadrant.io/apiproduct: bookinfo-api
+    kuadrant.io/plan-id: silver
+  annotations:
+    kuadrant.io/partner-name: "Sebo do Vale (bookinfo)"
+type: Opaque
+stringData:
+  api_key: silver-bookinfo-4d71a8
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-bookinfo-free
+  namespace: kuadrant-system
+  labels:
+    app: partner
+    authorino.kuadrant.io/managed-by: authorino
+    devportal.kuadrant.io/apiproduct: bookinfo-api
+    kuadrant.io/plan-id: free
+  annotations:
+    kuadrant.io/partner-name: "Leitor avulso (avaliacao)"
+type: Opaque
+stringData:
+  api_key: free-bookinfo-e0b357

@@ -1,0 +1,29 @@
+# ===========================================================================
+# Namespace do bookinfo.
+#
+# istio-injection: enabled E O QUE FAZ A AMOSTRA EXISTIR. Sem o rótulo os seis
+# pods sobem, a página abre, e nada do que vem depois -- mTLS, subsets,
+# canário, grafo do Kiali, span no Tempo -- tem sobre o que agir. O sintoma é
+# uma amostra que "funciona" e uma demo que não tem o que mostrar.
+#
+# Sem as anotações openshift.io/sa.scc.* que platform-reference/namespaces/
+# carrega: aquelas vieram da captura de um cluster e fixam faixas de UID que
+# não são deste. Aqui o OpenShift atribui a faixa sozinho, que é o
+# comportamento correto para um namespace que nasce num cluster novo.
+#
+# PSA em audit/warn e não enforce, como os demais namespaces desta demo: as
+# imagens do bookinfo são upstream e não declaram runAsNonRoot. Enforce aqui
+# recusaria os pods e a mensagem falaria de PodSecurity, não de amostra.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bookinfo
+  labels:
+    kubernetes.io/metadata.name: bookinfo
+    istio-injection: enabled
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    rhcl.demo/sample: bookinfo

@@ -1,0 +1,40 @@
+# ===========================================================================
+# A dimensão que faz a métrica do bookinfo responder à pergunta certa.
+#
+# Mesmo desenho de base/policies-telemetry/istio-partner-dimension.yaml: sem
+# uma dimensão nova, istio_requests_total agrega tudo e a série não sabe QUAL
+# VERSÃO respondeu. Com 'versao_destino', o painel do canário (90/10) tem o que
+# quebrar, e a divisão declarada em 12- vira número medido.
+#
+# destination_canonical_revision já existe como label padrão do Istio; a
+# dimensão aqui é redundante DE PROPÓSITO, com um nome que se lê no palco --
+# 'versao_destino' num seletor de dashboard é mais barato de explicar do que
+# uma label cujo nome vem do upstream. O custo é uma série a mais por versão;
+# são três.
+#
+# tracing: o span já é emitido pelo provider 'otel-tracing' que o CR Istio
+# declara (platform-reference/mesh-control-plane/telemetry-tracing.yaml).
+# randomSamplingPercentage aqui SOBREPÕE aquele para este namespace: 100% numa
+# amostra de demonstração, onde perder o trace da chamada que se acabou de
+# fazer no palco é o pior resultado possível.
+# ===========================================================================
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: bookinfo-dimensoes
+  namespace: bookinfo
+spec:
+  metrics:
+    - providers:
+        - name: prometheus
+      overrides:
+        - match:
+            metric: REQUEST_COUNT
+            mode: CLIENT_AND_SERVER
+          tagOverrides:
+            versao_destino:
+              value: destination.workload.name
+  tracing:
+    - providers:
+        - name: otel-tracing
+      randomSamplingPercentage: 100.00

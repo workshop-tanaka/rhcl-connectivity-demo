@@ -1,0 +1,30 @@
+# ===========================================================================
+# A métrica da borda do bookinfo, quebrada por plano e por rota.
+#
+# 'rota' é a dimensão que não existe no prod-web-telemetry da demo principal, e
+# ela existe aqui porque esta amostra tem DUAS rotas no mesmo hostname. Sem
+# ela, o painel somaria a UI anônima com a API autenticada e a série responderia
+# a pergunta errada: 'quantas chamadas ao bookinfo?' em vez de 'quantas à API,
+# e quantas à tela?'.
+#
+# plan vazio => a classificação do PlanPolicy falhou; é o sintoma do fail-open
+# que o catch-all de 23- fecha.
+# ===========================================================================
+apiVersion: extensions.kuadrant.io/v1alpha1
+kind: TelemetryPolicy
+metadata:
+  name: bookinfo-telemetry
+  namespace: bookinfo
+  labels:
+    app: bookinfo
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: bookinfo-api
+  metrics:
+    default:
+      labels:
+        plan: 'auth.kuadrant.plan'
+        method: 'request.method'
+        rota: 'request.path'

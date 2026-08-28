@@ -1,0 +1,86 @@
+# ===========================================================================
+# Quem pode falar COM QUEM -- por identidade SPIFFE, e não por rede.
+#
+# O QUE ISTO TORNA EXPLÍCITO: hoje só o productpage chama details e reviews, e
+# só reviews chama ratings. Isso é verdade por ACIDENTE -- é o que o código faz.
+# Com estas policies passa a ser verdade por DECLARAÇÃO: um pod novo no
+# namespace, com outra ServiceAccount, recebe RBAC: access denied ao tentar o
+# ratings, mesmo estando no mesmo namespace e na mesma rede.
+#
+# É a demonstração leste-oeste do mesmo argumento que a AuthPolicy do RHCL faz
+# na borda -- e a diferença entre as duas é o que a demo precisa que se veja:
+#
+#   AuthPolicy (RHCL)          credencial de PARCEIRO, na borda, por rota
+#   AuthorizationPolicy (OSSM) identidade de CARGA DE TRABALHO, dentro, por SA
+#
+# O principal sai da ServiceAccount, e é por isso que cada serviço tem a sua em
+# 01-..04-. Formato: <trust domain>/ns/<namespace>/sa/<serviceaccount>.
+# 'cluster.local' é o trust domain default do OSSM 3 -- se o CR Istio deste
+# cluster o mudar, estas três policies param de casar e o sintoma é 403 em
+# tudo, sem erro em lugar nenhum. Conferir com:
+#
+#   oc get istio default -o jsonpath='{.spec.values.global.trustDomain}{"\n"}'
+#
+# TESTE, do próprio namespace, com um pod que não é nenhum dos quatro:
+#
+#   oc run curl-teste -n bookinfo --image=registry.access.redhat.com/ubi9/ubi-minimal \
+#     --restart=Never -it --rm -- curl -s -o /dev/null -w '%{http_code}\n' http://ratings:9080/ratings/0
+#   # 403 -- e o corpo diz 'RBAC: access denied'
+# ===========================================================================
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: details-so-do-productpage
+  namespace: bookinfo
+spec:
+  selector:
+    matchLabels:
+      app: details
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/bookinfo/sa/bookinfo-productpage"]
+      to:
+        - operation:
+            methods: ["GET"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: reviews-so-do-productpage
+  namespace: bookinfo
+spec:
+  selector:
+    matchLabels:
+      app: reviews
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/bookinfo/sa/bookinfo-productpage"]
+      to:
+        - operation:
+            methods: ["GET"]
+---
+# ratings é o mais interessante dos três: quem o chama é o reviews, e SÓ as
+# versões v2 e v3 o chamam. A policy não distingue versão -- o principal vem da
+# ServiceAccount, que é uma só para as três. Distinguir por versão exigiria uma
+# SA por versão, e é uma troca que não vale: o que se governa é o serviço.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: ratings-so-do-reviews
+  namespace: bookinfo
+spec:
+  selector:
+    matchLabels:
+      app: ratings
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/bookinfo/sa/bookinfo-reviews"]
+      to:
+        - operation:
+            methods: ["GET"]

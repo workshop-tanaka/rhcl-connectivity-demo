@@ -1,0 +1,80 @@
+# ===========================================================================
+# details -- o serviço de metadados do livro (Ruby).
+#
+# ServiceAccount própria, e as três seguintes também: é ela que vira o
+# principal SPIFFE que a AuthorizationPolicy de 13- compara. Sem SA por
+# serviço, "quem pode falar com quem" não teria como ser escrito -- todos
+# falariam como 'default'.
+#
+# O NOME DA PORTA importa e é herança do upstream: 'http'. O Istio decide o
+# protocolo pelo nome; com a porta sem nome o tráfego vira TCP opaco e o grafo
+# do Kiali perde os códigos de resposta.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: details
+  namespace: bookinfo
+  labels:
+    app: details
+    service: details
+spec:
+  ports:
+    - port: 9080
+      name: http
+  selector:
+    app: details
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bookinfo-details
+  namespace: bookinfo
+  labels:
+    account: details
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: details-v1
+  namespace: bookinfo
+  labels:
+    app: details
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: details
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: details
+        version: v1
+    spec:
+      serviceAccountName: bookinfo-details
+      containers:
+        - name: details
+          image: registry.istio.io/release/examples-bookinfo-details-v1:1.20.3
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9080
+          # SEM runAsUser, e é a diferença em relação ao bookinfo-psa.yaml do
+          # upstream, que fixa 1000. Sob a SCC restricted-v2 do OpenShift o UID
+          # sai da faixa do namespace, e um valor fixo fora dela faz o pod ser
+          # RECUSADO na admissão -- com uma mensagem sobre SCC, que no meio de
+          # um deploy se lê como problema de imagem.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

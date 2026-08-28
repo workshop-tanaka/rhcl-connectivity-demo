@@ -1,0 +1,48 @@
+# ===========================================================================
+# A ROTA DA UI -- pública, e é metade do argumento desta amostra.
+#
+# O bookinfo é uma aplicação com tela E com API. Num gateway, a fronteira é do
+# ENDEREÇO: ou o host pede credencial ou não pede. Aqui são duas HTTPRoutes no
+# MESMO hostname, e cada uma declara a sua fronteira:
+#
+#   20-  /            UI, sem chave, só limitada        <- este arquivo
+#   21-  /api/v1      API, com chave e com plano
+#
+# Ninguém precisou dividir a aplicação, mudar o código, nem publicar um segundo
+# endereço. A fronteira é do PRODUTO -- e é isso que separa plataforma de API
+# de gateway.
+#
+# __DOMAIN__ é substituído por 'scripts/provision.sh samples' com o domínio de
+# apps lido do cluster. Ver samples/README.md: nenhum arquivo deste repositório
+# carrega hostname de cluster embutido.
+#
+# UM RÓTULO sob .apps ('bookinfo.apps...', nunca 'ui.bookinfo.apps...'): o
+# wildcard do cluster cobre um nível só e o segundo ponto quebra a resolução --
+# §5.6 do CONHECIMENTO.
+#
+# A ORDEM DAS REGRAS NÃO DECIDE nada aqui: a Gateway API casa pelo prefixo mais
+# longo, então '/api/v1' da rota 21- vence '/' desta, independentemente de qual
+# HTTPRoute foi criada primeiro. É por isso que as duas podem ser arquivos
+# separados sem virar armadilha de ordem.
+# ===========================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: bookinfo-ui
+  namespace: bookinfo
+  labels:
+    app: bookinfo
+spec:
+  parentRefs:
+    - name: prod-web
+      namespace: ingress-gateway
+  hostnames:
+    - bookinfo.__DOMAIN__
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: productpage
+          port: 9080

@@ -1,0 +1,18 @@
+# ===========================================================================
+# mTLS obrigatório -- e aqui ele tem um ponto próprio.
+#
+# A conexão WebSocket é LONGA: ela é estabelecida uma vez e vive minutos ou
+# horas. O mTLS do Service Mesh é negociado no ESTABELECIMENTO, e a identidade
+# provada ali vale pela conexão inteira. É o inverso do que acontece com policy
+# de borda por requisição (ver o README desta amostra) -- e ter os dois
+# comportamentos lado a lado, no mesmo namespace, é o que torna a diferença
+# visível em vez de teórica.
+# ===========================================================================
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: websockets-strict
+  namespace: websockets
+spec:
+  mtls:
+    mode: STRICT

@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# open-telemetry -- o log de acesso do mesh como telemetria estruturada.
+#
+# ORDEM DE APLICACAO IMPORTA NESTA AMOSTRA, e e a unica das quatro em que
+# importa: 10- substitui a Telemetry do bookinfo (mesmo nome), porque o Istio
+# nao mescla duas Telemetry de nivel de namespace. Aplicar 'samples/bookinfo'
+# depois desta desfaz o access log EM SILENCIO. O provision.sh aplica esta
+# amostra por ultimo, sempre.
+#
+# Sem __DOMAIN__: esta amostra nao publica rota. Ela e camada de plataforma --
+# o que ela mostra e que observabilidade e decisao do control plane, e nao
+# feature de gateway.
+# ===========================================================================
+
+resources:
+  - 00-namespace.yaml
+  - 01-collector.yaml
+  - 10-telemetry-bookinfo.yaml
+
+# Sem bloco 'images': o coletor e gerenciado pelo OpenTelemetry Operator, que
+# escolhe a imagem a partir da versao do operador. Fixar imagem aqui brigaria
+# com ele a cada upgrade.
