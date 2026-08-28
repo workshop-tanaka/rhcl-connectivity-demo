@@ -88,13 +88,19 @@ Etapas, na ordem em que dependem umas das outras:
                 delegando. Exige o portal RHDH ja instalado
 
 Sem argumento, roda todas. Cada uma e idempotente.
+
+  --check     nao instala nada: diz o que ja existe, o que falta, e em que
+              ordem resolver. Use antes de rodar num cluster que voce nao
+              montou -- e depois, para conferir.
 EOF
 }
 
+CHECK=0
 STAGES=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
+    --check)   CHECK=1; shift ;;
     --list|-l) _usage; exit 0 ;;
     -h|--help) _usage; exit 0 ;;
     -*) _die "argumento desconhecido: $1 (use --help)" ;;
@@ -1012,6 +1018,83 @@ st_identity() {
 
 
 # ===========================================================================
+# ===========================================================================
+# --check: diagnostico, nao instalacao
+# ===========================================================================
+# EXISTE POR CAUSA DE UMA CLASSE DE ERRO, e nao por completude. Em 2026-08-28 o
+# portal e a identidade ficaram exigindo um ao outro: o install.sh do RHDH pedia
+# o segredo do client que o setup-identity cria, e o setup-identity pedia a rota
+# que o install.sh cria. Nenhum dos dois podia ser o primeiro.
+#
+# O impasse era invisivel no cluster onde tudo ja existia, e so apareceria num
+# virgem -- ou seja, na hora errada. Este modo torna esse tipo de coisa obvio
+# antes de custar tempo: ele nao pergunta "instalou?", pergunta "da para
+# instalar a partir daqui?".
+_check() {
+  local faltando=0
+  _sec "estado do ambiente (nada sera alterado)"
+
+  _c() {  # rotulo | condicao ja avaliada | dica
+    if [[ "$2" == "sim" ]]; then _ok "$1"
+    else printf '  %s-%s %-38s %s\n' "$_YEL" "$_RST" "$1" "$3"; faltando=$((faltando + 1)); fi
+  }
+
+  _c "operadores do RHCL"      "$(_has_crd kuadrants.kuadrant.io && echo sim)"                 "provision.sh operators"
+  _c "Service Mesh"            "$(_has_crd istios.sailoperator.io && echo sim)"                "provision.sh operators"
+  _c "GitLab"                  "$(_has_crd gitlabs.apps.gitlab.com && echo sim)"               "provision.sh gitlab"
+  _c "Gateway prod-web"        "$(oc get gateway prod-web -n ingress-gateway >/dev/null 2>&1 && echo sim)" "provision.sh gateway"
+  _c "developer portal (RHCL)" "$(_has_crd apiproducts.devportal.kuadrant.io && echo sim)"     "provision.sh devportal"
+  _c "Tempo"                   "$(_has_crd tempomonolithics.tempo.grafana.com && echo sim)"    "provision.sh tracing"
+  _c "Grafana"                 "$(_has_crd grafanas.grafana.integreatly.org && echo sim)"      "provision.sh dashboards"
+  _c "Argo CD"                 "$(_has_crd applications.argoproj.io && echo sim)"              "provision.sh gitops"
+  _c "Pipelines (Tekton)"      "$(_has_crd pipelineruns.tekton.dev && echo sim)"               "provision.sh cicd"
+  _c "RHACS"                   "$(_has_crd centrals.platform.stackrox.io && echo sim)"         "provision.sh security"
+
+  printf '\n'
+  _sec "portal e identidade -- a parte que se enrosca"
+
+  local _portal _kc_secret _kc_users _gl_oidc
+  _portal="$(oc get route -n rhdh-rhcl --no-headers 2>/dev/null | grep -ci portal || true)"
+  _kc_secret="$(oc get secret rhcl-identity-secrets -n keycloak >/dev/null 2>&1 && echo sim || true)"
+  _kc_users="$(oc get keycloakrealmimport sso -n keycloak -o jsonpath='{.spec.realm.users[*].username}' 2>/dev/null | wc -w | tr -d ' ' || true)"
+  _gl_oidc="$(oc get secret gitlab-oidc-provider -n gitlab-system >/dev/null 2>&1 && echo sim || true)"
+
+  _c "portal RHDH instalado"   "$([[ "${_portal:-0}" -gt 0 ]] && echo sim)"  "bash rhdh/install.sh"
+  _c "clients do Keycloak"     "$_kc_secret"                                  "provision.sh identity"
+  _c "personas no realm"       "$([[ "${_kc_users:-0}" -ge 5 ]] && echo sim)" "provision.sh identity"
+  _c "GitLab federado"         "$_gl_oidc"                                    "provision.sh identity"
+
+  # A ORDEM, que e o que o impasse ensinou: identity primeiro, porque ela deriva
+  # o host do portal sem precisar dele -- o inverso nao funciona.
+  if [[ "${_portal:-0}" -eq 0 && -z "$_kc_secret" ]]; then
+    printf '\n'
+    _warn "cluster sem portal e sem identidade: rode 'provision.sh identity' ANTES do rhdh/install.sh"
+    printf '        %s\n' "o install.sh exige o segredo do client 'rhdh', que a etapa identity cria"
+  fi
+
+  printf '\n'
+  _sec "plugins do portal"
+  local _reg
+  _reg="$(oc get pods -n rhdh-rhcl --no-headers 2>/dev/null | grep -c 'plugin-registry.*Running' || true)"
+  _c "plugin-registry no ar"   "$([[ "${_reg:-0}" -gt 0 ]] && echo sim)"      "bash rhdh/setup-plugins.sh"
+  if [[ "${_reg:-0}" -gt 0 ]]; then
+    local _pkgs _pod
+    _pod="$(oc get pods -n rhdh-rhcl --no-headers 2>/dev/null | grep plugin-registry | grep Running | awk '{print $1}' | head -1)"
+    _pkgs="$(oc exec -n rhdh-rhcl "$_pod" -- ls /opt/app-root/src/ 2>/dev/null | grep -c '\.tgz$' || true)"
+    _ok "pacotes servidos: ${_pkgs:-0}  (reconstruir: scripts/build-plugins.sh)"
+  fi
+
+  printf '\n'
+  if [[ $faltando -eq 0 ]]; then
+    _ok "nada faltando -- 'bash scripts/preflight.sh' da o veredito da demo"
+  else
+    _warn "${faltando} item(ns) faltando; a coluna da direita diz o que roda cada um"
+  fi
+  return 0
+}
+
+if [[ "${CHECK:-0}" -eq 1 ]]; then _check; exit 0; fi
+
 for s in "${STAGES[@]}"; do "st_${s}"; done
 
 _sec "fim"

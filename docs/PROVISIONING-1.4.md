@@ -18,12 +18,44 @@ um quebra — e é isso que você vai querer ler quando algo falhar.
 
 ```bash
 bash scripts/new-env.sh        # camada env/ + overlay com o hostname deste cluster
-bash scripts/provision.sh      # as 9 etapas abaixo, na ordem, idempotentes
+bash scripts/provision.sh      # as etapas abaixo, na ordem, idempotentes
 bash scripts/preflight.sh      # o veredito
 ```
 
 `provision.sh --dry-run` imprime a sequência inteira sem tocar no cluster, e
 cada etapa roda sozinha (`bash scripts/provision.sh tracing dashboards`).
+
+`provision.sh --check` **não instala nada**: diz o que já existe, o que falta e
+o que roda cada item. Use antes de mexer num cluster que você não montou.
+
+## A sequência completa, incluindo o portal
+
+O `provision.sh` monta a **plataforma**. O Developer Hub é produto que roda
+sobre ela, tem scripts próprios em `rhdh/`, e por isso não é etapa daqui — a
+mesma fronteira que separa `base/` de `platform-reference/`.
+
+Num cluster novo, a ordem é esta, e **a posição do `identity` não é arbitrária**:
+
+```bash
+bash scripts/new-env.sh
+bash scripts/provision.sh                      # até gitops
+bash scripts/provision.sh identity             # ANTES do portal — ver abaixo
+bash rhdh/install.sh                           # o portal
+bash scripts/build-plugins.sh --publish        # Jaeger e Grafana, que não vêm prontos
+bash rhdh/setup-plugins.sh                     # com as flags e os integrity
+bash rhdh/setup-catalog.sh
+bash scripts/provision.sh cicd security        # Tekton e RHACS
+bash scripts/preflight.sh
+```
+
+**Por que `identity` vem antes do portal.** O `install.sh` precisa do segredo do
+client `rhdh`, que é a etapa `identity` quem cria. O caminho inverso não existe:
+a etapa `identity` deriva o host do portal do domínio de apps, sem precisar que
+ele exista.
+
+Em 2026-08-28 os dois exigiam um ao outro e nenhum podia ser o primeiro — um
+impasse invisível no cluster onde tudo já estava montado, e que só apareceria num
+virgem, na pior hora possível. É a razão de o `--check` existir.
 
 | Etapa | Seção | O que o script faz além de aplicar |
 | --- | --- | --- |
