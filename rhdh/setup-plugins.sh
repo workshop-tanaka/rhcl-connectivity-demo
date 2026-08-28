@@ -156,7 +156,26 @@ WITH_NEXUS="${WITH_NEXUS:-$(_ja_ligado 'plugin-nexus-repository-manager')}"
 WITH_SONARQUBE="${WITH_SONARQUBE:-$(_ja_ligado 'plugin-sonarqube')}"
 WITH_JAEGER="${WITH_JAEGER:-$(_ja_ligado 'plugin-jaeger')}"
 WITH_GRAFANA="${WITH_GRAFANA:-$(_ja_ligado 'plugin-grafana')}"
-WITH_CL_OPS="${WITH_CL_OPS:-$(_ja_ligado 'connectivity-link-ops')}"
+# O connectivity-link-ops e o unico plugin desta lista que e CODIGO DESTE
+# REPOSITORIO, e por isso e o unico que tem uma segunda fonte quando nao ha de
+# quem herdar: rhdh/cl-ops.env, gravado por scripts/build-cl-ops.sh.
+#
+# A heranca acima resolve o cluster que ja existe. Num cluster NOVO nao existe
+# ConfigMap: _ja_ligado devolve false para tudo, e o plugin da demo ficaria de
+# fora do provisionamento sem uma linha de aviso -- o portal sobe 2/2, responde
+# 200, e a aba nao existe. O arquivo e o registro que sobrevive ao cluster.
+_cl_ops_env="${_here}/cl-ops.env"
+_do_env() { # chave -> valor gravado no repositorio, ou vazio
+  [[ -f "$_cl_ops_env" ]] || return 0
+  grep -E "^$1=" "$_cl_ops_env" 2>/dev/null | head -1 | cut -d= -f2-
+}
+_cl_ops_default() {
+  [[ "$(_ja_ligado 'connectivity-link-ops')" == "true" ]] && { printf 'true'; return; }
+  [[ -n "$(_do_env CL_OPS_VERSION)" ]] && printf 'true' || printf 'false'
+}
+# Desligar continua exigindo WITH_CL_OPS=false explicito: a expressao de default
+# so e avaliada quando a variavel nao veio do ambiente.
+WITH_CL_OPS="${WITH_CL_OPS:-$(_cl_ops_default)}"
 WITH_ANSIBLE="${WITH_ANSIBLE:-$(_ja_ligado 'plugin-ansible')}"
 # O GitLab e a excecao deliberada: o build 7.0.1 nao carrega neste RHDH (ver o
 # bloco dele). Preservar "ligado" aqui seria preservar uma aba quebrada.
@@ -196,8 +215,38 @@ for texto in json.load(sys.stdin).get("data", {}).values():
 print(sorted(set(vs), key=lambda v: [int(x) for x in v.split(".")])[-1] if vs else "")' 2>/dev/null || true
 }
 
+_maior_versao() { # a b -> a maior das duas (vazio conta como menor)
+  local a="$1" b="$2"
+  [[ -z "$a" ]] && { printf '%s' "$b"; return; }
+  [[ -z "$b" ]] && { printf '%s' "$a"; return; }
+  printf '%s\n%s\n' "$a" "$b" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1
+}
+
 if [[ "$WITH_CL_OPS" == "true" ]]; then
-  CL_OPS_VERSION="${CL_OPS_VERSION:-$(_versao_ligada 'rhcl-backstage-plugin-connectivity-link-ops')}"
+  # DUAS FONTES, e a MAIOR VERSAO vence.
+  #
+  # A ConfigMap diz o que esta rodando; rhdh/cl-ops.env diz o que este
+  # repositorio constroi. Preferir sempre a ConfigMap faria o
+  # `build-cl-ops.sh --publish` nao ter efeito nenhum num cluster que ja
+  # existe -- publicaria o pacote e seguiria pedindo o anterior. Preferir
+  # sempre o repositorio faria um checkout velho REBAIXAR o portal em silencio.
+  #
+  # Maior vence resolve os dois: cluster novo pega o do repositorio porque a
+  # ConfigMap nao existe; cluster velho sobe quando o repositorio avanca; e
+  # rebaixar exige CL_OPS_VERSION=<antiga> explicito, que o ambiente sempre
+  # ganha das duas.
+  CL_OPS_VERSION="${CL_OPS_VERSION:-$(_maior_versao \
+    "$(_versao_ligada 'rhcl-backstage-plugin-connectivity-link-ops')" \
+    "$(_do_env CL_OPS_VERSION)")}"
+
+  # A integrity tem de ser A DA VERSAO ESCOLHIDA, e cada fonte so responde pela
+  # sua. Casar a integrity de uma versao com o tgz de outra da
+  # Init:CrashLoopBackOff, e o erro do init container fala de hash e nao de
+  # versao -- a causa nao aparece na mensagem.
+  if [[ "$CL_OPS_VERSION" == "$(_do_env CL_OPS_VERSION)" ]]; then
+    CL_OPS_FRONTEND_INTEGRITY="${CL_OPS_FRONTEND_INTEGRITY:-$(_do_env CL_OPS_FRONTEND_INTEGRITY)}"
+    CL_OPS_BACKEND_INTEGRITY="${CL_OPS_BACKEND_INTEGRITY:-$(_do_env CL_OPS_BACKEND_INTEGRITY)}"
+  fi
   CL_OPS_FRONTEND_INTEGRITY="${CL_OPS_FRONTEND_INTEGRITY:-$(_integrity_de "rhcl-backstage-plugin-connectivity-link-ops-${CL_OPS_VERSION}")}"
   CL_OPS_BACKEND_INTEGRITY="${CL_OPS_BACKEND_INTEGRITY:-$(_integrity_de "rhcl-backstage-plugin-connectivity-link-ops-backend-dynamic-${CL_OPS_VERSION}")}"
 fi
@@ -764,8 +813,21 @@ if [[ "${WITH_SONARQUBE:-false}" == "true" ]]; then
   _sonar_back="bs_1.49.4__1.1.1"
   oc get secret rhdh-sonarqube-secret -n "$RHDH_NS" >/dev/null 2>&1 \
     || _die "WITH_SONARQUBE=true exige o secret rhdh-sonarqube-secret com SONARQUBE_URL e SONARQUBE_TOKEN"
+  # O NOME DEPOIS DO '!' E O DIRETORIO DENTRO DA IMAGEM, e nao um rotulo livre.
+  # Aqui estava '...-backend-dynamic', que nao existe na imagem: o unpack criava
+  # o diretorio, escrevia so os dois arquivos .hash, e seguia. NAO HA ERRO no
+  # apply, o plugin CONTA como instalado em qualquer 'ls dynamic-plugins-root',
+  # e o unico rastro e uma linha ENOENT sobre package.json no log do backend --
+  # depois da qual /api/sonarqube/* responde 404 e o card fica em erro.
+  #
+  # Conferido em 2026-08-28 extraindo a imagem:
+  #   oc image extract ghcr.io/.../backstage-community-plugin-sonarqube-backend:bs_1.49.4__1.1.1 --path /:.
+  # -> backstage-community-plugin-sonarqube-backend/package.json
+  #
+  # Os demais pacotes OCI deste arquivo repetem o nome da imagem depois do '!',
+  # e e essa a regra: sufixo '-dynamic' so entra quando a imagem o traz.
   _plugins="${_plugins}
-      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-sonarqube-backend:${_sonar_back}!backstage-community-plugin-sonarqube-backend-dynamic
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-sonarqube-backend:${_sonar_back}!backstage-community-plugin-sonarqube-backend
         disabled: false
       - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-sonarqube:${_sonar_front}!backstage-community-plugin-sonarqube
         disabled: false
