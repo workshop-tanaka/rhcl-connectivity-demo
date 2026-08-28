@@ -14,3 +14,6 @@ acessos.local
 # Regenerar custa um comando. Versionar custa uma armadilha silenciosa.
 env/cluster-*/
 overlays/cluster-*/
+
+# artefatos de build de plugin (scripts/build-plugins.sh) -- reconstruiveis
+.plugins-build/
