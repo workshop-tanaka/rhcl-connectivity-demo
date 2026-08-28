@@ -452,14 +452,20 @@ spec:
     # renderizado num repositório raw dá ao manifesto o mesmo tratamento: um
     # endereço estável, com o SHA do commit no nome.
     #
-    # REPOSITÓRIO RAW, E NÃO MAVEN, e a distinção importa neste ambiente: o
-    # mirror Maven do Nexus deste cluster está DESLIGADO por decisão -- com
-    # acesso anônimo ligado e autenticado como admin, qualquer artefato
-    # responde 403, e o log traz classes com.sonatype.nexus.clm (recursos Pro
-    # gated por licença). Ver o cabeçalho de
-    # platform-reference/pipelines/build-travel-packages.yaml. Um repositório
-    # raw hosted é criado e escrito pela API de administração, que funciona --
-    # mas ISSO NÃO FOI MEDIDO.
+    # ESTA TASK PROVAVELMENTE NÃO VAI PUBLICAR, e isso está medido -- ver o
+    # cabeçalho de platform-reference/pipelines/build-travel-packages.yaml.
+    #
+    # O Nexus deste cluster recusa QUALQUER escrita com 403 enquanto o EULA não
+    # for aceito -- inclusive `PUT` em repositório *raw hosted*, de dentro do
+    # cluster, como admin. Não é licença nem Firewall, como se supôs primeiro:
+    # é o aceite, e o corpo da resposta o diz literalmente ("You must accept the
+    # End User License Agreement (EULA) ... before proceeding"). Aceitar é ato
+    # de licenciamento e depende de quem opera o ambiente, então não há script
+    # que o faça sozinho.
+    #
+    # A task fica porque está correta e passa a valer no minuto em que o EULA
+    # for aceito -- e porque o `onError: continue` abaixo faz dela um elo que
+    # avisa, e não um que derruba.
     #
     # onError: continue pelo mesmo motivo: se o Nexus deste ambiente recusar,
     # a cadeia já provou o que precisava provar na imagem, e derrubar tudo por

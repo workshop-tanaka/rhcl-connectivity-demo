@@ -26,18 +26,30 @@
 # platform-reference/tracing/otel-collector.yaml), e usar o CR e o que faz esta
 # amostra parecer com o resto do cluster em vez de um corpo estranho.
 #
-# DOIS exportadores, e cada um tem um papel:
+# UM exportador so -- 'debug' --, e a ausencia do segundo e uma MEDICAO de
+# 2026-08-28, nao uma simplificacao.
 #
-#   debug   imprime o log de acesso no stdout DESTE pod. E o que se abre no
-#           palco -- 'oc logs -f' e a linha aparece no momento do curl. Sem
-#           ele, a amostra funcionaria e nao teria o que mostrar.
-#   otlp    manda para o mesmo Tempo do resto do cluster, com o tenant 'dev'.
-#           E o que faz o dado sobreviver ao pod.
+# A primeira versao tambem exportava para o Tempo do cluster, com o mesmo bloco
+# de bearer token e service CA que platform-reference/tracing/otel-collector.yaml
+# usa. O access log chegou ao coletor e o Tempo o RECUSOU, uma vez por linha:
 #
-# O bloco de auth do exportador otlp e copiado de
-# platform-reference/tracing/otel-collector.yaml, e nao inventado: o gateway do
-# Tempo exige bearer token da ServiceAccount e o CA da service CA. Sem os dois,
-# a ingestao para em silencio -- o coletor reporta sucesso e nada chega.
+#   Exporting failed. Dropping data.
+#   error: not retryable error: Permanent error: rpc error:
+#          code = PermissionDenied desc = method never permitted
+#
+# Tempo e backend de TRACE. Ele nao aceita o metodo OTLP de logs, e a recusa nao
+# tem nada a ver com o token nem com o tenant -- a mesma credencial funciona
+# para trace no coletor vizinho. Insistir seria trocar um erro claro por um
+# retry infinito.
+#
+# CONSEQUENCIA HONESTA: o access log VIVE ENQUANTO O POD VIVER. Para persistir,
+# seria preciso um backend de log -- o upstream do Istio usa Loki na variante
+# samples/open-telemetry/loki/, e este cluster nao tem Loki. Acrescentar um por
+# causa de uma amostra seria caro para o que ela demonstra.
+#
+# 'debug' com verbosity detailed e o que se abre no palco: 'oc logs -f' e a
+# linha aparece no momento do curl, com Trace ID -- o que liga o access log ao
+# trace que o Ato 5 ja mostra.
 # ===========================================================================
 apiVersion: opentelemetry.io/v1beta1
 kind: OpenTelemetryCollector
@@ -62,9 +74,6 @@ spec:
       cpu: 500m
       memory: 512Mi
   config:
-    extensions:
-      bearertokenauth:
-        filename: /var/run/secrets/kubernetes.io/serviceaccount/token
     receivers:
       otlp:
         protocols:
@@ -77,19 +86,9 @@ spec:
     exporters:
       debug:
         verbosity: detailed
-      otlp:
-        endpoint: tempo-tempo-gateway.tracing-system.svc.cluster.local:4317
-        tls:
-          insecure: false
-          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
-        auth:
-          authenticator: bearertokenauth
-        headers:
-          X-Scope-OrgID: dev
     service:
-      extensions: [bearertokenauth]
       pipelines:
         logs:
           receivers: [otlp]
           processors: [batch]
-          exporters: [debug, otlp]
+          exporters: [debug]

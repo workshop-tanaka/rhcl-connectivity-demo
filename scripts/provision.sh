@@ -1815,6 +1815,33 @@ _samples_ns() { # nome da amostra -> namespace
 # provider de ALS apagaria 'otel-tracing', e o Ato 5 pararia de emitir span --
 # sem erro, porque uma Telemetry apontando para provider inexistente so registra
 # uma linha no istiod.
+#
+# O TIPO E 'envoyOtelAls', E NAO 'opentelemetry' -- MEDIDO EM 2026-08-28, e
+# custou uma investigacao inteira.
+#
+# Os dois existem no meshConfig e os dois falam OTLP para o mesmo coletor. Mas
+# 'opentelemetry' e provider de TRACING, e 'envoyOtelAls' e de ACCESS LOG. Uma
+# Telemetry com accessLogging apontando para um provider do primeiro tipo e
+# ACEITA -- o CR fica valido, o istiod faz push do Telemetry
+# ("Push debounce stable ... for config Telemetry/bookinfo/bookinfo-dimensoes"),
+# a ConfigMap istio/istio-system mostra o provider na lista, e NADA CHEGA AO
+# COLETOR.
+#
+# Nao ha erro em lugar nenhum. O que denuncia e olhar o Envoy do sidecar:
+#
+#   oc exec -n bookinfo deploy/productpage-v1 -c istio-proxy -- \
+#     pilot-agent request GET config_dump | grep -i otel
+#
+# Sem sink de access log configurado -- so a lista de extensoes DISPONIVEIS do
+# bootstrap, que engana quem procura depressa.
+#
+# ---------------------------------------------------------------------------
+# RECONSTROI A ENTRADA em vez de so acrescentar quando falta. A versao anterior
+# guardava com 'if [[ $atual == *otel-als-sample* ]] && return', e com ela um
+# provider do tipo ERRADO ja gravado no cluster sobreviveria a toda reexecucao
+# -- o conserto nunca chegaria. Aqui a entrada de mesmo nome e substituida, e as
+# demais sao preservadas: um merge patch com so o provider novo apagaria o
+# otel-tracing, e o Ato 5 pararia de emitir span sem erro nenhum.
 _als_provider() {
   local atual novo
   if ! oc get istio default >/dev/null 2>&1; then
@@ -1822,22 +1849,29 @@ _als_provider() {
     return 0
   fi
   atual="$(oc get istio default -o jsonpath='{.spec.values.meshConfig.extensionProviders}' 2>/dev/null)"
-  if [[ "$atual" == *otel-als-sample* ]]; then
-    _ok "extensionProvider otel-als-sample ja declarado"
-    return 0
-  fi
   novo="$(python3 -c '
 import json, sys
 atual = sys.argv[1].strip()
 lista = json.loads(atual) if atual and atual != "null" else []
-lista.append({"name": "otel-als-sample",
-              "opentelemetry": {"service": "otel-als-collector.otel-sample.svc.cluster.local",
-                                "port": 4317}})
-print(json.dumps({"spec": {"values": {"meshConfig": {"extensionProviders": lista}}}}))
+alvo = {"name": "otel-als-sample",
+        "envoyOtelAls": {"service": "otel-als-collector.otel-sample.svc.cluster.local",
+                         "port": 4317,
+                         "logName": "otel-als-sample"}}
+outros = [p for p in lista if p.get("name") != alvo["name"]]
+igual = any(p == alvo for p in lista)
+print(json.dumps({"spec": {"values": {"meshConfig": {"extensionProviders": outros + [alvo]}}}}))
+print("igual" if igual else "mudou")
 ' "$atual")" || { _warn "nao consegui montar o patch do extensionProvider"; return 0; }
 
+  local estado; estado="$(printf '%s' "$novo" | tail -1)"
+  novo="$(printf '%s' "$novo" | head -1)"
+  if [[ "$estado" == "igual" && $DRY_RUN -eq 0 ]]; then
+    _ok "extensionProvider otel-als-sample ja declarado (envoyOtelAls)"
+    return 0
+  fi
+
   _run oc patch istio default --type=merge -p "$novo" >/dev/null \
-    && _ok "extensionProvider otel-als-sample declarado (os anteriores foram preservados)" \
+    && _ok "extensionProvider otel-als-sample declarado como envoyOtelAls (os anteriores foram preservados)" \
     || _warn "falha ao declarar o extensionProvider otel-als-sample"
 }
 

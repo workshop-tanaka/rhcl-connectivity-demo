@@ -74,20 +74,62 @@ as métricas e o trace da mesma `Telemetry` continuam valendo.
 | Upstream | Aqui | Por quê |
 | --- | --- | --- |
 | `ConfigMap` + `Service` + `Deployment` escritos à mão | CR `OpenTelemetryCollector` | o OpenTelemetry Operator já está instalado; o CR faz a amostra parecer com o resto do cluster |
-| exporta para `zipkin.istio-system` | exporta para o Tempo do cluster (tenant `dev`) + `debug` | não há Zipkin aqui; o `debug` é o que se abre no palco |
+| exporta para `zipkin.istio-system` | só `debug` | não há Zipkin aqui, e o Tempo recusa OTLP de logs (medido, acima). `debug` é o que se abre no palco |
 | pipeline de `traces` | pipeline de `logs` | trace já existe neste cluster; access log não |
 | `sidecar.istio.io/inject: "false"` no pod | também no namespace (sem `istio-injection`) | se alguém rotular o namespace por engano, o pod continua de fora |
-| sem autenticação no exportador | `bearertokenauth` + CA da service CA | o gateway do Tempo exige os dois; sem eles a ingestão para **em silêncio** |
 
-## O que ainda não foi executado num cluster
 
-O `OpenTelemetryCollector` e a `Telemetry` passam no
-`oc apply --dry-run=server` contra os CRDs deste cluster — o **esquema** está
-certo.
+## Medido no cluster — 2026-08-28
 
-A pipeline de `logs` do coletor e o `extensionProvider` de ALS foram escritos a
-partir do upstream e da configuração que já funciona em
-`platform-reference/tracing/`, **e não medidos aqui**. Em particular, o Tempo
-deste cluster está configurado para *traces*; se ele recusar a pipeline de
-`logs`, o exportador `debug` continua valendo e o argumento da amostra fica de
-pé — remova `otlp` da lista de `exporters` e registre o resultado neste README.
+Funciona, e o caminho até funcionar rendeu **duas descobertas** que estão
+gravadas nos manifests.
+
+```
+LogRecord: 30      erros de exportação: 0
+Body: Str([...] "GET /details/0 HTTP/1.1" 200 ... outbound|9080||details.bookinfo...)
+Trace ID: 4e0afa981c24d09f8ea58ed5cbe8dbfb
+```
+
+O `Trace ID` na mesma linha é o que liga o access log ao trace que o Ato 5 já
+mostra. E a linha traz o `subset` (`outbound|9080|v1|reviews...`), o que dá ao
+canário do `bookinfo` uma segunda evidência, sem instrumentar nada.
+
+### 1. O provider é `envoyOtelAls`, e não `opentelemetry`
+
+Os dois existem no `meshConfig` e os dois falam OTLP para o mesmo coletor. Mas
+`opentelemetry` é provider de **tracing** e `envoyOtelAls` é de **access log**.
+
+Uma `Telemetry` com `accessLogging` apontando para o primeiro é **aceita**: o CR
+fica válido, o istiod faz push (`Push debounce stable ... for config
+Telemetry/bookinfo/bookinfo-dimensoes`), a `ConfigMap istio/istio-system` mostra
+o provider na lista — e **nada chega ao coletor**. Não há erro em lugar nenhum.
+
+O que denuncia é olhar o Envoy do sidecar:
+
+```bash
+oc exec -n bookinfo deploy/productpage-v1 -c istio-proxy --   pilot-agent request GET config_dump | grep -i otel-als-sample
+```
+
+Sem sink configurado, isso volta vazio — e a lista de extensões *disponíveis* do
+bootstrap (`envoy.access_loggers.open_telemetry`) engana quem procura depressa.
+Com o provider certo, 654 ocorrências.
+
+### 2. O Tempo recusa OTLP de logs
+
+A primeira versão também exportava para o Tempo do cluster, com o mesmo bloco de
+bearer token e service CA que `platform-reference/tracing/` usa. O access log
+chegou ao coletor e o Tempo o recusou, uma vez por linha:
+
+```
+Exporting failed. Dropping data.
+error: not retryable error: Permanent error: rpc error:
+       code = PermissionDenied desc = method never permitted
+```
+
+Tempo é backend de **trace**; não aceita o método OTLP de logs. Não é o token
+nem o tenant — a mesma credencial funciona para trace no coletor vizinho.
+
+**Consequência honesta:** o access log vive enquanto o pod viver. Persistir
+exigiria um backend de log — o upstream usa Loki na variante
+`samples/open-telemetry/loki/`, e este cluster não tem Loki. Acrescentar um por
+causa de uma amostra seria caro para o que ela demonstra.

@@ -341,7 +341,40 @@ o UID sai da faixa do namespace, e um valor fixo fora dela faz o pod ser
 **recusado na admissão** — com mensagem sobre SCC, que no meio de um deploy se
 lê como problema de imagem.
 
-### 8.6 O `extensionProvider` do ALS não pode substituir a lista
+### 8.6 O provider de access log é `envoyOtelAls`, e não `opentelemetry`
+
+Os dois existem no `meshConfig` e falam OTLP para o mesmo coletor. Mas
+`opentelemetry` é provider de **tracing** e `envoyOtelAls` é de **access log**.
+
+Uma `Telemetry` com `accessLogging` apontando para o primeiro é **aceita**: o CR
+fica válido, o istiod faz push do `Telemetry`, a `ConfigMap istio/istio-system`
+mostra o provider na lista — e nada chega ao coletor. **Sem erro em lugar
+nenhum.** Medido em 2026-08-28; custou uma investigação.
+
+O que denuncia é o Envoy do sidecar:
+
+```bash
+oc exec -n bookinfo deploy/productpage-v1 -c istio-proxy -- \
+  pilot-agent request GET config_dump | grep -i otel-als-sample
+```
+
+Vazio com o provider errado; 654 ocorrências com o certo. A lista de extensões
+*disponíveis* do bootstrap (`envoy.access_loggers.open_telemetry`) engana quem
+procura depressa.
+
+### 8.7 O Tempo recusa OTLP de logs
+
+```
+Exporting failed. Dropping data.
+error: not retryable error: Permanent error: rpc error:
+       code = PermissionDenied desc = method never permitted
+```
+
+Tempo é backend de **trace**. Não é o token nem o tenant — a mesma credencial
+funciona para trace no coletor vizinho. O access log da amostra vive enquanto o
+pod viver; persistir exigiria Loki, que este cluster não tem.
+
+### 8.8 O `extensionProvider` do ALS não pode substituir a lista
 
 Um merge patch em `meshConfig.extensionProviders` com apenas o provider novo
 apagaria o `otel-tracing`, e o Ato 5 pararia de emitir span — sem erro, porque
@@ -352,33 +385,38 @@ istiod. A etapa `samples` lê a lista, acrescenta e reescreve.
 
 ## 9. O que já subiu, e o que falta
 
-### Subiu — `bookinfo`, 2026-08-28
+### Subiu — as três do conjunto padrão, 2026-08-28
 
-`SAMPLES=bookinfo bash scripts/provision.sh samples`, zero avisos, seis pods em
-`Running 2/2` em ~45s. `/productpage` 200, `/api/v1/products` 200, `/` 404
-(correto), e o canário em 20 chamadas: **19 v1, 1 v3, nenhuma v2**.
+| Amostra | Resultado |
+| --- | --- |
+| `bookinfo` | seis pods `Running 2/2` em ~45s. `/productpage` 200, `/api/v1/products` 200, `/` 404 (correto). Canário em 20 chamadas: **19 v1, 1 v3, nenhuma v2** |
+| `grpc-echo` | dois pods `Running 2/2`. `grpcurl list` de dentro do mesh devolve `proto.EchoTestService`; canário em 20 chamadas: **18 v1, 2 v2**, e o `x-forwarded-client-cert` traz os SPIFFE — mTLS provado |
+| `open-telemetry` | coletor `Running 1/1`, **30 `LogRecord` e zero erro de exportação**. Cada linha traz `Trace ID` e o `subset` do destino |
 
-Dois riscos que estavam em aberto **não se materializaram**: as imagens rodam
-sob a SCC `restricted-v2` sem ajuste além de não fixar `runAsUser`, e
-`registry.istio.io` responde a partir deste cluster. A subida expôs, em troca, a
-§8.2 — que já está corrigida nos manifests.
+Três riscos que estavam em aberto **não se materializaram**: as imagens do
+`bookinfo` e do `grpc-echo` rodam sob a SCC `restricted-v2` sem ajuste além de
+não fixar `runAsUser`, `registry.istio.io` responde daqui, e o patch do
+`extensionProvider` preservou o `otel-tracing` (o Ato 5 continua emitindo span).
+
+Em troca, a subida expôs as §8.2, §8.6 e §8.7 — todas já corrigidas nos
+manifests.
 
 ### Falta
 
-- **`grpc-echo` e `open-telemetry`** — aplicáveis a qualquer momento; o segundo
-  é o único que mexe no CR `Istio` (§8.6).
+- **`websockets`** — ver acima.
 - **`websockets`** — adiada por decisão (§1). Riscos abertos: `docker.io`
   anônimo (o limite aparece como `ImagePullBackOff`, não como erro de manifest)
   e a imagem antiga sob a SCC `restricted-v2`. E **WebSocket através do router**
   — o HAProxy trata `Upgrade` em rota *edge* como túnel, mas isso é o
   comportamento documentado dele, não uma medição daqui.
-- **A cadeia de suprimento** — a pipeline foi aplicada no namespace do
-  `bookinfo`, mas nenhuma `PipelineRun` executou. Faltam dois secrets que não há
-  como criar sozinho: `acs-api-token` e `nexus-admin`. Riscos conhecidos: o
-  Nexus deste ambiente, cujo mirror Maven já se sabe *gated* por licença (a task
-  usa repositório **raw** e não derruba a cadeia se falhar), e as policies de
-  build do ACS, que reprovam imagens upstream por coisas fora do nosso controle
-  (a task registra o achado e não interrompe, de propósito).
+- **A cadeia de suprimento** — a pipeline foi aplicada nos namespaces do
+  `bookinfo` e do `grpc-echo`, mas nenhuma `PipelineRun` executou. Falta o
+  `acs-api-token`, que só se emite na UI do ACS. E dois elos já se sabe que não
+  vão fechar: o **Nexus recusa qualquer escrita com 403 enquanto o EULA não for
+  aceito** (medido — não é licença, o corpo da resposta diz literalmente que
+  falta o aceite, e aceitar é ato de licenciamento de quem opera o ambiente), e
+  as **policies de build do ACS** reprovam imagens upstream por coisas fora do
+  nosso controle. As duas tasks usam `onError: continue`: avisam, não derrubam.
 - **GitOps** — `gitlab-seed.sh`, `provision.sh gitops` e `rhdh/setup-catalog.sh`
   ainda não rodaram.
 
