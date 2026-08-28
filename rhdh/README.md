@@ -600,6 +600,38 @@ filters:
 
 Se for por topic, o template também precisa marcar os repos criados — `publish:github` aceita `topics` no input.
 
+### Avaliados e descartados — 2026-08-27
+
+Sete candidatos medidos. O criterio que mais separou nao foi funcionalidade:
+foi **de que infraestrutura o plugin depende** e **ha quanto tempo ele existe**.
+
+| Candidato | Build Red Hat | Ultimo release | Veredito |
+| --- | --- | --- | --- |
+| `@axis-backstage/plugin-readme` | nao | 21 dias | **usar a 0.19.1** |
+| `@backstage-community/plugin-manage` | sem `bs_1.49` | 176 dias | talvez |
+| `@roadiehq/backstage-plugin-prometheus` | nao | 126 dias | sobrepoe o Grafana |
+| Microcks provider | nao | 343 dias (`0.0.7`) | exige instancia Microcks |
+| Kyverno policy-reporter | nao | fora do npm | exige Kyverno |
+| opendora | nao | push ha 794 dias | sem fonte de dados aqui |
+| `@postman-solutions/postman-backstage-plugin` | nao | 564 dias | exige conta Postman |
+
+**A do `readme` e 0.19.1, e nao a mais nova.** A 0.19.3 mira
+`plugin-catalog-react ^3.2.0` e aqui roda `2.1.0` -- ela esta *a frente*, que
+quebra mais que estar atras. A 0.19.1 mira `^2.1.4`, a nossa linha. Mesmo
+criterio que acertou a versao do Jaeger.
+
+**Por que os tres do meio ficam de fora.** Nao e qualidade: e que introduzem
+estado que o repo nao reconstroi. Todo o resto deste ambiente sai do
+`provision.sh`; uma conta Postman, uma instancia Microcks ou um Kyverno nao
+saem -- num cluster novo a aba nasce vazia. O Kyverno traz ainda um risco de
+palco: a palavra "policy" passaria a significar duas coisas na mesma tela,
+numa demo cujo assunto e policy.
+
+**O link da doc de Kubernetes nao e plugin.** E a documentacao do que ja esta
+instalado e configurado aqui, com `customResources` para as CRDs do Kuadrant.
+Se algum item daquela lista merece acao, e esse -- usar o que ja esta pago, e
+nao instalar mais um.
+
 ### Na fila: plugin do Grafana
 
 Levantado em 2026-08-27, ainda **não implantado**. O ambiente é favorável e o

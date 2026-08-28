@@ -831,3 +831,271 @@ spec:
   system: travel-agency
   consumesApis:
     - travels-api
+---
+# =============================================================================
+# A PLATAFORMA COMO ENTIDADE
+#
+# Ate 2026-08-27 o catalogo conhecia as policies e ignorava tudo o que as
+# executa. O efeito no palco era um catalogo que descrevia regras sem mostrar
+# onde elas rodam -- e a pergunta "onde isso e aplicado?" so tinha resposta no
+# console.
+#
+# Cada Resource abaixo corresponde a um objeto REAL deste cluster, declarado na
+# anotacao rhcl.demo/cluster-object no formato <recurso>/<namespace>/<nome>. O
+# setup-catalog.sh confere essa anotacao antes de publicar e descarta o que nao
+# existir -- mesma disciplina que ja valia para as policies, agora generica.
+# =============================================================================
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: plataforma
+  title: Plataforma
+  description: >-
+    O que executa as policies e observa o trafego: plano de controle e de dados
+    do Connectivity Link, Service Mesh, observabilidade e as ferramentas de
+    entrega. Nao e a demo -- e o que a sustenta.
+spec:
+  owner: group:default/platform-team
+  domain: travel
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: kuadrant-control-plane
+  title: Kuadrant — plano de controle
+  description: >-
+    O CR que liga o Connectivity Link. E ele que reconcilia toda policy deste
+    catalogo: sem ele Accepted nunca vira True, e as regras ficam declaradas sem
+    efeito nenhum no trafego.
+  annotations:
+    rhcl.demo/cluster-object: kuadrant/kuadrant-system/kuadrant
+    backstage.io/kubernetes-namespace: kuadrant-system
+spec:
+  type: control-plane
+  owner: group:default/platform-team
+  system: plataforma
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: authorino
+  title: Authorino — onde a autenticacao roda
+  description: >-
+    Servico externo de autorizacao que o Gateway consulta a cada requisicao. As
+    AuthPolicy nao validam nada por si: elas configuram este processo. Quando ele cai,
+    a API responde 500 no lugar de 401 -- e a policy nao tem culpa.
+  annotations:
+    rhcl.demo/cluster-object: authorino/kuadrant-system/authorino
+    backstage.io/kubernetes-namespace: kuadrant-system
+spec:
+  type: auth-service
+  owner: group:default/platform-team
+  system: plataforma
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: limitador
+  title: Limitador — onde o limite e contado
+  description: >-
+    Contador de requisicoes que o Gateway consulta. As RateLimitPolicy e o PlanPolicy
+    descrevem os limites; quem os conta e este servico. E o unico ponto onde 'tier
+    gold' vira um numero.
+  annotations:
+    rhcl.demo/cluster-object: limitador/kuadrant-system/limitador
+    backstage.io/kubernetes-namespace: kuadrant-system
+spec:
+  type: rate-limit-service
+  owner: group:default/platform-team
+  system: plataforma
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: istio-control-plane
+  title: Service Mesh — plano de controle
+  description: >-
+    OpenShift Service Mesh 3. Fornece a gatewayClass que o Gateway prod-web usa e
+    injeta o sidecar nativo dos servicos -- um initContainer com restartPolicy:
+    Always, e nao um container comum.
+  annotations:
+    rhcl.demo/cluster-object: istio/default/default
+    backstage.io/kubernetes-namespace: default
+spec:
+  type: service-mesh
+  owner: group:default/platform-team
+  system: plataforma
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: tempo
+  title: Tempo — armazenamento de traces
+  description: >-
+    Guarda os traces que a aba Traces le. Serve por tenant: o caminho da API termina
+    em /api/traces/v1/dev, e o tenant faz parte da URL, nao um cabecalho.
+  annotations:
+    rhcl.demo/cluster-object: tempomonolithic/tracing-system/tempo
+    backstage.io/kubernetes-namespace: tracing-system
+spec:
+  type: tracing-backend
+  owner: group:default/platform-team
+  system: plataforma
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: otel-collector
+  title: OpenTelemetry Collector
+  description: >-
+    Recebe os spans do Gateway e os encaminha ao Tempo. E o elo que a TelemetryPolicy
+    alimenta -- sem ele a policy fica correta e a aba, vazia.
+  annotations:
+    rhcl.demo/cluster-object: opentelemetrycollector/tracing-system/otel
+    backstage.io/kubernetes-namespace: tracing-system
+spec:
+  type: otel-collector
+  owner: group:default/platform-team
+  system: plataforma
+  dependsOn:
+    - resource:default/tempo
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: kiali
+  title: Kiali — console do Service Mesh
+  description: >-
+    Topologia e trafego da malha. Le as metricas do Thanos. A estrategia de
+    autenticacao dele e uma escolha com consequencia: 'openshift' quebra a aba do
+    plugin no portal, que so implementa serviceAccountToken.
+  annotations:
+    rhcl.demo/cluster-object: kiali/istio-system/kiali
+    backstage.io/kubernetes-namespace: istio-system
+spec:
+  type: observability-console
+  owner: group:default/platform-team
+  system: plataforma
+  dependsOn:
+    - resource:default/istio-control-plane
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: grafana
+  title: Grafana — dashboards
+  description: >-
+    Serve os dashboards que aparecem nos componentes pelo plugin. Aqui roda com acesso
+    anonimo como Admin, o que e o oposto do Kiali e do Tempo -- e por isso o proxy do
+    portal fala com ele sem token.
+  annotations:
+    rhcl.demo/cluster-object: grafana/monitoring/grafana
+    backstage.io/kubernetes-namespace: monitoring
+spec:
+  type: dashboards
+  owner: group:default/platform-team
+  system: plataforma
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: openshift-gitops
+  title: OpenShift GitOps (Argo CD)
+  description: >-
+    Reconcilia o que esta em git com o que esta no cluster. E o mecanismo que torna
+    literal a frase do roteiro sobre a mudanca ficar 'em git, com autor e data' -- o
+    merge da MR e o que dispara a aplicacao.
+  annotations:
+    rhcl.demo/cluster-object: argocd/openshift-gitops/openshift-gitops
+    backstage.io/kubernetes-namespace: openshift-gitops
+spec:
+  type: gitops
+  owner: group:default/platform-team
+  system: plataforma
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: gitlab
+  title: GitLab — SCM e IdP
+  description: >-
+    Guarda o codigo E autentica o portal. Um mecanismo em vez de dois: o mesmo login
+    que diz quem a pessoa e tambem entrega o token com que o scaffolder age em nome
+    dela.
+  annotations:
+    rhcl.demo/cluster-object: gitlab/gitlab-system/gitlab
+    backstage.io/kubernetes-namespace: gitlab-system
+spec:
+  type: scm
+  owner: group:default/platform-team
+  system: plataforma
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: keycloak
+  title: Red Hat build of Keycloak
+  description: >-
+    IdP do developer portal do Connectivity Link. Chega junto com o RHCL 1.4.2 e e o
+    que sustenta o autoatendimento de chaves do Ato 6.
+  annotations:
+    rhcl.demo/cluster-object: keycloak/keycloak/keycloak
+    backstage.io/kubernetes-namespace: keycloak
+spec:
+  type: idp
+  owner: group:default/platform-team
+  system: plataforma
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: travel-agency-route
+  title: HTTPRoute — travel-agency
+  description: >-
+    A rota que expoe a API pelo Gateway. E o alvo de quase toda policy da demo:
+    AuthPolicy, PlanPolicy e RateLimitPolicy miram a ROTA, e por isso vencem as
+    policies de Gateway -- hierarquia rota-vence-gateway, que vale no 1.4.
+  annotations:
+    rhcl.demo/cluster-object: httproute/travel-agency/travel-agency
+    backstage.io/kubernetes-namespace: travel-agency
+spec:
+  type: httproute
+  owner: group:default/platform-team
+  system: rhcl-ingress
+  dependsOn:
+    - resource:default/prod-web
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: echo-api-route
+  title: HTTPRoute — echo-api
+  description: >-
+    Segunda rota no mesmo Gateway. Existe para provar que a borda e compartilhada e
+    que cada rota governa a si mesma, sem uma interferir na outra.
+  annotations:
+    rhcl.demo/cluster-object: httproute/echo-api/echo-api
+    backstage.io/kubernetes-namespace: echo-api
+spec:
+  type: httproute
+  owner: group:default/platform-team
+  system: rhcl-ingress
+  dependsOn:
+    - resource:default/prod-web
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: api-tls
+  title: Certificado do listener
+  description: >-
+    O certificado do Gateway. E copia do wildcard que o cluster ja tem, e NAO vem de
+    TLSPolicy com DNS01 -- aquele caminho emite um certificado Ready=True e derruba a
+    resolucao do proprio host.
+  annotations:
+    rhcl.demo/cluster-object: secret/ingress-gateway/api-tls
+    backstage.io/kubernetes-namespace: ingress-gateway
+spec:
+  type: certificate
+  owner: group:default/platform-team
+  system: rhcl-ingress

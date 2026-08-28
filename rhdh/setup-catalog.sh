@@ -166,6 +166,23 @@ for _k in gateway dnspolicy tlspolicy authpolicy ratelimitpolicy planpolicy tele
   oc get "$_k" -A -o jsonpath="{range .items[*]}${_k}/{.metadata.name}{'\n'}{end}" 2>/dev/null
 done > "$_present"
 
+# A partir de 2026-08-27 o catalogo tambem descreve a PLATAFORMA -- Authorino,
+# Limitador, Tempo, Argo CD, GitLab. Esses nao tem 'kuadrant-<kind>' no
+# spec.type, entao trazem a origem explicita numa anotacao:
+#
+#   rhcl.demo/cluster-object: <recurso>/<namespace>/<nome>
+#
+# A conferencia e um 'oc get' por entrada. Custa uma chamada por entidade e
+# vale a pena: sem ela, um cluster sem Argo CD publicaria um card de Argo CD
+# que nunca carrega, e o portal passaria a mentir sobre a plataforma.
+while IFS= read -r _obj; do
+  [[ -z "$_obj" ]] && continue
+  _r="${_obj%%/*}"; _resto="${_obj#*/}"; _ns="${_resto%%/*}"; _nm="${_resto##*/}"
+  if oc get "$_r" "$_nm" -n "$_ns" >/dev/null 2>&1; then
+    printf 'obj/%s\n' "$_obj" >> "$_present"
+  fi
+done < <(grep -oE 'rhcl\.demo/cluster-object: *\S+' "$_rendered" | awk '{print $2}' | sort -u)
+
 python3 - "$_rendered" "$_present" "$_dropped" > "$_filtered" <<'PY' || _die "falha ao filtrar o catalogo."
 import re, sys
 have = {l.strip() for l in open(sys.argv[2]) if l.strip()}
@@ -173,7 +190,13 @@ kept, dropped = [], []
 for doc in open(sys.argv[1]).read().split('\n---\n'):
     kind = re.search(r'^\s*type:\s*kuadrant-(\S+)', doc, re.M)
     name = re.search(r'^\s*name:\s*(\S+)', doc, re.M)
+    obj  = re.search(r'^\s*rhcl\.demo/cluster-object:\s*(\S+)', doc, re.M)
+    ausente = False
     if kind and name and f"{kind.group(1)}/{name.group(1)}" not in have:
+        ausente = True
+    if obj and f"obj/{obj.group(1)}" not in have:
+        ausente = True
+    if ausente and name:
         dropped.append(name.group(1))
     else:
         kept.append(doc)
