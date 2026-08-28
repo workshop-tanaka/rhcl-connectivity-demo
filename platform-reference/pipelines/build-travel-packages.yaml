@@ -43,6 +43,29 @@ data:
   #     (Firewall/IQ): a tag 'latest' do sonatype/nexus3 hoje embute recursos
   #     Pro, e o conteudo parece gated por licenca.
   #
+  # ESSA ULTIMA LINHA ESTAVA ERRADA, e a correcao e de 2026-08-28. Nao e licenca
+  # nem Firewall: e o EULA. O 403 traz um CORPO que so aparece quando se le a
+  # resposta em vez do codigo --
+  #
+  #   You must accept the End User License Agreement (EULA) through the
+  #   onboarding wizard or REST API before proceeding.
+  #
+  # Enquanto 'accepted' for false em /service/rest/v1/system/eula, o Nexus
+  # AUTENTICA, LE e recusa QUALQUER escrita -- inclusive PUT em repositorio
+  # hosted, de dentro do cluster, como admin. Verificado nos dois caminhos
+  # (rota e servico interno) e confirmado com GET /service/rest/v1/security/users,
+  # que responde 200 com credencial e 403 sem -- ou seja, a credencial vale e o
+  # que falta e o aceite.
+  #
+  # Aceitar e um ato de licenciamento e depende de quem opera o ambiente, entao
+  # nao ha script que o faca sozinho:
+  #   curl -u admin:<senha> -X POST -H 'Content-Type: application/json' \
+  #     -d '{"accepted":true,"disclaimer":"<o texto que o GET devolve>"}' \
+  #     https://<nexus>/service/rest/v1/system/eula
+  #
+  # Enquanto isso o Nexus segue VAZIO, e por isso o Component travel-packages
+  # nao leva anotacao nexus-repository-manager/* -- ver rhdh/catalog/dados.yaml.
+  #
   # A DECISAO: o mirror e otimizacao, nao requisito. Sem ele o build passa
   # (BUILD SUCCESS, verificado), e quem faz o segundo build ser rapido e o PVC
   # cache-maven, que independe do Nexus. Perseguir licenciamento de Nexus Pro
