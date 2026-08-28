@@ -51,7 +51,7 @@ PR="${_here}/platform-reference"
 TIMEOUT="${TIMEOUT:-600}"
 DRY_RUN=0
 
-STAGES_ALL=(operators gitlab mesh platform gateway devportal demo consoles tracing dashboards gitops)
+STAGES_ALL=(operators gitlab mesh platform gateway devportal demo consoles tracing dashboards gitops cicd security identity)
 
 _usage() {
   cat <<EOF
@@ -79,6 +79,13 @@ Etapas, na ordem em que dependem umas das outras:
               dashboards
   gitops      OpenShift GitOps + o ApplicationSet que descobre os repos do
               golden path pelo topic 'rhcl-golden-path' (Ato 6)
+
+    cicd        OpenShift Pipelines (Tekton) e a pipeline que valida as
+                policies -- o que da conteudo a aba CI do portal
+    security    RHACS: operador, Central, o init bundle e o SecuredCluster.
+                LENTA -- o Central sobe banco e scanner
+    identity    unifica o login no Keycloak: personas, clients, e o GitLab
+                delegando. Exige o portal RHDH ja instalado
 
 Sem argumento, roda todas. Cada uma e idempotente.
 EOF
@@ -876,6 +883,127 @@ EOF
   [[ -n "$rt" ]] && _log "Argo CD: https://${rt}  (login: OpenShift SSO)"
   _log "projeto criado em rhcl/apis aparece em ate ~3 min (requeueAfterSeconds)"
 }
+
+# ===========================================================================
+# 11. cicd (Tekton)
+# ===========================================================================
+# NAO fazia parte do desenho original: entrou em 2026-08-28 para dar conteudo a
+# aba CI do portal. Sem o operador, o plugin Tekton instala e a aba nasce vazia
+# -- e "vazia" nao se distingue de "quebrada" na frente de um cliente.
+#
+# A pipeline valida POLICIES, e nao "builda" servico: os servicos da demo rodam
+# a imagem de exemplo do Kiali, nao ha o que compilar. O que este projeto
+# entrega e policy, entao e policy que se valida em CI.
+st_cicd() {
+  _sec "cicd (Tekton)"
+
+  if _has_crd pipelineruns.tekton.dev; then
+    _ok "OpenShift Pipelines ja instalado"
+  else
+    _apply platform-reference/operators/subscription-pipelines.yaml || return 0
+    _wait_csv openshift-operators openshift-pipelines-operator-rh 0 || {
+      _warn "Pipelines nao ficou pronto -- a aba CI do portal fica sem conteudo"
+      return 0
+    }
+  fi
+
+  _apply platform-reference/pipelines/valida-policies.yaml
+  _ok "pipeline valida-policies aplicada (dispare com 'oc create -f' um PipelineRun)"
+}
+
+# ===========================================================================
+# 12. security (RHACS)
+# ===========================================================================
+# ORDEM OBRIGATORIA: operador -> Central -> init bundle -> SecuredCluster.
+#
+# O init bundle so existe depois do Central de pe, e sem os tres Secrets que ele
+# gera o sensor entra em CrashLoop tentando autenticar -- enquanto o Central
+# mostra zero clusters, que se le como "o ACS nao esta funcionando".
+st_security() {
+  _sec "security (RHACS)"
+
+  if _has_crd centrals.platform.stackrox.io; then
+    _ok "operador do RHACS ja instalado"
+  else
+    _apply platform-reference/operators/subscription-acs.yaml || return 0
+    _wait_csv rhacs-operator rhacs-operator 0 || {
+      _warn "RHACS nao ficou pronto"
+      return 0
+    }
+  fi
+
+  _apply platform-reference/security/acs-central.yaml
+  [[ $DRY_RUN -eq 1 ]] && { _cmd "emitir init bundle e aplicar o SecuredCluster"; return 0; }
+
+  _log "aguardando o Central (sobe banco e scanner -- leva minutos)..."
+  local t=0
+  while [[ $t -lt 60 ]]; do
+    [[ "$(oc get central stackrox-central-services -n stackrox \
+          -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null)" == "True" ]] && break
+    sleep 15; t=$((t + 1))
+  done
+
+  # O init bundle e emitido pela API do Central; nao ha CR para isso. Idempotente
+  # do jeito que importa: se os Secrets ja existem, nao emite outro -- emitir de
+  # novo invalida o anterior e derruba o sensor que estava funcionando.
+  if oc get secret sensor-tls -n stackrox >/dev/null 2>&1; then
+    _ok "init bundle ja aplicado"
+  else
+    local pw r b
+    pw="$(oc get secret central-htpasswd -n stackrox -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)"
+    r="$(oc get route central -n stackrox -o jsonpath='{.spec.host}' 2>/dev/null)"
+    if [[ -z "$pw" || -z "$r" ]]; then
+      _warn "Central ainda sem rota ou senha -- rode a etapa de novo em alguns minutos"
+      return 0
+    fi
+    b="$(mktemp)"
+    curl -sk -u "admin:${pw}" -X POST -H 'Content-Type: application/json' \
+      -d '{"name":"rhcl-demo"}' "https://${r}/v1/cluster-init/init-bundles" 2>/dev/null \
+      | python3 -c 'import sys,json,base64,os
+d=json.load(sys.stdin)
+k=d.get("kubectlBundle")
+open(os.environ["B"],"wb").write(base64.b64decode(k)) if k else sys.exit(1)' B="$b" 2>/dev/null \
+      && oc apply -f "$b" -n stackrox >/dev/null 2>&1 \
+      && _ok "init bundle emitido e aplicado" \
+      || _warn "falha ao emitir o init bundle -- ver o cabecalho de acs-secured-cluster.yaml"
+    rm -f "$b"
+  fi
+
+  _apply platform-reference/security/acs-secured-cluster.yaml
+}
+
+# ===========================================================================
+# 13. identity (login unificado)
+# ===========================================================================
+# EXIGE o portal RHDH ja instalado: o client 'rhdh' do realm precisa da rota do
+# portal como redirect_uri, e a etapa do GitLab so faz sentido com o SCM de pe.
+#
+# Delega ao scripts/setup-identity.sh, que carrega as armadilhas: o
+# KeycloakRealmImport nao reimporta realm existente (reconcilia pela API), e
+# qualquer patch no CR do GitLab arrasta um upgrade de chart junto.
+st_identity() {
+  _sec "identity (login unificado no Keycloak)"
+
+  if ! _has_crd keycloakrealmimports.k8s.keycloak.org; then
+    _warn "Keycloak ausente -- ele chega com o RHCL 1.4+; rode a etapa 'operators' antes"
+    return 0
+  fi
+  if ! oc get route -n rhdh-rhcl --no-headers 2>/dev/null | grep -qi portal; then
+    _warn "portal RHDH nao encontrado -- rode 'bash rhdh/install.sh' antes desta etapa"
+    return 0
+  fi
+
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "bash scripts/setup-identity.sh realm"
+    _cmd "bash scripts/setup-identity.sh gitlab"
+    return 0
+  fi
+
+  bash "${_here}/scripts/setup-identity.sh" realm  || _warn "a etapa 'realm' falhou"
+  bash "${_here}/scripts/setup-identity.sh" gitlab || _warn "a etapa 'gitlab' falhou"
+  _ok "login unificado -- o ACS segue com autenticacao local, e e o proximo a federar"
+}
+
 
 # ===========================================================================
 for s in "${STAGES[@]}"; do "st_${s}"; done
