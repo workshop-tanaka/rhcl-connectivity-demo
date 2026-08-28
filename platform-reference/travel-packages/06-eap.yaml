@@ -58,6 +58,16 @@ spec:
   replicas: 2
   serviceAccountName: travel-packages
 
+  # DESCOBERTO APLICANDO O CR em 2026-08-28: sem isto o operador cria uma
+  # Route propria (travel-packages-route) apontando direto para o Service.
+  # Numa demo cujo assunto e governanca na borda, isso e um cano paralelo: a
+  # API responde por um endereco que nao passa pelo Gateway, e portanto sem
+  # AuthPolicy, sem plano e sem rate limit. Pior que inutil -- e um jeito de
+  # a propria demo se desmentir se alguem abrir a URL errada.
+  #
+  # A entrada legitima e a HTTPRoute la embaixo, anexada ao prod-web.
+  disableHTTPRoute: true
+
   # ------------------------------------------------------------------------
   # As variaveis que a camada 'postgresql-datasource' do Galleon le em tempo
   # de execucao. Os nomes NAO sao escolha nossa: vem do

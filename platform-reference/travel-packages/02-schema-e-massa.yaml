@@ -222,11 +222,20 @@ spec:
     metadata:
       labels:
         app: seed-travel-packages
-        # SEM SIDECAR, e obrigatorio: o provision.sh poe istio-injection=enabled
-        # em travel-db (por causa do mysqldb do Ato 7). Job com sidecar NUNCA
-        # completa -- o psql termina, o Envoy continua vivo, e o pod fica em
-        # NotReady para sempre. Mesmo motivo do inheritedMetadata em
-        # 01-postgres.yaml; o webhook le LABEL, nunca annotation (armadilha 5.4).
+        # SEM SIDECAR. CORRECAO DE 2026-08-28, depois de medir no cluster: o
+        # perigo classico -- "Job com sidecar nunca completa, o Envoy continua
+        # vivo e o pod fica NotReady para sempre" -- NAO se aplica aqui. Este
+        # cluster injeta o istio-proxy como INIT CONTAINER (sidecar nativo do
+        # Kubernetes 1.28+), e sidecar nativo termina junto com o container
+        # principal. Medido: os pods do seed e do mutador completam COM o
+        # istio-proxy e SEM este label.
+        #
+        # O label fica assim mesmo, por duas razoes menores e honestas: poupa
+        # um Envoy por execucao num Job que so fala com o Postgres, e mantem
+        # o manifest correto num cluster com Istio mais antigo, onde o perigo
+        # classico e real. O que ele NAO e: a razao de isto funcionar hoje.
+        #
+        # O webhook le LABEL, nunca annotation (armadilha 5.4).
         sidecar.istio.io/inject: "false"
     spec:
       restartPolicy: OnFailure

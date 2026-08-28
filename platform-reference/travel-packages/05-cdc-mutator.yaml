@@ -26,11 +26,16 @@ spec:
         metadata:
           labels:
             app: cdc-mutador
-            # Mesmo motivo do Job do seed (02): travel-db esta na malha, e pod
-            # de Job com sidecar nao termina. Aqui o efeito e pior --
-            # concurrencyPolicy: Forbid mais um pod que nunca completa
-            # significa que a PRIMEIRA rodada bloqueia todas as seguintes, e o
-            # topico do CDC para sem nenhum erro em lugar nenhum.
+            # Mesmo caso do Job do seed (02), incluindo a correcao: neste
+            # cluster o istio-proxy e init container (sidecar nativo) e as
+            # rodadas completam sem este label -- medido, com o CronJob vivo
+            # em travel-db rodando a cada minuto ha horas.
+            #
+            # Onde o sidecar NAO for nativo, porem, o efeito aqui e pior que
+            # no seed: concurrencyPolicy Forbid mais um pod que nunca termina
+            # faz a PRIMEIRA rodada bloquear todas as seguintes, e o topico do
+            # CDC para sem nenhum erro em lugar nenhum. E por isso que o label
+            # fica.
             sidecar.istio.io/inject: "false"
         spec:
           restartPolicy: Never
