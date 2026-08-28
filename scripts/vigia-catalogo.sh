@@ -47,7 +47,17 @@ _here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 _BLD=$'\033[1m'; _RST=$'\033[0m'; _GRN=$'\033[32m'; _YEL=$'\033[33m'; _RED=$'\033[31m'
 _ok()   { [[ $QUIETO -eq 1 ]] || printf '  %s✓%s %s\n' "$_GRN" "$_RST" "$*"; }
 _bad()  { printf '  %s✗%s %s\n' "$_RED" "$_RST" "$*"; FALHAS=$((FALHAS+1)); }
-_warn() { printf '  %s!%s %s\n' "$_YEL" "$_RST" "$*"; AVISOS=$((AVISOS+1)); }
+# --quieto CALA OS AVISOS, e nao so os ✓. Num laco de 15 em 15 minutos, aviso
+# recorrente e ruido: com as amostras modeladas e nao aplicadas, sao 37 linhas
+# a cada volta, todas legitimas e nenhuma acionavel. Alarme que fala sempre
+# ensina a ignorar o alarme -- que e o oposto do que este script existe para
+# fazer.
+#
+# A informacao NAO some: os avisos continuam na execucao sem --quieto, e a
+# contagem entra no resumo sempre que houver quebra. O que se perde e saber que
+# "o catalogo encolheu" enquanto TUDO o mais esta bem -- e essa e a troca
+# deliberada.
+_warn() { [[ $QUIETO -eq 1 ]] || printf '  %s!%s %s\n' "$_YEL" "$_RST" "$*"; AVISOS=$((AVISOS+1)); }
 _die()  { printf '\n  %s[X]%s %s\n\n' "$_RED" "$_RST" "$*" >&2; exit 2; }
 
 QUIETO=0
