@@ -112,12 +112,17 @@ while IFS=$'\t' read -r nome ns sel obj; do
   if [[ -n "$obj" && "$obj" != "null" ]]; then
     case " $_ausentes " in *" $obj "*) continue ;; esac
   fi
-  n=$(oc get deploy -n "$ns" -l "$sel" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+  # TODOS OS TIPOS DE WORKLOAD, e nao so Deployment. O plugin Topology monta o
+  # grafo a partir de qualquer um deles, e olhar so 'deploy' produz falso
+  # positivo em quem nao usa Deployment -- foi o caso do travel-packages, que o
+  # operador do EAP sobe como StatefulSet: o rotulo casava, o no aparecia, e o
+  # vigia acusava 'topology vazia'.
+  n=$(oc get deploy,statefulset,daemonset -n "$ns" -l "$sel" --no-headers 2>/dev/null | wc -l | tr -d ' ')
   if [[ "$n" -eq 0 ]]; then
-    _bad "topology vazia: ${nome} -- '${sel}' em ${ns} nao casa Deployment nenhum"
+    _bad "topology vazia: ${nome} -- '${sel}' em ${ns} nao casa workload nenhum"
   fi
 done < <(yq -N $'select(.kind == "Component") | [.metadata.name, (.metadata.annotations."backstage.io/kubernetes-namespace" // ""), (.metadata.annotations."backstage.io/kubernetes-label-selector" // ""), (.metadata.annotations."rhcl.demo/cluster-object" // "")] | @tsv' "$CAT"/*.yaml 2>/dev/null | grep -v '^\s*$')
-_ok "seletores de label casam Deployment (nas entidades publicadas)"
+_ok "seletores de label casam workload (nas entidades publicadas)"
 
 # ----- 3. links de entidade que nao respondem ------------------------------
 # Renderiza os placeholders com os valores reais antes de testar: um link com
@@ -149,11 +154,18 @@ if [[ -n "$GITLAB_HOST" ]]; then
   # interessa. As amostras declaram rhcl/samples/<x> antes de o seed criar os
   # projetos, e enquanto os objetos delas nao existirem no cluster a entidade
   # nem chega ao portal -- acusar seria alarme sobre uma aba que ninguem abre.
+  # UM SLUG, UMA LINHA. Varias entidades compartilham o mesmo project-slug (as
+  # quatro do bookinfo, por exemplo), e o 'sort -u' sobre o par (slug, objeto)
+  # nao deduplica -- cada entidade tem objeto diferente. O resultado eram
+  # quatro linhas identicas para a mesma quebra, que e ruido.
+  _slugs_vistos=""
   while IFS=$'\t' read -r slug obj; do
     [[ -z "$slug" ]] && continue
     if [[ -n "$obj" && "$obj" != "null" ]]; then
       case " $_ausentes " in *" $obj "*) continue ;; esac
     fi
+    case " $_slugs_vistos " in *" $slug "*) continue ;; esac
+    _slugs_vistos="${_slugs_vistos} ${slug}"
     c=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "https://${GITLAB_HOST}/${slug}" 2>/dev/null)
     [[ "$c" == "200" ]] || _bad "project-slug inexistente: ${slug} -> HTTP ${c} (a aba GitLab abre vazia)"
   done < <(yq -N $'select(.metadata.annotations."gitlab.com/project-slug") | [.metadata.annotations."gitlab.com/project-slug", (.metadata.annotations."rhcl.demo/cluster-object" // "")] | @tsv' "$CAT"/*.yaml 2>/dev/null | grep -v '^\s*$' | sort -u)
