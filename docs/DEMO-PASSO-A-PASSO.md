@@ -109,7 +109,7 @@ bash scripts/demo.sh aquece         # 3 min de tráfego + reset das cotas
 | --- | --- |
 | **Terminal 1** | grande, fonte alta — é onde o driver roda |
 | Terminal 2 | `bash scripts/traffic.sh soak`, se quiser gráfico vivo no Ato 4 |
-| Aba 1 | Grafana → **RHCL — planos comerciais** (`rhcl-planos`) |
+| Aba 1 | Grafana → **Planos comerciais** (`rhcl-negocio-planos`) |
 | Aba 2 | console → Policy Topology, Traffic Graph, Observe → Traces |
 | Aba 3 | console → **API Catalog** (produtos, chaves, aprovações) |
 | Aba 4 | RHDH (só no Ato 6) |
@@ -328,7 +328,7 @@ negócio:
 PlanPolicy → TelemetryPolicy → Limitador → Prometheus (user workload) → Thanos → Grafana
 ```
 
-No Grafana o dashboard do ato é **RHCL — planos comerciais** (`rhcl-planos`).
+No Grafana o dashboard do ato é **Planos comerciais** (`rhcl-negocio-planos`).
 Os quatro primeiros painéis são a rajada; o quinto é a **cota diária consumida
 por plano** — a rajada é o que a plateia vê, a cota é o que está no contrato.
 

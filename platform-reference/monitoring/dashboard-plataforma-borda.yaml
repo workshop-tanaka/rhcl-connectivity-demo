@@ -1,8 +1,8 @@
 # ===========================================================================
-# Dashboard 'RHCL — borda'.
+# Dashboard 'Trafego na borda'.
 #
 # O que os outros nao medem: TEMPO e FORMA DA RESPOSTA no gateway. O
-# 'rhcl-planos' conta chamadas por tier, o 'rhcl-parceiros' conta por cliente,
+# 'rhcl-negocio-planos' conta chamadas por tier, o 'rhcl-negocio-parceiros' conta por cliente,
 # e nenhum dos dois responde a pergunta que toda plateia tecnica faz no Ato 1
 # -- "quanto custa colocar uma policy na frente da API?".
 #
@@ -52,20 +52,23 @@
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
-  name: rhcl-borda
+  name: rhcl-plataforma-borda
   namespace: monitoring
   labels:
     # Origem do dashboard, para separar o que este repo escreveu do que veio
     # vendorizado: oc get grafanadashboard -n monitoring -l rhcl.demo/origem=repo
     rhcl.demo/origem: repo
 spec:
+  # A pasta e o que substituiu o prefixo 'RHCL —' no titulo: agrupar e
+  # trabalho da barra lateral, nao dos primeiros cinco caracteres de cada nome.
+  folder: "Plataforma"
   instanceSelector:
     matchLabels:
       dashboards: grafana
   json: >
     {
-      "title": "RHCL — borda",
-      "uid": "rhcl-borda",
+      "title": "Trafego na borda",
+      "uid": "rhcl-plataforma-borda",
       "tags": ["rhcl", "customizado", "plataforma", "ato-1"],
       "timezone": "browser",
       "refresh": "10s",
@@ -76,7 +79,7 @@ spec:
             "name": "datasource",
             "type": "datasource",
             "query": "prometheus",
-            "current": {"text": "Thanos", "value": "Thanos", "selected": false},
+            "current": {"text": "Thanos", "value": "thanos", "selected": false},
             "options": [], "refresh": 1, "hide": 0, "includeAll": false, "multi": false
           },
           {

@@ -443,9 +443,9 @@ fi
 # sobre grafana.* -- e, uma vez instalados, dependem das metricas gatewayapi_*,
 # que tambem nao sao do RHCL: quem as emite e o kube-state-metrics de
 # platform-reference/monitoring/. Sem elas os paineis sobem VAZIOS, e vazio no
-# palco parece defeito de coleta. O 'rhcl-planos' nao depende disso -- ele le
+# palco parece defeito de coleta. O 'rhcl-negocio-planos' nao depende disso -- ele le
 # authorized_calls/limited_calls, e tem checagem propria logo abaixo.
-# (o 'rhcl-planos' em si tem checagem propria mais abaixo, incluindo sync)
+# (o 'rhcl-negocio-planos' em si tem checagem propria mais abaixo, incluindo sync)
 _dashlist="$(oc get grafanadashboards -n monitoring -o jsonpath='{range .items[*]}{.metadata.name}{" "}{end}' 2>/dev/null)"
 if [[ "$_dashlist" == *business-user* || "$_dashlist" == *platform-engineer* || "$_dashlist" == *app-developer* ]]; then
   if [[ -n "$_thanos" ]]; then
@@ -507,7 +507,7 @@ _graf="$(oc get route grafana-route -n monitoring -o jsonpath='{.spec.host}' 2>/
 if oc get crd grafanadashboards.grafana.integreatly.org >/dev/null 2>&1; then
   # O painel referencia o datasource pelo NOME ('Thanos', via variável de
   # dashboard) -- é o nome que precisa existir, não o UID, que é gerado por
-  # cluster. Ver o cabeçalho de grafana-dashboard-plans.yaml.
+  # cluster. Ver o cabeçalho de dashboard-negocio-planos.yaml.
   _dsok="$(oc get grafanadatasource -n monitoring             -o jsonpath='{range .items[?(@.spec.datasource.name=="Thanos")]}{.status.conditions[?(@.type=="DatasourceSynchronized")].status}{end}' 2>/dev/null)"
   if [[ "$_dsok" == *"True"* ]]; then
     _ok "datasource 'Thanos' aplicado no Grafana"
@@ -516,15 +516,15 @@ if oc get crd grafanadashboards.grafana.integreatly.org >/dev/null 2>&1; then
           "os painéis do Ato 4 abrem sem dado — docs/PROVISIONING-1.4.md"
   fi
 
-  _dash="$(oc get grafanadashboard rhcl-planos -n monitoring             -o jsonpath='{.status.conditions[?(@.type=="DashboardSynchronized")].status}' 2>/dev/null)"
+  _dash="$(oc get grafanadashboard rhcl-negocio-planos -n monitoring             -o jsonpath='{.status.conditions[?(@.type=="DashboardSynchronized")].status}' 2>/dev/null)"
   if [[ "$_dash" == "True" ]]; then
-    _ok "dashboard do Ato 4: https://${_graf}/d/rhcl-planos"
+    _ok "dashboard do Ato 4: https://${_graf}/d/rhcl-negocio-planos"
   elif [[ -z "$_dash" ]]; then
-    _warn "dashboard 'rhcl-planos' não está no cluster" \
-          "oc apply -f platform-reference/monitoring/grafana-dashboard-plans.yaml"
+    _warn "dashboard 'rhcl-negocio-planos' não está no cluster" \
+          "oc apply -f platform-reference/monitoring/dashboard-negocio-planos.yaml"
   else
-    _warn "dashboard 'rhcl-planos' não sincronizou com nenhuma Grafana" \
-          "oc describe grafanadashboard rhcl-planos -n monitoring"
+    _warn "dashboard 'rhcl-negocio-planos' não sincronizou com nenhuma Grafana" \
+          "oc describe grafanadashboard rhcl-negocio-planos -n monitoring"
   fi
 else
   _warn "grafana-operator ausente (sem CRD grafanadashboards)" \
@@ -655,7 +655,7 @@ fi
 # Consumo por parceiro depende de DUAS peças que nao se referenciam: o header
 # x-partner do AuthPolicy e a dimensao do Telemetry do Istio. Tirando qualquer
 # uma, a serie continua existindo -- so que sem o rotulo, ou com ele vazio. O
-# dashboard rhcl-parceiros abre com uma linha so, chamada 'unknown', e isso se
+# dashboard rhcl-negocio-parceiros abre com uma linha so, chamada 'unknown', e isso se
 # le como "todo mundo e o mesmo cliente".
 if [[ -n "$_thanos" ]]; then
   _part="$(curl -sk --max-time 10 -H "Authorization: Bearer $(oc whoami -t)" \

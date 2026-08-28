@@ -106,7 +106,7 @@ Duas saidas, e a escolha e comercial e nao tecnica:
 - promover para silver (10 req/10s), ou
 - manter free e deixar o 429 educar o consumo.
 
-O dashboard **RHCL — consumo por parceiro** mostra a serie. A policy que
+O dashboard **Consumo por parceiro** mostra a serie. A policy que
 decide e a \`travels-plans\`, no diretorio policies-plans/." \
   "tier,ato-2"
 

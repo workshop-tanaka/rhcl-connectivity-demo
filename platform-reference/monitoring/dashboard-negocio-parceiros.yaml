@@ -1,7 +1,7 @@
 # ===========================================================================
-# Dashboard 'RHCL — consumo por parceiro'.
+# Dashboard 'Consumo por parceiro'.
 #
-# Responde a pergunta que o 'rhcl-planos' nao responde: dentro do plano, QUEM
+# Responde a pergunta que o 'rhcl-negocio-planos' nao responde: dentro do plano, QUEM
 # consumiu. E a diferenca entre "o tier free esta saturando" e "a Acme esta
 # saturando o tier free".
 #
@@ -23,20 +23,23 @@
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
-  name: rhcl-parceiros
+  name: rhcl-negocio-parceiros
   namespace: monitoring
   labels:
     # Origem do dashboard, para separar o que este repo escreveu do que veio
     # vendorizado: oc get grafanadashboard -n monitoring -l rhcl.demo/origem=repo
     rhcl.demo/origem: repo
 spec:
+  # A pasta e o que substituiu o prefixo 'RHCL —' no titulo: agrupar e
+  # trabalho da barra lateral, nao dos primeiros cinco caracteres de cada nome.
+  folder: "Negocio"
   instanceSelector:
     matchLabels:
       dashboards: grafana
   json: >
     {
-      "title": "RHCL — consumo por parceiro",
-      "uid": "rhcl-parceiros",
+      "title": "Consumo por parceiro",
+      "uid": "rhcl-negocio-parceiros",
       "tags": ["rhcl", "customizado", "negocio"],
       "timezone": "browser",
       "refresh": "10s",
@@ -47,7 +50,7 @@ spec:
             "name": "datasource",
             "type": "datasource",
             "query": "prometheus",
-            "current": {"text": "Thanos", "value": "Thanos", "selected": false},
+            "current": {"text": "Thanos", "value": "thanos", "selected": false},
             "options": [], "refresh": 1, "hide": 0, "includeAll": false, "multi": false
           },
           {

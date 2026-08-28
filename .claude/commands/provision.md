@@ -47,7 +47,7 @@ Para cada etapa:
    | `demo` | `oc get planpolicy,authpolicy -A` em `Accepted+Enforced` |
    | `consoles` | as abas aparecem no console; o Kiali lê o Thanos |
    | `tracing` | span do gateway chegando no Tempo |
-   | `dashboards` | o `rhcl-planos` com série quebrada por `plan` |
+   | `dashboards` | o `rhcl-negocio-planos` com série quebrada por `plan` |
    | `gitops` | o ApplicationSet aplicado — sem `GITHUB_TOKEN` ele **não** sobe |
 
    Bateu: uma linha do que aquilo destrava, e pare.

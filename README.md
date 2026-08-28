@@ -204,7 +204,7 @@ como plano B; o que essa migração custou está na armadilha 13 do runbook). O 
 por `plan`, então a pergunta deixa de ser "quantos 429 houve" e passa a ser
 "qual plano está saturando".
 
-O dashboard do ato é o **RHCL — planos comerciais** (`rhcl-planos`, em
+O dashboard do ato é o **Planos comerciais** (`rhcl-negocio-planos`, em
 [platform-reference/monitoring/](platform-reference/monitoring/)) — os de
 fábrica são anteriores ao `TelemetryPolicy` e agregam sem quebrar por plano. Os
 quatro primeiros painéis são a rajada; o quinto é a **cota diária consumida por

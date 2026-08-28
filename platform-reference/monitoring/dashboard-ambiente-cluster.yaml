@@ -1,5 +1,5 @@
 # ===========================================================================
-# Dashboard 'RHCL — ambiente'.
+# Dashboard 'Cluster e operadores'.
 #
 # Os outros cinco dashboards olham para a DEMO. Este olha para o CHAO em que
 # ela roda: operadores, nodes, disco, pods, alertas. E o 'preflight.sh' virado
@@ -41,19 +41,22 @@
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
-  name: rhcl-ambiente
+  name: rhcl-ambiente-cluster
   namespace: monitoring
   labels:
     rhcl.demo/origem: repo
 spec:
+  # A pasta e o que substituiu o prefixo 'RHCL —' no titulo: agrupar e
+  # trabalho da barra lateral, nao dos primeiros cinco caracteres de cada nome.
+  folder: "Ambiente"
   instanceSelector:
     matchLabels:
       dashboards: grafana
   json: >
     {
-      "title": "RHCL — ambiente",
-      "uid": "rhcl-ambiente",
-      "tags": ["rhcl", "customizado", "plataforma", "ambiente"],
+      "title": "Cluster e operadores",
+      "uid": "rhcl-ambiente-cluster",
+      "tags": ["rhcl", "customizado", "ambiente"],
       "timezone": "browser",
       "refresh": "30s",
       "time": {"from": "now-6h", "to": "now"},

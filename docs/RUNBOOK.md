@@ -139,7 +139,7 @@ fica sem força — mas um Ato 2 morto custa mais caro que um gráfico chato.
 | --- | --- |
 | **Terminal 1** | grande, fonte alta — é onde tudo acontece |
 | Terminal 2 | `soak` rodando (pode ficar minimizado) |
-| Aba 1 | Grafana → dashboard **RHCL — planos comerciais** (`rhcl-planos`) |
+| Aba 1 | Grafana → dashboard **Planos comerciais** (`rhcl-negocio-planos`) |
 | Aba 2 | Console do OpenShift — **Connectivity Link → Policy Topology** (Ato 3), **Service Mesh → Traffic Graph** e **Observe → Traces** (Ato 5) |
 | Aba 3 | livre — a Jaeger UI virou plano B, e os traces moram na Aba 2 |
 | Aba 4 | RHDH (só se for fazer o Ato 6) — o `rhcl-portal`, **não** o do namespace `rhdh` |
@@ -390,8 +390,8 @@ curl -sk -H "Authorization: Bearer $TOKEN" "https://${THANOS}/api/v1/query" \
 `PlanPolicy` → `TelemetryPolicy` → Limitador → Prometheus (user-workload) →
 Thanos → Grafana.
 
-No **Grafana**, o dashboard do ato é o **RHCL — planos comerciais**
-(`rhcl-planos`), de [platform-reference/monitoring/](../platform-reference/monitoring/).
+No **Grafana**, o dashboard do ato é o **Planos comerciais**
+(`rhcl-negocio-planos`), de [platform-reference/monitoring/](../platform-reference/monitoring/).
 Ele existe porque é o único que quebra por `plan`. A URL sai do `preflight.sh`,
 que também confirma que ele importou — dashboard aplicado e dashboard visível
 são coisas diferentes, e a diferença só aparece na hora de projetar.
@@ -421,7 +421,7 @@ no contrato. É também a que esgota sem avisar durante o ensaio — [armadilha
 > [seção 9 do PROVISIONING-1.4](PROVISIONING-1.4.md#9-dashboards-do-grafana).
 >
 > E mesmo instalados eles **agregam sem quebrar por `plan`**: são anteriores ao
-> `TelemetryPolicy`. Para mostrar tiers, use `rhcl-planos` ou o painel de
+> `TelemetryPolicy`. Para mostrar tiers, use `rhcl-negocio-planos` ou o painel de
 > exploração com `sum by (plan) (rate(limited_calls[1m]))`. Não prometa que o
 > dashboard de fábrica mostra planos — ele não mostra.
 
@@ -640,7 +640,7 @@ bash verify.sh key        # emite uma chave 'free' e imprime o curl de teste
 - no **Kiali**, dentro do Service Mesh, com cadeado (Ato 7 vale para ele sem nada a
   mais — o namespace nasceu com injeção);
 - em **Observe → Traces** (a `Telemetry` é mesh-wide, 100% de amostragem);
-- no dashboard **RHCL — planos comerciais**, com o rótulo `plan` correto desde a
+- no dashboard **Planos comerciais**, com o rótulo `plan` correto desde a
   primeira requisição — porque a `TelemetryPolicy` é de escopo *Gateway* e vale
   para toda rota anexada, e porque o serviço nasceu **com** `PlanPolicy`. Uma
   rota sem plano apareceria com `plan` vazio, indistinguível do fail-open do
@@ -871,7 +871,7 @@ neste cluster) que faz o fluxo de login completo. Não está nesta demo.
 Dá — mas não pela métrica do Limitador, que é por plano e não tem volta (ver
 armadilha 3). A identidade viaja como header injetado pelo `AuthPolicy` e vira
 dimensão das métricas do Service Mesh, com servidas e **429 por parceiro**. É o
-dashboard `rhcl-parceiros`. O teto é cardinalidade: dezenas ou centenas de
+dashboard `rhcl-negocio-parceiros`. O teto é cardinalidade: dezenas ou centenas de
 consumidores, tranquilo; para milhares, a atribuição individual vai para log ou
 trace, e a métrica volta a ser por plano.
 
@@ -978,8 +978,8 @@ a annotation `secret.kuadrant.io/user-id` que o developer portal grava — daí
 Os dois arquivos que fazem isso são
 [base/policies-security/travel-agency-authpolicy.yaml](../base/policies-security/travel-agency-authpolicy.yaml)
 e [base/policies-telemetry/istio-partner-dimension.yaml](../base/policies-telemetry/istio-partner-dimension.yaml);
-sozinho, nenhum dos dois faz nada. O painel é o **RHCL — consumo por parceiro**
-(`rhcl-parceiros`).
+sozinho, nenhum dos dois faz nada. O painel é o **Consumo por parceiro**
+(`rhcl-negocio-parceiros`).
 
 **Cardinalidade é o limite real**, não o produto: cada parceiro multiplica
 séries por código de resposta. Dezenas ou centenas, tranquilo; milhares, volte
@@ -1484,7 +1484,7 @@ As policies estavam corretas e não havia nenhum Secret com o seletor que o
 requisição servida.
 
 **3. Sem o header no `AuthPolicy` da rota, o parceiro vira `unknown`.**
-O `x-partner` que alimenta o dashboard `rhcl-parceiros` é declarado **por
+O `x-partner` que alimenta o dashboard `rhcl-negocio-parceiros` é declarado **por
 AuthPolicy**, e o `AuthPolicy` do Gateway não serve: ele fica sobreposto pelas
 policies de rota. Uma API sem essa declaração aparece no painel como uma linha
 só, `unknown` — que se lê como "todos os clientes são o mesmo".

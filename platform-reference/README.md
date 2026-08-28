@@ -114,11 +114,11 @@ aqui corresponde a uma cadeia que quebra em silêncio:
 | `servicemonitors.yaml` | o `TelemetryPolicy` rotula por `plan` e nada leva a série ao Thanos — Ato 4 sem número |
 | `istio-monitors.yaml` | nada raspa os proxies do Service Mesh — o grafo do Ato 5 abre **vazio**, o que se lê como "não há tráfego" |
 | `kiali.yaml` | o Kiali não confia na service CA nem tem RBAC no Thanos — a aba Service Mesh diz *"Metrics are disabled"* apontando para uma config que já está `enabled: true` |
-| `grafana-dashboard-plans.yaml` | os dashboards de fábrica agregam sem quebrar por `plan` |
+| `dashboard-negocio-planos.yaml` | os dashboards de fábrica agregam sem quebrar por `plan` |
 | `kube-state-metrics-kuadrant.yaml` | os dashboards de fábrica sobem vazios (join com `gatewayapi_*`) e não há série de `APIKey` para alertar |
 | `prometheusrule-devportal.yaml` | solicitação de API key fica parada até alguém lembrar de abrir a aba — o produto não notifica ninguém |
-| `grafana-dashboard-onboarding.yaml` | ninguém vê a **demanda**: quantos pedem acesso, para qual plano, e há quanto tempo esperam |
-| `grafana-dashboard-parceiros.yaml` | a leitura para de descer do plano para o **cliente** — "o free está saturando" em vez de "a Acme está saturando" |
+| `dashboard-negocio-chaves.yaml` | ninguém vê a **demanda**: quantos pedem acesso, para qual plano, e há quanto tempo esperam |
+| `dashboard-negocio-parceiros.yaml` | a leitura para de descer do plano para o **cliente** — "o free está saturando" em vez de "a Acme está saturando" |
 | `grafana-instance.yaml` | não há instância com o label `dashboards: grafana` nem datasource `thanos` — todo `GrafanaDashboard` fica órfão, ou casa e abre com *"Datasource thanos was not found"* em cada painel |
 | `kube-state-metrics-kuadrant.yaml` | as 11 métricas `gatewayapi_*` não existem, e os três dashboards de fábrica sobem **vazios** (todo painel útil faz `group_left` com `gatewayapi_httproute_labels`) |
 

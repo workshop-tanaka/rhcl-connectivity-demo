@@ -17,7 +17,7 @@
 # No Grafana aparece como "App Developer Dashboard" (uid J_sdY4-Ik).
 #
 # instanceSelector casa com a instancia 'grafana' de monitoring, a mesma que o
-# rhcl-planos usa.
+# rhcl-negocio-planos usa.
 # ===========================================================================
 apiVersion: v1
 kind: ConfigMap
@@ -1691,6 +1691,9 @@ metadata:
     # ela, e estes tres agregam sem quebrar por plano (nao servem ao Ato 4).
     rhcl.demo/origem: vendorizado
 spec:
+  # Pasta propria: nao sao nossos, agregam sem quebrar por plano e nao
+  # respondem a nenhum ato -- misturados aos outros, viram ruido.
+  folder: "Kuadrant (de fabrica)"
   instanceSelector:
     matchLabels:
       dashboards: grafana

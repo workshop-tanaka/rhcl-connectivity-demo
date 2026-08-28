@@ -1,5 +1,5 @@
 # ===========================================================================
-# Dashboard 'RHCL — planos comerciais'.
+# Dashboard 'Planos comerciais'.
 #
 # Existe porque os tres dashboards de fabrica (business_user, app_developer,
 # platform_engineer, em kuadrant-dashboards/) sao anteriores ao
@@ -82,20 +82,23 @@
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
-  name: rhcl-planos
+  name: rhcl-negocio-planos
   namespace: monitoring
   labels:
     # Origem do dashboard, para separar o que este repo escreveu do que veio
     # vendorizado: oc get grafanadashboard -n monitoring -l rhcl.demo/origem=repo
     rhcl.demo/origem: repo
 spec:
+  # A pasta e o que substituiu o prefixo 'RHCL —' no titulo: agrupar e
+  # trabalho da barra lateral, nao dos primeiros cinco caracteres de cada nome.
+  folder: "Negocio"
   instanceSelector:
     matchLabels:
       dashboards: grafana
   json: >
     {
-      "title": "RHCL — planos comerciais",
-      "uid": "rhcl-planos",
+      "title": "Planos comerciais",
+      "uid": "rhcl-negocio-planos",
       "tags": ["rhcl", "customizado", "negocio", "ato-4"],
       "timezone": "browser",
       "refresh": "5s",

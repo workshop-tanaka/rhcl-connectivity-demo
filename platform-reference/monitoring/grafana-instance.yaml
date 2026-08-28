@@ -2,7 +2,7 @@
 # O Grafana em que o Ato 4 acontece — instancia, RBAC e datasource do Thanos.
 #
 # Este arquivo nao existia, e a falta dele era um buraco de reprodutibilidade
-# inteiro: grafana-dashboard-plans.yaml e kuadrant-dashboards/ declaram
+# inteiro: dashboard-negocio-planos.yaml e kuadrant-dashboards/ declaram
 # GrafanaDashboard com 'instanceSelector: {dashboards: grafana}', e NAO HAVIA
 # no repo nada que criasse a instancia com esse label nem o datasource que os
 # paineis consultam. Num cluster novo os dashboards seriam aceitos pelo
@@ -119,7 +119,7 @@ spec:
   datasource:
     name: Thanos
     # O uid e referenciado por TODO painel dos dashboards deste repo
-    # (grafana-dashboard-plans.yaml e kuadrant-dashboards/). Mudar aqui quebra
+    # (dashboard-negocio-planos.yaml e kuadrant-dashboards/). Mudar aqui quebra
     # os quatro dashboards de uma vez, sem erro visivel alem de painel vazio.
     uid: thanos
     type: prometheus

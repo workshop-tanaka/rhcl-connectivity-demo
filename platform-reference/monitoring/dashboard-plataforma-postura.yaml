@@ -1,5 +1,5 @@
 # ===========================================================================
-# Dashboard 'RHCL — postura de policies'.
+# Dashboard 'Postura de policies'.
 #
 # Os outros dashboards da demo medem TRAFEGO -- quanto passou, de quem, em que
 # plano. Este mede a outra metade, que nenhuma tela do produto mostra junta:
@@ -61,7 +61,7 @@
 # exported_namespace, e nao namespace: o user workload monitoring reserva
 # 'namespace' para o alvo do scrape (o pod do KSM, em monitoring) e desloca o
 # do dado. Consultar por 'namespace' devolve vazio, sem erro. Mesma pegadinha
-# documentada em grafana-dashboard-onboarding.yaml.
+# documentada em dashboard-negocio-chaves.yaml.
 #
 # label_replace(v, "tipo", "AuthPolicy", "", "") e o truque de rotulo
 # constante: 'or' entre familias diferentes empilha tudo numa tabela so, e a
@@ -70,20 +70,23 @@
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
-  name: rhcl-postura
+  name: rhcl-plataforma-postura
   namespace: monitoring
   labels:
     # Origem do dashboard, para separar o que este repo escreveu do que veio
     # vendorizado: oc get grafanadashboard -n monitoring -l rhcl.demo/origem=repo
     rhcl.demo/origem: repo
 spec:
+  # A pasta e o que substituiu o prefixo 'RHCL —' no titulo: agrupar e
+  # trabalho da barra lateral, nao dos primeiros cinco caracteres de cada nome.
+  folder: "Plataforma"
   instanceSelector:
     matchLabels:
       dashboards: grafana
   json: >
     {
-      "title": "RHCL — postura de policies",
-      "uid": "rhcl-postura",
+      "title": "Postura de policies",
+      "uid": "rhcl-plataforma-postura",
       "tags": ["rhcl", "customizado", "plataforma", "ato-3"],
       "timezone": "browser",
       "refresh": "30s",
@@ -94,7 +97,7 @@ spec:
             "name": "datasource",
             "type": "datasource",
             "query": "prometheus",
-            "current": {"text": "Thanos", "value": "Thanos", "selected": false},
+            "current": {"text": "Thanos", "value": "thanos", "selected": false},
             "options": [], "refresh": 1, "hide": 0, "includeAll": false, "multi": false
           }
         ]

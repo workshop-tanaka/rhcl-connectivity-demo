@@ -92,7 +92,7 @@ a propor: mostre o comando e espere o sim.
 - **Não rode `soak` sem `reset` depois** — a cota é diária e acumula entre
   ensaios do mesmo dia.
 - **Não prometa tier nos dashboards de fábrica**: eles agregam sem quebrar por
-  `plan`. O do ato é o `rhcl-planos`.
+  `plan`. O do ato é o `rhcl-negocio-planos`.
 
 # Perguntas da plateia
 

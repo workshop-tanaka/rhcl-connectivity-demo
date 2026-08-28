@@ -706,8 +706,8 @@ emita um service account token.
    monta o link "abrir no Grafana");
 3. anotar os componentes do catálogo com `grafana/dashboard-selector`.
 
-**O ganho para a demo** é que os dashboards que já existem — `rhcl-planos` e
-`rhcl-parceiros` — passam a aparecer na própria página do componente, ao lado
+**O ganho para a demo** é que os dashboards que já existem — `rhcl-negocio-planos` e
+`rhcl-negocio-parceiros` — passam a aparecer na própria página do componente, ao lado
 das abas de tráfego. O cliente vê o efeito do rate limit por plano sem trocar
 de ferramenta.
 

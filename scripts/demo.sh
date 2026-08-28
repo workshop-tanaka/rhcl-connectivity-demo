@@ -229,7 +229,7 @@ step_telas() {
   printf '  %-38s %s\n' "Terminal 2" "trafego de fundo (passo 'aquece')"
   printf '  %-38s %s\n' "Editor" "base/policies-plans/travels-plans.yaml aberto"
   echo
-  printf '  %sAba 1 — Grafana, dashboard "RHCL — planos comerciais"%s\n' "$_BLD" "$_RST"
+  printf '  %sAba 1 — Grafana, dashboard "Planos comerciais"%s\n' "$_BLD" "$_RST"
   printf '    %s\n' "${g:+https://$g}"
   printf '  %sAba 2 — console: Policy Topology (Ato 3), Traffic Graph e Traces (Ato 5)%s\n' "$_BLD" "$_RST"
   printf '    %s\n' "${c}/kuadrant/policy-topology"
@@ -392,7 +392,7 @@ step_ato4() {
   _look "(user workload) -> Thanos -> Grafana. Ja estava de pe; a demo so"
   _look "acrescentou a dimensao de negocio."
   echo
-  _log  "no Grafana, o dashboard do ato e 'RHCL — planos comerciais' (rhcl-planos)"
+  _log  "no Grafana, o dashboard do ato e 'Planos comerciais' (rhcl-negocio-planos)"
   _why  "Os quatro primeiros paineis sao a rajada; o quinto e a cota diaria"
   _why  "consumida por plano — a rajada e o que a plateia ve, a cota e o que esta"
   _why  "no contrato. Os dashboards de fabrica agregam sem quebrar por plano: sao"

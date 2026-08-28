@@ -577,38 +577,50 @@ uma unica vez, nao tem RBAC sobre `grafana.*` (ou seja, e incapaz de criar um
 exemplos no repo do projeto. No sandbox 1.2 quem os provisionava era o Argo do
 workshop.
 
-Os dashboards autorais estão em `platform-reference/monitoring/`, todos com
-`"tags": ["rhcl"]` — é por essa tag que o card do Grafana no RHDH os encontra,
-sem precisar listar nome nenhum:
+Os dashboards autorais estão em `platform-reference/monitoring/`, um arquivo por
+dashboard, nomeado `dashboard-<pasta>-<assunto>.yaml`. **A classificação é a
+pasta do Grafana, não o título.** Antes, os sete começavam com `RHCL — `: cinco
+caracteres iguais em toda linha, empurrando a palavra útil para a direita — e
+mentindo em dois casos, porque o de ambiente é cluster e operadores, e o de
+plataforma é catálogo, Tekton e Argo. Agora o `spec.folder` agrupa e o título só
+diz o assunto:
 
-| dashboard | uid | tags | mede | fonte da série |
+| pasta | dashboard | uid | mede | fonte da série |
 | --- | --- | --- | --- | --- |
-| RHCL — planos comerciais | `rhcl-planos` | `negocio`, `ato-4` | consumo por tier | Limitador (`authorized_calls` / `limited_calls`) |
-| RHCL — consumo por parceiro | `rhcl-parceiros` | `negocio` | quem consumiu, dentro do tier | Istio + dimensão `partner` |
-| RHCL — onboarding de parceiro | `rhcl-onboarding` | `negocio`, `ato-6` | demanda de chave e fila de aprovação | KSM (`devportal_apikey_*`) |
-| RHCL — postura de policies | `rhcl-postura` | `plataforma`, `ato-3` | **o que está valendo agora** | KSM (`gatewayapi_*_status`, `kuadrant_planpolicy_status`) |
-| RHCL — borda | `rhcl-borda` | `plataforma`, `ato-1` | latência e forma da resposta no gateway | proxies do Istio em `ingress-gateway` |
-| RHCL — plataforma como produto | `rhcl-plataforma` | `plataforma`, `ato-6` | quantas APIs a plataforma publicou e **se nascem com política** | KSM (`gatewayapi_*`, `devportal_apiproduct_*`) + Tekton + Argo CD |
-| RHCL — ambiente | `rhcl-ambiente` | `plataforma`, `ambiente` | o chão: operadores, nodes, disco, alertas | monitoring de **plataforma** (`kube_*`, `node_*`, `csv_*`, `ALERTS`) |
+| **Negócio** | Planos comerciais | `rhcl-negocio-planos` | consumo por tier (Ato 4) | Limitador (`authorized_calls` / `limited_calls`) |
+| **Negócio** | Consumo por parceiro | `rhcl-negocio-parceiros` | quem consumiu, dentro do tier | Istio + dimensão `partner` |
+| **Negócio** | Fila de chaves | `rhcl-negocio-chaves` | demanda de chave e fila de aprovação (Ato 6) | KSM (`devportal_apikey_*`) |
+| **Plataforma** | Postura de policies | `rhcl-plataforma-postura` | **o que está valendo agora** (Ato 3) | KSM (`gatewayapi_*_status`, `kuadrant_planpolicy_status`) |
+| **Plataforma** | Trafego na borda | `rhcl-plataforma-borda` | latência e forma da resposta (Ato 1) | proxies do Istio em `ingress-gateway` |
+| **Plataforma** | Catalogo e golden path | `rhcl-plataforma-catalogo` | **as APIs nascem com política?** (Ato 6) | KSM (`gatewayapi_*`, `devportal_apiproduct_*`) + Tekton + Argo CD |
+| **Ambiente** | Cluster e operadores | `rhcl-ambiente-cluster` | o chão: operadores, nodes, disco, alertas | monitoring de **plataforma** (`kube_*`, `node_*`, `csv_*`, `ALERTS`) |
+| **Kuadrant (de fabrica)** | Business User / App Developer / Platform Engineer | (uid do upstream) | tráfego agregado, sem quebra por `plan` | vendorizado do `kuadrant-operator` |
 
-O do Ato 4 continua sendo o `rhcl-planos`: é o único que quebra por `plan`.
+O do Ato 4 continua sendo o `rhcl-negocio-planos`: é o único que quebra por `plan`.
 
-### Convenção de tags — o que é nosso e o que é vendorizado
+### Três eixos: pasta, tag e uid — cada um com um trabalho
 
-Todo dashboard carrega, além das tags acima:
+| eixo | quem lê | serve para |
+| --- | --- | --- |
+| **pasta** (`spec.folder`) | quem abre o Grafana | agrupar. É o que substituiu o prefixo no título |
+| **tag** | o card do RHDH e a busca | `rhcl` é o seletor do portal (`grafana/dashboard-selector: rhcl`); `customizado` separa do vendorizado; `negocio`/`plataforma`/`ambiente` repetem a pasta para quem chega pela busca; `ato-N` liga ao roteiro |
+| **uid** | links e integrações | endereço estável. Ninguém o vê na tela |
 
-| tag | significado |
-| --- | --- |
-| `rhcl` | **seletor do card no RHDH.** Só nos nossos: `grafana/dashboard-selector: rhcl` no catálogo faz busca por tag, e um dashboard novo aparece no componente só por ganhar essa tag |
-| `customizado` | escrito neste repositório |
-| `de-fabrica` | vendorizado do upstream (os três do `kuadrant-dashboards/`) — que mantêm a tag `kuadrant` porque o painel *Kuadrant Dashboards* deles é um `dashlist` que filtra por ela |
-| `negocio` / `plataforma` | para quem o painel fala |
-| `ato-N` | onde ele entra no roteiro dos sete atos |
+Os três de fábrica ficam em pasta própria e **não levam a tag `rhcl`**: agregam
+sem quebrar por `plan` e apareceriam nos cards do portal como se respondessem ao
+Ato 4.
 
-Os três de fábrica **não levam a tag `rhcl`** de propósito: eles agregam sem
-quebrar por `plan`, e apareceriam nos cards do portal como se fossem resposta ao
-Ato 4. A mesma separação existe fora do JSON, como label do CR — útil quando o
-que se quer é a lista, não a busca:
+**Por que o uid manteve o prefixo `rhcl-`.** O plugin de console do Kuadrant
+encontra os dashboards por prefixo de uid — é o `grafanaDashboardPrefix: "rhcl-"`
+que o `scripts/kuadrant-console-lab.sh` grava no ConfigMap. Com uids `negocio-*`,
+`plataforma-*` e `ambiente-*` não haveria prefixo único e o plugin passaria a
+enxergar só uma das três famílias. Então o uid ficou `rhcl-<pasta>-<assunto>`:
+carrega a taxonomia nova, preserva a integração, e não aparece em tela nenhuma.
+Trocar o título — que é o que se lê — resolvia o problema; trocar o endereço
+custaria links.
+
+A origem também existe como label do CR, para quando o que se quer é a lista e
+não a busca:
 
 ```bash
 oc get grafanadashboard -n monitoring -l rhcl.demo/origem=repo
@@ -617,7 +629,7 @@ oc get grafanadashboard -n monitoring -l rhcl.demo/origem=vendorizado
 
 ### Postura de policies — por que ele existe
 
-Os outros quatro medem tráfego. O `rhcl-postura` mede a outra metade: quais
+Os outros quatro medem tráfego. O `rhcl-plataforma-postura` mede a outra metade: quais
 policies estão de fato em vigor. É a tela para a classe de falha que não produz
 erro — `Enforced=False` com o caminho de dados respondendo 200 (a inversão de
 precedência do 1.4, seção 5.2 do CONHECIMENTO; `AuthSchemeNotFound` por
@@ -683,7 +695,7 @@ curl -sk -H "Authorization: Bearer $TOKEN" "https://${THANOS}/api/v1/query" \
 
 ### Borda — coleta que já existia
 
-O `rhcl-borda` não precisou de coleta nova: os `PodMonitor` de
+O `rhcl-plataforma-borda` não precisou de coleta nova: os `PodMonitor` de
 `istio-monitors.yaml` já entregam `istio_request_duration_milliseconds_bucket`
 (80 séries com `namespace="ingress-gateway"`, medido em 2026-08-28). O filtro
 por esse namespace não é cosmético — sem ele a consulta soma o proxy da borda
@@ -719,7 +731,7 @@ decisão do Authorino, contra 49 ms de p95 da requisição inteira na borda.
 
 ### Plataforma e ambiente — as duas telas que não falam de tráfego
 
-O `rhcl-plataforma` responde à pergunta que sustenta a tese da demo ("o RHCL é
+O `rhcl-plataforma-catalogo` responde à pergunta que sustenta a tese da demo ("o RHCL é
 uma plataforma de API, não um gateway"): **toda API nasce com política?** A
 tabela cruza cada `HTTPRoute` publicada com o que está anexado a ela — AuthPolicy,
 PlanPolicy, APIProduct — e o número grande conta *rotas sem AuthPolicy*. Zero é
@@ -742,7 +754,7 @@ só existe quando há `Application`, e neste cluster o `ApplicationSet`
 zero); e a duração p95 do Tekton volta `NaN` quando não houve execução na janela
 — quantil sem amostra é `NaN`, não zero.
 
-O `rhcl-ambiente` é o `preflight.sh` virado painel: CSVs fora de `Succeeded`,
+O `rhcl-ambiente-cluster` é o `preflight.sh` virado painel: CSVs fora de `Succeeded`,
 alertas, deployments incompletos, pods fora de `Running`, pressão nos nodes,
 PVC mais cheio, reinícios por namespace. Nada de coleta nova — tudo vem do
 monitoring de **plataforma**, que o datasource Thanos enxerga junto com o de
@@ -832,4 +844,4 @@ vez por segundo, o que despista quem for depurar depois. Os dois recursos estao
 acrescentados no arquivo, marcados como adicao nossa.
 
 Mesmo instalados, eles **agregam sem quebrar por `plan`**: sao anteriores ao
-`TelemetryPolicy`. Para tier, continua sendo `rhcl-planos`.
+`TelemetryPolicy`. Para tier, continua sendo `rhcl-negocio-planos`.

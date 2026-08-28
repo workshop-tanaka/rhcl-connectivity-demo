@@ -1,7 +1,7 @@
 # ===========================================================================
-# Dashboard 'RHCL — onboarding de parceiro'.
+# Dashboard 'Fila de chaves'.
 #
-# O 'rhcl-planos' mostra CONSUMO: quem esta usando e quem bate no teto. Este
+# O 'rhcl-negocio-planos' mostra CONSUMO: quem esta usando e quem bate no teto. Este
 # mostra DEMANDA: quem esta pedindo acesso, para qual plano, e ha quanto tempo
 # espera resposta. Sao as duas metades da conversa comercial, e nenhuma
 # ferramenta do produto mostra a segunda -- o developer portal cria a
@@ -32,25 +32,28 @@
 #
 #   datasource           por variavel, nao por spec.datasources do operator --
 #                        aquele campo substitui o NOME e nao o UID, e o painel
-#                        fica sem datasource valido. Ver grafana-dashboard-plans.yaml.
+#                        fica sem datasource valido. Ver dashboard-negocio-planos.yaml.
 # ===========================================================================
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
-  name: rhcl-onboarding
+  name: rhcl-negocio-chaves
   namespace: monitoring
   labels:
     # Origem do dashboard, para separar o que este repo escreveu do que veio
     # vendorizado: oc get grafanadashboard -n monitoring -l rhcl.demo/origem=repo
     rhcl.demo/origem: repo
 spec:
+  # A pasta e o que substituiu o prefixo 'RHCL —' no titulo: agrupar e
+  # trabalho da barra lateral, nao dos primeiros cinco caracteres de cada nome.
+  folder: "Negocio"
   instanceSelector:
     matchLabels:
       dashboards: grafana
   json: >
     {
-      "title": "RHCL — onboarding de parceiro",
-      "uid": "rhcl-onboarding",
+      "title": "Fila de chaves",
+      "uid": "rhcl-negocio-chaves",
       "tags": ["rhcl", "customizado", "negocio", "ato-6"],
       "timezone": "browser",
       "refresh": "10s",
@@ -61,7 +64,7 @@ spec:
             "name": "datasource",
             "type": "datasource",
             "query": "prometheus",
-            "current": {"text": "Thanos", "value": "Thanos", "selected": false},
+            "current": {"text": "Thanos", "value": "thanos", "selected": false},
             "options": [],
             "refresh": 1,
             "hide": 0,
