@@ -1,0 +1,75 @@
+# ===========================================================================
+# Servico gRPC da agencia -- o Ato que mostra que a policy nao muda com o
+# protocolo.
+#
+# POR QUE ISTO EXISTE: toda a demo fala HTTP/REST, e a pergunta que aparece em
+# cliente e sempre a mesma -- "e para gRPC?". A resposta e forte quando se ve:
+# a MESMA AuthPolicy por API key e o MESMO PlanPolicy, com um GRPCRoute no
+# lugar do HTTPRoute. O que muda e o roteamento; a governanca, nao.
+#
+# A imagem e o exemplo 'hostname' do proprio projeto gRPC: um servidor minimo
+# que responde o nome do pod. Ela nao pertence a Red Hat e nao tem suporte -- e
+# apoio de demonstracao, como as imagens de exemplo do Kiali que os demais
+# servicos ja usam.
+#
+# NAO usar moul/grpcbin aqui: ela tenta carregar um certificado proprio do
+# diretorio de trabalho e morre com "failed to load TLS keys: permission
+# denied" sob a SCC restrita do OpenShift, que atribui UID aleatorio. Medido em
+# 2026-08-28 -- CrashLoopBackOff, e o gateway devolvendo "no healthy upstream",
+# que parece problema de rede e e permissao de arquivo.
+#
+# O listener do Gateway e HTTPS na 443 e negocia h2 por ALPN, entao gRPC entra
+# pelo mesmo endereco dos demais -- nao ha porta nova nem Gateway novo.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bookings-grpc-v1
+  namespace: travel-agency
+  labels:
+    app: bookings-grpc
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bookings-grpc
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: bookings-grpc
+        version: v1
+    spec:
+      containers:
+        - name: grpcbin
+          image: docker.io/grpc/java-example-hostname:latest
+          ports:
+            - name: grpc
+              containerPort: 50051
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bookings-grpc
+  namespace: travel-agency
+  labels:
+    app: bookings-grpc
+spec:
+  selector:
+    app: bookings-grpc
+  ports:
+    # O NOME da porta importa: o Istio decide o protocolo por ele. Sem o prefixo
+    # 'grpc-' o trafego e tratado como TCP opaco, o roteamento por metodo para
+    # de funcionar e a policy perde o contexto de requisicao.
+    - name: grpc-api
+      port: 9000
+      targetPort: 50051
+      appProtocol: grpc

@@ -1,0 +1,46 @@
+# ===========================================================================
+# GRPCRoute -- o roteamento gRPC no MESMO Gateway dos demais.
+#
+# Hostname de UM rotulo sob .apps, como todo o resto desta demo:
+# 'grpc-travels.apps...' e nao 'grpc.travels.apps...'. O wildcard do cluster
+# cobre um nivel so, e o segundo ponto quebra a resolucao -- ver a §5.6 do
+# CONHECIMENTO.
+#
+# O matches por servico e metodo e o que torna a cena interessante: da para
+# aplicar policy diferente por METODO gRPC, do mesmo jeito que se faz por path
+# em HTTP.
+# ===========================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: bookings-grpc
+  namespace: travel-agency
+spec:
+  parentRefs:
+    - name: prod-web
+      namespace: ingress-gateway
+  hostnames:
+    - grpc-travels.apps.cluster-cxr7d.dyn.redhatworkshops.io
+  rules:
+    # DUAS regras de proposito. A primeira mostra o que gRPC permite e HTTP nao:
+    # casar por SERVICO e METODO, o que abre a porta para policy por metodo --
+    # o equivalente ao path em REST.
+    #
+    # A segunda existe por uma razao pratica: o grpcurl descobre a API por
+    # reflection, e a chamada de reflection usa OUTRO servico
+    # (grpc.reflection.*). Sem ela o comando devolve "server does not support
+    # the reflection API" -- que parece defeito do servidor e e roteamento.
+    - matches:
+        - method:
+            service: helloworld.Greeter
+      backendRefs:
+        - name: bookings-grpc
+          port: 9000
+    - matches:
+        - method:
+            service: grpc.reflection.v1alpha.ServerReflection
+        - method:
+            service: grpc.reflection.v1.ServerReflection
+      backendRefs:
+        - name: bookings-grpc
+          port: 9000

@@ -1,0 +1,66 @@
+# ===========================================================================
+# As MESMAS policies do HTTP, apontando para o GRPCRoute.
+#
+# E ESTE o argumento do ato: nada aqui e "a versao gRPC" de coisa alguma. A
+# AuthPolicy valida a mesma API key, contra os mesmos Secrets, com o mesmo
+# seletor. O que muda e o targetRef -- GRPCRoute no lugar de HTTPRoute -- e o
+# lugar de onde a credencial e lida.
+#
+# A CREDENCIAL E A UNICA DIFERENCA REAL, e ela e do protocolo, nao da policy:
+# gRPC nao tem query string. A chave entra em METADATA, que e o equivalente de
+# cabecalho em HTTP/2. Em grpcurl: -H 'apikey: <valor>'.
+# ===========================================================================
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: bookings-grpc-authpolicy
+  namespace: travel-agency
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: GRPCRoute
+    name: bookings-grpc
+  rules:
+    authentication:
+      api-key-authn:
+        apiKey:
+          allNamespaces: false
+          selector:
+            matchLabels:
+              app: partner
+              devportal.kuadrant.io/apiproduct: travels-api
+        credentials:
+          # metadata, e nao queryString: e a diferenca de protocolo.
+          customHeader:
+            name: apikey
+    response:
+      success:
+        headers:
+          x-partner:
+            plain:
+              expression: >-
+                has(auth.identity.metadata.annotations) &&
+                "secret.kuadrant.io/user-id" in auth.identity.metadata.annotations ?
+                auth.identity.metadata.annotations["secret.kuadrant.io/user-id"] :
+                auth.identity.metadata.name
+---
+# O limite tambem e o mesmo desenho: por identidade autenticada, nao por IP.
+# Um teto baixo de proposito -- a cena e ver o 429 (RESOURCE_EXHAUSTED em gRPC)
+# acontecer ao vivo, e nao medir capacidade.
+apiVersion: kuadrant.io/v1
+kind: RateLimitPolicy
+metadata:
+  name: bookings-grpc-ratelimit
+  namespace: travel-agency
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: GRPCRoute
+    name: bookings-grpc
+  limits:
+    por-parceiro:
+      rates:
+        - limit: 5
+          window: 60s
+      counters:
+        - expression: auth.identity.userid
