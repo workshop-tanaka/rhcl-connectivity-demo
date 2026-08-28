@@ -433,7 +433,28 @@ fi
 # A aba so aparece em entidade com a anotacao gitlab.com/project-slug. Sem ela
 # o plugin fica instalado e invisivel, que e o comportamento desejado: a
 # maioria das entidades deste catalogo nao tem repositorio.
-if [[ "${WITH_GITLAB:-true}" == "true" ]]; then
+#
+# DESLIGADO POR PADRAO desde 2026-08-28. O 7.0.1 e o UNICO build para a nossa
+# linha (bs_1.49.4) e nao carrega neste RHDH 1.10.3:
+#
+#   Failed lazy loading of the EntityGitlabContent extension
+#   caused by TypeError: (0 , n.internal_mutateStyles) is not a function
+#
+# Nao e conflito de convivencia -- foi o que investiguei primeiro, e errado. O
+# erro aponta para o chunk de OUTRO plugin (Grafana; ao desligar o Grafana,
+# passou a apontar para o do Quay), o que parecia colisao de modulo
+# compartilhado. Mas com TODOS os outros plugins de frontend desligados o
+# GitLab sozinho falha igual. O que muda e so quem hospeda o chunk.
+#
+# internal_mutateStyles e export de @backstage/core-components recente; o
+# 7.0.1 espera uma versao que este RHDH nao entrega. Nao ha outra tag: as
+# demais miram Backstage 1.45.3 ou anterior.
+#
+# O que sobrevive disso: as anotacoes gitlab.com/* ficam no catalogo (inertes e
+# corretas), e o scripts/gitlab-simulate.sh continua valendo -- as MRs e issues
+# existem no GitLab e sao visiveis por la. Religar e trocar a flag, no dia em
+# que sair um build novo.
+if [[ "${WITH_GITLAB:-false}" == "true" ]]; then
   _gitlab_tag="bs_1.49.4__7.0.1"
   _plugins="${_plugins}
       - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/immobiliarelabs-backstage-plugin-gitlab-backend:${_gitlab_tag}!immobiliarelabs-backstage-plugin-gitlab-backend-dynamic
