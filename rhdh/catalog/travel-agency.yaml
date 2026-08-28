@@ -184,6 +184,9 @@ metadata:
       title: Abrir no console
       icon: web
   annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-authpolicy
@@ -206,6 +209,9 @@ metadata:
       title: Abrir no console
       icon: web
   annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-ratelimitpolicy
@@ -231,6 +237,9 @@ metadata:
       title: Manifesto (nao aplicado neste cluster)
       icon: web
   annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-dnspolicy
@@ -254,6 +263,9 @@ metadata:
       title: Manifesto (nao aplicado neste cluster)
       icon: web
   annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-tlspolicy
@@ -277,6 +289,9 @@ metadata:
       title: Abrir no console
       icon: web
   annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-telemetrypolicy
@@ -329,6 +344,9 @@ metadata:
       title: Abrir no console
       icon: web
   annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-authpolicy
@@ -351,6 +369,9 @@ metadata:
       title: Abrir no console
       icon: web
   annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-planpolicy
@@ -384,6 +405,9 @@ metadata:
       title: Manifesto (nao aplicado neste cluster)
       icon: web
   annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-ratelimitpolicy
@@ -403,6 +427,9 @@ metadata:
     # demais servicos rodam imagem de exemplo do Kiali e nao teriam o que
     # executar -- anotar todos daria quatro abas vazias.
     janus-idp.io/tekton: travels
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
     backstage.io/kubernetes-label-selector: app=travels
     backstage.io/kubernetes-namespace: travel-agency
@@ -505,6 +532,9 @@ metadata:
   name: flights
   description: Servico de voos.
   annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
     backstage.io/kubernetes-label-selector: app=flights
     backstage.io/kubernetes-namespace: travel-agency
@@ -554,6 +584,9 @@ metadata:
   name: hotels
   description: Servico de hoteis.
   annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
     backstage.io/kubernetes-label-selector: app=hotels
     backstage.io/kubernetes-namespace: travel-agency
@@ -603,6 +636,9 @@ metadata:
   name: cars
   description: Servico de locacao de veiculos.
   annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
     backstage.io/kubernetes-label-selector: app=cars
     backstage.io/kubernetes-namespace: travel-agency
@@ -652,6 +688,9 @@ metadata:
   name: insurances
   description: Servico de seguros.
   annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
     backstage.io/kubernetes-label-selector: app=insurances
     backstage.io/kubernetes-namespace: travel-agency
@@ -703,6 +742,9 @@ metadata:
     Servico de descontos, com duas versoes em paralelo (v1 e v2) atras do mesmo
     Service -- e o alvo natural para demonstrar roteamento por peso na HTTPRoute.
   annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
     backstage.io/kubernetes-label-selector: app=discounts
     backstage.io/kubernetes-namespace: travel-agency
@@ -771,6 +813,9 @@ metadata:
       title: Endpoint
       icon: web
   annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
     backstage.io/kubernetes-label-selector: app.kubernetes.io/name=echo-api
     backstage.io/kubernetes-namespace: echo-api

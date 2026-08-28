@@ -600,6 +600,45 @@ filters:
 
 Se for por topic, o template também precisa marcar os repos criados — `publish:github` aceita `topics` no input.
 
+### Entrega, CI e segurança — 2026-08-28
+
+Três plugins com build **oficial** da Red Hat e tag exata para o Backstage
+1.49.4. Vêm por OCI do overlay, como o Quay e o Kiali: nada é construído aqui,
+e por isso **não levam marca de procedência**.
+
+| Plugin | Tag | O que alimenta |
+| --- | --- | --- |
+| GitLab | `bs_1.49.4__7.0.1` | MRs e issues reais, criadas por `scripts/gitlab-simulate.sh` |
+| Tekton | `bs_1.49.4__3.37.0` | a pipeline `valida-policies`, em `platform-reference/pipelines/` |
+| ACS | `bs_1.49.4__0.2.0` | Central + SecuredCluster, em `platform-reference/security/` |
+
+**A regra que orientou os três: plugin ligado sem conteúdo é pior que plugin
+ausente.** Aba vazia, no palco, não se distingue de aba quebrada — foi assim
+com a janela de traces e com o card do Grafana sem dashboard etiquetado. Por
+isso cada um entrou junto com o que o alimenta, e não antes.
+
+**O operador do Tekton não fazia parte do desenho deste repo.** Entrou com o
+plugin (`subscription-pipelines.yaml`). E a pipeline valida *policies*, não
+"builda" serviço: os serviços da demo rodam a imagem de exemplo do Kiali, não
+há o que compilar. O que este projeto entrega é policy — é policy que se valida
+em CI, e isso é o argumento do Ato 6 levado a sério.
+
+**O ACS tem uma ordem obrigatória**: Central, depois o init bundle, depois o
+SecuredCluster. O bundle só existe com o Central de pé, e sem os três Secrets
+que ele gera o sensor entra em CrashLoop tentando autenticar — enquanto o
+Central mostra zero clusters, que se lê como "o ACS não está funcionando". O
+procedimento está no cabeçalho de `acs-secured-cluster.yaml`.
+
+**As CRDs do Tekton entram em dois lugares**, `customResources` e o RBAC de
+`04-kubernetes-rbac.yaml`. O par não pode ficar pela metade: sem RBAC o plugin
+lista os kinds, recebe `forbidden`, e a tela fica idêntica à de um projeto que
+nunca teve pipeline.
+
+**Anotar não basta — é preciso republicar.** As anotações
+`gitlab.com/project-slug` e `janus-idp.io/tekton` só valem depois de
+`rhdh/setup-catalog.sh`. Sem isso os plugins carregam, as abas não aparecem, e
+a rota `/gitlab` cai silenciosamente na página padrão. Aconteceu em 2026-08-28.
+
 ### Avaliados e descartados — 2026-08-27
 
 Sete candidatos medidos. O criterio que mais separou nao foi funcionalidade:

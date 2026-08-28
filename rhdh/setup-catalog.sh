@@ -95,6 +95,14 @@ TRACING_HOST="${TRACING_HOST:-$(_route_of tempo-tempo-jaegerui tracing-system)}"
 # A raiz do Tempo (<host>/dev) segue valendo como plano B -- e o RUNBOOK ja a
 # documenta assim, com o /dev no jsonpath.
 CONSOLE_HOST="${CONSOLE_HOST:-$(oc get route console -n openshift-console -o jsonpath='{.spec.host}' 2>/dev/null)}"
+
+# O host do GitLab sai da MESMA fonte que o portal usa para autenticar, e nao de
+# uma rota adivinhada: e ele que o plugin compara com integrations.gitlab para
+# escolher a integracao. Sem a anotacao gitlab.com/instance o plugin assume
+# gitlab.com, e a aba morre com TypeError no navegador -- sem rastro no log do
+# backend, porque a chamada nunca chega a sair.
+GITLAB_HOST="${GITLAB_HOST:-$(oc get cm app-config-rhdh-gitlab -n "$RHDH_NS" \
+  -o jsonpath='{.data}' 2>/dev/null | grep -oE 'host: [a-z0-9.-]+' | awk '{print $2}' | head -1)}"
 [[ -n "$GRAFANA_HOST" ]] || { GRAFANA_HOST="grafana.example.com"; _warn "rota do Grafana nao encontrada; link com placeholder."; }
 [[ -n "$TRACING_HOST" ]] || { TRACING_HOST="tracing.example.com"; _warn "rota do Tempo nao encontrada; link com placeholder."; }
 _log "observabilidade: ${GRAFANA_HOST} / ${TRACING_HOST}"
@@ -121,13 +129,13 @@ envsubst '${DEMO_API_HOST}' < "${_here}/catalog/travels-openapi.yaml" > "$_opena
   || _die "falha ao renderizar catalog/travels-openapi.yaml"
 OPENAPI_SHA="$(shasum -a 256 "$_openapi" | cut -c1-12)"
 
-export OPENAPI_SHA
+export GITLAB_HOST OPENAPI_SHA
 _log "hosts da demo: ${DEMO_API_HOST} / ${DEMO_ECHO_HOST}"
 
 # ----- 2. entidades renderizadas -------------------------------------------
 _rendered="$(mktemp)"
 trap 'rm -f "$_rendered" "$_openapi"' EXIT
-envsubst '${OPENAPI_SHA} ${CATALOG_SVC} ${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_URL} ${DEMO_REPO_URL_BLOB} ${GRAFANA_HOST} ${TRACING_HOST} ${CONSOLE_HOST} ${DEVSPACES_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
+envsubst '${GITLAB_HOST} ${OPENAPI_SHA} ${CATALOG_SVC} ${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_URL} ${DEMO_REPO_URL_BLOB} ${GRAFANA_HOST} ${TRACING_HOST} ${CONSOLE_HOST} ${DEVSPACES_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
   || _die "falha ao renderizar catalog/travel-agency.yaml"
 
 # Espelho ausente: TechDocs e source-location sairiam com URL vazia, e o portal
