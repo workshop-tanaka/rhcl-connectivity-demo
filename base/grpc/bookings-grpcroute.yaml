@@ -21,26 +21,22 @@ spec:
       namespace: ingress-gateway
   hostnames:
     - grpc-travels.apps.cluster-cxr7d.dyn.redhatworkshops.io
+  # UMA regra, sem match por metodo -- e a escolha custou uma investigacao.
+  #
+  # A versao anterior tinha duas regras (uma para helloworld.Greeter, outra para
+  # os servicos de reflection do grpcurl). O Kuadrant gera uma entrada de filtro
+  # POR REGRA, e a RateLimitPolicy acabou ancorada apenas nas regras de
+  # reflection: o predicado do limite era
+  # request.url_path.startsWith('/grpc.reflection.v1alpha.ServerReflection/').
+  #
+  # Efeito: chamadas ao Greeter passavam sem contar, com a policy reportando
+  # Enforced=True e o limite corretamente carregado no Limitador. Oito chamadas
+  # seguidas passavam num teto de cinco. Medido em 2026-08-28.
+  #
+  # Roteando tudo numa regra so, auth e limite valem para o hostname inteiro --
+  # que e o que a cena precisa. Match por metodo continua possivel e fica para
+  # quando houver policy distinta por metodo para mostrar.
   rules:
-    # DUAS regras de proposito. A primeira mostra o que gRPC permite e HTTP nao:
-    # casar por SERVICO e METODO, o que abre a porta para policy por metodo --
-    # o equivalente ao path em REST.
-    #
-    # A segunda existe por uma razao pratica: o grpcurl descobre a API por
-    # reflection, e a chamada de reflection usa OUTRO servico
-    # (grpc.reflection.*). Sem ela o comando devolve "server does not support
-    # the reflection API" -- que parece defeito do servidor e e roteamento.
-    - matches:
-        - method:
-            service: helloworld.Greeter
-      backendRefs:
-        - name: bookings-grpc
-          port: 9000
-    - matches:
-        - method:
-            service: grpc.reflection.v1alpha.ServerReflection
-        - method:
-            service: grpc.reflection.v1.ServerReflection
-      backendRefs:
+    - backendRefs:
         - name: bookings-grpc
           port: 9000

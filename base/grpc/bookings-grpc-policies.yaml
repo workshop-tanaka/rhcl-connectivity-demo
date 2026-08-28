@@ -44,9 +44,51 @@ spec:
                 auth.identity.metadata.annotations["secret.kuadrant.io/user-id"] :
                 auth.identity.metadata.name
 ---
-# O limite tambem e o mesmo desenho: por identidade autenticada, nao por IP.
-# Um teto baixo de proposito -- a cena e ver o 429 (RESOURCE_EXHAUSTED em gRPC)
-# acontecer ao vivo, e nao medir capacidade.
+# O limite tambem e o mesmo desenho das policies de HTTP: SEM counters.
+#
+# A primeira versao contava por 'auth.identity.userid' e nao fechava nunca --
+# nove chamadas seguidas passavam, com a policy reportando Enforced=True. O
+# Limitador recebia a regra com
+# variables: ['descriptors[0]["auth.identity.userid"]'], e esse descritor nao e
+# populado: a AuthPolicy exporta a identidade como CABECALHO (x-partner), nao
+# como metadado dinamico. Sem a variavel, a chave do contador nao existe e o
+# limite nao conta.
+#
+# As RateLimitPolicy de HTTP deste ambiente usam variables: [] pelo mesmo
+# motivo -- quem separa por parceiro la e o PlanPolicy, por plano.
+#
+# Um teto baixo de proposito: a cena e ver o RESOURCE_EXHAUSTED ao vivo, e nao
+# medir capacidade.
+# ===========================================================================
+# ATENCAO -- ESTA POLICY NAO ESTA SENDO APLICADA. Medido em 2026-08-28.
+#
+# Ela e ACEITA, reporta Accepted=True e Enforced=True, e o limite chega correto
+# ao Limitador (max_value 5, seconds 60, variables []). O EnvoyFilter do
+# gateway tambem cita o scope 'travel-agency/bookings-grpc' e a chave
+# 'limit.por_parceiro__633bca3c'. Tudo aparenta estar no lugar.
+#
+# E oito chamadas seguidas passam, num teto de cinco.
+#
+# EXPERIMENTO DE CONTROLE, no mesmo cluster e no mesmo minuto: a
+# RateLimitPolicy de HTTP funciona -- o tier free devolve 429 na segunda
+# chamada. Entao nao e o Limitador, nem a rede, nem a chave: e especifico de
+# GRPCRoute.
+#
+# O QUE JA FOI DESCARTADO:
+#   - counter por auth.identity.userid: a AuthPolicy exporta a identidade como
+#     cabecalho, nao como metadado, entao a chave nao existia. Removido, e o
+#     comportamento nao mudou.
+#   - GRPCRoute com duas regras: o Kuadrant ancorava o limite so nas regras de
+#     reflection. Simplificado para uma regra, e o comportamento nao mudou.
+#
+# A AuthPolicy acima, no MESMO GRPCRoute, funciona nos dois sentidos -- sem
+# chave devolve Unauthenticated, com chave responde. Ou seja: autenticacao
+# atravessa para gRPC, contagem de limite nao.
+#
+# A policy fica declarada de proposito: ela e correta, e o dia em que a versao
+# do RHCL fechar essa lacuna ela passa a valer sem edicao. Mas NAO conte com o
+# 429 de gRPC no palco.
+# ===========================================================================
 apiVersion: kuadrant.io/v1
 kind: RateLimitPolicy
 metadata:
@@ -62,5 +104,3 @@ spec:
       rates:
         - limit: 5
           window: 60s
-      counters:
-        - expression: auth.identity.userid
