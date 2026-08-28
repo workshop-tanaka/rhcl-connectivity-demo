@@ -787,9 +787,16 @@ st_dashboards() {
     _warn "o KSM puxa registry.k8s.io/kube-state-metrics:v2.9.2 — cluster sem egress para registry.k8s.io fica em ImagePullBackOff e os dashboards de fabrica ficam vazios"
   fi
 
-  _apply platform-reference/monitoring/grafana-dashboard-plans.yaml   # o do Ato 4
+  # O alerta de aprovacao pendente le a familia devportal_apikey_*, que so
+  # existe depois do KSM acima -- por isso aqui e nao junto dos ServiceMonitors.
+  _apply platform-reference/monitoring/prometheusrule-devportal.yaml
+
+  _apply platform-reference/monitoring/grafana-dashboard-plans.yaml     # o do Ato 4
   _apply platform-reference/monitoring/grafana-dashboard-parceiros.yaml # consumo por parceiro
-  _apply platform-reference/monitoring/kuadrant-dashboards            # os tres de fabrica
+  _apply platform-reference/monitoring/grafana-dashboard-onboarding.yaml # demanda de chave (Ato 6)
+  _apply platform-reference/monitoring/grafana-dashboard-postura.yaml   # o que esta valendo agora
+  _apply platform-reference/monitoring/grafana-dashboard-borda.yaml     # latencia e forma da resposta
+  _apply platform-reference/monitoring/kuadrant-dashboards              # os tres de fabrica
 }
 
 # ===========================================================================

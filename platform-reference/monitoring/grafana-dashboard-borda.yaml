@@ -1,0 +1,198 @@
+# ===========================================================================
+# Dashboard 'RHCL — borda'.
+#
+# O que os outros nao medem: TEMPO e FORMA DA RESPOSTA no gateway. O
+# 'rhcl-planos' conta chamadas por tier, o 'rhcl-parceiros' conta por cliente,
+# e nenhum dos dois responde a pergunta que toda plateia tecnica faz no Ato 1
+# -- "quanto custa colocar uma policy na frente da API?".
+#
+# A resposta e um numero de dois digitos em milissegundos, e este dashboard e
+# onde ele aparece.
+#
+# ---------------------------------------------------------------------------
+# FONTE: os proxies do Istio, ja coletados pelo PodMonitor de istio-monitors.yaml.
+# Nenhuma coleta nova foi necessaria -- a serie estava la e ninguem consultava.
+# Medido em 2026-08-28: istio_request_duration_milliseconds_bucket com
+# namespace="ingress-gateway" existia, com 80 series.
+#
+# namespace="ingress-gateway" NAO e cosmetico: sem ele a consulta soma o proxy
+# da borda com os sidecars de travel-agency e travel-db, que reportam a MESMA
+# requisicao do outro lado -- o grafico dobra e a latencia vira media de duas
+# populacoes diferentes. O label vem do relabeling do PodMonitor, e o user
+# workload monitoring o mantem porque o PodMonitor mora no mesmo namespace que
+# os pods que ele raspa.
+#
+# ---------------------------------------------------------------------------
+# NO PALCO
+#   Ato 1  'Respostas por codigo' vira uma parede de 401 -- e a latencia NAO
+#          sobe: negar e barato, e o painel de custo da autorizacao mostra por que.
+#   Ato 2  o 429 aparece por cima do 200, sem que o p95 se mexa: o limite e
+#          decidido na borda e a aplicacao nem e consultada.
+#   Ato 3  ao trocar a precedencia, o formato do grafico muda na hora.
+#
+# ---------------------------------------------------------------------------
+# PENDENCIA CONHECIDA -- painel 'Custo da autorizacao'
+# Medido em 2026-08-28: {__name__=~"auth_server_.*"} devolve ZERO series no
+# Thanos, apesar do ServiceMonitor 'authorino' existir ha dias. O seletor dele
+# (control-plane: controller-manager, porta 'http') casa TRES Services em
+# kuadrant-system -- authorization, oidc e controller-metrics -- e so o ultimo
+# serve /metrics. Ate isso ser resolvido, o painel abre vazio.
+#   oc get svc -n kuadrant-system -l control-plane=controller-manager
+#   oc exec -n kuadrant-system deploy/authorino -- curl -s localhost:8080/metrics | grep auth_server
+# E 'auth_server_evaluator_*' (por evaluator) exige DEEP_METRICS_ENABLED no CR
+# do Authorino; 'auth_server_authconfig_*' (por AuthConfig), que e o que este
+# painel usa, sai sem flag nenhuma.
+# ===========================================================================
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: rhcl-borda
+  namespace: monitoring
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  json: >
+    {
+      "title": "RHCL — borda",
+      "uid": "rhcl-borda",
+      "tags": ["rhcl"],
+      "timezone": "browser",
+      "refresh": "10s",
+      "time": {"from": "now-1h", "to": "now"},
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {"text": "Thanos", "value": "Thanos", "selected": false},
+            "options": [], "refresh": 1, "hide": 0, "includeAll": false, "multi": false
+          },
+          {
+            "name": "servico",
+            "type": "query",
+            "label": "Servico de destino",
+            "datasource": {"type": "prometheus", "uid": "${datasource}"},
+            "query": {"query": "label_values(istio_requests_total{namespace=\"ingress-gateway\"}, destination_service_name)", "refId": "StandardVariableQuery"},
+            "refresh": 2, "includeAll": true, "multi": true, "current": {"text": "All", "value": "$__all"}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "stat",
+          "title": "p95 na borda",
+          "description": "Latencia da requisicao inteira, medida pelo proxy do gateway -- inclui a chamada ao Authorino, a ao Limitador e o upstream. E o numero que a plateia quer ouvir no Ato 1.",
+          "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "ms", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 250}, {"color": "red", "value": 1000}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "histogram_quantile(0.95, sum by (le) (rate(istio_request_duration_milliseconds_bucket{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\"}[5m])))"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Taxa de 5xx",
+          "description": "Erro de verdade, na janela. Separado do 4xx de proposito: 401 e 429 sao a demo funcionando; 5xx e a demo quebrando. O 500 no lugar do 401 tem um culpado recorrente -- Authorino sob DiskPressure, armadilha 5.3.",
+          "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 2, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "100 * sum(increase(istio_requests_total{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\", response_code=~\"5..\"}[$__range])) / clamp_min(sum(increase(istio_requests_total{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\"}[$__range])), 1)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Requisicoes na janela",
+          "description": "Tudo o que bateu na borda, incluindo o que foi recusado. Serve de sanidade antes de acusar 'nao ha trafego': zero aqui com o traffic.sh rodando e problema de coleta, nao de demo.",
+          "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "text", "value": null}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "sum(increase(istio_requests_total{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\"}[$__range])) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Barradas na borda",
+          "description": "401 + 429 na janela: o que a policy resolveu sem consultar a aplicacao. E o argumento de custo -- cada uma destas e uma requisicao que o backend nunca viu.",
+          "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "sum(increase(istio_requests_total{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\", response_code=~\"401|429\"}[$__range])) or vector(0)"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Respostas por codigo (req/s)",
+          "description": "A forma de cada ato. Sem chave: parede de 401. Com chave e acima do tier: 429 por cima do 200. Erro de plataforma: 5xx.",
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 20, "stacking": {"mode": "normal"}}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (response_code) (rate(istio_requests_total{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\"}[2m]))", "legendFormat": "{{response_code}}"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Latencia na borda (p50 / p95 / p99)",
+          "description": "Quantis do mesmo histograma. O que convence nao e o valor: e a linha ficar RETA enquanto o painel ao lado enche de 401 e 429.",
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "ms", "custom": {"drawStyle": "line", "fillOpacity": 0, "lineWidth": 2}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(istio_request_duration_milliseconds_bucket{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\"}[5m])))", "legendFormat": "p50"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(istio_request_duration_milliseconds_bucket{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\"}[5m])))", "legendFormat": "p95"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "p99", "expr": "histogram_quantile(0.99, sum by (le) (rate(istio_request_duration_milliseconds_bucket{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\"}[5m])))", "legendFormat": "p99"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Barrado por identidade x por limite",
+          "description": "401 e o Ato 1 (Authorino, quem e voce). 429 e o Ato 2 (Limitador, quanto voce pode). Os dois no mesmo eixo mostram que sao decisoes DIFERENTES tomadas no mesmo ponto.",
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 14},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 15}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "identidade", "expr": "sum(rate(istio_requests_total{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\", response_code=\"401\"}[2m]))", "legendFormat": "401 — sem identidade"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "limite", "expr": "sum(rate(istio_requests_total{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\", response_code=\"429\"}[2m]))", "legendFormat": "429 — acima do tier"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Custo da autorizacao (Authorino)",
+          "description": "p95 e p50 de auth_server_authconfig_duration_seconds. ATENCAO: medido em 2026-08-28, nenhuma serie auth_server_* chega ao Thanos -- o ServiceMonitor 'authorino' casa tres Services e so um serve /metrics. Painel vazio aqui e coleta, nao ausencia de autorizacao; o cabecalho do arquivo traz o diagnostico.",
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 14},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 0, "lineWidth": 2}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(auth_server_authconfig_duration_seconds_bucket[5m])))", "legendFormat": "p95"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(auth_server_authconfig_duration_seconds_bucket[5m])))", "legendFormat": "p50"}
+          ]
+        },
+        {
+          "type": "table",
+          "title": "Por servico de destino, na janela",
+          "description": "Qual API atras da mesma borda esta sendo usada, com que qualidade. Com mais de uma HTTPRoute publicada (travels, echo-api, e o que o golden path do Ato 6 gerar) esta e a tabela que mostra a borda como PLATAFORMA, e nao como um proxy de um servico so.",
+          "gridPos": {"h": 9, "w": 24, "x": 0, "y": 23},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"custom": {"align": "left"}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "total", "instant": true, "format": "table", "expr": "sum by (destination_service_name) (increase(istio_requests_total{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\"}[$__range]))"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "servidas", "instant": true, "format": "table", "expr": "sum by (destination_service_name) (increase(istio_requests_total{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\", response_code=\"200\"}[$__range]))"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "barradas", "instant": true, "format": "table", "expr": "sum by (destination_service_name) (increase(istio_requests_total{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\", response_code=~\"401|429\"}[$__range])) or (sum by (destination_service_name) (increase(istio_requests_total{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\"}[$__range])) * 0)"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "p95", "instant": true, "format": "table", "expr": "histogram_quantile(0.95, sum by (le, destination_service_name) (rate(istio_request_duration_milliseconds_bucket{namespace=\"ingress-gateway\", destination_service_name=~\"$servico\"}[$__range])))"}
+          ],
+          "transformations": [
+            {"id": "joinByField", "options": {"byField": "destination_service_name", "mode": "outer"}},
+            {"id": "organize", "options": {
+              "excludeByName": {"Time": true, "Time 1": true, "Time 2": true, "Time 3": true, "Time 4": true},
+              "indexByName": {"destination_service_name": 0, "Value #total": 1, "Value #servidas": 2, "Value #barradas": 3, "Value #p95": 4},
+              "renameByName": {"destination_service_name": "servico", "Value #total": "requisicoes", "Value #servidas": "servidas (200)", "Value #barradas": "barradas (401/429)", "Value #p95": "p95 (ms)"}}},
+            {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "requisicoes", "desc": true}]}}
+          ]
+        }
+      ]
+    }

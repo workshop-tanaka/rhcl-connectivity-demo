@@ -806,6 +806,86 @@ data:
                 labelsFromPath:
                   type: ["type"]
                 valueFrom: ["status"]
+        # ACRESCENTADO por nos -- nao existe no gateway-api-state-metrics 0.7.0,
+        # que so conhece os policies do grupo kuadrant.io. O PlanPolicy mora em
+        # extensions.kuadrant.io e e exatamente o objeto que a armadilha 5.2 do
+        # CONHECIMENTO derruba: no 1.4.2 uma RateLimitPolicy plana na mesma rota
+        # VENCE, o PlanPolicy cai para Enforced=False e os tres tiers do Ato 2
+        # deixam de existir -- com o caminho de dados continuando a devolver 200.
+        #
+        # Sem esta entrada nenhuma serie denuncia isso. Medido em 2026-08-28
+        # neste cluster: {__name__=~"gatewayapi_.*status.*"} devolvia authpolicy,
+        # ratelimitpolicy, gateway, gatewayclass e httproute. Planpolicy, nao.
+        #
+        # A ClusterRole ganhou 'planpolicies' junto. Sem o rule a entrada e
+        # aceita EM SILENCIO e a familia kuadrant_planpolicy_* nunca aparece --
+        # a mesma falha muda do rule de apikeys.
+        - groupVersionKind:
+            group: extensions.kuadrant.io
+            kind: "PlanPolicy"
+            version: "v1alpha1"
+          metricNamePrefix: kuadrant_planpolicy
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+          metrics:
+          - name: "labels"
+            help: "Kubernetes labels converted to Prometheus labels."
+            each:
+              type: Info
+              info:
+                path: [metadata]
+                labelsFromPath:
+                  "*": [labels]
+          - name: "created"
+            help: "created timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "deleted"
+            help: "deletion timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, deletionTimestamp]
+          - name: "target_info"
+            help: "Target references that the planpolicy wants to be attached to"
+            each:
+              type: Info
+              info:
+                path: [spec, targetRef]
+                labelsFromPath:
+                  target_group: ["group"]
+                  target_kind: ["kind"]
+                  target_name: ["name"]
+                  target_namespace: ["namespace"]
+          # Uma serie por tier declarado -- e o que permite comparar o que a
+          # policy PROMETE com o que o Limitador contabiliza por 'plan'.
+          # Nao ha gauge de limite aqui de proposito: 'unclassified' nao tem
+          # cota diaria, e caminho ausente em valueFrom poe o KSM reclamando a
+          # cada scrape -- o mesmo ruido de log que o rule de dnsrecords calou.
+          - name: "plan_info"
+            help: "Tiers declared by the planpolicy"
+            each:
+              type: Info
+              info:
+                path: [spec, plans]
+                labelsFromPath:
+                  tier: ["tier"]
+          - name: "status"
+            help: "status condition"
+            each:
+              type: Gauge
+              gauge:
+                path: [status, conditions]
+                labelsFromPath:
+                  type: ["type"]
+                valueFrom: ["status"]
         - groupVersionKind:
             group: kuadrant.io
             kind: "DNSRecord"
@@ -1039,6 +1119,18 @@ rules:
   - apikeyrequests
   - apikeyapprovals
   - apiproducts
+  verbs:
+  - list
+  - watch
+# PlanPolicy nao esta em kuadrant.io: o grupo e extensions.kuadrant.io, e o
+# rule acima nao o alcanca. Sem esta permissao o KSM nao lista o objeto, a
+# entrada de CustomResourceState nao produz serie nenhuma e o dashboard de
+# postura abre com o painel do PlanPolicy vazio -- que se le como "nao ha
+# PlanPolicy", nao como "falta RBAC".
+- apiGroups:
+  - "extensions.kuadrant.io"
+  resources:
+  - planpolicies
   verbs:
   - list
   - watch

@@ -577,9 +577,73 @@ uma unica vez, nao tem RBAC sobre `grafana.*` (ou seja, e incapaz de criar um
 exemplos no repo do projeto. No sandbox 1.2 quem os provisionava era o Argo do
 workshop.
 
-O que o cluster ja tem e o **RHCL — planos comerciais** (`rhcl-planos`), de
-`platform-reference/monitoring/`, que e o dashboard do Ato 4 porque e o unico
-que quebra por `plan`.
+Os dashboards autorais estão em `platform-reference/monitoring/`, todos com
+`"tags": ["rhcl"]` — é por essa tag que o card do Grafana no RHDH os encontra,
+sem precisar listar nome nenhum:
+
+| dashboard | uid | mede | fonte da série |
+| --- | --- | --- | --- |
+| RHCL — planos comerciais | `rhcl-planos` | consumo por tier (Ato 4) | Limitador (`authorized_calls` / `limited_calls`) |
+| RHCL — consumo por parceiro | `rhcl-parceiros` | quem consumiu, dentro do tier | Istio + dimensão `partner` |
+| RHCL — onboarding de parceiro | `rhcl-onboarding` | demanda de chave e fila de aprovação | KSM (`devportal_apikey_*`) |
+| RHCL — postura de policies | `rhcl-postura` | **o que está valendo agora** | KSM (`gatewayapi_*_status`, `kuadrant_planpolicy_status`) |
+| RHCL — borda | `rhcl-borda` | latência e forma da resposta no gateway | proxies do Istio em `ingress-gateway` |
+
+O do Ato 4 continua sendo o `rhcl-planos`: é o único que quebra por `plan`.
+
+### Postura de policies — por que ele existe
+
+Os outros quatro medem tráfego. O `rhcl-postura` mede a outra metade: quais
+policies estão de fato em vigor. É a tela para a classe de falha que não produz
+erro — `Enforced=False` com o caminho de dados respondendo 200 (a inversão de
+precedência do 1.4, seção 5.2 do CONHECIMENTO; `AuthSchemeNotFound` por
+`spec.defaults.rules`; predicado de plano que erra em CEL e passa sem limite).
+
+Ele depende de uma entrada de `CustomResourceState` que **não vem do upstream**:
+o `gateway-api-state-metrics` 0.7.0 só conhece o grupo `kuadrant.io`, e o
+`PlanPolicy` mora em `extensions.kuadrant.io`. Medido em 2026-08-28, antes do
+acerto:
+
+```
+gatewayapi_authpolicy_status         6 series
+gatewayapi_ratelimitpolicy_status    6 series
+gatewayapi_gateway_status            4 series
+kuadrant_planpolicy_status           AUSENTE
+```
+
+A entrada e o `rule` de RBAC (`planpolicies` em `extensions.kuadrant.io`) já
+estão em `kube-state-metrics-kuadrant.yaml`, marcados como adição nossa. Sem o
+`rule`, a entrada é aceita **em silêncio** e a família nunca aparece — o painel
+abre vazio, e vazio ali lê-se como "não há PlanPolicy", não como "falta RBAC".
+Em cluster que já tem o KSM de pé, **aplicar não basta**: o exporter lê a
+config no boot e o Deployment não tem gatilho de ConfigMap — sem o restart o pod
+segue servindo a lista antiga de recursos, e o sintoma parece "o apply não
+pegou". Aplicar, reiniciar, confirmar:
+
+```bash
+oc apply -f platform-reference/monitoring/kube-state-metrics-kuadrant.yaml
+oc rollout restart deploy/kube-state-metrics-kuadrant -n monitoring
+oc rollout status  deploy/kube-state-metrics-kuadrant -n monitoring
+
+# ~60s depois (scrape de 30s + agregação)
+TOKEN=$(oc whoami -t); THANOS=$(oc get route thanos-querier -n openshift-monitoring -o jsonpath='{.spec.host}')
+curl -sk -H "Authorization: Bearer $TOKEN" "https://${THANOS}/api/v1/query" \
+  --data-urlencode 'query=count(kuadrant_planpolicy_status)'
+```
+
+### Borda — coleta que já existia
+
+O `rhcl-borda` não precisou de coleta nova: os `PodMonitor` de
+`istio-monitors.yaml` já entregam `istio_request_duration_milliseconds_bucket`
+(80 séries com `namespace="ingress-gateway"`, medido em 2026-08-28). O filtro
+por esse namespace não é cosmético — sem ele a consulta soma o proxy da borda
+com os sidecars de `travel-agency`, que reportam a mesma requisição do outro
+lado, e a latência vira média de duas populações.
+
+Um painel dele abre vazio hoje, e está anotado no próprio painel: nenhuma série
+`auth_server_*` chega ao Thanos. O `ServiceMonitor` `authorino` casa três
+Services com porta `http` em `kuadrant-system` (`authorization`, `oidc`,
+`controller-metrics`) e só o último serve `/metrics`.
 
 Antes de qualquer dashboard, a instância: `GrafanaDashboard` sem um `Grafana`
 com o label `dashboards: grafana` fica órfão, e com a instância mas sem o

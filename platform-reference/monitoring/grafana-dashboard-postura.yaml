@@ -1,0 +1,183 @@
+# ===========================================================================
+# Dashboard 'RHCL — postura de policies'.
+#
+# Os outros dashboards da demo medem TRAFEGO -- quanto passou, de quem, em que
+# plano. Este mede a outra metade, que nenhuma tela do produto mostra junta:
+# QUAIS POLICIES ESTAO DE FATO VALENDO neste instante.
+#
+# POR QUE ISTO EXISTE
+# A classe de falha mais cara deste projeto nao produz erro: a policy fica
+# Enforced=False e o caminho de dados continua respondendo 200. Tres exemplos
+# medidos, todos no RUNBOOK:
+#
+#   armadilha 5.2  RateLimitPolicy plana na mesma rota VENCE o PlanPolicy no
+#                  1.4.2 (a precedencia inverteu desde o 1.2.1). Os tres tiers
+#                  do Ato 2 somem, e sem 429 em lugar nenhum ninguem percebe.
+#   armadilha 5.1  predicate de plano com label ausente ERRA em CEL e aborta a
+#                  classificacao inteira -- a chave passa sem limite.
+#   AuthSchemeNotFound  AuthPolicy com spec.defaults.rules em vez de spec.rules:
+#                  Accepted=True, Enforced=False, chave nenhuma funciona.
+#
+# O 'preflight.sh' pega isso ANTES da demo, com o cluster na mao. Este painel
+# pega DURANTE, e continua pegando depois -- que e quando ninguem esta olhando.
+#
+# ---------------------------------------------------------------------------
+# FONTE: kube-state-metrics-kuadrant.yaml, familias gatewayapi_*_status e
+# kuadrant_planpolicy_status. Medido no cluster em 2026-08-28: as familias de
+# authpolicy, ratelimitpolicy, gateway e httproute ja existiam; a de PlanPolicy
+# NAO -- a entrada de CustomResourceState e o rule de RBAC foram acrescentados
+# junto com este arquivo. Sem o KSM atualizado, os paineis de PlanPolicy abrem
+# vazios (e vazio aqui se le como 'nao existe policy', nao como 'falta metrica').
+#
+# LEITURA DOS PAINEIS: valor 1 = a condicao e True. O que interessa e o ZERO.
+#   Accepted=False   o controlador recusou o objeto (erro de spec)
+#   Enforced=False   o objeto foi aceito e NAO esta em vigor -- o caso perigoso
+#
+# exported_namespace, e nao namespace: o user workload monitoring reserva
+# 'namespace' para o alvo do scrape (o pod do KSM, em monitoring) e desloca o
+# do dado. Consultar por 'namespace' devolve vazio, sem erro. Mesma pegadinha
+# documentada em grafana-dashboard-onboarding.yaml.
+#
+# label_replace(v, "tipo", "AuthPolicy", "", "") e o truque de rotulo
+# constante: 'or' entre familias diferentes empilha tudo numa tabela so, e a
+# coluna 'tipo' e a unica forma de saber de qual CRD veio cada linha.
+# ===========================================================================
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: rhcl-postura
+  namespace: monitoring
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  json: >
+    {
+      "title": "RHCL — postura de policies",
+      "uid": "rhcl-postura",
+      "tags": ["rhcl"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "time": {"from": "now-3h", "to": "now"},
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {"text": "Thanos", "value": "Thanos", "selected": false},
+            "options": [], "refresh": 1, "hide": 0, "includeAll": false, "multi": false
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Policies sem efeito",
+          "description": "Objetos com Enforced=False. Aceitos pelo controlador e NAO em vigor -- e a falha que responde 200 e nao aparece em log nenhum. Qualquer numero acima de zero merece 'oc get <policy> -o yaml' antes de subir no palco.",
+          "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count((gatewayapi_authpolicy_status{type=\"Enforced\"} == 0) or (gatewayapi_ratelimitpolicy_status{type=\"Enforced\"} == 0) or (kuadrant_planpolicy_status{type=\"Enforced\"} == 0) or (gatewayapi_tlspolicy_status{type=\"Enforced\"} == 0) or (gatewayapi_dnspolicy_status{type=\"Enforced\"} == 0)) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Policies recusadas",
+          "description": "Accepted=False -- o controlador rejeitou o objeto. Barulhento e facil de achar; esta aqui para separar 'spec errada' de 'spec certa que nao vale', que e o painel ao lado.",
+          "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count((gatewayapi_authpolicy_status{type=\"Accepted\"} == 0) or (gatewayapi_ratelimitpolicy_status{type=\"Accepted\"} == 0) or (kuadrant_planpolicy_status{type=\"Accepted\"} == 0) or (gatewayapi_tlspolicy_status{type=\"Accepted\"} == 0) or (gatewayapi_dnspolicy_status{type=\"Accepted\"} == 0)) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Rotas anexadas ao gateway",
+          "description": "attachedRoutes somado sobre os listeners do Gateway. Zero aqui e o outro jeito de a demo morrer sem erro: a HTTPRoute existe, o Gateway existe, e nao ha vinculo -- toda policy anexada a rota deixa de ter alvo.",
+          "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "sum(gatewayapi_gateway_status_listener_attached_routes) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Tiers declarados",
+          "description": "Um por 'tier' em spec.plans, catch-all 'unclassified' incluido. Serve de conferencia contra o dashboard de planos: tier declarado aqui e sem serie em authorized_calls e tier que nunca foi exercitado.",
+          "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count(kuadrant_planpolicy_plan_info) or vector(0)"}
+          ]
+        },
+        {
+          "type": "table",
+          "title": "Semaforo — o que esta valendo agora",
+          "description": "Uma linha por condicao de cada policy. Vermelho e o que nao vale. Esta e a tela para abrir quando a demo 'passa mas nao limita'.",
+          "gridPos": {"h": 11, "w": 14, "x": 0, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {
+            "defaults": {
+              "custom": {"align": "left", "cellOptions": {"type": "color-text"}},
+              "mappings": [{"type": "value", "options": {"0": {"text": "NAO", "color": "red", "index": 0}, "1": {"text": "sim", "color": "green", "index": 1}}}]
+            }
+          },
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "postura", "instant": true, "format": "table", "expr": "label_replace(gatewayapi_authpolicy_status{type=~\"Accepted|Enforced\"}, \"tipo\", \"AuthPolicy\", \"\", \"\") or label_replace(gatewayapi_ratelimitpolicy_status{type=~\"Accepted|Enforced\"}, \"tipo\", \"RateLimitPolicy\", \"\", \"\") or label_replace(kuadrant_planpolicy_status{type=~\"Accepted|Enforced\"}, \"tipo\", \"PlanPolicy\", \"\", \"\") or label_replace(gatewayapi_tlspolicy_status{type=~\"Accepted|Enforced\"}, \"tipo\", \"TLSPolicy\", \"\", \"\") or label_replace(gatewayapi_gateway_status{type=~\"Accepted|Programmed\"}, \"tipo\", \"Gateway\", \"\", \"\")"}
+          ],
+          "transformations": [
+            {"id": "organize", "options": {
+              "excludeByName": {"Time": true, "__name__": true, "container": true, "endpoint": true, "instance": true, "job": true, "namespace": true, "pod": true, "service": true, "prometheus": true, "customresource_group": true, "customresource_kind": true, "customresource_version": true},
+              "indexByName": {"tipo": 0, "name": 1, "exported_namespace": 2, "type": 3, "Value": 4},
+              "renameByName": {"tipo": "tipo", "name": "policy", "exported_namespace": "namespace", "type": "condicao", "Value": "vale?"}}},
+            {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "vale?", "desc": false}]}}
+          ]
+        },
+        {
+          "type": "table",
+          "title": "Conflito de precedencia — dois limites no mesmo alvo",
+          "description": "Alvo com RateLimitPolicy E PlanPolicy anexados ao mesmo tempo. E a armadilha 5.2 inteira num painel: no 1.4.2 a RLP plana vence e o PlanPolicy vira enfeite. Vazio e o estado saudavel.",
+          "gridPos": {"h": 11, "w": 10, "x": 14, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"custom": {"align": "left", "cellOptions": {"type": "color-background"}}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 2}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "format": "table", "expr": "count by (target_kind, target_name) (gatewayapi_ratelimitpolicy_target_info or kuadrant_planpolicy_target_info) > 1"}
+          ],
+          "transformations": [
+            {"id": "organize", "options": {"excludeByName": {"Time": true},
+              "indexByName": {"target_kind": 0, "target_name": 1, "Value": 2},
+              "renameByName": {"target_kind": "alvo (kind)", "target_name": "alvo", "Value": "policies anexadas"}}}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Desde quando deixou de valer",
+          "description": "Enforced ao longo do tempo. O degrau para baixo data a quebra -- e quase sempre coincide com o apply que a plateia acabou de ver.",
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"min": 0, "max": 1, "custom": {"drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 15, "lineWidth": 2}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "auth", "expr": "gatewayapi_authpolicy_status{type=\"Enforced\"}", "legendFormat": "AuthPolicy {{name}}"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "rlp", "expr": "gatewayapi_ratelimitpolicy_status{type=\"Enforced\"}", "legendFormat": "RateLimitPolicy {{name}}"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "plan", "expr": "kuadrant_planpolicy_status{type=\"Enforced\"}", "legendFormat": "PlanPolicy {{name}}"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Efeito no caminho de dados",
+          "description": "Servidas e limitadas, do Limitador. Lido JUNTO com o painel ao lado: policy fora de efeito e 'limitadas' colado no zero com trafego correndo e fail-open, nao cliente comportado.",
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "ok", "expr": "sum(rate(authorized_calls[2m]))", "legendFormat": "servidas"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "limitadas", "expr": "sum(rate(limited_calls[2m]))", "legendFormat": "limitadas (429)"}
+          ]
+        }
+      ]
+    }
