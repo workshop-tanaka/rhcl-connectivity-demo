@@ -156,11 +156,17 @@ export async function createRouter(
       return;
     }
 
-    const route = findRouteForComponent(
-      cache.objects('httproutes'),
-      namespace,
-      name,
-    );
+    // Duas perguntas diferentes, e a entidade diz qual é. Um Component tem uma
+    // rota — é preciso achá-la pelo backendRef. Uma entidade de rota JÁ é a
+    // rota, e procurar por backendRef com o nome dela nunca acharia nada:
+    // 'travel-agency-route' não é nome de Service.
+    const rotas = cache.objects('httproutes');
+    const ehRota = String(req.query.kind ?? '') === 'httproute';
+    const route = ehRota
+      ? rotas.find(
+          r => r.metadata?.namespace === namespace && r.metadata?.name === name,
+        )
+      : findRouteForComponent(rotas, namespace, name);
 
     if (!route) {
       // Sem rota não há postura a apurar, e isso NÃO é um erro: a maioria dos
@@ -168,7 +174,9 @@ export async function createRouter(
       // precisa saber a diferença entre "não exposto" e "não consegui olhar".
       res.json({
         exposed: false,
-        reason: `nenhuma HTTPRoute em ${namespace} com backendRef para ${name}`,
+        reason: ehRota
+          ? `a HTTPRoute ${namespace}/${name} não existe mais no cluster`
+          : `nenhuma HTTPRoute em ${namespace} com backendRef para ${name}`,
       });
       return;
     }

@@ -37,6 +37,9 @@ const ROTULO: Record<ConcernResult['concern'], string> = {
  *  anotação nova por plugin transforma o catálogo num formulário. */
 const NS_ANNOTATION = 'backstage.io/kubernetes-namespace';
 
+/** Presente quando a entidade é a própria HTTPRoute: '<ns>/<nome>'. */
+const ROTA_ANNOTATION = 'connectivity-link.rhcl/httproute';
+
 /**
  * Onde procurar no cluster, a partir da entidade aberta.
  *
@@ -53,7 +56,17 @@ const NS_ANNOTATION = 'backstage.io/kubernetes-namespace';
 async function alvoNoCluster(
   entity: Entity,
   catalogApi: { getEntityByRef: (ref: string) => Promise<Entity | undefined> },
-): Promise<{ namespace: string; name: string } | undefined> {
+): Promise<
+  { namespace: string; name: string; kind?: 'httproute' } | undefined
+> {
+  // A entidade É a rota. Vem do provider ou escrita à mão — a anotação é o
+  // contrato, e não a origem.
+  const ehRota = entity.metadata.annotations?.[ROTA_ANNOTATION];
+  if (ehRota?.includes('/')) {
+    const [namespace, name] = ehRota.split('/');
+    return { namespace, name, kind: 'httproute' };
+  }
+
   const direto = entity.metadata.annotations?.[NS_ANNOTATION];
   if (direto) {
     return { namespace: direto, name: entity.metadata.name };
@@ -121,7 +134,7 @@ export const EntityConnectivityCard = () => {
   const [{ value, loading, error }, recarregar] = useAsyncFn(async () => {
     const alvo = await alvoNoCluster(entity, catalogApi);
     if (!alvo) return undefined;
-    return await api.getPosture(alvo.namespace, alvo.name);
+    return await api.getPosture(alvo.namespace, alvo.name, alvo.kind);
   }, [api, catalogApi, entity]);
   useEffect(() => {
     recarregar();

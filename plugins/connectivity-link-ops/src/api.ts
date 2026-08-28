@@ -114,7 +114,7 @@ export interface Posture {
 export interface ConnectivityLinkOpsApi {
   getReadiness(): Promise<Readiness>;
   getSummary(): Promise<Summary>;
-  getPosture(namespace: string, name: string): Promise<Posture>;
+  getPosture(namespace: string, name: string, kind?: 'httproute'): Promise<Posture>;
 }
 
 export const connectivityLinkOpsApiRef = createApiRef<ConnectivityLinkOpsApi>({
@@ -151,8 +151,12 @@ export class ConnectivityLinkOpsClient implements ConnectivityLinkOpsApi {
     return this.get<Summary>('/summary');
   }
 
-  async getPosture(namespace: string, name: string): Promise<Posture> {
-    const q = new URLSearchParams({ namespace, name });
+  async getPosture(
+    namespace: string,
+    name: string,
+    kind?: 'httproute',
+  ): Promise<Posture> {
+    const q = new URLSearchParams({ namespace, name, ...(kind ? { kind } : {}) });
     return this.get<Posture>(`/posture?${q}`);
   }
 }

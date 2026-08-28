@@ -846,7 +846,23 @@ if [[ "${WITH_CL_OPS:-false}" == "true" ]]; then
                       if:
                         allOf:
                           - isKind: [component, api]
-                          - hasAnnotation: backstage.io/kubernetes-namespace"
+                          - hasAnnotation: backstage.io/kubernetes-namespace
+                    # Segunda entrada, e nao um isKind maior: acrescentar 'resource' a lista
+                    # de cima poria o card em TODA Resource -- policies, Gateway, Argo,
+                    # GitLab --, quase sempre sem nada a dizer. A anotacao e o contrato: so
+                    # entra onde a entidade declara SER uma rota.
+                  - mountPoint: entity.page.overview/cards
+                    importName: EntityConnectivityCard
+                    config:
+                      layout:
+                        gridColumnEnd:
+                          lg: span 6
+                          md: span 6
+                          xs: span 12
+                      if:
+                        allOf:
+                          - isKind: resource
+                          - hasAnnotation: connectivity-link.rhcl/httproute"
   _log "Connectivity Link Ops incluido (v${_clo_ver}, do plugin-registry)"
 fi
 

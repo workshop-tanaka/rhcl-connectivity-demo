@@ -1593,6 +1593,10 @@ metadata:
     policies de Gateway -- hierarquia rota-vence-gateway, que vale no 1.4.
   annotations:
     rhcl.demo/cluster-object: httproute/travel-agency/travel-agency
+    # Contrato com o plugin: e por esta anotacao que o card de
+    # conectividade sabe que ESTA entidade e a rota, e nao um
+    # componente que tem uma.
+    connectivity-link.rhcl/httproute: travel-agency/travel-agency
   links:
     - url: https://${CONSOLE_HOST}/k8s/ns/travel-agency/gateway.networking.k8s.io~v1~HTTPRoute/travel-agency
       title: Ver no console
@@ -1621,6 +1625,10 @@ metadata:
     que cada rota governa a si mesma, sem uma interferir na outra.
   annotations:
     rhcl.demo/cluster-object: httproute/echo-api/echo-api
+    # Contrato com o plugin: e por esta anotacao que o card de
+    # conectividade sabe que ESTA entidade e a rota, e nao um
+    # componente que tem uma.
+    connectivity-link.rhcl/httproute: echo-api/echo-api
   links:
     - url: https://${CONSOLE_HOST}/k8s/ns/echo-api/gateway.networking.k8s.io~v1~HTTPRoute/echo-api
       title: Ver no console
