@@ -1,0 +1,144 @@
+# ===========================================================================
+# Catalogo RHDH da demo RHCL — travel-agency.
+#
+# Modela a demo em duas Systems porque as policies do Kuadrant tem escopos
+# diferentes e isso importa na hora de explicar:
+#   - rhcl-ingress   : Gateway + policies com targetRef no Gateway (valem para
+#                      TODA rota anexada -- deny-all, rate limit baixo, DNS, TLS)
+#   - travel-agency  : app + policies com targetRef na HTTPRoute (valem so para
+#                      esta API -- API key e rate limit por usuario)
+#
+# ${DEMO_API_HOST} e ${DEMO_ECHO_HOST} sao substituidos pelo setup-catalog.sh
+# com os hostnames reais lidos das HTTPRoutes do cluster.
+#
+# ROTULOS: 'rhcl.demo/*' em metadata.labels e as tags seguem o vocabulario de
+# docs/CATALOGO.md -- leia antes de inventar um valor novo. As regras de forma
+# de label e de tag NAO sao as mesmas (a tag e mais estrita), e o
+# scripts/valida-catalogo.sh recusa o que sair da tabela.
+#
+#   camada         onde a entidade fica: borda, aplicacao, consumidor, plataforma
+#   escopo-policy  so em policy do Kuadrant: gateway (vale para toda rota
+#                  anexada) ou rota (vale so para esta API) -- e a distincao
+#                  que o Ato 3 explica
+#   origem         de onde a entidade nasce: repo, cluster, template
+#   produto        travels ou echo
+#
+# Toda policy do Kuadrant e 'camada: borda', inclusive as que miram a HTTPRoute
+# de uma aplicacao: quem as aplica e o gateway, nao o servico.
+# ===========================================================================
+#
+# ESTA FATIA: o System echo-api -- o segundo produto. As policies dele
+# (echo-api-authpolicy, echo-plans) ainda vivem so em env/*/devportal/.
+---
+# ---------------------------------------------------------------------------
+# System: echo-api -- o segundo produto.
+#
+# POR QUE ELE TEM System PROPRIO. O echo-api e uma APLICACAO (camada=aplicacao)
+# e vivia no System 'rhcl-ingress', que existe para a BORDA -- o Gateway e as
+# policies de escopo de gateway. Era a unica entidade do catalogo cuja camada
+# contradizia o proprio System.
+#
+# E ele nao pertence ao 'travel-agency': e um servico em namespace separado, e
+# o Ato 3 depende exatamente de ele ser um produto DIFERENTE atras do MESMO
+# Gateway. Dizer que e da agencia de viagens apagaria o ponto do ato.
+#
+# Fica com uma entidade so por enquanto. Na Fase 4, quando as policies do echo
+# (echo-api-authpolicy e echo-plans, hoje so em env/*/devportal/echo-api.yaml)
+# virarem Resources, este System fica simetrico com o travel-agency: app mais
+# as policies de escopo de rota.
+#
+# A rota (echo-api-route) NAO vem para ca -- ela fica no rhcl-ingress junto com
+# a travel-agency-route, porque rota e objeto de borda. Mesmo criterio para os
+# dois produtos.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: echo-api
+  title: Echo API
+  description: >-
+    Segundo produto publicado no Gateway prod-web. Existe para provar que a
+    fronteira e por PRODUTO, e nao "tem chave / nao tem chave": tem AuthPolicy
+    e PlanPolicy proprias, e a chave de um produto nao abre o outro.
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: echo
+  tags:
+    - rhcl
+    - ato-3
+spec:
+  owner: group:default/platform-team
+  domain: travel
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: echo-api
+  # A descricao anterior dizia "sem AuthPolicy propria, esta rota nao responde".
+  # Isso deixou de ser verdade quando o echo ganhou AuthPolicy e PlanPolicy
+  # proprias (env/*/devportal/echo-api.yaml) e virou o SEGUNDO PRODUTO -- que e
+  # justamente o que o Ato 3 passou a contar. O RUNBOOK ja registra a virada
+  # ("Este par mudou quando o echo-api virou o segundo produto do catalogo");
+  # a entidade e que tinha ficado descrevendo o estado antigo.
+  description: >-
+    Servico de eco em namespace separado, anexado ao MESMO Gateway que o
+    travels. Segundo produto do catalogo: tem AuthPolicy e PlanPolicy proprias,
+    e e sobre esse par que o Ato 3 mostra a precedencia -- as duas rotas
+    declaram a sua, as duas respondem 401, e o Gateway registra quem venceu
+    rota por rota.
+  links:
+    # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
+    # clique a partir do componente. Nao confundir com o decorator "edit code"
+    # da aba Topology: o destino e o mesmo repositorio, mas o lapis leva ao
+    # GitHub, nunca ao IDE -- o fetch do plugin Kubernetes e restrito ao
+    # kubernetes-namespace da entidade e o CheCluster vive em
+    # openshift-devspaces. Medido; ver platform-reference/devspaces/README.md.
+    # Este link e o caminho que esta ligado, e nao depende do Topology carregar.
+    # Se o Dev Spaces nao estiver instalado, o setup-catalog.sh apaga estas
+    # linhas em vez de publicar um link morto.
+    - url: https://${DEVSPACES_HOST}/#${DEMO_REPO_URL}
+      title: Abrir no Dev Spaces
+      icon: code
+    - url: https://${CONSOLE_HOST}/observe/traces
+      title: Traces — echo-api.echo-api
+      icon: dashboard
+    - url: https://${DEMO_ECHO_HOST}
+      title: Endpoint
+      icon: web
+  annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
+    gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/name=echo-api
+    backstage.io/kubernetes-namespace: echo-api
+    # O Kiali usa a anotacao DELE, nao a do Kubernetes.
+    kiali.io/namespace: echo-api
+    # View Source e View TechDocs no card About: sem estas duas anotacoes os
+    # botoes aparecem desabilitados. source-location termina em / porque
+    # aponta para um diretorio, nao para um arquivo.
+    backstage.io/source-location: url:${DEMO_REPO_URL}/
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
+    # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
+    # componente, entao a aba Actions passa a ter conteudo proprio.
+    # A aba Kiali usa o mesmo namespace; o provider e o nome do
+    # bloco kiali.providers no app-config.
+    kiali.io/provider: default
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: echo
+  tags:
+    - rhcl
+    - ato-3
+spec:
+  type: service
+  lifecycle: production
+  owner: group:default/platform-team
+  # 'echo-api', e nao 'rhcl-ingress': este e um servico, e o rhcl-ingress e a
+  # borda. Era a unica entidade do catalogo cuja camada contradizia o System.
+  # O System homonimo esta declarado logo acima -- kind diferente, ref
+  # diferente ('system:default/echo-api' x 'component:default/echo-api'), o
+  # Backstage nao confunde os dois.
+  system: echo-api

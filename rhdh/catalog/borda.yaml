@@ -1,0 +1,339 @@
+# ===========================================================================
+# Catalogo RHDH da demo RHCL — travel-agency.
+#
+# Modela a demo em duas Systems porque as policies do Kuadrant tem escopos
+# diferentes e isso importa na hora de explicar:
+#   - rhcl-ingress   : Gateway + policies com targetRef no Gateway (valem para
+#                      TODA rota anexada -- deny-all, rate limit baixo, DNS, TLS)
+#   - travel-agency  : app + policies com targetRef na HTTPRoute (valem so para
+#                      esta API -- API key e rate limit por usuario)
+#
+# ${DEMO_API_HOST} e ${DEMO_ECHO_HOST} sao substituidos pelo setup-catalog.sh
+# com os hostnames reais lidos das HTTPRoutes do cluster.
+#
+# ROTULOS: 'rhcl.demo/*' em metadata.labels e as tags seguem o vocabulario de
+# docs/CATALOGO.md -- leia antes de inventar um valor novo. As regras de forma
+# de label e de tag NAO sao as mesmas (a tag e mais estrita), e o
+# scripts/valida-catalogo.sh recusa o que sair da tabela.
+#
+#   camada         onde a entidade fica: borda, aplicacao, consumidor, plataforma
+#   escopo-policy  so em policy do Kuadrant: gateway (vale para toda rota
+#                  anexada) ou rota (vale so para esta API) -- e a distincao
+#                  que o Ato 3 explica
+#   origem         de onde a entidade nasce: repo, cluster, template
+#   produto        travels ou echo
+#
+# Toda policy do Kuadrant e 'camada: borda', inclusive as que miram a HTTPRoute
+# de uma aplicacao: quem as aplica e o gateway, nao o servico.
+# ===========================================================================
+#
+# ESTA FATIA: o System rhcl-ingress -- Gateway, as policies de escopo de
+# GATEWAY (valem para toda rota anexada), as HTTPRoutes e o certificado.
+---
+# ---------------------------------------------------------------------------
+# System: borda (RHCL / Kuadrant)
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: rhcl-ingress
+  description: >-
+    Borda gerenciada pelo Red Hat Connectivity Link: o Gateway compartilhado e
+    as policies de escopo de gateway.
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - gateway-api
+spec:
+  owner: group:default/platform-team
+  domain: travel
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: prod-web
+  title: Gateway prod-web
+  description: Gateway compartilhado (gatewayClass istio), listener HTTPS em *.travels.
+  links:
+    - url: https://${DEMO_API_HOST}
+      title: API travel-agency
+      icon: web
+    - url: https://${CONSOLE_HOST}/k8s/ns/ingress-gateway/gateway.networking.k8s.io~v1~Gateway/prod-web
+      title: Abrir no console
+      icon: web
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - gateway-api
+    - ato-1
+    - ato-3
+spec:
+  type: gateway
+  owner: group:default/platform-team
+  system: rhcl-ingress
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: prod-web-deny-all
+  title: AuthPolicy — deny all na borda
+  description: >-
+    AuthPolicy no Gateway. Nega tudo por padrao -- uma rota so passa a responder
+    depois que alguem anexa uma AuthPolicy propria a ela. E o default seguro da
+    borda, nao uma policy da aplicacao.
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/ingress-gateway/kuadrant.io~v1~AuthPolicy/prod-web-deny-all
+      title: Abrir no console
+      icon: web
+  annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
+    gitlab.com/project-slug: rhcl/policies/rhcl-policies
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: gateway
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - kuadrant
+    - ato-1
+spec:
+  type: kuadrant-authpolicy
+  owner: group:default/platform-team
+  system: rhcl-ingress
+  dependencyOf:
+    - resource:default/prod-web
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: ingress-gateway-rlp-lowlimits
+  title: RateLimitPolicy — teto do gateway
+  description: >-
+    RateLimitPolicy no Gateway: 50 req / 10s. Teto de protecao da borda; a
+    policy da rota (2000 / 10s por usuario) e mais permissiva, entao na pratica
+    quem corta primeiro e este limite do gateway.
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/ingress-gateway/kuadrant.io~v1~RateLimitPolicy/ingress-gateway-rlp-lowlimits
+      title: Abrir no console
+      icon: web
+  annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
+    gitlab.com/project-slug: rhcl/policies/rhcl-policies
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: gateway
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - kuadrant
+    - ato-3
+spec:
+  type: kuadrant-ratelimitpolicy
+  owner: group:default/platform-team
+  system: rhcl-ingress
+  dependencyOf:
+    - resource:default/prod-web
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: prod-web-dnspolicy
+  title: DNSPolicy — registros do gateway
+  description: >-
+    DNSPolicy: publica os registros do Gateway no provedor DNS (Route 53) a
+    partir das credenciais em prod-web-aws-credentials. NAO ESTA APLICADA neste
+    cluster -- aqui o Gateway usa o wildcard que o cluster ja tem. Emitir por
+    DNS01 para o hostname do proprio Gateway derruba a resolucao dele, e o
+    certificado ainda assim sai Ready=True, o que faz o diagnostico apontar
+    para o lugar errado.
+  links:
+    - url: ${DEMO_REPO_URL_BLOB}/platform-reference/policies-connectivity/prod-web-dnspolicy.yaml
+      title: Manifesto (nao aplicado neste cluster)
+      icon: web
+  annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
+    gitlab.com/project-slug: rhcl/policies/rhcl-policies
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: gateway
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - kuadrant
+spec:
+  type: kuadrant-dnspolicy
+  owner: group:default/platform-team
+  system: rhcl-ingress
+  dependencyOf:
+    - resource:default/prod-web
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: prod-web-tls-policy
+  title: TLSPolicy — certificado do listener
+  description: >-
+    TLSPolicy: emite o certificado do listener via ClusterIssuer do cert-manager.
+    Vive em platform-reference/ -- e da plataforma, nao da demo. NAO ESTA
+    APLICADA neste cluster, pelo mesmo motivo da DNSPolicy: o caminho DNS01
+    quebra o proprio host do Gateway.
+  links:
+    - url: ${DEMO_REPO_URL_BLOB}/platform-reference/policies-connectivity/prod-web-tls-policy.yaml
+      title: Manifesto (nao aplicado neste cluster)
+      icon: web
+  annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
+    gitlab.com/project-slug: rhcl/policies/rhcl-policies
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: gateway
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - kuadrant
+spec:
+  type: kuadrant-tlspolicy
+  owner: group:default/platform-team
+  system: rhcl-ingress
+  dependencyOf:
+    - resource:default/prod-web
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: prod-web-telemetry
+  title: TelemetryPolicy — rotulos de plano e parceiro
+  description: >-
+    TelemetryPolicy no Gateway: rotula as metricas com o plano (auth.kuadrant.plan)
+    e o parceiro (auth.demo.partner). O segundo so existe porque a AuthPolicy
+    exporta a identidade como dynamic metadata -- no contexto CEL do WasmPlugin
+    nao ha 'auth.identity', entao sem essa exportacao o label sai vazio.
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/ingress-gateway/extensions.kuadrant.io~v1alpha1~TelemetryPolicy/prod-web-telemetry
+      title: Abrir no console
+      icon: web
+  annotations:
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
+    gitlab.com/project-slug: rhcl/policies/rhcl-policies
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: gateway
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - kuadrant
+    - observabilidade
+    - ato-4
+    - ato-5
+spec:
+  type: kuadrant-telemetrypolicy
+  owner: group:default/platform-team
+  system: rhcl-ingress
+  dependsOn:
+    - resource:default/travel-agency-authpolicy
+  dependencyOf:
+    - resource:default/prod-web
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: travel-agency-route
+  title: HTTPRoute — travel-agency
+  description: >-
+    A rota que expoe a API pelo Gateway. E o alvo de quase toda policy da demo:
+    AuthPolicy, PlanPolicy e RateLimitPolicy miram a ROTA, e por isso vencem as
+    policies de Gateway -- hierarquia rota-vence-gateway, que vale no 1.4.
+  annotations:
+    rhcl.demo/cluster-object: httproute/travel-agency/travel-agency
+    # Contrato com o plugin: e por esta anotacao que o card de
+    # conectividade sabe que ESTA entidade e a rota, e nao um
+    # componente que tem uma.
+    connectivity-link.rhcl/httproute: travel-agency/travel-agency
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/travel-agency/gateway.networking.k8s.io~v1~HTTPRoute/travel-agency
+      title: Ver no console
+      icon: web
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: travels
+  tags:
+    - rhcl
+    - gateway-api
+spec:
+  type: httproute
+  owner: group:default/platform-team
+  system: rhcl-ingress
+  dependsOn:
+    - resource:default/prod-web
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: echo-api-route
+  title: HTTPRoute — echo-api
+  description: >-
+    Segunda rota no mesmo Gateway. Existe para provar que a borda e compartilhada e
+    que cada rota governa a si mesma, sem uma interferir na outra.
+  annotations:
+    rhcl.demo/cluster-object: httproute/echo-api/echo-api
+    # Contrato com o plugin: e por esta anotacao que o card de
+    # conectividade sabe que ESTA entidade e a rota, e nao um
+    # componente que tem uma.
+    connectivity-link.rhcl/httproute: echo-api/echo-api
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/echo-api/gateway.networking.k8s.io~v1~HTTPRoute/echo-api
+      title: Ver no console
+      icon: web
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: echo
+  tags:
+    - rhcl
+    - gateway-api
+spec:
+  type: httproute
+  owner: group:default/platform-team
+  system: rhcl-ingress
+  dependsOn:
+    - resource:default/prod-web
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: api-tls
+  title: Certificado do listener
+  description: >-
+    O certificado do Gateway. E copia do wildcard que o cluster ja tem, e NAO vem de
+    TLSPolicy com DNS01 -- aquele caminho emite um certificado Ready=True e derruba a
+    resolucao do proprio host.
+  annotations:
+    rhcl.demo/cluster-object: secret/ingress-gateway/api-tls
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/ingress-gateway/core~v1~Secret/api-tls
+      title: Ver no console
+      icon: web
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+spec:
+  type: certificate
+  owner: group:default/platform-team
+  system: rhcl-ingress

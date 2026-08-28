@@ -1,0 +1,227 @@
+# ===========================================================================
+# Catalogo RHDH da demo RHCL — travel-agency.
+#
+# Modela a demo em duas Systems porque as policies do Kuadrant tem escopos
+# diferentes e isso importa na hora de explicar:
+#   - rhcl-ingress   : Gateway + policies com targetRef no Gateway (valem para
+#                      TODA rota anexada -- deny-all, rate limit baixo, DNS, TLS)
+#   - travel-agency  : app + policies com targetRef na HTTPRoute (valem so para
+#                      esta API -- API key e rate limit por usuario)
+#
+# ${DEMO_API_HOST} e ${DEMO_ECHO_HOST} sao substituidos pelo setup-catalog.sh
+# com os hostnames reais lidos das HTTPRoutes do cluster.
+#
+# ROTULOS: 'rhcl.demo/*' em metadata.labels e as tags seguem o vocabulario de
+# docs/CATALOGO.md -- leia antes de inventar um valor novo. As regras de forma
+# de label e de tag NAO sao as mesmas (a tag e mais estrita), e o
+# scripts/valida-catalogo.sh recusa o que sair da tabela.
+#
+#   camada         onde a entidade fica: borda, aplicacao, consumidor, plataforma
+#   escopo-policy  so em policy do Kuadrant: gateway (vale para toda rota
+#                  anexada) ou rota (vale so para esta API) -- e a distincao
+#                  que o Ato 3 explica
+#   origem         de onde a entidade nasce: repo, cluster, template
+#   produto        travels ou echo
+#
+# Toda policy do Kuadrant e 'camada: borda', inclusive as que miram a HTTPRoute
+# de uma aplicacao: quem as aplica e o gateway, nao o servico.
+# ===========================================================================
+#
+# ESTA FATIA: pessoas, times e dominios. Muda pouco, e e de quem toca
+# identidade -- nao de quem mexe em policy.
+---
+# ---------------------------------------------------------------------------
+# O usuario 'guest'.
+#
+# O provider guest emite a identidade user:development/guest -- namespace
+# 'development', que vem de auth.environment, e NAO 'default'. Sem esta
+# entidade o portal funciona (dangerouslyAllowSignInWithoutUserInCatalog
+# permite entrar), mas todo consumidor da identity API recebe 404:
+#
+#   GET /api/catalog/entities/by-name/user/development/guest -> 404
+#
+# E o que se suspeita bloquear o fluxo de pedido de API key do plugin Kuadrant,
+# que emite chave por usuario. Criar a entidade e mais barato que ligar RBAC.
+#
+# Ao trocar guest por um IdP real, esta entidade sai junto com o provider.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: guest
+  namespace: development
+  description: Identidade emitida pelo provider guest. Lab apenas.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+spec:
+  profile:
+    displayName: Guest
+    # O e-mail NAO e decorativo: o plugin Kuadrant desabilita o botao
+    # 'Request API Access' sem ele e mostra "Email address is required" ao lado.
+    # A chave emitida fica associada a este endereco.
+    email: guest@travel-agency.demo
+  memberOf:
+    - group:default/platform-team
+---
+# ---------------------------------------------------------------------------
+# AS PERSONAS DO ATO 6 — as mesmas que existem como usuario no GitLab.
+#
+# Elas existem por causa do resolver de sign-in: 'usernameMatchingUserEntityName'
+# casa o username do GitLab com User:default/<nome>. Sem a entidade, o login
+# acontece e a sessao morre logo depois em "user not found" -- falha que parece
+# de credencial e e de catalogo.
+#
+# NAMESPACE default de proposito (o 'guest' acima esta em 'development'): o
+# resolver procura em default, e entidade no namespace errado e invisivel para
+# ele.
+#
+# O e-mail difere do que esta no GitLab (@example.invalid, que nunca recebe
+# correio). Nao e inconsistencia: o resolver casa por USERNAME, e os dois
+# sistemas nao precisam concordar no endereco. Aqui vale a convencao do repo,
+# que e o que aparece na tela.
+#
+# E o e-mail nao e decorativo, pelo mesmo motivo do 'guest' acima: sem ele o
+# plugin Kuadrant desabilita 'Request API Access'.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: globex-travel
+  description: Parceiro tier gold. Abre merge request de assinatura no GitLab.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - parceiro
+    - tier-gold
+spec:
+  profile:
+    displayName: Globex Travel
+    email: globex@travel-agency.demo
+  memberOf:
+    - group:default/parceiros
+---
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: initech-voyages
+  description: Parceiro tier silver. Abre merge request de assinatura no GitLab.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - parceiro
+    - tier-silver
+spec:
+  profile:
+    displayName: Initech Voyages
+    email: initech@travel-agency.demo
+  memberOf:
+    - group:default/parceiros
+---
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: acme-trips
+  description: Parceiro tier free. Abre merge request de assinatura no GitLab.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - parceiro
+    - tier-free
+spec:
+  profile:
+    displayName: ACME Trips
+    email: acme@travel-agency.demo
+  memberOf:
+    - group:default/parceiros
+---
+# Quem APROVA. Maintainer em rhcl/apis no GitLab, e o unico que faz merge --
+# quem pede nao e quem aprova.
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: plat-eng
+  description: Engenharia de plataforma. Aprova e faz merge das assinaturas.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+spec:
+  profile:
+    displayName: Plataforma
+    email: plataforma@travel-agency.demo
+  memberOf:
+    - group:default/platform-team
+---
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: parceiros
+  description: Consumidores da API. Abrem assinatura por merge request; nao aprovam.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - parceiro
+spec:
+  type: team
+  children: []
+---
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: platform-team
+  description: Time responsavel pela plataforma e pelas policies de conectividade.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+spec:
+  type: team
+  children: []
+---
+apiVersion: backstage.io/v1alpha1
+kind: Domain
+metadata:
+  name: travel
+  description: Dominio de negocio da demo de conectividade.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+spec:
+  owner: group:default/platform-team
+---
+# ---------------------------------------------------------------------------
+# Domain: plataforma.
+#
+# EXISTE PARA TIRAR A PLATAFORMA DE DENTRO DO NEGOCIO. Ate 2026-08-28 os tres
+# Systems declaravam 'domain: travel' -- inclusive o 'plataforma', o que punha
+# Authorino, Limitador, Tempo, Argo CD, GitLab e Keycloak dentro do dominio de
+# negocio de viagens. Nao quebrava nada: o Backstage aceita, a pagina do
+# dominio abre, e a lista simplesmente mistura o que sustenta a demo com o que
+# a demo vende.
+#
+# A separacao e o que faz a pergunta "o que e nosso negocio e o que e
+# infraestrutura?" ter resposta na tela -- que e a mesma pergunta que o rotulo
+# rhcl.demo/camada responde no nivel da entidade. Aqui ela vale no nivel do
+# System.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: Domain
+metadata:
+  name: plataforma
+  description: >-
+    Plataforma que executa a demo: control plane do RHCL, Service Mesh,
+    observabilidade, GitOps e identidade. Nao e produto -- e o que sustenta os
+    produtos do dominio travel.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+spec:
+  owner: group:default/platform-team
