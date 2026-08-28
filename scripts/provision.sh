@@ -1209,11 +1209,15 @@ json.dump(d, sys.stdout)' \
   # NAO da para emitir sozinho: o Sonar nasce admin/admin e forca troca no
   # primeiro acesso, entao qualquer automacao aqui dependeria de uma senha que
   # so existe depois de alguem entrar. Fica explicito e manual.
-  if [[ -n "${SONAR_TOKEN:-}" ]]; then
+  # A ORDEM DA CONFERENCIA IMPORTA: pergunta primeiro se o secret ja existe, e
+  # so depois se ha SONAR_TOKEN no ambiente. Ao contrario, uma etapa reexecutada
+  # sem a variavel avisava que o portao ia falhar -- com o secret ali, criado
+  # numa execucao anterior. Aviso que mente uma vez deixa de ser lido.
+  if oc get secret sonarqube-token -n travel-packages >/dev/null 2>&1; then
+    _ok "secret sonarqube-token ja existe"
+  elif [[ -n "${SONAR_TOKEN:-}" ]]; then
     if [[ $DRY_RUN -eq 1 ]]; then
       _cmd "oc create secret generic sonarqube-token -n travel-packages"
-    elif oc get secret sonarqube-token -n travel-packages >/dev/null 2>&1; then
-      _ok "secret sonarqube-token ja existe"
     else
       oc create secret generic sonarqube-token -n travel-packages \
         --from-literal=token="$SONAR_TOKEN" >/dev/null 2>&1 \
