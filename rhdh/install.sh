@@ -132,8 +132,25 @@ _secrets='{"name":"rhdh-backend-secret"}'
 #
 # Quem adicionar um secret ao portal precisa acrescenta-lo AQUI tambem, ou o
 # proximo install.sh o apaga.
-for _sec in rhdh-kubernetes-secret rhdh-github-secret rhdh-automation-secret rhdh-gitlab-oauth; do
+# A lista deixou de ser fixa em 2026-08-28. Ela era um campo minado: o apply
+# SUBSTITUI extraEnvs inteiro, e todo secret ausente daqui desaparecia -- ja
+# custou o AUTOMATION_TOKEN e o OAuth do GitLab, e a lista divergiu do cluster
+# assim que outra sessao acrescentou um secret proprio.
+#
+# Agora a fonte de verdade e o CR: preserva o que JA esta em extraEnvs, e a
+# lista abaixo so acrescenta o que este script sabe criar. Quem adicionar um
+# secret ao portal nao precisa mais lembrar de vir aqui.
+_ja="$(oc get backstage "$RHDH_CR" -n "$RHDH_NS" \
+  -o jsonpath='{range .spec.application.extraEnvs.secrets[*]}{.name}{"\n"}{end}' 2>/dev/null || true)"
+for _sec in $(printf '%s\n%s\n' "$_ja" \
+     "rhdh-kubernetes-secret
+rhdh-github-secret
+rhdh-automation-secret
+rhdh-gitlab-oauth
+rhdh-gitlab-secret
+rhdh-acs-secret" | grep -v '^$' | sort -u); do
   if oc get secret "$_sec" -n "$RHDH_NS" >/dev/null 2>&1; then
+    [[ "$_sec" == "rhdh-backend-secret" ]] && continue
     _secrets="${_secrets},{\"name\":\"${_sec}\"}"
     _log "credencial detectada, preservada em extraEnvs: ${_sec}"
   fi

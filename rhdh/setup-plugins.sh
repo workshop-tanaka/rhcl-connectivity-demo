@@ -544,6 +544,66 @@ if [[ "${WITH_TEKTON:-true}" == "true" ]]; then
 fi
 
 
+# RHACS: vulnerabilidades e violacoes de policy na pagina do componente.
+#
+# Build oficial da Red Hat, tag exata bs_1.49.4__0.2.0 -- vem por OCI, nao leva
+# marca de procedencia.
+#
+# 'secure: false' NAO e desleixo. A rota do Central e passthrough: ela serve o
+# certificado do proprio StackRox, e o pod do RHDH nao confia nele -- medido em
+# 2026-08-28, curl devolve exit 60 tanto pela rota quanto pelo Service. As
+# alternativas seriam juntar a CA do StackRox ao NODE_EXTRA_CA_CERTS (que hoje
+# carrega a do cluster) ou aceitar o certificado no proxy. A segunda e a que
+# Quay e Jaeger ja usam neste arquivo, e o trafego nao sai do cluster.
+#
+# O token e de papel ANALYST, de leitura. O portal mostra vulnerabilidade; ele
+# nao precisa poder mexer em policy, e um token de Admin num app-config e um
+# alvo que nao se justifica.
+#
+# A anotacao e acs/deployment-name e aceita LISTA separada por virgula -- aqui
+# os deployments tem sufixo de versao (travels-v1), que nao e o nome da
+# entidade. Errar isso da uma aba que carrega e nao acha nada.
+if [[ "${WITH_ACS:-true}" == "true" ]]; then
+  _acs_tag="bs_1.49.4__0.2.0"
+  if ! oc get secret rhdh-acs-secret -n "$RHDH_NS" >/dev/null 2>&1; then
+    _warn "rhdh-acs-secret ausente -- a aba Security fica sem dados" \
+          "gere um token Analyst no Central e crie o secret com ACS_API_URL e ACS_API_KEY"
+  fi
+  _plugins="${_plugins}
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-acs:${_acs_tag}!backstage-community-plugin-acs
+        disabled: false
+        pluginConfig:
+          proxy:
+            endpoints:
+              '/acs':
+                target: \${ACS_API_URL}
+                headers:
+                  authorization: 'Bearer \${ACS_API_KEY}'
+                changeOrigin: true
+                secure: false
+          acs:
+            acsUrl: \${ACS_API_URL}
+          dynamicPlugins:
+            frontend:
+              backstage-community.plugin-acs:
+                entityTabs:
+                  - path: /security
+                    title: Security
+                    mountPoint: entity.page.security
+                mountPoints:
+                  - mountPoint: entity.page.security/cards
+                    importName: EntityACSContent
+                    config:
+                      layout:
+                        gridColumn: '1 / -1'
+                      if:
+                        allOf:
+                          - isKind: component
+                          - hasAnnotation: acs/deployment-name"
+  _log "ACS incluido -- aba Security nos componentes com acs/deployment-name"
+fi
+
+
 
 
 # Kuadrant / Connectivity Link. EXISTE plugin -- @kuadrant/*, no npm publico,
@@ -1074,16 +1134,30 @@ _cms='{"name":"app-config-rhdh"},{"name":"app-config-rhdh-catalog"},{"name":"app
 # rhdh-automation-secret e rhdh-gitlab-oauth NAO sao condicionais: sem o
 # primeiro nao ha como automacao falar com a API (o guest saiu), e sem o
 # segundo o login nao existe -- o portal sobe sem porta de entrada.
-_secrets='{"name":"rhdh-backend-secret"},{"name":"rhdh-kubernetes-secret"},{"name":"rhdh-automation-secret"},{"name":"rhdh-gitlab-oauth"}'
+# A lista PARTE do que ja esta no CR, e nao de um literal. Ate 2026-08-28 este
+# script e o install.sh mantinham cada um a sua lista parcial e se
+# sobrescreviam: rodar um apagava os secrets que so o outro conhecia, e a
+# extraEnvs oscilava a cada execucao. O sintoma nunca aponta para o secret que
+# sumiu -- o pod fica 1/2 e TODOS os plugins falham em 'core.auth'.
+_secrets=""
+while IFS= read -r _s; do
+  [[ -z "$_s" ]] && continue
+  _secrets="${_secrets:+${_secrets},}{\"name\":\"${_s}\"}"
+done < <(oc get backstage "$RHDH_CR" -n "$RHDH_NS" \
+           -o jsonpath='{range .spec.application.extraEnvs.secrets[*]}{.name}{"\n"}{end}' 2>/dev/null | sort -u || true)
+for _s in rhdh-backend-secret rhdh-kubernetes-secret rhdh-automation-secret rhdh-gitlab-oauth; do
+  case ",${_secrets}," in *"\"${_s}\""*) continue ;; esac
+  _secrets="${_secrets:+${_secrets},}{\"name\":\"${_s}\"}"
+done
 if oc get secret rhdh-ansible-secret -n "$RHDH_NS" >/dev/null 2>&1; then
-  _secrets="${_secrets},{\"name\":\"rhdh-ansible-secret\"}"
+  case ",${_secrets}," in *"\"rhdh-ansible-secret\""*) : ;; *) _secrets="${_secrets},{\"name\":\"rhdh-ansible-secret\"}" ;; esac
 fi
 # app-config-rhdh-github e rhdh-github-secret NAO entram mais: sem eles nao ha
 # 'integrations.github' no portal, que e o ponto da decisao de 2026-08-25.
 # Residuo de instalacao anterior deixa de ser referenciado e some no rollout.
 if oc get configmap app-config-rhdh-gitlab -n "$RHDH_NS" >/dev/null 2>&1; then
   _cms="${_cms},{\"name\":\"app-config-rhdh-gitlab\"}"
-  _secrets="${_secrets},{\"name\":\"rhdh-gitlab-secret\"}"
+  case ",${_secrets}," in *"\"rhdh-gitlab-secret\""*) : ;; *) _secrets="${_secrets},{\"name\":\"rhdh-gitlab-secret\"}" ;; esac
 fi
 
 # creator-service como sidecar, e nao como Deployment proprio: o plugin monta a
