@@ -107,24 +107,21 @@ _log "observabilidade: ${GRAFANA_HOST} / ${TRACING_HOST}"
 # se trabalha. Qual branch do GitHub originou o espelho e decisao de quem roda o
 # gitlab-seed.sh, e nao muda a URL que o portal le.
 
-# O spec e renderizado AQUI, antes das entidades, para que seu hash possa
-# entrar na entidade kind: API.
+# O spec e renderizado AQUI, antes das entidades, porque seu hash vira parte da
+# URL que o APIProduct consome (secao 2b).
 #
-# POR QUE O HASH EXISTE: definition.$text e resolvido UMA vez, na primeira
-# ingestao, e o resultado fica no banco do catalogo. O Backstage so reprocessa
-# a entidade quando o conteudo DELA muda -- mudar so o arquivo apontado nao
-# dispara nada. O portal seguia servindo o spec antigo indefinidamente, sem
-# erro em lugar nenhum. Medido em 2026-08-27: httpd com 2388 bytes e host
-# certo, entidade no banco com 1992 e o host de outro cluster.
-#
-# Com o hash dentro da entidade, mudar o spec muda a entidade, e o
-# reprocessamento acontece por consequencia.
+# O export dos hosts vem ANTES deste render de proposito: envsubst le o
+# AMBIENTE, e nao a variavel de shell. Com o export depois, DEMO_API_HOST chega
+# vazio e o spec sai com 'url: https://' -- que nao quebra nada visivelmente,
+# so publica um servidor invalido.
+export CATALOG_SVC DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_URL DEMO_REPO_URL_BLOB GRAFANA_HOST TRACING_HOST CONSOLE_HOST DEVSPACES_HOST
+
 _openapi="$(mktemp)"
 envsubst '${DEMO_API_HOST}' < "${_here}/catalog/travels-openapi.yaml" > "$_openapi" \
   || _die "falha ao renderizar catalog/travels-openapi.yaml"
 OPENAPI_SHA="$(shasum -a 256 "$_openapi" | cut -c1-12)"
 
-export OPENAPI_SHA CATALOG_SVC DEMO_API_HOST DEMO_ECHO_HOST DEMO_REPO_URL DEMO_REPO_URL_BLOB GRAFANA_HOST TRACING_HOST CONSOLE_HOST DEVSPACES_HOST
+export OPENAPI_SHA
 _log "hosts da demo: ${DEMO_API_HOST} / ${DEMO_ECHO_HOST}"
 
 # ----- 2. entidades renderizadas -------------------------------------------
@@ -277,6 +274,38 @@ oc rollout restart deployment/rhdh-catalog-server -n "$RHDH_NS" >/dev/null 2>&1
 oc rollout status deployment/rhdh-catalog-server -n "$RHDH_NS" --timeout=300s >/dev/null \
   || _die "o servidor de catalogo nao ficou pronto."
 _ok "entidades sendo servidas em http://${CATALOG_SVC}/travel-agency.yaml"
+
+# ----- 2b. cutucar quem consome o spec ------------------------------------
+# O controlador do devportal busca o openAPISpecURL UMA vez e trava em
+# OpenAPISpecReady=True. Trocar o conteudo servido nao dispara nova busca: o
+# APIProduct segue com a copia antiga no status, e o portal a exibe -- porque a
+# entidade kind: API do catalogo nao vem daqui, vem do provider do plugin
+# Kuadrant, que le esse status.
+#
+# Medido em 2026-08-27: httpd servindo o host correto e o APIProduct ainda com
+# api.travels.sandbox.opentlc.com, sem erro em lugar nenhum.
+#
+# O hash do spec entra como query string. A URL passa a mudar quando (e so
+# quando) o spec muda, que e exatamente o gatilho que o controlador respeita.
+_alvo_spec="http://${CATALOG_SVC}/travels-openapi.yaml?v=${OPENAPI_SHA}"
+_cutucados=0
+while read -r _ns _nome; do
+  [[ -z "$_nome" ]] && continue
+  _atual="$(oc get apiproduct "$_nome" -n "$_ns" -o jsonpath='{.spec.documentation.openAPISpecURL}' 2>/dev/null)"
+  [[ "$_atual" == "$_alvo_spec" ]] && continue
+  oc patch apiproduct "$_nome" -n "$_ns" --type merge \
+     -p "{\"spec\":{\"documentation\":{\"openAPISpecURL\":\"${_alvo_spec}\"}}}" >/dev/null 2>&1 \
+    && _cutucados=$((_cutucados + 1))
+done < <(oc get apiproduct -A -o jsonpath='{range .items[?(@.spec.documentation.openAPISpecURL)]}{.metadata.namespace} {.metadata.name}{"\n"}{end}' 2>/dev/null \
+          | while read -r _n _m; do
+              _u="$(oc get apiproduct "$_m" -n "$_n" -o jsonpath='{.spec.documentation.openAPISpecURL}' 2>/dev/null)"
+              [[ "$_u" == *"${CATALOG_SVC}"* ]] && printf '%s %s\n' "$_n" "$_m"
+            done)
+if [[ "$_cutucados" -gt 0 ]]; then
+  _ok "APIProduct atualizado para rebuscar o spec (${_cutucados})"
+else
+  _ok "APIProduct ja aponta para a versao corrente do spec"
+fi
 
 # ----- 3. locations --------------------------------------------------------
 # Uma unica lista, aqui: 'catalog.locations' e um array, e arrays nao se somam
