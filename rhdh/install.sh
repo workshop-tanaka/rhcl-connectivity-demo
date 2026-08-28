@@ -148,7 +148,9 @@ rhdh-github-secret
 rhdh-automation-secret
 rhdh-gitlab-oauth
 rhdh-gitlab-secret
-rhdh-acs-secret" | grep -v '^$' | sort -u); do
+rhdh-acs-secret
+rhdh-nexus-secret
+rhdh-sonarqube-secret" | grep -v '^$' | sort -u); do
   if oc get secret "$_sec" -n "$RHDH_NS" >/dev/null 2>&1; then
     [[ "$_sec" == "rhdh-backend-secret" ]] && continue
     _secrets="${_secrets},{\"name\":\"${_sec}\"}"
