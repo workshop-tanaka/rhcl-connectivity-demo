@@ -262,6 +262,39 @@ fi
 [[ "$WITH_GRAFANA" == "true" && -z "${GRAFANA_INTEGRITY:-}" ]] && {
   _warn "grafana ligado e sem integrity (nem herdada) -- desligado nesta execucao"; WITH_GRAFANA=false; }
 
+# ----- o registry SERVE o que a ConfigMap vai pedir? -------------------------
+# A integrity provar que o pacote e integro nao prova que ele EXISTE. Sao duas
+# perguntas, e ate 2026-08-28 so a primeira era feita: com o cl-ops.env no
+# repositorio o plugin passa a ser ligado por default, e num cluster novo o
+# plugin-registry sobe VAZIO -- a ConfigMap pediria um .tgz que ninguem
+# publicou, o init container levaria 404, e o pod ficaria em
+# Init:CrashLoopBackOff sem dizer qual pacote faltou.
+#
+# Desligar aqui e o certo, e nao abortar: e exatamente o que ja acontece com o
+# jaeger e o grafana na PRIMEIRA execucao de um cluster novo -- o registry so
+# existe depois que este script roda. A sequencia e rodar, publicar, rodar de
+# novo, e o aviso abaixo diz qual comando publica.
+_registry_serve() { # nome do .tgz -> 0 se o pod do registry o serve
+  local _rp
+  _rp="$(oc get pods -n "$RHDH_NS" --no-headers 2>/dev/null \
+         | grep plugin-registry | grep Running | awk '{print $1}' | head -1)"
+  [[ -n "$_rp" ]] || return 1
+  oc exec -n "$RHDH_NS" "$_rp" -- ls /opt/app-root/src 2>/dev/null | grep -qx "$1"
+}
+
+if [[ "$WITH_CL_OPS" == "true" ]]; then
+  _clo_falta=""
+  _registry_serve "rhcl-backstage-plugin-connectivity-link-ops-${CL_OPS_VERSION}.tgz" \
+    || _clo_falta="frontend"
+  _registry_serve "rhcl-backstage-plugin-connectivity-link-ops-backend-dynamic-${CL_OPS_VERSION}.tgz" \
+    || _clo_falta="${_clo_falta:+${_clo_falta} e }backend"
+  if [[ -n "$_clo_falta" ]]; then
+    _warn "connectivity-link-ops ${CL_OPS_VERSION}: o plugin-registry nao serve o ${_clo_falta} -- desligado nesta execucao" \
+          "bash scripts/build-cl-ops.sh --publish  &&  bash rhdh/setup-plugins.sh"
+    WITH_CL_OPS=false
+  fi
+fi
+
 _log "flags: kiali=$WITH_KIALI quay=$WITH_QUAY kuadrant=$WITH_KUADRANT tekton=$WITH_TEKTON acs=$WITH_ACS nexus=$WITH_NEXUS sonarqube=$WITH_SONARQUBE jaeger=$WITH_JAEGER grafana=$WITH_GRAFANA cl-ops=$WITH_CL_OPS"
 
 
