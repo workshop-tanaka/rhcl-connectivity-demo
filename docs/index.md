@@ -15,6 +15,9 @@ ausência desta página.
 - **[Roteiro da demo](RUNBOOK.md)** — os atos, na ordem em que são apresentados,
   e as armadilhas encontradas neste cluster.
 - **[Provisionamento 1.4](PROVISIONING-1.4.md)** — como o ambiente é montado.
+- **[Vocabulário do catálogo](CATALOGO.md)** — como as entidades são rotuladas,
+  e a diferença de regra entre `tags` e `metadata.labels`. Leitura obrigatória
+  antes de mexer em `rhdh/catalog/` ou nos templates.
 
 ## O portal
 
