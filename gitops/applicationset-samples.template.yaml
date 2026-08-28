@@ -1,0 +1,118 @@
+# ===========================================================================
+# ApplicationSet das amostras — um Application por diretório de samples/.
+#
+# TEMPLATE: '__GITLAB_API__' é substituído por 'scripts/provision.sh gitops',
+# que monta a URL a partir da rota do GitLab no cluster. Não aplique este
+# arquivo direto — o placeholder viraria host literal.
+#
+# ---------------------------------------------------------------------------
+# ESTE É O ÚNICO DOS TRÊS APPLICATIONSET QUE **APLICA** DE VERDADE
+#
+# Compare com os vizinhos, porque a diferença não é acidente:
+#
+#   rhcl-travel        OBSERVA. Quem aplica os seis backends é o provision.sh
+#                      (etapa 'platform'); dois donos para o mesmo objeto
+#                      deixaram as Applications presas em phase=Running.
+#   rhcl-golden-path   APLICA o que o desenvolvedor gera pelo template.
+#   rhcl-samples       APLICA. Ninguém mais aplica as amostras -- a etapa
+#                      'samples' do provision.sh é o caminho do laptop, e ela é
+#                      idempotente com o que o Argo faz.
+#
+# Então aqui 'automated' existe. E 'selfHeal' continua desligado, pela regra do
+# projeto que não muda: vários movimentos são edições ao vivo (o canário do
+# reviews, o peso do echo, o modo da PeerAuthentication). Sob enforcement, o
+# Argo desfaz o movimento no meio da explicação.
+#
+# ---------------------------------------------------------------------------
+# preserveResourcesOnDeletion: true — MESMA LIÇÃO DE 2026-08-28
+#
+# Por padrão o ApplicationSet carimba o finalizer 'resources-finalizer' em cada
+# Application que gera, e apagar o Application APAGA DO CLUSTER o que ele
+# observa. Foi assim que o Deployment travels-v1 e o Service travels caíram ao
+# recriar as Applications do rhcl-travel para trocar a syncPolicy.
+#
+# Aqui o risco é o mesmo no dia em que alguém renomear um diretório em
+# samples/: o AppSet apaga o Application antigo sozinho, sem avisar. Com o
+# finalizer, levaria junto o namespace inteiro da amostra -- e os Secrets de
+# API key, que moram em kuadrant-system e são compartilhados com a instância do
+# Authorino.
+#
+# ---------------------------------------------------------------------------
+# prune: false pelo mesmo motivo do rhcl-travel: a etapa 'samples' do
+# provision.sh aplica os mesmos manifests. Se o espelho no GitLab ficar para
+# trás de uma mudança em samples/, prune APAGARIA do cluster o que o provision
+# acabou de criar.
+#
+# ---------------------------------------------------------------------------
+# 'include: manifests/[0-9]*.yaml' É CONTRATO, e ele tem duas consequências:
+#
+#   1. o kustomization.yaml de cada amostra fica FORA do sync sem precisar de
+#      exclusão -- se entrasse, o sync falharia com 'kind not set';
+#   2. renomear um manifest para algo que não comece com dígito o tira do Argo
+#      EM SILÊNCIO. É a mesma armadilha que o gitops/README.md já registra para
+#      o golden path.
+#
+# cloneProtocol: https É OBRIGATÓRIO e o campo fica no nível do scmProvider.
+# Sem ele o default é ssh, o Argo pede agente SSH que não existe, e NENHUMA
+# Application sincroniza -- enquanto o ApplicationSet reporta
+# ErrorOccurred=False e "All applications have been generated successfully".
+# Medido nos dois providers deste projeto; ver o cabeçalho do
+# applicationset-golden-path.
+# ===========================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: rhcl-samples
+  namespace: openshift-gitops
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy:
+    preserveResourcesOnDeletion: true
+  generators:
+    - scmProvider:
+        cloneProtocol: https
+        gitlab:
+          group: rhcl/samples
+          includeSubgroups: false
+          api: __GITLAB_API__
+          tokenRef:
+            secretName: golden-path-gitlab-token
+            key: token
+        filters:
+          - pathsExist: [manifests]
+        requeueAfterSeconds: 180
+  template:
+    metadata:
+      name: 'sample-{{ .repository }}'
+      labels:
+        app.kubernetes.io/part-of: rhcl-samples
+    spec:
+      project: default
+      source:
+        repoURL: '{{ .url }}'
+        targetRevision: '{{ .branch }}'
+        path: .
+        directory:
+          recurse: true
+          include: 'manifests/[0-9]*.yaml'
+      destination:
+        server: https://kubernetes.default.svc
+        # Fallback apenas: todo manifest das amostras declara o próprio
+        # namespace, e o namespace vem do 00- de cada uma (com o rótulo de
+        # injeção do Service Mesh, sem o qual a amostra nasce fora do mesh).
+        #
+        # As chaves de API são a exceção proposital: elas declaram
+        # kuadrant-system, porque com allNamespaces: false o Authorino indexa
+        # Secret do namespace da INSTÂNCIA. É por isso que o
+        # application-controller precisa de permissão fora do namespace da
+        # amostra -- a etapa 'gitops' do provision.sh já a concede.
+        namespace: '{{ .repository }}'
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        syncOptions:
+          - SkipDryRunOnMissingResource=true
+          - ServerSideApply=true
+          - CreateNamespace=false

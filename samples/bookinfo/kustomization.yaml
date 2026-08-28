@@ -35,7 +35,23 @@ resources:
   - 22-authpolicy.yaml
   - 23-planpolicy.yaml
   - 24-ratelimitpolicy-ui.yaml
-  - 25-telemetrypolicy.yaml
+  # NAO HA 25-telemetrypolicy.yaml, e a ausencia e uma MEDICAO e nao um
+  # esquecimento. Uma TelemetryPolicy mirando a HTTPRoute bookinfo-api foi
+  # escrita e o servidor a recusou, em 2026-08-28 neste cluster:
+  #
+  #   The TelemetryPolicy "bookinfo-telemetry" is invalid: spec.targetRef:
+  #   Invalid value: "object": Invalid targetRef.kind. The only supported
+  #   value is 'Gateway'
+  #
+  # Ou seja: nesta release, TelemetryPolicy e policy de GATEWAY e ponto --
+  # diferente de AuthPolicy, RateLimitPolicy e PlanPolicy, que aceitam rota. E
+  # uma assimetria real do produto, e vale saber dela antes de prometer
+  # 'metrica por rota' a um cliente.
+  #
+  # Quem cobre a borda desta amostra e a prod-web-telemetry de
+  # base/policies-telemetry/, que vale para TODA rota anexada ao prod-web --
+  # inclusive estas duas. A dimensao por rota que se queria aqui sai da
+  # Telemetry do Istio (14-), que quebra por workload.
   - 26-identity-apikeys.yaml
 
 # ---------------------------------------------------------------------------

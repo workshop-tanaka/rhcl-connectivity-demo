@@ -81,6 +81,10 @@ as métricas e o trace da mesma `Telemetry` continuam valendo.
 
 ## O que ainda não foi executado num cluster
 
+O `OpenTelemetryCollector` e a `Telemetry` passam no
+`oc apply --dry-run=server` contra os CRDs deste cluster — o **esquema** está
+certo.
+
 A pipeline de `logs` do coletor e o `extensionProvider` de ALS foram escritos a
 partir do upstream e da configuração que já funciona em
 `platform-reference/tracing/`, **e não medidos aqui**. Em particular, o Tempo

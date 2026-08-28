@@ -72,6 +72,9 @@ está correto — omiti-lo ensinaria que gRPC não se limita, o que é falso.
 
 ## O que ainda não foi executado num cluster
 
-`registry.istio.io/testing/app:latest` sob a SCC `restricted-v2`, e o
-comportamento das flags sem o template `grpc-agent`. Ambos foram derivados do
-manifest upstream, **não medidos aqui**.
+Os manifests passam no `oc apply --dry-run=server` contra os CRDs deste
+cluster, `GRPCRoute` incluída — o **esquema** está certo.
+
+O que não foi medido: `registry.istio.io/testing/app:latest` sob a SCC
+`restricted-v2`, e o comportamento das flags sem o template `grpc-agent`. Ambos
+foram derivados do manifest upstream.

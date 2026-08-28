@@ -73,6 +73,9 @@ decisão, e não um default herdado que ninguém sabe qual é.
 
 ## O que ainda não foi executado num cluster
 
+Os manifests passam no `oc apply --dry-run=server` contra os CRDs deste
+cluster — ou seja, o **esquema** está certo. O que não foi medido é a subida.
+
 A imagem `docker.io/hiroakis/tornado-websocket-example` é upstream e antiga.
 Dois riscos conhecidos, **nenhum dos dois medido neste cluster**:
 

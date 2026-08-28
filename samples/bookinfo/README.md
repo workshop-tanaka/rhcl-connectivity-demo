@@ -74,11 +74,34 @@ oc run curl-teste -n bookinfo --image=registry.access.redhat.com/ubi9/ubi-minima
 | anotação `prometheus.io/scrape` | removida | aqui quem raspa é o user workload monitoring por `ServiceMonitor`; a anotação seria pista falsa |
 | sem limites de recurso | `requests`/`limits` em todos | o cluster da demo é SNO e roda ACS, Quay, GitLab e Tempo junto |
 
+## O que foi medido — e a assimetria que apareceu
+
+Uma `TelemetryPolicy` mirando a `HTTPRoute` `bookinfo-api` foi escrita para dar
+à borda uma dimensão por rota. **O servidor a recusou** (2026-08-28, neste
+cluster, `oc apply --dry-run=server`):
+
+```
+The TelemetryPolicy "bookinfo-telemetry" is invalid: spec.targetRef:
+Invalid value: "object": Invalid targetRef.kind. The only supported value is 'Gateway'
+```
+
+Nesta release, **`TelemetryPolicy` é policy de Gateway e ponto** — diferente de
+`AuthPolicy`, `RateLimitPolicy` e `PlanPolicy`, que aceitam rota. É uma
+assimetria real do produto, e vale saber dela antes de prometer "métrica por
+rota" a um cliente.
+
+Quem cobre a borda desta amostra é a `prod-web-telemetry` de
+[base/policies-telemetry/](../../base/policies-telemetry/), que vale para toda
+rota anexada ao `prod-web`. A dimensão por versão sai da `Telemetry` do Istio
+([14-](14-mesh-telemetry.yaml)).
+
 ## O que ainda não foi executado num cluster
 
 Estes manifests foram escritos a partir do upstream `istio/istio@master`
-(imagens `1.20.3`) e validados por sintaxe e por render do kustomize. **A
-subida no cluster desta demo não foi medida** — em particular:
+(imagens `1.20.3`), validados por render do `kustomize` e por
+`oc apply --dry-run=server` contra os CRDs reais deste cluster — foi esse
+segundo passo que encontrou a recusa da `TelemetryPolicy` acima. **A subida de
+verdade não foi medida** — em particular:
 
 - se as seis imagens do bookinfo sobem sob a SCC `restricted-v2` sem ajuste
   além do que está em 01-..04-;
