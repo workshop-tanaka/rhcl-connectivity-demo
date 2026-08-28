@@ -784,6 +784,16 @@ metadata:
   # um; o de consumo e o que faz sentido aqui.
   annotations:
     grafana/dashboard-selector: rhcl
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/kuadrant-system/core~v1~Secret/apikey-gold-globex
+      title: Chave de API no console
+      icon: web
+    - url: https://${GRAFANA_HOST}/d/rhcl-parceiros
+      title: Consumo deste parceiro
+      icon: dashboard
+  tags:
+    - parceiro
+    - tier-gold
 spec:
   type: api-consumer
   lifecycle: production
@@ -804,6 +814,16 @@ metadata:
   # um; o de consumo e o que faz sentido aqui.
   annotations:
     grafana/dashboard-selector: rhcl
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/kuadrant-system/core~v1~Secret/apikey-silver-initech
+      title: Chave de API no console
+      icon: web
+    - url: https://${GRAFANA_HOST}/d/rhcl-parceiros
+      title: Consumo deste parceiro
+      icon: dashboard
+  tags:
+    - parceiro
+    - tier-silver
 spec:
   type: api-consumer
   lifecycle: production
@@ -824,6 +844,16 @@ metadata:
   # um; o de consumo e o que faz sentido aqui.
   annotations:
     grafana/dashboard-selector: rhcl
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/kuadrant-system/core~v1~Secret/apikey-free-acme
+      title: Chave de API no console
+      icon: web
+    - url: https://${GRAFANA_HOST}/d/rhcl-parceiros
+      title: Consumo deste parceiro
+      icon: dashboard
+  tags:
+    - parceiro
+    - tier-free
 spec:
   type: api-consumer
   lifecycle: production
@@ -869,7 +899,10 @@ metadata:
     efeito nenhum no trafego.
   annotations:
     rhcl.demo/cluster-object: kuadrant/kuadrant-system/kuadrant
-    backstage.io/kubernetes-namespace: kuadrant-system
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/kuadrant-system/kuadrant.io~v1beta1~Kuadrant/kuadrant
+      title: Ver no console
+      icon: web
 spec:
   type: control-plane
   owner: group:default/platform-team
@@ -886,7 +919,10 @@ metadata:
     a API responde 500 no lugar de 401 -- e a policy nao tem culpa.
   annotations:
     rhcl.demo/cluster-object: authorino/kuadrant-system/authorino
-    backstage.io/kubernetes-namespace: kuadrant-system
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/kuadrant-system/operator.authorino.kuadrant.io~v1beta1~Authorino/authorino
+      title: Ver no console
+      icon: web
 spec:
   type: auth-service
   owner: group:default/platform-team
@@ -902,8 +938,13 @@ metadata:
     descrevem os limites; quem os conta e este servico. E o unico ponto onde 'tier
     gold' vira um numero.
   annotations:
-    rhcl.demo/cluster-object: limitador/kuadrant-system/limitador
     backstage.io/kubernetes-namespace: kuadrant-system
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/name=limitador
+    rhcl.demo/cluster-object: limitador/kuadrant-system/limitador
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/kuadrant-system/limitador.kuadrant.io~v1alpha1~Limitador/limitador
+      title: Ver no console
+      icon: web
 spec:
   type: rate-limit-service
   owner: group:default/platform-team
@@ -919,8 +960,11 @@ metadata:
     injeta o sidecar nativo dos servicos -- um initContainer com restartPolicy:
     Always, e nao um container comum.
   annotations:
-    rhcl.demo/cluster-object: istio/default/default
-    backstage.io/kubernetes-namespace: default
+    rhcl.demo/cluster-object: istio//default
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/cluster/sailoperator.io~v1~Istio/default
+      title: Ver no console
+      icon: web
 spec:
   type: service-mesh
   owner: group:default/platform-team
@@ -936,7 +980,10 @@ metadata:
     em /api/traces/v1/dev, e o tenant faz parte da URL, nao um cabecalho.
   annotations:
     rhcl.demo/cluster-object: tempomonolithic/tracing-system/tempo
-    backstage.io/kubernetes-namespace: tracing-system
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/tracing-system/tempo.grafana.com~v1alpha1~TempoMonolithic/tempo
+      title: Ver no console
+      icon: web
 spec:
   type: tracing-backend
   owner: group:default/platform-team
@@ -951,8 +998,13 @@ metadata:
     Recebe os spans do Gateway e os encaminha ao Tempo. E o elo que a TelemetryPolicy
     alimenta -- sem ele a policy fica correta e a aba, vazia.
   annotations:
-    rhcl.demo/cluster-object: opentelemetrycollector/tracing-system/otel
     backstage.io/kubernetes-namespace: tracing-system
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/name=otel-collector
+    rhcl.demo/cluster-object: opentelemetrycollector/tracing-system/otel
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/tracing-system/opentelemetry.io~v1beta1~OpenTelemetryCollector/otel
+      title: Ver no console
+      icon: web
 spec:
   type: otel-collector
   owner: group:default/platform-team
@@ -970,8 +1022,13 @@ metadata:
     autenticacao dele e uma escolha com consequencia: 'openshift' quebra a aba do
     plugin no portal, que so implementa serviceAccountToken.
   annotations:
-    rhcl.demo/cluster-object: kiali/istio-system/kiali
     backstage.io/kubernetes-namespace: istio-system
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/name=kiali
+    rhcl.demo/cluster-object: kiali/istio-system/kiali
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/istio-system/kiali.io~v1alpha1~Kiali/kiali
+      title: Ver no console
+      icon: web
 spec:
   type: observability-console
   owner: group:default/platform-team
@@ -990,7 +1047,10 @@ metadata:
     portal fala com ele sem token.
   annotations:
     rhcl.demo/cluster-object: grafana/monitoring/grafana
-    backstage.io/kubernetes-namespace: monitoring
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/monitoring/grafana.integreatly.org~v1beta1~Grafana/grafana
+      title: Ver no console
+      icon: web
 spec:
   type: dashboards
   owner: group:default/platform-team
@@ -1007,7 +1067,10 @@ metadata:
     merge da MR e o que dispara a aplicacao.
   annotations:
     rhcl.demo/cluster-object: argocd/openshift-gitops/openshift-gitops
-    backstage.io/kubernetes-namespace: openshift-gitops
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/openshift-gitops/argoproj.io~v1beta1~ArgoCD/openshift-gitops
+      title: Ver no console
+      icon: web
 spec:
   type: gitops
   owner: group:default/platform-team
@@ -1024,7 +1087,10 @@ metadata:
     dela.
   annotations:
     rhcl.demo/cluster-object: gitlab/gitlab-system/gitlab
-    backstage.io/kubernetes-namespace: gitlab-system
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/gitlab-system/apps.gitlab.com~v1beta1~GitLab/gitlab
+      title: Ver no console
+      icon: web
 spec:
   type: scm
   owner: group:default/platform-team
@@ -1040,7 +1106,10 @@ metadata:
     que sustenta o autoatendimento de chaves do Ato 6.
   annotations:
     rhcl.demo/cluster-object: keycloak/keycloak/keycloak
-    backstage.io/kubernetes-namespace: keycloak
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/keycloak/k8s.keycloak.org~v2alpha1~Keycloak/keycloak
+      title: Ver no console
+      icon: web
 spec:
   type: idp
   owner: group:default/platform-team
@@ -1057,7 +1126,10 @@ metadata:
     policies de Gateway -- hierarquia rota-vence-gateway, que vale no 1.4.
   annotations:
     rhcl.demo/cluster-object: httproute/travel-agency/travel-agency
-    backstage.io/kubernetes-namespace: travel-agency
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/travel-agency/gateway.networking.k8s.io~v1~HTTPRoute/travel-agency
+      title: Ver no console
+      icon: web
 spec:
   type: httproute
   owner: group:default/platform-team
@@ -1075,7 +1147,10 @@ metadata:
     que cada rota governa a si mesma, sem uma interferir na outra.
   annotations:
     rhcl.demo/cluster-object: httproute/echo-api/echo-api
-    backstage.io/kubernetes-namespace: echo-api
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/echo-api/gateway.networking.k8s.io~v1~HTTPRoute/echo-api
+      title: Ver no console
+      icon: web
 spec:
   type: httproute
   owner: group:default/platform-team
@@ -1094,7 +1169,10 @@ metadata:
     resolucao do proprio host.
   annotations:
     rhcl.demo/cluster-object: secret/ingress-gateway/api-tls
-    backstage.io/kubernetes-namespace: ingress-gateway
+  links:
+    - url: https://${CONSOLE_HOST}/k8s/ns/ingress-gateway/core~v1~Secret/api-tls
+      title: Ver no console
+      icon: web
 spec:
   type: certificate
   owner: group:default/platform-team
