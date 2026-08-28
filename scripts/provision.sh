@@ -193,6 +193,24 @@ _vcs_topology() {
 }
 
 _has_crd() { oc get crd "$1" >/dev/null 2>&1; }
+_descobre_overlay() { # define OVERLAY se ainda nao veio do ambiente
+  # Estava embutido no st_demo ate 2026-08-28. Saiu para ca quando a etapa
+  # 'cicd' passou a precisar do mesmo valor: a valida-policies agora renderiza
+  # o OVERLAY, e nao a base -- 'base/' sozinho tem as duas policies de limite
+  # no mesmo alvo, e o check de precedencia reprovaria com razao.
+  [[ -n "${OVERLAY:-}" ]] && return 0
+  local v slug
+  # Mesma descoberta do preflight.sh: a release do CSV decide o overlay.
+  v="$(oc get csv -A --no-headers 2>/dev/null | grep -i 'rhcl-operator' | awk '{print $2}' | head -1 | sed 's/.*\.v//')"
+  case "$v" in
+    1.2*|1.3*) OVERLAY="overlays/provisioned" ;;
+    *)         OVERLAY="overlays/rhcl-1.4" ;;
+  esac
+  # Um overlay gerado para ESTE cluster vence o de referencia, se existir.
+  slug="$(printf '%s' "$DOMAIN" | sed 's/^apps\.//' | cut -d. -f1)"
+  [[ -d "${_here}/overlays/${slug}" ]] && OVERLAY="overlays/${slug}"
+  return 0
+}
 _csv_phase() { # ns prefixo -> fase, ou vazio
   oc get csv -n "$1" -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\n"}{end}' 2>/dev/null \
     | awk -v p="$2" -F'\t' '$1 ~ "^"p {print $2; exit}'
@@ -660,18 +678,7 @@ st_devportal() {
 st_demo() {
   _sec "camada de demo"
 
-  if [[ -z "${OVERLAY:-}" ]]; then
-    # Mesma descoberta do preflight.sh: a release do CSV decide o overlay.
-    local v
-    v="$(oc get csv -A --no-headers 2>/dev/null | grep -i 'rhcl-operator' | awk '{print $2}' | head -1 | sed 's/.*\.v//')"
-    case "$v" in
-      1.2*|1.3*) OVERLAY="overlays/provisioned" ;;
-      *)         OVERLAY="overlays/rhcl-1.4" ;;
-    esac
-    # Um overlay gerado para ESTE cluster vence o de referencia, se existir.
-    local slug; slug="$(printf '%s' "$DOMAIN" | sed 's/^apps\.//' | cut -d. -f1)"
-    [[ -d "${_here}/overlays/${slug}" ]] && OVERLAY="overlays/${slug}"
-  fi
+  _descobre_overlay
   [[ -d "${_here}/${OVERLAY}" ]] || _die "overlay ${OVERLAY} nao existe. Gere um para este cluster:
       bash scripts/new-env.sh"
   _log "overlay: ${OVERLAY}"
@@ -1078,13 +1085,17 @@ st_cicd() {
   # A valida-policies passou a clonar de verdade o repo de policies no GitLab
   # do cluster, entao o host deixa de ser literal e vira __DOMAIN__. sed antes
   # do apply, como o SecuredCluster do setup-supply-chain.sh ja faz.
+  # __OVERLAY__ decide O QUE a pipeline valida. Apontar para 'base/' faria o
+  # check de precedencia reprovar sempre -- corretamente, porque base/ tem as
+  # duas policies de limite no mesmo alvo; quem as separa e a camada env/.
+  _descobre_overlay
   if [[ $DRY_RUN -eq 1 ]]; then
-    _cmd "sed __DOMAIN__ | oc apply -f platform-reference/pipelines/valida-policies.yaml"
+    _cmd "sed __DOMAIN__/__OVERLAY__ | oc apply -f platform-reference/pipelines/valida-policies.yaml"
   else
-    sed "s/__DOMAIN__/${DOMAIN}/g" \
+    sed -e "s|__DOMAIN__|${DOMAIN}|g" -e "s|__OVERLAY__|${OVERLAY}|g" \
       "${_here}/platform-reference/pipelines/valida-policies.yaml" \
       | oc apply -f - >/dev/null \
-      && _ok "pipeline valida-policies aplicada (ela agora REPROVA -- ver o cabecalho)" \
+      && _ok "pipeline valida-policies aplicada, validando ${OVERLAY} (ela agora REPROVA)" \
       || _warn "falha ao aplicar a valida-policies"
   fi
 

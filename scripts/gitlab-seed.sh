@@ -17,8 +17,16 @@
 #   |-- apis/      <- nasce VAZIO. Cada Create no RHDH cria um projeto aqui, e
 #   |                 estar no subgrupo E a condicao que o ApplicationSet usa
 #   |                 (nao ha topic para esquecer).
+#   |-- apps/
+#   |   `-- travel-packages  <- apps/travel-packages/ deste repo: o CODIGO que
+#   |                           a pipeline de build compila e assina
 #   `-- policies/
-#       `-- rhcl-policies   <- o base/ deste repo
+#       `-- rhcl-policies    <- base/ + env/ + overlays/, com os caminhos
+#                               preservados, para a CI renderizar o OVERLAY
+#
+# apis/ e apps/ sao coisas diferentes: em apis/ o Ato 6 cria CONTRATO, em
+# apps/ mora codigo que compila. O ApplicationSet descobre por apis/, e um
+# projeto Maven ali dentro ele tentaria sincronizar.
 #
 # Idempotente: reexecutar reconcilia. Arquivo que ja existe e atualizado, nao
 # duplicado; grupo que ja existe e reaproveitado.
@@ -57,7 +65,7 @@ TOKEN="${GITLAB_TOKEN:-$(oc get secret golden-path-gitlab-token -n openshift-git
 
 printf '\n%sSemeadura do GitLab%s\n' "$_BLD" "$_RST"
 printf '  host  : https://%s\n' "$GITLAB_HOST"
-printf '  fonte : %s/base\n' "$_here"
+printf '  fonte : %s/{base,env,overlays} e %s/apps\n' "$_here" "$_here"
 [[ $DRY -eq 1 ]] && printf '  %s(dry-run: nada sera alterado)%s\n' "$_YEL" "$_RST"
 echo
 
@@ -121,6 +129,11 @@ root_id = ensure_group("rhcl", "RHCL")
 if root_id is None: sys.exit(1)
 apis_id     = ensure_group("apis", "APIs", root_id)
 policies_id = ensure_group("policies", "Policies", root_id)
+# 'apps' e diferente de 'apis': em apis/ o Ato 6 cria CONTRATO (a API que o
+# template gera); em apps/ mora CODIGO que compila. Sao os dois lados do
+# golden path, e misturar os dois num subgrupo so faria o ApplicationSet --
+# que descobre pelo subgrupo apis/ -- tentar sincronizar um projeto Maven.
+apps_id     = ensure_group("apps", "Apps", root_id)
 
 # ----- 2. o projeto de policies -----
 proj_path = "rhcl/policies/rhcl-policies"
@@ -249,70 +262,171 @@ if apis_id and apis_id != -1:
         else:
             warn(f"falha ao gravar os PATs: {r.stderr.decode()[:120]}")
 
-# ----- 3. semear base/ -----
-files = []
-for dirpath, _dirs, names in os.walk(ROOT):
-    for n in sorted(names):
-        full = os.path.join(dirpath, n)
-        rel  = os.path.relpath(full, ROOT)
-        files.append((rel, full))
-files.sort()
-print(f"  [*] {len(files)} arquivo(s) em base/")
-
-if DRY:
-    print(f"    $ commitar {len(files)} arquivo(s) em {proj_path}")
-    sys.exit(0)
-
-# O que ja existe no remoto decide create x update -- e o HASH decide se o
-# arquivo entra na acao. Sem essa comparacao, cada execucao gera um commit
-# identico: 10 provisionamentos, 10 commits iguais (medido em 2026-08-25).
+# ----- 3. semear as camadas de kustomize -----
+# MUDANCA DE LAYOUT EM 2026-08-28, e ela tem uma razao concreta.
 #
-# O 'id' que a API da arvore devolve para um blob e o SHA-1 do git, entao da
-# para comparar sem baixar conteudo nenhum: um request pela arvore e hash local.
+# Ate aqui este projeto recebia o CONTEUDO de base/ na raiz: routes/,
+# identity/, policies-*/ e o kustomization.yaml. Funcionava enquanto ninguem
+# renderizava o repo -- e ninguem renderizava, porque a CI era 'echo'.
+#
+# Com a valida-policies validando de verdade, o repo passou a precisar
+# RENDERIZAR. E base/ sozinho nao e o que se implanta: ele contem as DUAS
+# policies de limite no mesmo alvo (ratelimit-policy-travels e travels-plans),
+# e quem as separa e a camada de ambiente -- env/rhcl-1.4_ocp-4.21 remove a
+# plana com $patch: delete, porque o RHCL 1.4 inverteu a precedencia.
+#
+# Validar a base entao REPROVA, corretamente e inutilmente. Para a CI falar do
+# que e implantado, o repo carrega as tres camadas com os caminhos preservados
+# -- base/, env/, overlays/ -- e ai 'oc kustomize overlays/<x>' resolve os
+# '../../base' e '../../env/...' que as kustomizations usam.
+#
+# A MIGRACAO E AUTOMATICA: os arquivos que a versao anterior deixou na raiz
+# sao apagados no mesmo commit que cria os novos. A lista de remocao e
+# calculada, nao escrita a mao -- e exatamente o conjunto de caminhos que o
+# script antigo produzia, entao nada que uma pessoa tenha acrescentado ao
+# repo entra na conta.
 import hashlib
 
 def git_blob_sha(data: bytes) -> str:
+    """O 'id' que a API da arvore devolve para um blob e o SHA-1 do git.
+
+    Comparar por hash evita o que se media em 2026-08-25: sem isso, cada
+    execucao gerava um commit identico -- 10 provisionamentos, 10 commits
+    iguais. E da para comparar sem baixar conteudo nenhum: um request pela
+    arvore e hash local.
+    """
     h = hashlib.sha1()
     h.update(b"blob %d\0" % len(data))
     h.update(data)
     return h.hexdigest()
 
-remote = {}
-st, tree = call("GET", f"/projects/{proj_id}/repository/tree?recursive=true&per_page=100")
-if st == 200:
-    remote = {e["path"]: e["id"] for e in tree or [] if e["type"] == "blob"}
+def arquivos_de(raiz, prefixo=""):
+    """[(caminho_no_repo, caminho_local)] para tudo sob 'raiz'."""
+    saida = []
+    for dirpath, _dirs, names in os.walk(raiz):
+        for n in sorted(names):
+            full = os.path.join(dirpath, n)
+            rel = os.path.relpath(full, raiz)
+            saida.append((os.path.join(prefixo, rel) if prefixo else rel, full))
+    return sorted(saida)
 
-actions, iguais = [], 0
-for rel, full in files:
-    with open(full, "rb") as fh:
-        raw = fh.read()
-    if remote.get(rel) == git_blob_sha(raw):
-        iguais += 1
-        continue
-    actions.append({
-        "action": "update" if rel in remote else "create",
-        "file_path": rel, "content": base64.b64encode(raw).decode(),
-        "encoding": "base64"})
+def arvore_remota(pid):
+    """{caminho: sha} dos blobs do projeto, PAGINADO.
 
-# Sem sys.exit aqui: o espelho vem depois, e sair na semeadura de policies o
-# pulava em silencio sempre que base/ estava em dia -- que e o caso comum.
-if not actions:
-    ok(f"policies em dia -- {iguais} arquivo(s) ja identicos no remoto")
-else:
+    A versao anterior pedia uma pagina de 100 e parava. Com base/ sozinho
+    (15 arquivos) nunca doeu; com as tres camadas passa a doer, e o modo de
+    falhar seria silencioso: arquivo alem da centesima linha sempre pareceria
+    ausente, e o script o recriaria a cada execucao.
+    """
+    rem, pagina = {}, 1
+    while True:
+        st, tree = call("GET", f"/projects/{pid}/repository/tree"
+                               f"?recursive=true&per_page=100&page={pagina}")
+        if st != 200 or not tree:
+            break
+        rem.update({e["path"]: e["id"] for e in tree if e["type"] == "blob"})
+        if len(tree) < 100:
+            break
+        pagina += 1
+    return rem
+
+def semeia(pid, caminho_proj, desejado, mensagem, remover=()):
+    """Reconcilia o projeto com 'desejado'. Idempotente por hash."""
+    if pid == -1:      # dry-run: o projeto nem existe ainda
+        print(f"    $ commitar {len(desejado)} arquivo(s) em {caminho_proj}")
+        return
+    rem = arvore_remota(pid)
+    acoes, iguais = [], 0
+    for rel, full in desejado:
+        with open(full, "rb") as fh:
+            raw = fh.read()
+        if rem.get(rel) == git_blob_sha(raw):
+            iguais += 1
+            continue
+        acoes.append({"action": "update" if rel in rem else "create",
+                      "file_path": rel,
+                      "content": base64.b64encode(raw).decode(),
+                      "encoding": "base64"})
+    orfaos = [r for r in remover if r in rem]
+    acoes += [{"action": "delete", "file_path": r} for r in orfaos]
+
+    if not acoes:
+        ok(f"{caminho_proj} em dia -- {iguais} arquivo(s) ja identicos")
+        return
     if iguais:
-        print(f"  [*] {iguais} inalterado(s), {len(actions)} a commitar")
-    st, d = call("POST", f"/projects/{proj_id}/repository/commits", {
-        "branch": "main",
-        "commit_message": "Semeadura da camada de policies a partir de base/",
-        "actions": actions})
+        print(f"  [*] {iguais} inalterado(s), {len(acoes)} acao(oes)")
+    if orfaos:
+        print(f"  [*] {len(orfaos)} arquivo(s) do layout antigo serao removidos")
+    st, d = call("POST", f"/projects/{pid}/repository/commits",
+                 {"branch": "main", "commit_message": mensagem, "actions": acoes})
     if st in (200, 201):
-        ok(f"{len(actions)} arquivo(s) commitados em {proj_path}")
+        ok(f"{len(acoes)} acao(oes) commitadas em {caminho_proj}")
     else:
         msg = str(d.get("message"))
         if "no changes" in msg.lower():
             ok("nada mudou desde a ultima semeadura")
         else:
-            warn(f"falha ao commitar: {msg[:200]}")
+            warn(f"falha ao commitar em {caminho_proj}: {msg[:200]}")
+
+camadas = (arquivos_de(os.path.join(ROOT_REPO, "base"),     "base")
+         + arquivos_de(os.path.join(ROOT_REPO, "env"),      "env")
+         + arquivos_de(os.path.join(ROOT_REPO, "overlays"), "overlays"))
+# Exatamente os caminhos que o script ANTIGO criava na raiz: o conteudo de
+# base/ sem prefixo. Calculado, e nao escrito a mao, para nao apagar nada que
+# nao tenha vindo dele.
+legado = [rel for rel, _f in arquivos_de(ROOT)]
+print(f"  [*] {len(camadas)} arquivo(s) em base/ + env/ + overlays/")
+
+if DRY:
+    print(f"    $ commitar {len(camadas)} arquivo(s) em {proj_path}")
+    print(f"    $ remover ate {len(legado)} arquivo(s) do layout antigo")
+else:
+    semeia(proj_id, proj_path, camadas,
+           "Camadas de policy (base/env/overlays) -- layout renderizavel pela CI",
+           remover=legado)
+
+# ----- 3b. o codigo do servico travel-packages -----
+# POR QUE ELE PRECISA ESTAR AQUI: a pipeline build-travel-packages clona deste
+# endereco. Sem este bloco ela falha no primeiro step, com um erro de git que
+# nao diz que o repositorio deveria ter sido semeado.
+#
+# O conteudo vai para a RAIZ do projeto (pom.xml em cima), e nao sob
+# apps/travel-packages/ -- e o que faz 'mvn' rodar no workingDir do clone sem
+# um cd no meio.
+#
+# Sem lista de remocao: este projeto nunca teve outro layout, e um dia ele
+# pode receber commit de gente -- apagar por diferenca seria destrutivo.
+app_path = "rhcl/apps/travel-packages"
+st, app = call("GET", "/projects/" + urllib.parse.quote(app_path, safe=""))
+if st == 200:
+    ok(f"projeto {app_path} ja existe")
+    app_id = app["id"]
+elif DRY:
+    print(f"    $ criar projeto {app_path}"); app_id = -1
+else:
+    st, app = call("POST", "/projects", {
+        "name": "travel-packages", "path": "travel-packages",
+        "namespace_id": apps_id, "visibility": "public",
+        "description": "Servico travel-packages (JBoss EAP 8): o artefato que a cadeia de suprimento assina.",
+        "initialize_with_readme": True})
+    if st in (200, 201):
+        ok(f"projeto {app['path_with_namespace']} criado"); app_id = app["id"]
+    else:
+        warn(f"falha ao criar {app_path}: {app.get('message')}"); app_id = None
+
+if app_id:
+    fonte_app = os.path.join(ROOT_REPO, "apps", "travel-packages")
+    if not os.path.isdir(fonte_app):
+        warn("apps/travel-packages nao existe neste repo -- nada a semear")
+    else:
+        # target/ nunca deve entrar: sao dezenas de milhares de arquivos do
+        # servidor provisionado pelo Galleon. O .gitignore do projeto ja o
+        # exclui, mas quem semeia aqui e os.walk, que nao le .gitignore.
+        codigo = [(rel, full) for rel, full in arquivos_de(fonte_app)
+                  if not rel.startswith("target" + os.sep)]
+        print(f"  [*] {len(codigo)} arquivo(s) em apps/travel-packages")
+        semeia(app_id, app_path, codigo,
+               "Semeadura do servico travel-packages a partir de apps/")
 
 # ----- 4. o espelho do repo, para o portal nao depender do GitHub -----------
 # POR QUE ISTO EXISTE: o RHDH lia os templates de uma URL do github.com. Com a
@@ -383,10 +497,9 @@ if root_id and root_id != -1:
 
     if esp_id and esp_id != -1 and not DRY:
         itens = _coleta_espelho(ROOT_REPO)
-        rem = {}
-        st, tree = call("GET", f"/projects/{esp_id}/repository/tree?recursive=true&per_page=100")
-        if st == 200:
-            rem = {e["path"]: e["id"] for e in tree or [] if e["type"] == "blob"}
+        # Paginado, pelo mesmo motivo da arvore das camadas: o espelho ja
+        # passa de 100 arquivos com os templates do golden path.
+        rem = arvore_remota(esp_id)
         acoes, iguais = [], 0
         for rel, full in itens:
             with open(full, "rb") as fh:
@@ -417,6 +530,8 @@ _rc=$?
 echo
 if [[ $_rc -eq 0 && $DRY -eq 0 ]]; then
   _log "o subgrupo rhcl/apis nasce VAZIO -- e o Ato 6 que o povoa"
+  _log "a CI valida o OVERLAY do repo de policies, nao a base (provision.sh cicd)"
+  _log "o build do servico clona rhcl/apps/travel-packages (provision.sh entrega)"
   _log "confira: https://${GITLAB_HOST}/rhcl"
 fi
 exit $_rc

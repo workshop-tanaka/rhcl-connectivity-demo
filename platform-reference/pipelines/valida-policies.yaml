@@ -75,10 +75,11 @@ spec:
     - name: caminho
       type: string
       description: >-
-        o que renderizar dentro do repo clonado. '.' so faz sentido se a raiz
-        do repo for a base; para validar o que e implantado, aponte para o
-        overlay (ex.: overlays/rhcl-1.4).
-      default: .
+        o que renderizar dentro do repo clonado. Aponta para o OVERLAY, e nao
+        para a base: base/ sozinho tem as duas policies de limite no mesmo
+        alvo, e o check de precedencia reprovaria com razao. O provision.sh
+        substitui __OVERLAY__ pelo overlay deste cluster.
+      default: __OVERLAY__
 
   workspaces:
     - name: fonte
