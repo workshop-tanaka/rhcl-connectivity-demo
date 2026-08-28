@@ -9,6 +9,16 @@ metadata:
     app.openshift.io/vcs-ref: rhcl-1.4-ocp-4.21
   name: discounts-v2
   namespace: travel-agency
+  # metadata.labels ESPELHA o spec.selector.matchLabels de proposito.
+  # Sem ele a aba Topology do RHDH fica VAZIA: o plugin Kubernetes casa
+  # backstage.io/kubernetes-label-selector contra o objeto Deployment, e
+  # o rotulo so existia no pod template. Pods e Service apareciam na aba
+  # Kubernetes, o grafo nao tinha no nenhum, e nao havia erro em lugar
+  # nenhum. Nao confundir com spec.selector, que e IMUTAVEL -- este aqui
+  # e rotulo do objeto, e pode mudar.
+  labels:
+    app: discounts
+    version: v2
 spec:
   progressDeadlineSeconds: 600
   replicas: 1
