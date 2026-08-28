@@ -1,0 +1,1291 @@
+# ===========================================================================
+# Catalogo RHDH — as quatro amostras do Istio (samples/).
+#
+# Modela samples/bookinfo, samples/websockets, samples/grpc-echo e
+# samples/open-telemetry: o servico, as policies do RHCL, os recursos do
+# Service Mesh e a cadeia de suprimento de cada uma.
+#
+# ---------------------------------------------------------------------------
+# POR QUE UM DOMAIN PROPRIO, E NAO 'travel' NEM 'plataforma'
+#
+# As amostras nao sao produto de negocio: nao vendem passagem nem seguro, e
+# poe-las em 'travel' repetiria o erro que o Domain 'plataforma' foi criado
+# para corrigir (Authorino e Tempo dentro do dominio de viagens).
+#
+# E tambem nao sao plataforma: elas nao sustentam a demo -- a demo funciona
+# inteira sem elas. Sao MATERIAL DE APOIO, que entra e sai sem tocar no
+# roteiro, e e exatamente essa a fronteira que samples/README.md defende.
+#
+# ---------------------------------------------------------------------------
+# TODA ENTIDADE AQUI TEM rhcl.demo/cluster-object, e isso e o que torna este
+# arquivo seguro num cluster onde as amostras nao foram aplicadas: o
+# setup-catalog.sh confere cada objeto com um 'oc get' e DESCARTA quem nao
+# existe. Sem isso, o portal ganharia trinta e poucos cards que nunca carregam
+# -- e um portal que mente sobre o cluster e pior do que um portal incompleto.
+#
+# ---------------------------------------------------------------------------
+# ROTULOS: vocabulario de docs/CATALOGO.md. Tres valores novos de
+# rhcl.demo/produto entraram por causa deste arquivo -- bookinfo, websockets e
+# grpc-echo --, e o scripts/valida-catalogo.sh foi atualizado junto. A amostra
+# open-telemetry NAO leva 'produto': ela nao publica rota e nao tem chave, e
+# inventar um produto para ela seria dizer que ela vende algo.
+#
+# ${GITLAB_HOST}, ${DEMO_REPO_URL}, ${CONSOLE_HOST} e ${DEVSPACES_HOST} sao
+# substituidos pelo rhdh/setup-catalog.sh com valores lidos do cluster.
+# ===========================================================================
+---
+apiVersion: backstage.io/v1alpha1
+kind: Domain
+metadata:
+  name: samples
+  title: Amostras
+  description: >-
+    Amostras do projeto Istio adaptadas para Red Hat Connectivity Link e
+    OpenShift Service Mesh. Material de apoio: cada uma defende um pedaco da
+    tese de que o RHCL e plataforma de API e nao gateway, e nenhuma faz parte
+    do roteiro.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - sample
+    - istio
+spec:
+  owner: group:default/platform-team
+---
+# ---------------------------------------------------------------------------
+# System: bookinfo -- a amostra canonica, e a unica com DUAS rotas.
+#
+# E a segunda coisa a olhar depois do travel-agency, porque e onde a fronteira
+# por PRODUTO fica visivel sem explicacao: a mesma aplicacao, no mesmo
+# hostname, com a UI publica e a API sob chave e plano.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: sample-bookinfo
+  title: Amostra — bookinfo
+  description: >-
+    A mesma aplicacao com duas fronteiras, decididas por rota: a UI e publica e
+    so limitada, /api/v1 exige chave e tem plano. Tres versoes vivas de
+    'reviews' dao ao Service Mesh o canario que a travel-agency nao tem.
+  annotations:
+    # Ancorado no Namespace, como os demais Systems deste catalogo: num cluster
+    # sem a etapa 'samples' do provision.sh, o System inteiro sai sozinho.
+    # Namespace e cluster-scoped, dai o campo do meio vazio.
+    rhcl.demo/cluster-object: namespace//bookinfo
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - istio
+    - service-mesh
+spec:
+  owner: group:default/platform-team
+  domain: samples
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: sample-websockets
+  title: Amostra — websockets
+  description: >-
+    HTTP/1.1 Upgrade. A AuthPolicy confere a credencial no handshake e nao ve
+    os frames depois dele -- e por isso governar conexao longa e decisao de
+    desenho (idleTimeout, maxConnections, teto de handshakes) e nao efeito
+    colateral de ter posto um proxy no caminho.
+  annotations:
+    rhcl.demo/cluster-object: namespace//websockets
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: websockets
+  tags:
+    - rhcl
+    - sample
+    - istio
+    - service-mesh
+spec:
+  owner: group:default/platform-team
+  domain: samples
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: sample-grpc-echo
+  title: Amostra — grpc-echo
+  description: >-
+    A MESMA AuthPolicy sobre gRPC: mudam o targetRef (GRPCRoute) e o lugar da
+    credencial (metadata, porque gRPC nao tem query string). Mais o canario
+    sobre gRPC, que base/grpc/ nao tem.
+  annotations:
+    rhcl.demo/cluster-object: namespace//grpc-echo
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: grpc-echo
+  tags:
+    - rhcl
+    - sample
+    - istio
+    - service-mesh
+spec:
+  owner: group:default/platform-team
+  domain: samples
+---
+# ---------------------------------------------------------------------------
+# System: open-telemetry -- camada PLATAFORMA, e e o unico dos quatro.
+#
+# A amostra nao publica rota e nao tem chave: o que ela mostra e que
+# observabilidade e decisao do control plane, e nao feature de gateway. Marcar
+# 'aplicacao' aqui contradiria o proprio argumento dela -- foi a mesma
+# incoerencia que tirou o echo-api do System rhcl-ingress.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: sample-open-telemetry
+  title: Amostra — open-telemetry
+  description: >-
+    O log de acesso do Service Mesh saindo em OTLP para um coletor proprio, em
+    vez de virar texto no stdout de um sidecar. A unica amostra sem rota: o
+    ponto dela e a plataforma, nao a borda.
+  annotations:
+    rhcl.demo/cluster-object: namespace//otel-sample
+  labels:
+    rhcl.demo/camada: plataforma
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - sample
+    - istio
+    - observabilidade
+spec:
+  owner: group:default/platform-team
+  domain: samples
+---
+# ---------------------------------------------------------------------------
+# COMPONENTS DO BOOKINFO -- quatro, e so um deles a borda alcanca.
+#
+# Essa assimetria e o proprio ponto da amostra, e o catalogo a torna legivel:
+# so o productpage tem link de endpoint e providesApis. Os outros tres existem
+# leste-oeste, e quem diz quem pode chama-los e a AuthorizationPolicy do
+# Service Mesh -- nao o roteamento.
+#
+# quay.io/repository-slug aponta para maistra/, e nao para istio/: o plugin de
+# Quay do portal chama quay.io (rhdh/setup-plugins.sh), e as imagens do
+# bookinfo publicas la sao as da Red Hat. As de istio/ dao 401 -- uma aba
+# 'Imagem' que carrega e nao mostra nada, que no palco se le como defeito do
+# portal. Conferido pela API do Quay em 2026-08-28.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: bookinfo-productpage
+  title: bookinfo — productpage
+  description: >-
+    A fachada. Unico servico do bookinfo que a borda alcanca, e o backend das
+    DUAS HTTPRoute: a da UI, publica, e a da API, sob chave e plano.
+  annotations:
+    rhcl.demo/cluster-object: deployment/bookinfo/productpage-v1
+    # O deployment tem sufixo de versao, que NAO e o nome da entidade -- errar
+    # aqui da uma aba Security que carrega e nao acha nada.
+    acs/deployment-name: productpage-v1
+    # Liga a aba CI. O que o plugin ENXERGA sai do kubernetes-label-selector; a
+    # anotacao so decide se a aba aparece. As PipelineRun da cadeia de
+    # suprimento levam app=bookinfo, que e o seletor abaixo.
+    janus-idp.io/tekton: bookinfo
+    sonarqube.org/project-key: rhcl-sample-bookinfo
+    # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
+    # TypeError no navegador -- sem rastro no log do backend.
+    gitlab.com/instance: ${GITLAB_HOST}
+    gitlab.com/project-slug: rhcl/samples/bookinfo
+    backstage.io/kubernetes-label-selector: app=productpage
+    backstage.io/kubernetes-namespace: bookinfo
+    # O Kiali usa a anotacao DELE, nao a do Kubernetes.
+    kiali.io/namespace: bookinfo
+    kiali.io/provider: default
+    quay.io/repository-slug: maistra/examples-bookinfo-productpage-v1
+    grafana/dashboard-selector: rhcl
+    backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/samples/bookinfo/-/tree/main/
+  links:
+    - url: https://${CONSOLE_HOST}/observe/traces
+      title: Traces — productpage.bookinfo
+      icon: dashboard
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - istio
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: sample-bookinfo
+  providesApis:
+    - bookinfo-api
+  dependsOn:
+    - component:default/bookinfo-details
+    - component:default/bookinfo-reviews
+    - resource:default/bookinfo-ui-route
+    - resource:default/bookinfo-api-route
+    - resource:default/bookinfo-api-authpolicy
+    - resource:default/bookinfo-plans
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: bookinfo-details
+  title: bookinfo — details
+  description: >-
+    Metadados do livro (Ruby). So o productpage pode chama-lo, e isso e DECLARADO pela AuthorizationPolicy -- nao um acidente de roteamento.
+  annotations:
+    rhcl.demo/cluster-object: deployment/bookinfo/details-v1
+    acs/deployment-name: details-v1
+    gitlab.com/instance: ${GITLAB_HOST}
+    gitlab.com/project-slug: rhcl/samples/bookinfo
+    backstage.io/kubernetes-label-selector: app=details
+    backstage.io/kubernetes-namespace: bookinfo
+    kiali.io/namespace: bookinfo
+    kiali.io/provider: default
+    quay.io/repository-slug: maistra/examples-bookinfo-details-v1
+    backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/samples/bookinfo/-/tree/main/
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - istio
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: sample-bookinfo
+  dependsOn:
+    - resource:default/bookinfo-authz-leste-oeste
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: bookinfo-ratings
+  title: bookinfo — ratings
+  description: >-
+    As estrelas (Node.js). Chamado apenas por reviews v2 e v3 -- e a policy nao distingue versao, porque o principal vem da ServiceAccount, que e uma so para as tres.
+  annotations:
+    rhcl.demo/cluster-object: deployment/bookinfo/ratings-v1
+    acs/deployment-name: ratings-v1
+    gitlab.com/instance: ${GITLAB_HOST}
+    gitlab.com/project-slug: rhcl/samples/bookinfo
+    backstage.io/kubernetes-label-selector: app=ratings
+    backstage.io/kubernetes-namespace: bookinfo
+    kiali.io/namespace: bookinfo
+    kiali.io/provider: default
+    quay.io/repository-slug: maistra/examples-bookinfo-ratings-v1
+    backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/samples/bookinfo/-/tree/main/
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - istio
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: sample-bookinfo
+  dependsOn:
+    - resource:default/bookinfo-authz-leste-oeste
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: bookinfo-reviews
+  title: bookinfo — reviews
+  description: >-
+    TRES versoes vivas, e e por elas que esta amostra entra: v2 esta declarada, saudavel, no grafo, e com ZERO por cento do trafego -- porque quem decide isso e o VirtualService, nao o deploy.
+  annotations:
+    rhcl.demo/cluster-object: deployment/bookinfo/reviews-v1
+    acs/deployment-name: reviews-v1,reviews-v2,reviews-v3
+    gitlab.com/instance: ${GITLAB_HOST}
+    gitlab.com/project-slug: rhcl/samples/bookinfo
+    backstage.io/kubernetes-label-selector: app=reviews
+    backstage.io/kubernetes-namespace: bookinfo
+    kiali.io/namespace: bookinfo
+    kiali.io/provider: default
+    quay.io/repository-slug: maistra/examples-bookinfo-reviews-v1
+    backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/samples/bookinfo/-/tree/main/
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - istio
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: sample-bookinfo
+  dependsOn:
+    - component:default/bookinfo-ratings
+    - resource:default/bookinfo-reviews-canary
+    - resource:default/bookinfo-authz-leste-oeste
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: websockets-tornado
+  title: websockets — tornado
+  description: >-
+    Servidor WebSocket da amostra do Istio. A AuthPolicy confere a credencial
+    no handshake; depois do upgrade os frames nao sao requisicoes HTTP e nao
+    passam por policy nenhuma. Isso nao e limitacao do RHCL -- e o que Upgrade
+    significa.
+  annotations:
+    rhcl.demo/cluster-object: deployment/websockets/tornado-v1
+    acs/deployment-name: tornado-v1
+    janus-idp.io/tekton: websockets
+    sonarqube.org/project-key: rhcl-sample-websockets
+    gitlab.com/instance: ${GITLAB_HOST}
+    gitlab.com/project-slug: rhcl/samples/websockets
+    backstage.io/kubernetes-label-selector: app=tornado
+    backstage.io/kubernetes-namespace: websockets
+    kiali.io/namespace: websockets
+    kiali.io/provider: default
+    backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/samples/websockets/-/tree/main/
+    # SEM quay.io/repository-slug: a imagem e docker.io/hiroakis/... e nao tem
+    # copia publica no quay.io. Anotar com um slug que nao existe daria uma aba
+    # 'Imagem' vazia, que no palco se le como defeito do portal -- pior do que
+    # nao ter a aba.
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: websockets
+  tags:
+    - rhcl
+    - sample
+    - istio
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: sample-websockets
+  dependsOn:
+    - resource:default/websockets-route
+    - resource:default/websockets-authpolicy
+    - resource:default/websockets-ratelimit
+    - resource:default/websockets-pool
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: grpc-echo-app
+  title: grpc-echo — echo
+  description: >-
+    Servidor de teste do proprio Istio, em duas versoes. Governado pela MESMA
+    AuthPolicy das APIs HTTP: mudam o targetRef (GRPCRoute) e o lugar da
+    credencial (metadata). COM SIDECAR e nao proxyless -- sem proxy no caminho
+    nao haveria onde a policy da borda agir.
+  annotations:
+    rhcl.demo/cluster-object: deployment/grpc-echo/echo-v1
+    acs/deployment-name: echo-v1,echo-v2
+    janus-idp.io/tekton: grpc-echo
+    sonarqube.org/project-key: rhcl-sample-grpc-echo
+    gitlab.com/instance: ${GITLAB_HOST}
+    gitlab.com/project-slug: rhcl/samples/grpc-echo
+    backstage.io/kubernetes-label-selector: app=echo
+    backstage.io/kubernetes-namespace: grpc-echo
+    kiali.io/namespace: grpc-echo
+    kiali.io/provider: default
+    backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/samples/grpc-echo/-/tree/main/
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: grpc-echo
+  tags:
+    - rhcl
+    - sample
+    - istio
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: sample-grpc-echo
+  dependsOn:
+    - resource:default/grpc-echo-route
+    - resource:default/grpc-echo-authpolicy
+    - resource:default/grpc-echo-canary
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: otel-als-collector
+  title: open-telemetry — coletor de access log
+  description: >-
+    Recebe o log de acesso do Service Mesh em OTLP e o exporta para o Tempo do
+    cluster e para o stdout. SEM SIDECAR de proposito: um sidecar aqui criaria
+    o laco obvio e poria o coletor atras de uma PeerAuthentication que ele nao
+    tem como negociar com quem lhe manda dados.
+  annotations:
+    rhcl.demo/cluster-object: opentelemetrycollector/otel-sample/otel-als
+    backstage.io/kubernetes-namespace: otel-sample
+    backstage.io/kubernetes-label-selector: app=otel-als
+    gitlab.com/instance: ${GITLAB_HOST}
+    gitlab.com/project-slug: rhcl/samples/open-telemetry
+    backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/samples/open-telemetry/-/tree/main/
+  labels:
+    rhcl.demo/camada: plataforma
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - sample
+    - observabilidade
+spec:
+  type: otel-collector
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: sample-open-telemetry
+  dependsOn:
+    - resource:default/otel-als-telemetry
+    - resource:default/tempo
+---
+# ---------------------------------------------------------------------------
+# AS DUAS ROTAS DO BOOKINFO -- e elas sao o argumento inteiro desta amostra.
+#
+# Mesmo hostname, mesmo backend, fronteiras diferentes. A Gateway API casa pelo
+# prefixo mais longo, entao '/api/v1' vence '/' independentemente de qual rota
+# foi criada primeiro -- e por isso as duas podem ser arquivos separados sem
+# virar armadilha de ordem.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: bookinfo-ui-route
+  title: HTTPRoute — bookinfo (UI)
+  description: >-
+    A rota publica. Path prefix '/', sem AuthPolicy: quem entra e qualquer um, e o que a governa e um limite de capacidade no hostname inteiro. 'Sem chave' nao pode significar 'sem governanca'.
+  annotations:
+    rhcl.demo/cluster-object: httproute/bookinfo/bookinfo-ui
+    backstage.io/kubernetes-namespace: bookinfo
+    backstage.io/kubernetes-label-selector: app=bookinfo
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - gateway-api
+spec:
+  type: httproute
+  owner: group:default/platform-team
+  system: sample-bookinfo
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: bookinfo-api-route
+  title: HTTPRoute — bookinfo (API)
+  description: >-
+    A rota da API. Path prefix '/api/v1', e e sobre ela que valem a AuthPolicy e o PlanPolicy. Os quatro caminhos que o bookinfo publica de verdade estao descritos na API bookinfo-api.
+  annotations:
+    rhcl.demo/cluster-object: httproute/bookinfo/bookinfo-api
+    backstage.io/kubernetes-namespace: bookinfo
+    backstage.io/kubernetes-label-selector: app=bookinfo
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - gateway-api
+spec:
+  type: httproute
+  owner: group:default/platform-team
+  system: sample-bookinfo
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: bookinfo-api-authpolicy
+  title: AuthPolicy — bookinfo-api
+  description: >-
+    A MESMA AuthPolicy do travels, com dois campos diferentes: o targetRef e o seletor, que exige devportal.kuadrant.io/apiproduct=bookinfo-api. E esse segundo campo que da o isolamento -- a chave do travels nao abre o bookinfo.
+  annotations:
+    rhcl.demo/cluster-object: authpolicy/bookinfo/bookinfo-api-authpolicy
+    backstage.io/kubernetes-namespace: bookinfo
+    backstage.io/kubernetes-label-selector: app=bookinfo
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: rota
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - kuadrant
+spec:
+  type: kuadrant-authpolicy
+  owner: group:default/platform-team
+  system: sample-bookinfo
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: bookinfo-plans
+  title: PlanPolicy — bookinfo
+  description: >-
+    Planos gold, silver e free sobre a rota da API, com limites baixos de proposito: a cena e ver o 429 com dez curls na mao, e nao medir capacidade. O catch-all 'unclassified' e o que separa fail-closed de fail-open.
+  annotations:
+    rhcl.demo/cluster-object: planpolicy/bookinfo/bookinfo-plans
+    backstage.io/kubernetes-namespace: bookinfo
+    backstage.io/kubernetes-label-selector: app=bookinfo
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: rota
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - kuadrant
+spec:
+  type: kuadrant-planpolicy
+  owner: group:default/platform-team
+  system: sample-bookinfo
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: bookinfo-ui-ratelimit
+  title: RateLimitPolicy — bookinfo (UI)
+  description: >-
+    Protecao de capacidade da rota anonima, e nao cota comercial. Sem identidade do outro lado, o limite so pode ser do hostname -- perder essa distincao e o erro comum de quem le rate limit como cobranca.
+  annotations:
+    rhcl.demo/cluster-object: ratelimitpolicy/bookinfo/bookinfo-ui-ratelimit
+    backstage.io/kubernetes-namespace: bookinfo
+    backstage.io/kubernetes-label-selector: app=bookinfo
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: rota
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - kuadrant
+spec:
+  type: kuadrant-ratelimitpolicy
+  owner: group:default/platform-team
+  system: sample-bookinfo
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: websockets-route
+  title: HTTPRoute — websockets
+  description: >-
+    A rota do WebSocket, e o que NAO esta escrito nela e o ponto: nao ha configuracao de upgrade em lugar nenhum. Mesmo Gateway, mesmo listener HTTPS/443 das demais rotas.
+  annotations:
+    rhcl.demo/cluster-object: httproute/websockets/websockets
+    backstage.io/kubernetes-namespace: websockets
+    backstage.io/kubernetes-label-selector: app=tornado
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: websockets
+  tags:
+    - rhcl
+    - sample
+    - gateway-api
+spec:
+  type: httproute
+  owner: group:default/platform-team
+  system: sample-websockets
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: websockets-authpolicy
+  title: AuthPolicy — websockets
+  description: >-
+    Confere a credencial na requisicao que carrega 'Upgrade: websocket'. Sem chave o upgrade nao acontece e a conexao nunca chega a existir. Depois dele, os frames nao sao requisicoes HTTP e esta policy nao os ve. A chave vai na query string porque a API do navegador nao permite cabecalho.
+  annotations:
+    rhcl.demo/cluster-object: authpolicy/websockets/websockets-authpolicy
+    backstage.io/kubernetes-namespace: websockets
+    backstage.io/kubernetes-label-selector: app=tornado
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: rota
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: websockets
+  tags:
+    - rhcl
+    - sample
+    - kuadrant
+spec:
+  type: kuadrant-authpolicy
+  owner: group:default/platform-team
+  system: sample-websockets
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: websockets-ratelimit
+  title: RateLimitPolicy — websockets
+  description: >-
+    Conta HANDSHAKES, e nao mensagens: 5 por minuto e generoso para quem abre uma conexao e a mantem, e apertado para quem reconecta em laco. Ler este numero como '5 requisicoes por minuto' e o erro.
+  annotations:
+    rhcl.demo/cluster-object: ratelimitpolicy/websockets/websockets-ratelimit
+    backstage.io/kubernetes-namespace: websockets
+    backstage.io/kubernetes-label-selector: app=tornado
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: rota
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: websockets
+  tags:
+    - rhcl
+    - sample
+    - kuadrant
+spec:
+  type: kuadrant-ratelimitpolicy
+  owner: group:default/platform-team
+  system: sample-websockets
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: grpc-echo-route
+  title: GRPCRoute — grpc-echo
+  description: >-
+    gRPC no MESMO Gateway das rotas HTTP: o listener e HTTPS na 443 e negocia h2 por ALPN, entao nao ha porta nova nem Gateway novo. UMA regra, sem match por metodo -- com duas, o Kuadrant ancora o limite so numa delas.
+  annotations:
+    rhcl.demo/cluster-object: grpcroute/grpc-echo/grpc-echo
+    backstage.io/kubernetes-namespace: grpc-echo
+    backstage.io/kubernetes-label-selector: app=echo
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: grpc-echo
+  tags:
+    - rhcl
+    - sample
+    - gateway-api
+spec:
+  type: grpcroute
+  owner: group:default/platform-team
+  system: sample-grpc-echo
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: grpc-echo-authpolicy
+  title: AuthPolicy — grpc-echo
+  description: >-
+    Identica a do bookinfo em tudo menos dois campos, e os dois sao do protocolo: targetRef kind GRPCRoute, e credencial em metadata (customHeader) porque gRPC nao tem query string. A policy nao muda com o protocolo.
+  annotations:
+    rhcl.demo/cluster-object: authpolicy/grpc-echo/grpc-echo-authpolicy
+    backstage.io/kubernetes-namespace: grpc-echo
+    backstage.io/kubernetes-label-selector: app=echo
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: rota
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: grpc-echo
+  tags:
+    - rhcl
+    - sample
+    - kuadrant
+spec:
+  type: kuadrant-authpolicy
+  owner: group:default/platform-team
+  system: sample-grpc-echo
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: grpc-echo-ratelimit
+  title: RateLimitPolicy — grpc-echo (nao aplicada)
+  description: >-
+    DECLARADA E SEM EFEITO, e isso esta medido: a policy irma de base/grpc/, de desenho identico, reporta Enforced=True com o limite correto no Limitador e deixa passar oito chamadas num teto de cinco. No mesmo minuto a de HTTP funciona. Fica declarada porque esta correta -- omiti-la ensinaria que gRPC nao se limita, o que e falso.
+  annotations:
+    rhcl.demo/cluster-object: ratelimitpolicy/grpc-echo/grpc-echo-ratelimit
+    backstage.io/kubernetes-namespace: grpc-echo
+    backstage.io/kubernetes-label-selector: app=echo
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: rota
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: grpc-echo
+  tags:
+    - rhcl
+    - sample
+    - kuadrant
+spec:
+  type: kuadrant-ratelimitpolicy
+  owner: group:default/platform-team
+  system: sample-grpc-echo
+
+---
+# ---------------------------------------------------------------------------
+# OS RECURSOS DO SERVICE MESH -- camada 'borda' NAO se aplica a eles.
+#
+# A regra de docs/CATALOGO.md diz que toda policy do KUADRANT e camada borda,
+# porque quem a aplica e o gateway. Estes sao do Istio e valem LESTE-OESTE:
+# quem os aplica e o sidecar de cada pod. Camada 'aplicacao', portanto -- e sem
+# rhcl.demo/escopo-policy, que o validador so aceita em spec.type kuadrant-*.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: bookinfo-strict
+  title: PeerAuthentication — bookinfo (STRICT)
+  description: >-
+    mTLS obrigatorio no namespace inteiro. E ele que prova os principals que a AuthorizationPolicy compara -- aplicar a segunda sem esta nao daria erro, daria uma regra que nunca casa.
+  annotations:
+    rhcl.demo/cluster-object: peerauthentication/bookinfo/bookinfo-strict
+    backstage.io/kubernetes-namespace: bookinfo
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - service-mesh
+spec:
+  type: istio-peerauthentication
+  owner: group:default/platform-team
+  system: sample-bookinfo
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: bookinfo-reviews-canary
+  title: VirtualService — reviews (90/10)
+  description: >-
+    O canario de TRES destinos: 90% em v1, 10% em v3, e v2 declarada com zero. Com dois destinos, canario e troca de versao se confundem; com tres, a diferenca se diz numa frase.
+  annotations:
+    rhcl.demo/cluster-object: virtualservice/bookinfo/reviews
+    backstage.io/kubernetes-namespace: bookinfo
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - service-mesh
+spec:
+  type: istio-virtualservice
+  owner: group:default/platform-team
+  system: sample-bookinfo
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: bookinfo-authz-leste-oeste
+  title: AuthorizationPolicy — bookinfo
+  description: >-
+    Quem pode falar COM QUEM, por identidade SPIFFE e nao por rede. Torna DECLARADO o que hoje e verdade por acidente: um pod novo no mesmo namespace, com outra ServiceAccount, recebe 'RBAC: access denied'.
+  annotations:
+    rhcl.demo/cluster-object: authorizationpolicy/bookinfo/ratings-so-do-reviews
+    backstage.io/kubernetes-namespace: bookinfo
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - service-mesh
+spec:
+  type: istio-authorizationpolicy
+  owner: group:default/platform-team
+  system: sample-bookinfo
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: websockets-strict
+  title: PeerAuthentication — websockets (STRICT)
+  description: >-
+    mTLS negociado no ESTABELECIMENTO da conexao, e a identidade provada ali vale por ela inteira -- o inverso da policy de borda, que e por requisicao. Ter os dois comportamentos no mesmo namespace e o que torna a diferenca visivel em vez de teorica.
+  annotations:
+    rhcl.demo/cluster-object: peerauthentication/websockets/websockets-strict
+    backstage.io/kubernetes-namespace: websockets
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: websockets
+  tags:
+    - rhcl
+    - sample
+    - service-mesh
+spec:
+  type: istio-peerauthentication
+  owner: group:default/platform-team
+  system: sample-websockets
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: websockets-pool
+  title: DestinationRule — tornado (pool de conexao)
+  description: >-
+    maxRequestsPerConnection: 0 evita que o proxy recicle a conexao HTTP/1.1 depois de N requisicoes -- numa conexao de upgrade isso a derruba no meio, e o sintoma e um WebSocket que 'cai sozinho de vez em quando', sem erro em log nenhum.
+  annotations:
+    rhcl.demo/cluster-object: destinationrule/websockets/tornado
+    backstage.io/kubernetes-namespace: websockets
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: websockets
+  tags:
+    - rhcl
+    - sample
+    - service-mesh
+spec:
+  type: istio-destinationrule
+  owner: group:default/platform-team
+  system: sample-websockets
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: grpc-echo-strict
+  title: PeerAuthentication — grpc-echo (STRICT)
+  description: >-
+    Em gRPC o handshake mTLS acontece uma vez por CONEXAO e nao por chamada -- o overhead que se teme em mTLS e amortizado por centenas de chamadas. E resposta medivel para a objecao 'mTLS em tudo nao fica caro?'.
+  annotations:
+    rhcl.demo/cluster-object: peerauthentication/grpc-echo/grpc-echo-strict
+    backstage.io/kubernetes-namespace: grpc-echo
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: grpc-echo
+  tags:
+    - rhcl
+    - sample
+    - service-mesh
+spec:
+  type: istio-peerauthentication
+  owner: group:default/platform-team
+  system: sample-grpc-echo
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: grpc-echo-canary
+  title: VirtualService — echo (80/20 sobre gRPC)
+  description: >-
+    Canario sobre gRPC, e a pegadinha vale ser dita: o campo se chama 'http' TAMBEM para gRPC, porque gRPC e HTTP/2 e o Istio o trata na mesma secao. As pessoas procuram uma secao 'grpc' que nao existe.
+  annotations:
+    rhcl.demo/cluster-object: virtualservice/grpc-echo/echo
+    backstage.io/kubernetes-namespace: grpc-echo
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: grpc-echo
+  tags:
+    - rhcl
+    - sample
+    - service-mesh
+spec:
+  type: istio-virtualservice
+  owner: group:default/platform-team
+  system: sample-grpc-echo
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: otel-als-telemetry
+  title: Telemetry — access log em OTLP
+  description: >-
+    Liga o access log do namespace bookinfo ao coletor da amostra. SUBSTITUI a Telemetry que o bookinfo ja tinha, e nao acrescenta uma segunda: o Istio aplica UMA por nivel, e duas de nivel de namespace nao sao mescladas -- uma delas nao vale, e nada diz qual.
+  annotations:
+    rhcl.demo/cluster-object: telemetry/bookinfo/bookinfo-dimensoes
+    backstage.io/kubernetes-namespace: bookinfo
+  labels:
+    rhcl.demo/camada: plataforma
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - sample
+    - observabilidade
+spec:
+  type: istio-telemetry
+  owner: group:default/platform-team
+  system: sample-open-telemetry
+---
+# ---------------------------------------------------------------------------
+# A CADEIA DE SUPRIMENTO DE CADA AMOSTRA.
+#
+# Aqui e onde o pedido "catalogo completo, com pipeline, gitops, RHTAS, Nexus,
+# SonarQube, ACS, Quay e GitLab" se realiza -- e realiza-se por RELACAO, e nao
+# por repeticao: as ferramentas ja sao entidades deste catalogo (nexus e
+# sonarqube em cicd.yaml; quay e tekton-pipelines idem; acs-central, rhtas e
+# tekton-chains em seguranca.yaml; gitlab e openshift-gitops em plataforma.yaml).
+# O que cada amostra declara e o dependsOn para elas.
+#
+# Duplicar uma entidade 'Nexus da amostra bookinfo' daria quatro cards
+# descrevendo o mesmo Deployment -- e a pergunta "qual deles e o Nexus?"
+# passaria a ter quatro respostas.
+#
+# open-telemetry NAO tem pipeline: a imagem do coletor e escolhida pelo
+# OpenTelemetry Operator a partir da versao dele, e espelhar o que o operador
+# vai ignorar seria assinar o que nao roda.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: bookinfo-supply-chain
+  title: Pipeline — cadeia de suprimento (bookinfo)
+  description: >-
+    Valida o render e o hostname dos manifests, passa pelo portao do SonarQube sobre o YAML, espelha a imagem de terceiro no Quay com skopeo, deixa o Tekton Chains assinar e registrar no Rekor, varre a copia com o roxctl e publica o bundle renderizado no Nexus. NAO COMPILA NADA: uma amostra do Istio nao tem codigo nosso, e o que se governa aqui e o manifesto e a imagem de terceiro -- as duas coisas que a maioria poe em producao sem cadeia nenhuma.
+  annotations:
+    rhcl.demo/cluster-object: pipeline/bookinfo/samples-supply-chain
+    backstage.io/kubernetes-namespace: bookinfo
+    backstage.io/kubernetes-label-selector: app=bookinfo
+  labels:
+    rhcl.demo/camada: cicd
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - cicd
+spec:
+  type: pipeline
+  owner: group:default/platform-team
+  system: sample-bookinfo
+  dependsOn:
+    - resource:default/tekton-pipelines
+    - resource:default/tekton-chains
+    - resource:default/sonarqube
+    - resource:default/quay
+    - resource:default/nexus
+    - resource:default/acs-central
+    - resource:default/rhtas
+    - resource:default/gitlab
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: websockets-supply-chain
+  title: Pipeline — cadeia de suprimento (websockets)
+  description: >-
+    Valida o render e o hostname dos manifests, passa pelo portao do SonarQube sobre o YAML, espelha a imagem de terceiro no Quay com skopeo, deixa o Tekton Chains assinar e registrar no Rekor, varre a copia com o roxctl e publica o bundle renderizado no Nexus. NAO COMPILA NADA: uma amostra do Istio nao tem codigo nosso, e o que se governa aqui e o manifesto e a imagem de terceiro -- as duas coisas que a maioria poe em producao sem cadeia nenhuma.
+  annotations:
+    rhcl.demo/cluster-object: pipeline/websockets/samples-supply-chain
+    backstage.io/kubernetes-namespace: websockets
+    backstage.io/kubernetes-label-selector: app=websockets
+  labels:
+    rhcl.demo/camada: cicd
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: websockets
+  tags:
+    - rhcl
+    - sample
+    - cicd
+spec:
+  type: pipeline
+  owner: group:default/platform-team
+  system: sample-websockets
+  dependsOn:
+    - resource:default/tekton-pipelines
+    - resource:default/tekton-chains
+    - resource:default/sonarqube
+    - resource:default/quay
+    - resource:default/nexus
+    - resource:default/acs-central
+    - resource:default/rhtas
+    - resource:default/gitlab
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: grpc-echo-supply-chain
+  title: Pipeline — cadeia de suprimento (grpc-echo)
+  description: >-
+    Valida o render e o hostname dos manifests, passa pelo portao do SonarQube sobre o YAML, espelha a imagem de terceiro no Quay com skopeo, deixa o Tekton Chains assinar e registrar no Rekor, varre a copia com o roxctl e publica o bundle renderizado no Nexus. NAO COMPILA NADA: uma amostra do Istio nao tem codigo nosso, e o que se governa aqui e o manifesto e a imagem de terceiro -- as duas coisas que a maioria poe em producao sem cadeia nenhuma.
+  annotations:
+    rhcl.demo/cluster-object: pipeline/grpc-echo/samples-supply-chain
+    backstage.io/kubernetes-namespace: grpc-echo
+    backstage.io/kubernetes-label-selector: app=grpc-echo
+  labels:
+    rhcl.demo/camada: cicd
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: grpc-echo
+  tags:
+    - rhcl
+    - sample
+    - cicd
+spec:
+  type: pipeline
+  owner: group:default/platform-team
+  system: sample-grpc-echo
+  dependsOn:
+    - resource:default/tekton-pipelines
+    - resource:default/tekton-chains
+    - resource:default/sonarqube
+    - resource:default/quay
+    - resource:default/nexus
+    - resource:default/acs-central
+    - resource:default/rhtas
+    - resource:default/gitlab
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: bookinfo-argo-app
+  title: Application do Argo CD — bookinfo
+  description: >-
+    Quem APLICA esta amostra. E o unico dos tres ApplicationSet deste ambiente que aplica de verdade: ninguem mais aplica as amostras, ao contrario do rhcl-travel, onde dois donos para o mesmo objeto deixaram as Applications presas em phase=Running. selfHeal continua desligado -- varios movimentos sao edicoes ao vivo.
+  annotations:
+    rhcl.demo/cluster-object: application/openshift-gitops/sample-bookinfo
+    backstage.io/kubernetes-namespace: openshift-gitops
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/part-of=rhcl-samples
+  labels:
+    rhcl.demo/camada: cicd
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - gitops
+spec:
+  type: gitops
+  owner: group:default/platform-team
+  system: sample-bookinfo
+  dependsOn:
+    - resource:default/openshift-gitops
+    - resource:default/gitlab
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: websockets-argo-app
+  title: Application do Argo CD — websockets
+  description: >-
+    Quem APLICA esta amostra. E o unico dos tres ApplicationSet deste ambiente que aplica de verdade: ninguem mais aplica as amostras, ao contrario do rhcl-travel, onde dois donos para o mesmo objeto deixaram as Applications presas em phase=Running. selfHeal continua desligado -- varios movimentos sao edicoes ao vivo.
+  annotations:
+    rhcl.demo/cluster-object: application/openshift-gitops/sample-websockets
+    backstage.io/kubernetes-namespace: openshift-gitops
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/part-of=rhcl-samples
+  labels:
+    rhcl.demo/camada: cicd
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: websockets
+  tags:
+    - rhcl
+    - sample
+    - gitops
+spec:
+  type: gitops
+  owner: group:default/platform-team
+  system: sample-websockets
+  dependsOn:
+    - resource:default/openshift-gitops
+    - resource:default/gitlab
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: grpc-echo-argo-app
+  title: Application do Argo CD — grpc-echo
+  description: >-
+    Quem APLICA esta amostra. E o unico dos tres ApplicationSet deste ambiente que aplica de verdade: ninguem mais aplica as amostras, ao contrario do rhcl-travel, onde dois donos para o mesmo objeto deixaram as Applications presas em phase=Running. selfHeal continua desligado -- varios movimentos sao edicoes ao vivo.
+  annotations:
+    rhcl.demo/cluster-object: application/openshift-gitops/sample-grpc-echo
+    backstage.io/kubernetes-namespace: openshift-gitops
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/part-of=rhcl-samples
+  labels:
+    rhcl.demo/camada: cicd
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: grpc-echo
+  tags:
+    - rhcl
+    - sample
+    - gitops
+spec:
+  type: gitops
+  owner: group:default/platform-team
+  system: sample-grpc-echo
+  dependsOn:
+    - resource:default/openshift-gitops
+    - resource:default/gitlab
+
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: open-telemetry-argo-app
+  title: Application do Argo CD — open-telemetry
+  description: >-
+    Quem APLICA esta amostra. E o unico dos tres ApplicationSet deste ambiente que aplica de verdade: ninguem mais aplica as amostras, ao contrario do rhcl-travel, onde dois donos para o mesmo objeto deixaram as Applications presas em phase=Running. selfHeal continua desligado -- varios movimentos sao edicoes ao vivo.
+  annotations:
+    rhcl.demo/cluster-object: application/openshift-gitops/sample-open-telemetry
+    backstage.io/kubernetes-namespace: openshift-gitops
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/part-of=rhcl-samples
+  labels:
+    rhcl.demo/camada: cicd
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - sample
+    - gitops
+spec:
+  type: gitops
+  owner: group:default/platform-team
+  system: sample-open-telemetry
+  dependsOn:
+    - resource:default/openshift-gitops
+    - resource:default/gitlab
+
+---
+# ---------------------------------------------------------------------------
+# A API do bookinfo -- descrita AQUI, e nao ingerida de um APIProduct.
+#
+# A travels-api chega ao portal pelo provider do plugin Kuadrant, que ingere o
+# APIProduct do cluster (por isso ela esta em entidades-externas.txt). O
+# bookinfo nao tem APIProduct: a AuthPolicy dele seleciona a chave por LABEL
+# (devportal.kuadrant.io/apiproduct=bookinfo-api), que e so um label -- nao
+# exige o CR. Criar um APIProduct so para a entidade existir poria a amostra na
+# dependencia das CRDs de devportal, que so existem no RHCL 1.4.2+.
+#
+# O spec e INLINE e nao uma URL: o backend do RHDH busca definicao remota, e um
+# 'openAPISpecURL' apontando para o raw do GitLab do cluster e mais uma coisa
+# que quebra quando o cluster muda. Os quatro caminhos abaixo sao os que o
+# bookinfo publica de verdade -- estao no swagger.yaml do upstream.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: bookinfo-api
+  title: Bookinfo API
+  description: >-
+    A API de produtos do bookinfo, publicada em /api/v1 e governada na borda
+    pela AuthPolicy bookinfo-api-authpolicy. O servico nao valida credencial por
+    conta propria, e o limite depende do plano da chave.
+  annotations:
+    rhcl.demo/cluster-object: httproute/bookinfo/bookinfo-api
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: sample-bookinfo
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: Bookinfo API
+      version: "1.0.0"
+      description: >-
+        API de produtos da amostra bookinfo do Istio, exposta pelo Gateway
+        prod-web e governada pelo Red Hat Connectivity Link. A autenticacao e
+        por API key na query string, imposta na borda pela AuthPolicy -- o
+        productpage nao valida credencial por conta propria.
+    security:
+      - ApiKeyQuery: []
+    paths:
+      /api/v1/products:
+        get:
+          summary: Lista os produtos
+          responses:
+            "200": { description: OK }
+            "401": { description: API key ausente ou invalida (vem da AuthPolicy) }
+            "429": { description: "Limite do plano excedido: gold 20/10s, silver 5/10s, free 2/10s" }
+      /api/v1/products/{id}:
+        get:
+          summary: Detalhes de um produto
+          parameters:
+            - name: id
+              in: path
+              required: true
+              schema: { type: integer }
+          responses:
+            "200": { description: OK }
+            "401": { description: API key ausente ou invalida }
+      /api/v1/products/{id}/reviews:
+        get:
+          summary: Resenhas de um produto
+          description: >-
+            A versao que responde depende do VirtualService reviews -- 90% v1,
+            10% v3, e v2 declarada com zero por cento.
+          parameters:
+            - name: id
+              in: path
+              required: true
+              schema: { type: integer }
+          responses:
+            "200": { description: OK }
+            "401": { description: API key ausente ou invalida }
+      /api/v1/products/{id}/ratings:
+        get:
+          summary: Notas de um produto
+          parameters:
+            - name: id
+              in: path
+              required: true
+              schema: { type: integer }
+          responses:
+            "200": { description: OK }
+            "401": { description: API key ausente ou invalida }
+    components:
+      securitySchemes:
+        ApiKeyQuery:
+          type: apiKey
+          in: query
+          name: APIKEY
+          description: >-
+            Chave do produto bookinfo-api. O tier vem do label
+            kuadrant.io/plan-id no Secret, e a chave de outro produto NAO abre
+            esta API -- o seletor da AuthPolicy exige o par completo.

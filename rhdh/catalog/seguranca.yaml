@@ -1,0 +1,118 @@
+# ===========================================================================
+# Catalogo RHDH — a camada de SEGURANCA da cadeia de suprimento.
+#
+# 'seguranca' e um valor de rhcl.demo/camada que docs/CATALOGO.md reservou na
+# Fase 1 e que ate aqui nao tinha nenhuma entidade. Ele passa a ter porque a
+# cadeia de suprimento das amostras (samples/) tornou visivel o que ja
+# acontecia sem card nenhum no portal: o Tekton Chains assinando, o RHTAS
+# registrando no Rekor, e o ACS varrendo o que foi publicado.
+#
+# AS TRES SAO UM CONJUNTO, e e por isso que estao no mesmo arquivo e no mesmo
+# System: o Chains assina, o RHTAS guarda a prova, e o ACS decide se aquilo
+# pode entrar. Separar as tres em cards soltos perderia a unica coisa que
+# importa dizer sobre elas -- que so valem juntas.
+#
+# Todas trazem rhcl.demo/cluster-object: num cluster sem a etapa 'security' do
+# provision.sh e sem o scripts/setup-supply-chain.sh, saem do portal sozinhas.
+# ===========================================================================
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: seguranca
+  title: Cadeia de suprimento — seguranca
+  description: >-
+    O que separa 'a imagem foi construida' de 'a imagem pode entrar': quem
+    assina (Tekton Chains), onde a prova fica publica (RHTAS/Rekor) e quem
+    reprova (ACS). Nao e a demo -- e o que da procedencia ao que a demo publica.
+  annotations:
+    # Ancorado no namespace do ACS: e o unico dos tres que tem namespace
+    # proprio, e o mais caro de instalar. Sem ele, os outros dois sozinhos nao
+    # sustentam o argumento do System.
+    rhcl.demo/cluster-object: namespace//stackrox
+  labels:
+    rhcl.demo/camada: seguranca
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - sample
+spec:
+  owner: group:default/platform-team
+  domain: plataforma
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: acs-central
+  title: Red Hat Advanced Cluster Security — Central
+  description: >-
+    Postura de seguranca do cluster e portao de build: 'roxctl image check'
+    aplica as policies do Central e sai com codigo diferente de zero quando
+    alguma reprova. E o que transforma postura em portao, em vez de painel.
+  annotations:
+    rhcl.demo/cluster-object: central/stackrox/stackrox-central-services
+    backstage.io/kubernetes-namespace: stackrox
+    backstage.io/kubernetes-label-selector: app=central
+  labels:
+    rhcl.demo/camada: seguranca
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - sample
+spec:
+  type: security-posture
+  owner: group:default/platform-team
+  system: seguranca
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: rhtas
+  title: Red Hat Trusted Artifact Signer (Rekor)
+  description: >-
+    O log de transparencia. Assinatura POR CHAVE e nao keyless -- decisao de
+    2026-08-28: keyless exige client OIDC no realm e token de quem assina no
+    momento do build, o que e uma dependencia de palco a mais para o mesmo
+    slide. A chave assina, o Rekor registra, e o argumento fica inteiro.
+  annotations:
+    rhcl.demo/cluster-object: securesign/trusted-artifact-signer/securesign
+    backstage.io/kubernetes-namespace: trusted-artifact-signer
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/component=rekor-server
+  labels:
+    rhcl.demo/camada: seguranca
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - sample
+spec:
+  type: transparency-log
+  owner: group:default/platform-team
+  system: seguranca
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: tekton-chains
+  title: Tekton Chains — assinatura automatica
+  description: >-
+    Assina o que as pipelines produzem SEM QUE ELAS PECAM: ele varre os results
+    das TaskRun atras de IMAGE_URL e IMAGE_DIGEST. E por isso que o nome do
+    result e contrato -- com um result chamado 'digest', a anotacao
+    chains.tekton.dev/signed vira 'true' e nada chega ao registry nem ao Rekor.
+  annotations:
+    rhcl.demo/cluster-object: deployment/openshift-pipelines/tekton-chains-controller
+    backstage.io/kubernetes-namespace: openshift-pipelines
+    backstage.io/kubernetes-label-selector: app=tekton-chains-controller
+  labels:
+    rhcl.demo/camada: seguranca
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - sample
+spec:
+  type: signing
+  owner: group:default/platform-team
+  system: seguranca
+  dependsOn:
+    - resource:default/rhtas
+    - resource:default/quay

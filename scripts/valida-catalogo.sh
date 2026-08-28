@@ -192,7 +192,13 @@ VOCAB = {
                                 'dados', 'cicd', 'seguranca'},
     'rhcl.demo/escopo-policy': {'gateway', 'rota'},
     'rhcl.demo/origem':        {'repo', 'cluster', 'template'},
-    'rhcl.demo/produto':       {'travels', 'echo'},
+    # bookinfo, websockets e grpc-echo entraram com rhdh/catalog/samples.yaml:
+    # as tres publicam rota, tem AuthPolicy propria e chave propria -- sao
+    # produtos de API pelo mesmo criterio que 'travels' e 'echo'. A amostra
+    # open-telemetry NAO entra: ela nao publica rota e nao tem chave, e inventar
+    # um produto para ela seria dizer que ela vende algo.
+    'rhcl.demo/produto':       {'travels', 'echo',
+                                'bookinfo', 'websockets', 'grpc-echo'},
 }
 # camada fica fora de User/Group/Domain/Template: sao organizacionais, nao
 # arquiteturais. Todas levam origem.

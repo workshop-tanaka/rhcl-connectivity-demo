@@ -64,7 +64,7 @@ O prefixo é `rhcl.demo/`, que é o que o repositório **já** usa em anotaçõe
 | `rhcl.demo/camada` | `borda`, `aplicacao`, `consumidor`, `plataforma`, `dados`, `cicd`, `seguranca` | `Component`, `Resource`, `System` | separar o que é infraestrutura do que é aplicação, sem depender do System |
 | `rhcl.demo/escopo-policy` | `gateway`, `rota` | só policies do Kuadrant | **a distinção do Ato 3** — o que vale para toda rota anexada vs. o que vale só para esta API |
 | `rhcl.demo/origem` | `repo`, `cluster`, `template` | todas | de onde a entidade nasce: este repositório, o provider do plugin, ou o golden path |
-| `rhcl.demo/produto` | `travels`, `echo` | o que pertence a um produto de API | agora que o `echo-api` é o segundo produto, "de qual produto é isto?" tem resposta |
+| `rhcl.demo/produto` | `travels`, `echo`, `bookinfo`, `websockets`, `grpc-echo` | o que pertence a um produto de API | agora que o `echo-api` é o segundo produto, "de qual produto é isto?" tem resposta |
 
 `camada` fica fora de `User`, `Group`, `Domain` e `Template`: são entidades
 organizacionais, não arquiteturais, e forçá-las numa camada só produziria um
@@ -75,8 +75,16 @@ HTTPRoute de uma aplicação: quem as aplica é o gateway, não o serviço. O qu
 distingue uma da outra é `escopo-policy`, e é essa a distinção que o Ato 3
 explica — misturar as duas coisas em `camada` apagaria justamente o ponto.
 
-`dados`, `cicd` e `seguranca` estão reservados para a Fase 4 — os subsistemas
-`travel-packages/`, `cicd/` e `security/`, que hoje não têm entidade nenhuma.
+`dados` e `cicd` deixaram de ser reserva quando `dados.yaml` e `cicd.yaml`
+entraram. **`seguranca` deixou de ser reserva em 2026-08-28**, com
+`rhdh/catalog/seguranca.yaml`: Tekton Chains, RHTAS/Rekor e o ACS Central — as
+três peças que separam "a imagem foi construída" de "a imagem pode entrar".
+
+As três amostras que publicam rota (`bookinfo`, `websockets`, `grpc-echo`)
+entraram em `rhcl.demo/produto` pelo mesmo critério de `travels` e `echo`:
+publicam rota, têm `AuthPolicy` própria e chave própria. A amostra
+`open-telemetry` **não** entra — ela não publica rota e não tem chave, e
+inventar um produto para ela seria dizer que ela vende algo.
 
 ### As regras de forma — e elas diferem entre label e tag
 
@@ -135,6 +143,9 @@ Multivaloradas, e é o que o filtro do catálogo mostra na tela.
 | `gitops` | Argo CD e o que ele reconcilia |
 | `golden-path` | gerado pelos templates — **já em uso**, vem do skeleton |
 | `parceiro`, `tier-gold`, `tier-silver`, `tier-free` | os consumidores do Ato 2 — **já em uso**, ficam como estão |
+| `sample` | tudo que vem de `samples/` — inclusive as ferramentas da cadeia de suprimento que as amostras tornaram visíveis (Quay, ACS, RHTAS, Chains). É o filtro que responde *"o que é material de apoio e não faz parte do roteiro?"* |
+| `istio` | as amostras que vêm do upstream do projeto Istio, e só elas — serve para separar o que foi **adaptado** do que é autoral |
+| `cicd` | as pipelines em si. Não confundir com a **camada** `cicd`, que é label: a tag marca o objeto, o label marca a que camada ele pertence |
 
 ### O que NÃO entra
 

@@ -84,3 +84,64 @@ spec:
   type: code-quality
   owner: group:default/platform-team
   system: cicd
+---
+# ---------------------------------------------------------------------------
+# Quay NO PROPRIO CLUSTER — o destino do push.
+#
+# Entrou junto com as amostras (2026-08-28): a cadeia de suprimento delas
+# espelha as imagens de terceiro aqui, e sem a entidade a plateia via o
+# 'skopeo copy' na aba CI e nao via para onde a imagem ia.
+#
+# NAO CONFUNDIR com o quay.io publico. O plugin de Quay do portal aponta para
+# quay.io (rhdh/setup-plugins.sh), entao a anotacao quay.io/repository-slug dos
+# componentes fala do registry PUBLICO; este Resource e o registry do cluster,
+# que so aparece pelo Kubernetes e pela rota.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: quay
+  title: Quay — registry do cluster
+  description: >-
+    Registry no proprio cluster: destino do push da pipeline de entrega e do
+    espelho assinado das imagens das amostras. Conta externa foi recusada em
+    2026-08-27 pelo mesmo criterio do GitLab -- estado que o repositorio nao
+    reconstroi nasce vazio num cluster novo.
+  annotations:
+    rhcl.demo/cluster-object: quayregistry/quay/registry
+    backstage.io/kubernetes-namespace: quay
+    backstage.io/kubernetes-label-selector: quay-component=quay-app
+  labels:
+    rhcl.demo/camada: cicd
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - sample
+spec:
+  type: container-registry
+  owner: group:default/platform-team
+  system: cicd
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: tekton-pipelines
+  title: OpenShift Pipelines (Tekton)
+  description: >-
+    Executa as tres pipelines deste ambiente: valida-policies, o build assinado
+    do travel-packages, e a cadeia de suprimento das amostras. E tambem quem
+    hospeda o Tekton Chains, que assina sem que pipeline nenhuma peca.
+  annotations:
+    rhcl.demo/cluster-object: deployment/openshift-pipelines/tekton-pipelines-controller
+    backstage.io/kubernetes-namespace: openshift-pipelines
+    backstage.io/kubernetes-label-selector: app=tekton-pipelines-controller
+  labels:
+    rhcl.demo/camada: cicd
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - ato-6
+spec:
+  type: ci
+  owner: group:default/platform-team
+  system: cicd
