@@ -34,6 +34,15 @@ export const WATCHED_KINDS: WatchedKind[] = [
   { key: 'planpolicies', label: 'PlanPolicy', kind: 'PlanPolicy', group: 'extensions.kuadrant.io', version: 'v1alpha1', plural: 'planpolicies', isPolicy: true },
 ];
 
+/** O que a sineta recebe quando uma policy piora de verdade. */
+export interface PioraDetectada {
+  kind: string;
+  name: string;
+  namespace: string;
+  /** 'deixou de valer' ou 'foi removida'. */
+  o_que: string;
+}
+
 export interface KindResult {
   key: string;
   label: string;
@@ -85,16 +94,33 @@ export class ResourceCache {
   /** Enforced conhecido de cada policy, para detectar a TRANSICAO. Sem guardar
    *  o anterior, todo update de uma policy nao-enforced viraria um aviso. */
   private enforcedAnterior = new Map<string, boolean>();
-  private aoPiorar?: (p: {
-    kind: string;
-    name: string;
-    namespace: string;
-    o_que: string;
-  }) => void;
+  private aoPiorar?: (p: PioraDetectada) => void;
+
+  /** Quedas aguardando confirmacao, por ref. Ver JANELA DE CONFIRMACAO. */
+  private pioraPendente = new Map<
+    string,
+    { timer: ReturnType<typeof setTimeout>; piora: PioraDetectada }
+  >();
 
   constructor(
     private readonly kube: KubeClient,
     private readonly logger: LoggerService,
+    /**
+     * JANELA DE CONFIRMACAO -- quanto tempo uma queda precisa PERSISTIR para
+     * virar aviso.
+     *
+     * Nao e cosmetica, e o numero saiu de uma medicao no cluster (2026-08-28):
+     * apagar UMA RateLimitPolicy produziu SEIS avisos, e restaura-la mais
+     * CINCO. O controller do Kuadrant derruba Enforced=True de toda a familia
+     * de rate limit quando qualquer uma delas muda, e devolve segundos depois
+     * -- entao a transicao e real, mas nao e duravel, e cada evento verdadeiro
+     * chegava enterrado em cinco falsos.
+     *
+     * 15s cobre com folga o flapping medido e continua imperceptivel para quem
+     * recebe. Parametro, e nao constante, porque e o que torna o caso testavel
+     * sem relogio falso em toda a suite.
+     */
+    private readonly janelaMs: number = 15_000,
   ) {}
 
   /**
@@ -117,7 +143,7 @@ export class ResourceCache {
    * enforced não piorou nada, e avisar sobre ela a cada reconcile encheria a
    * sineta de ruído até ninguém mais olhar.
    */
-  onPiora(cb: (p: { kind: string; name: string; namespace: string; o_que: string }) => void): void {
+  onPiora(cb: (p: PioraDetectada) => void): void {
     this.aoPiorar = cb;
   }
 
@@ -151,15 +177,58 @@ export class ResourceCache {
       this.enforcedAnterior.set(ref, agora);
     }
 
+    // Voltou a valer: se havia uma queda esperando confirmacao, ela nao era
+    // real -- era o reconciler passando. Cancelar e o ponto inteiro da janela.
+    if (agora) this.cancelarPiora(ref);
+
     // Só a queda interessa: de valendo para não valendo, ou desaparecida.
     if (antes === true && !agora) {
-      this.aoPiorar?.({
+      this.agendarPiora(ref, {
         kind: kind.kind,
         name: obj.metadata?.name ?? '',
         namespace: obj.metadata?.namespace ?? '',
         o_que: sumiu ? 'foi removida' : 'deixou de valer',
       });
+      return;
     }
+
+    // Sumiu enquanto uma queda dela ja esperava confirmacao: o texto do aviso
+    // muda, a contagem NAO reinicia. Quem cai e depois some nao ganha uma
+    // janela nova -- ja estava devendo confirmacao desde a queda.
+    if (sumiu) {
+      const pendente = this.pioraPendente.get(ref);
+      if (pendente) pendente.piora = { ...pendente.piora, o_que: 'foi removida' };
+    }
+  }
+
+  /**
+   * Segura a queda pela janela de confirmacao. Se ela sobreviver, vira aviso;
+   * se a policy voltar a valer antes disso, morre sem barulho.
+   */
+  private agendarPiora(ref: string, piora: PioraDetectada): void {
+    this.cancelarPiora(ref);
+
+    const timer = setTimeout(() => {
+      const pendente = this.pioraPendente.get(ref);
+      this.pioraPendente.delete(ref);
+      if (!pendente) return;
+      try {
+        this.aoPiorar?.(pendente.piora);
+      } catch (err) {
+        this.logger.warn(`falha ao avisar piora de ${ref}: ${err}`);
+      }
+    }, this.janelaMs);
+
+    // Um aviso pendente nao e motivo para segurar o processo de pe.
+    timer.unref?.();
+    this.pioraPendente.set(ref, { timer, piora });
+  }
+
+  private cancelarPiora(ref: string): void {
+    const pendente = this.pioraPendente.get(ref);
+    if (!pendente) return;
+    clearTimeout(pendente.timer);
+    this.pioraPendente.delete(ref);
   }
 
   private agendarAviso(): void {
@@ -326,6 +395,11 @@ export class ResourceCache {
   }
 
   stop(): void {
+    // Timers primeiro: um aviso agendado que dispara depois do shutdown fala
+    // sobre um cluster que este processo nao observa mais.
+    for (const { timer } of this.pioraPendente.values()) clearTimeout(timer);
+    this.pioraPendente.clear();
+
     for (const entry of this.entries.values()) {
       entry.informer?.stop().catch(() => undefined);
     }

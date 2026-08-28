@@ -162,6 +162,32 @@ não é `true`. Vale registrar porque a primeira versão tentou "primar" o mapa 
 partir de `informer.list()` dentro do `connect` — e o laço não primava nada, já
 que o informer emite a rajada de `add` **depois** do `connect`, não antes.
 
+### A janela de confirmação, e a medição que a exigiu
+
+A transição sozinha não basta, e isso foi **medido no cluster em 2026-08-28**,
+não previsto: apagar **uma** `RateLimitPolicy` produziu **seis** avisos, e
+restaurá-la mais **cinco**. Onze notificações para dois atos, das quais uma era
+o evento real.
+
+O controller do Kuadrant derruba `Enforced=True` de **toda a família de rate
+limit do cluster** quando qualquer uma delas muda — as duas `PlanPolicy`, as
+`RateLimitPolicy` derivadas, a do gateway — e devolve segundos depois. A queda é
+real quando acontece; o que ela não é, é **durável**.
+
+Por isso a queda não vira aviso na hora: ela é agendada e só dispara se
+**persistir** por `janelaMs` (default **15s**), e é cancelada se `Enforced`
+voltar a `True` antes disso. O número cobre com folga o flapping medido e
+continua imperceptível para quem recebe.
+
+Detalhes que a suíte fixa: quem cai e depois **some** troca o texto do aviso para
+*"foi removida"* sem reiniciar a contagem — cair e depois sumir não merece uma
+janela nova; e o `stop()` cancela o que estava pendente, porque um aviso que
+dispara depois do shutdown fala sobre um cluster que o processo não observa mais.
+
+Sem a janela, o roteiro da demo — onde três policies mudam de estado no palco —
+entregaria cada evento verdadeiro enterrado em cinco falsos. Que é o modo de
+falha que esta feature inteira existe para evitar.
+
 ### Por que os handlers não moram dentro do `connect`
 
 O `on()` do `@kubernetes/client-node` faz *push* num array por verbo e não
