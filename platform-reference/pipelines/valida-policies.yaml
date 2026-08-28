@@ -19,6 +19,15 @@ metadata:
   name: valida-policies
   namespace: travel-agency
   labels:
+    # 'app: travels' e o que casa com o SELETOR da entidade
+    # (backstage.io/kubernetes-label-selector: app=travels). O plugin Tekton le
+    # pela API do plugin Kubernetes, e e o seletor da entidade que decide o que
+    # ele enxerga -- nao a anotacao janus-idp.io/tekton, que so liga a aba.
+    #
+    # Rotular so com backstage.io/kubernetes-id nao adianta quando a entidade usa
+    # label-selector: a aba abre, nao da erro, e lista vazio. Medido em
+    # 2026-08-28, com tres PipelineRun em Succeeded e a tela em branco.
+    app: travels
     backstage.io/kubernetes-id: travels
 spec:
   params:
