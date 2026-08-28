@@ -61,29 +61,64 @@ data:
               subject: automation
 
     # ----- login -----
-    # GitLab como IdP, e nao apenas como SCM. Resolve duas coisas de uma vez:
-    # quem a pessoa e no portal, E o token que o scaffolder usa para agir como
-    # ela no GitLab. Um mecanismo em vez de dois -- e e o que torna literal a
-    # frase do RUNBOOK sobre a assinatura ficar "em git, com autor e data".
+    # DOIS PROVEDORES, com papeis diferentes -- e isto nao e redundancia.
+    #
+    # O Backstage separa "quem e a pessoa" (signIn) de "de onde vem o token
+    # para agir num sistema externo". Nada obriga que sejam o mesmo provedor,
+    # e aqui eles nao sao:
+    #
+    #   oidc    -> Keycloak. E o sign-in. Uma credencial para o portal, o
+    #              OpenShift, o Dev Spaces, o GitLab e o Argo CD.
+    #   gitlab  -> SEM bloco signIn. Existe so para o requestUserCredentials
+    #              dos templates: e dele que sai o token com que o scaffolder
+    #              age COMO A PESSOA no GitLab.
+    #
+    # POR QUE O GITLAB NAO SAI. Tirar o provedor unificaria o login e faria o
+    # scaffolder assinar como conta de servico -- as MRs perderiam autoria
+    # pessoal, e o Ato 6 defende exatamente o contrario. Autoatendimento sem
+    # atribuicao e uma conta de admin compartilhada com interface melhor.
+    #
+    # O consentimento do GitLab, na primeira vez que alguem roda um template,
+    # e um redirecionamento silencioso: o GitLab tambem delega ao Keycloak,
+    # entao a pessoa ja esta autenticada e volta na hora.
     #
     # SEM guest. Ele nao esta comentado nem desabilitado: nao existe mais.
-    # 'environment: production' tambem passa a valer, entao nao ha porta lateral.
+    # 'environment: production' tambem vale, entao nao ha porta lateral.
     #
-    # O resolver casa o username do GitLab com User:default/<nome>. As quatro
-    # personas existem no catalogo (rhdh/catalog/travel-agency.yaml); sem a
-    # entidade, o login acontece e a sessao morre em "user not found".
+    # O resolver casa o preferred_username do Keycloak com User:default/<nome>.
+    # As quatro personas existem no catalogo e no realm sso com o MESMO nome;
+    # sem a entidade, o login acontece e a sessao morre em "user not found".
     auth:
+      # SESSAO e obrigatoria para o provedor OIDC, e nao era para o do GitLab.
+      # Sem ela o /api/auth/oidc/start devolve 500 com "authentication requires
+      # session support": na tela o popup abre e fecha sem sair do portal, sem
+      # erro visivel -- so um login que nao acontece.
+      #
+      # Vai sob o auth: DE TOPO, e nao sob backend.auth -- sao dois blocos com o
+      # mesmo nome no mesmo arquivo, e o de baixo (backend.auth) e o do
+      # externalAccess. Errar de bloco nao da erro de sintaxe: da o mesmo 500.
+      #
+      # Reusa o BACKEND_SECRET: ja existe, ja esta em extraEnvs, mesma exigencia
+      # de sigilo.
+      session:
+        secret: ${BACKEND_SECRET}
       environment: production
       providers:
+        oidc:
+          production:
+            metadataUrl: https://${KEYCLOAK_HOST}/realms/sso/.well-known/openid-configuration
+            clientId: rhdh
+            clientSecret: ${KEYCLOAK_RHDH_SECRET}
+            prompt: auto
+            signIn:
+              resolvers:
+                - resolver: preferredUsernameMatchingUserEntityName
         gitlab:
           production:
             clientId: ${GITLAB_OAUTH_CLIENT_ID}
             clientSecret: ${GITLAB_OAUTH_CLIENT_SECRET}
             audience: https://${GITLAB_HOST}
-            signIn:
-              resolvers:
-                - resolver: usernameMatchingUserEntityName
-    signInPage: gitlab
+    signInPage: oidc
 
     # 'locations' NAO e definido aqui de proposito: quem define e o
     # app-config-rhdh-catalog (setup-catalog.sh). Arrays nao se somam entre

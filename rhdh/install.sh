@@ -90,8 +90,19 @@ fi
 # ----- 4. instancia --------------------------------------------------------
 # envsubst recebe a lista explicita de variaveis: sem ela, o ${BACKEND_SECRET}
 # do app-config (que o Backstage resolve em runtime) seria expandido para vazio.
+# O sign-in do portal e o Keycloak desde 2026-08-28 (ver o bloco de login do
+# template). As duas variaveis saem do cluster e nao de parametro: o host, da
+# rota; o segredo, do Secret que o setup-identity.sh guarda ao criar o client.
+KEYCLOAK_HOST="${KEYCLOAK_HOST:-$(oc get route -n "${KC_NS:-keycloak}" --no-headers 2>/dev/null | awk '{print $2}' | head -1)}"
+KEYCLOAK_RHDH_SECRET="${KEYCLOAK_RHDH_SECRET:-$(oc get secret rhcl-identity-secrets -n "${KC_NS:-keycloak}" \
+  -o jsonpath='{.data.KC_RHDH_SECRET}' 2>/dev/null | base64 -d 2>/dev/null || true)}"
+if [[ -z "$KEYCLOAK_HOST" || -z "$KEYCLOAK_RHDH_SECRET" ]]; then
+  _die "Keycloak nao configurado -- rode 'bash scripts/setup-identity.sh realm' antes desta etapa"
+fi
+export KEYCLOAK_HOST KEYCLOAK_RHDH_SECRET
+
 _log "aplicando a instancia RHDH..."
-envsubst '${RHDH_HOST} ${RHDH_NS} ${RHDH_CR}' < "${_here}/02-instance.template.yaml" | oc apply -f - >/dev/null \
+envsubst '${RHDH_HOST} ${RHDH_NS} ${RHDH_CR} ${KEYCLOAK_HOST} ${KEYCLOAK_RHDH_SECRET}' < "${_here}/02-instance.template.yaml" | oc apply -f - >/dev/null \
   || _die "falha ao aplicar a instancia."
 
 # 02-instance.template.yaml declara appConfig com o ConfigMap base apenas, e o
@@ -111,7 +122,17 @@ done
 # at 'kubernetes.clusterLocatorMethods[0].clusters[0].name' in 'env'" -- um
 # erro que aponta para o app-config, mas cuja causa e a variavel ausente.
 _secrets='{"name":"rhdh-backend-secret"}'
-for _sec in rhdh-kubernetes-secret rhdh-github-secret; do
+# rhdh-automation-secret e rhdh-gitlab-oauth entraram na lista em 2026-08-28.
+#
+# Esta lista e um campo minado: o apply do template SUBSTITUI extraEnvs inteiro,
+# e todo secret que nao estiver aqui desaparece. O sintoma nao aponta para o
+# secret que falta -- o pod fica 1/2 com readiness 503 e "Backend has not
+# started yet", e no log TODOS os plugins falham em 'core.auth' com a causa
+# raiz truncada. So aparece filtrando por "Missing required config value at".
+#
+# Quem adicionar um secret ao portal precisa acrescenta-lo AQUI tambem, ou o
+# proximo install.sh o apaga.
+for _sec in rhdh-kubernetes-secret rhdh-github-secret rhdh-automation-secret rhdh-gitlab-oauth; do
   if oc get secret "$_sec" -n "$RHDH_NS" >/dev/null 2>&1; then
     _secrets="${_secrets},{\"name\":\"${_sec}\"}"
     _log "credencial detectada, preservada em extraEnvs: ${_sec}"
