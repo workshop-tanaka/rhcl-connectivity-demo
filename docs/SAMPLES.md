@@ -19,19 +19,47 @@ tocar nos sete atos.
 | Amostra | Sozinha (Istio) | Com a camada `rhcl/` |
 | --- | --- | --- |
 | `bookinfo` | **três versões vivas** de `reviews` — canário 90/10 com a v2 declarada em zero — e quem-fala-com-quem por identidade SPIFFE | a mesma aplicação com **duas fronteiras**: UI pública, `/api/v1` sob chave e plano |
-| `websockets` | o upgrade atravessa o mesh sem configuração nenhuma, e as duas linhas que impedem a conexão de cair | a policy confere o **handshake** e não vê os frames — governar conexão longa vira decisão de desenho |
 | `open-telemetry` | o **log de acesso** do mesh saindo em OTLP para um coletor próprio | — (não tem: é camada de plataforma) |
 | `grpc-echo` | canário **80/20 sobre gRPC**, mTLS, e a dimensão `grpc_status` que o status HTTP esconde | a **mesma** `AuthPolicy` das APIs HTTP, mudando só `targetRef` e o lugar da credencial |
+| `websockets` ⏸ | **adiada** — o upgrade atravessa o mesh sem configuração nenhuma, e as duas linhas que impedem a conexão de cair | a policy confere o **handshake** e não vê os frames — governar conexão longa vira decisão de desenho |
+
+### `websockets` está adiada
+
+Os manifests estão completos e conferidos (`kustomize build` e
+`oc apply --dry-run=server` passam). O que mudou é o **default**: ela ficou de
+fora de `SAMPLES_PADRAO` em `scripts/provision.sh` e **não é semeada no
+GitLab**, então o `ApplicationSet` também não a descobre nem a aplica.
+
+```bash
+SAMPLES=websockets bash scripts/provision.sh samples    # trazê-la
+```
+
+**Por que ela, e não outra:** é a única das quatro cuja subida depende de duas
+coisas que este ambiente não controla — `docker.io` anônimo (o limite aparece
+como `ImagePullBackOff`, e não como erro de manifest) e uma imagem antiga sob a
+SCC `restricted-v2`. As outras três puxam de `registry.istio.io`. Adiar a que
+depende do que não controlamos é mais barato do que descobrir no palco, e o
+preço de adiar é nenhum: ela não sustenta ato nenhum.
+
+As entidades dela **ficam no catálogo**: todas trazem `rhcl.demo/cluster-object`,
+então o `setup-catalog.sh` as descarta sozinho enquanto o namespace não existir,
+e o dia em que a amostra voltar o portal já a descreve. É a diferença entre
+*adiado* e *removido* escrita em código.
 
 ---
 
 ## 2. Aplicar
 
 ```bash
-bash scripts/provision.sh samples                     # as quatro
+bash scripts/provision.sh samples                     # o conjunto padrão (sem websockets)
 SAMPLES=bookinfo bash scripts/provision.sh samples    # uma só
+SAMPLES=websockets bash scripts/provision.sh samples  # a adiada
 bash scripts/provision.sh --dry-run samples           # imprime, não muda nada
 ```
+
+A etapa diz na saída o que ficou de fora e como trazê-lo — uma amostra que
+existe no repositório, tem entidade no catálogo e não sobe seria descoberta por
+acidente, por alguém procurando o pod.
 
 **Não use `oc apply -k samples/<nome>` direto.** Os `Route` trazem `__DOMAIN__`,
 pelo mesmo motivo que `gitops/*.template.yaml` e a `valida-policies` trazem:
@@ -54,8 +82,8 @@ uma amostra só.
 
 ## 3. Como elas entram: o gateway do upstream
 
-Cada amostra traz o seu — `Gateway` da Gateway API, classe `istio`, HTTP na 80 —
-no próprio namespace, publicado por um `Route` do OpenShift.
+Cada amostra que publica traz o seu — `Gateway` da Gateway API, classe `istio`,
+HTTP na 80 — no próprio namespace, publicado por um `Route` do OpenShift.
 
 Duas decisões por trás disso, e as duas foram conferidas no cluster:
 
@@ -124,7 +152,9 @@ oc run curl-teste -n bookinfo --image=registry.access.redhat.com/ubi9/ubi-minima
 # RBAC: access denied  -- mesmo namespace, mesma rede, ServiceAccount errada
 ```
 
-### 4.2 websockets — o upgrade não precisa de nada
+### 4.2 websockets — o upgrade não precisa de nada  *(adiada)*
+
+Não sobe por padrão; ver §1. Com `SAMPLES=websockets bash scripts/provision.sh samples`:
 
 ```bash
 echo "https://websockets.$D/"    # 'WebSocket status' fica verde: 'open'

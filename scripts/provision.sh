@@ -96,13 +96,13 @@ Etapas, na ordem em que dependem umas das outras:
                 LENTA -- o Central sobe banco e scanner
     identity    unifica o login no Keycloak: personas, clients, e o GitLab
                 delegando. Exige o portal RHDH ja instalado
-    samples     as quatro amostras do Istio (bookinfo, websockets,
-                open-telemetry, grpc-echo) sobre o Service Mesh, com o gateway
-                do upstream e a cadeia de suprimento. SEM RHCL: a camada de
-                policies de cada uma fica em samples/<nome>/rhcl/, fora do
-                kustomization. Exige 'mesh' e 'platform'; esta por ultimo na
-                lista so para achar Tekton e Quay de pe. SAMPLES=<nome> roda
-                uma so.
+    samples     as amostras do Istio sobre o Service Mesh, com o gateway do
+                upstream e a cadeia de suprimento. Por padrao: bookinfo,
+                grpc-echo e open-telemetry -- o WEBSOCKETS FICA ADIADO (traga-o
+                com SAMPLES=websockets). SEM RHCL: a camada de policies de cada
+                uma fica em samples/<nome>/rhcl/, fora do kustomization. Exige
+                'mesh' e 'platform'; esta por ultimo na lista so para achar
+                Tekton e Quay de pe.
 
 Sem argumento, roda todas. Cada uma e idempotente.
 
@@ -1742,6 +1742,27 @@ _check() {
 # ultima -- inclusive quando o operador pede uma amostra so.
 SAMPLES_ORDEM=(bookinfo websockets grpc-echo open-telemetry)
 
+# ---------------------------------------------------------------------------
+# O QUE ENTRA POR PADRAO -- e o websockets NAO entra, por decisao de 2026-08-28.
+#
+# Ele fica ADIADO, e nao removido: os manifests estao completos e conferidos, e
+# 'SAMPLES=websockets' o aplica a qualquer momento. O que muda e o default.
+#
+# POR QUE ELE E O QUE FICA DE FORA, e nao outro: e a unica das quatro cuja
+# subida depende de duas coisas que este ambiente nao controla --
+#
+#   docker.io anonimo   a imagem hiroakis/tornado-websocket-example vem do
+#                       Docker Hub sem autenticacao. Num cluster de workshop que
+#                       ja puxou muita imagem, o limite aparece como
+#                       ImagePullBackOff, e nao como erro de manifest.
+#   SCC restricted-v2   a imagem e antiga e nao foi construida para UID
+#                       aleatorio.
+#
+# As outras tres puxam de registry.istio.io e nao tem esse par de riscos.
+# Adiar a que depende do que nao controlamos e mais barato do que descobrir no
+# palco -- e o preco de adiar e nenhum: ela nao sustenta ato nenhum.
+SAMPLES_PADRAO=(bookinfo grpc-echo open-telemetry)
+
 # As imagens de terceiro que a cadeia de suprimento espelha no Quay. Uma
 # execucao da pipeline POR IMAGEM: o Chains assina um IMAGE_DIGEST por TaskRun.
 # A lista mora aqui, e nao nos manifests, porque quem a le e o disparo do
@@ -1881,9 +1902,10 @@ st_samples() {
   fi
 
   # ----- quais amostras -----------------------------------------------------
-  # SAMPLES=<nome> [<nome>...] roda so as pedidas, MAS na ordem fixa acima --
-  # respeitar a ordem em que o operador digitou reintroduziria a armadilha da
-  # Telemetry.
+  # SAMPLES=<nome> [<nome>...] roda so as pedidas -- inclusive as adiadas --,
+  # MAS na ordem fixa de SAMPLES_ORDEM: respeitar a ordem em que o operador
+  # digitou reintroduziria a armadilha da Telemetry (open-telemetry substitui a
+  # do bookinfo, entao ela e sempre a ultima).
   local -a alvos=()
   if [[ -n "${SAMPLES:-}" ]]; then
     local s
@@ -1893,9 +1915,18 @@ st_samples() {
     [[ ${#alvos[@]} -gt 0 ]] || _die "SAMPLES='${SAMPLES}' nao casa com nenhuma amostra.
       Validas, na ordem de aplicacao: ${SAMPLES_ORDEM[*]}"
   else
-    alvos=("${SAMPLES_ORDEM[@]}")
+    alvos=("${SAMPLES_PADRAO[@]}")
   fi
   _log "amostras: ${alvos[*]}"
+
+  # Dizer o que ficou de fora, e como traze-lo. Uma amostra que existe no repo,
+  # tem entidade no catalogo e nao sobe seria descoberta por acidente -- por
+  # alguem procurando o pod. O aviso custa uma linha.
+  local _fora
+  for _fora in "${SAMPLES_ORDEM[@]}"; do
+    [[ " ${alvos[*]} " == *" ${_fora} "* ]] && continue
+    _log "adiada: ${_fora}  ->  SAMPLES=${_fora} bash scripts/provision.sh samples"
+  done
 
   # O provider do access log entra ANTES dos manifests: a Telemetry que o
   # referencia e aplicada junto com a amostra open-telemetry, e um provider que

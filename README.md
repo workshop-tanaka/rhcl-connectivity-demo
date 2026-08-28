@@ -99,8 +99,12 @@ aplica no palco, que é exatamente a troca que não se faz.
 Elas rodam **sem RHCL**, com o gateway do *upstream*: foram construídas para o
 Istio, e a primeira coisa a fazer com elas é vê-las funcionando como Istio. A
 camada de policies de cada uma está pronta em `samples/<nome>/rhcl/`, fora do
-`kustomization.yaml`. O porquê de cada uma está em
-[docs/SAMPLES.md](docs/SAMPLES.md).
+`kustomization.yaml`.
+
+O **`websockets` está adiado** e não sobe por padrão — é a única cuja subida
+depende do Docker Hub anônimo e de uma imagem antiga sob a SCC `restricted-v2`.
+`SAMPLES=websockets bash scripts/provision.sh samples` o traz. O porquê de cada
+uma está em [docs/SAMPLES.md](docs/SAMPLES.md).
 
 ## Golden path
 
@@ -162,7 +166,7 @@ gitops/                    ApplicationSet que descobre os repos gerados (topic)
 samples/                   amostras do Istio sobre OSSM, SEM RHCL (material de apoio)
   bookinfo/                canario de TRES versoes + quem-fala-com-quem por SPIFFE
     rhcl/                  a camada de policies, pronta e FORA do kustomization
-  websockets/              o Upgrade atravessa o mesh sem configurar nada
+  websockets/              ADIADA -- Upgrade atravessa o mesh sem configurar nada
   grpc-echo/               canario sobre gRPC; sem entrada externa, como o upstream
   open-telemetry/          access log do mesh em OTLP; a unica sem rota
 docs/DEMO-PASSO-A-PASSO.md sequencia de execucao (o que rodar, e o que dizer)

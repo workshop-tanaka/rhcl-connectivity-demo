@@ -14,9 +14,26 @@ com elas é vê-las funcionando como Istio.
 | Amostra | Sozinha (Istio) | Com a camada `rhcl/` |
 | --- | --- | --- |
 | `bookinfo` | **três versões vivas** de `reviews` — canário 90/10 com a v2 declarada em zero — e quem-fala-com-quem por identidade SPIFFE | a mesma aplicação com **duas fronteiras**: UI pública, `/api/v1` sob chave e plano |
-| `websockets` | o upgrade atravessa o mesh sem configuração nenhuma, e as duas linhas que impedem a conexão de cair | a policy confere o **handshake** e não vê os frames — governar conexão longa vira decisão de desenho |
 | `open-telemetry` | o **log de acesso** do mesh saindo em OTLP para um coletor próprio | — (não tem: é camada de plataforma) |
 | `grpc-echo` | canário **80/20 sobre gRPC**, mTLS, e a dimensão `grpc_status` que o status HTTP esconde | a **mesma** `AuthPolicy` das APIs HTTP, mudando só `targetRef` e o lugar da credencial |
+| `websockets` ⏸ | **adiada** — o upgrade atravessa o mesh sem configuração nenhuma, e as duas linhas que impedem a conexão de cair | a policy confere o **handshake** e não vê os frames — governar conexão longa vira decisão de desenho |
+
+### `websockets` está adiada
+
+Os manifests estão completos e conferidos; o que mudou é o **default**. Ela ficou
+de fora de `SAMPLES_PADRAO` e não é semeada no GitLab, então o Argo também não a
+aplica:
+
+```bash
+SAMPLES=websockets bash scripts/provision.sh samples    # trazê-la
+```
+
+**Por que ela**, e não outra: é a única das quatro cuja subida depende de duas
+coisas que este ambiente não controla — `docker.io` anônimo (o limite aparece
+como `ImagePullBackOff`, não como erro de manifest) e uma imagem antiga sob a
+SCC `restricted-v2`. As outras três puxam de `registry.istio.io`. Adiar a que
+depende do que não controlamos é mais barato do que descobrir no palco, e o
+preço de adiar é nenhum: ela não sustenta ato nenhum.
 
 ## Onde isto mora, e por que não em `base/` nem em `platform-reference/`
 

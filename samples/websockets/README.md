@@ -1,5 +1,24 @@
 # websockets (tornado)
 
+> ## ⏸ Adiada — não é aplicada por padrão
+>
+> Os manifests estão completos e conferidos (`kustomize build` e
+> `oc apply --dry-run=server` passam). O que mudou é o **default**: esta amostra
+> ficou de fora de `SAMPLES_PADRAO` em [scripts/provision.sh](../../scripts/provision.sh)
+> e não é semeada no GitLab, então o Argo também não a aplica.
+>
+> ```bash
+> SAMPLES=websockets bash scripts/provision.sh samples    # trazê-la
+> ```
+>
+> **Por que ela é a que fica de fora**, e não outra: é a única das quatro cuja
+> subida depende de duas coisas que este ambiente não controla —
+> `docker.io` anônimo (o limite aparece como `ImagePullBackOff`, não como erro
+> de manifest) e uma imagem antiga sob a SCC `restricted-v2`. As outras três
+> puxam de `registry.istio.io`. Adiar a que depende do que não controlamos é
+> mais barato do que descobrir no palco — e o preço de adiar é nenhum: ela não
+> sustenta ato nenhum.
+
 A amostra do Istio para **HTTP/1.1 Upgrade**, sobre o OpenShift Service Mesh,
 como o upstream a construiu.
 

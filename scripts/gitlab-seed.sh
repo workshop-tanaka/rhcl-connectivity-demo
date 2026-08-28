@@ -585,7 +585,14 @@ if travel_id:
 # Sem lista de remocao, como no travel-packages: estes projetos nunca tiveram
 # outro layout, e um dia podem receber commit de gente -- apagar por diferenca
 # seria destrutivo.
-SAMPLES = ["bookinfo", "websockets", "grpc-echo", "open-telemetry"]
+# O websockets FICA DE FORA, e nao por esquecimento: ele esta ADIADO (decisao de
+# 2026-08-28, ver SAMPLES_PADRAO no scripts/provision.sh). Semear o projeto faria
+# o ApplicationSet rhcl-samples descobri-lo e APLICAR a amostra -- que e
+# exatamente o que se decidiu nao fazer por enquanto.
+#
+# Os manifests continuam completos em samples/websockets/. Quando ele voltar,
+# basta acrescenta-lo aqui e a proxima semeadura cria o projeto.
+SAMPLES = ["bookinfo", "grpc-echo", "open-telemetry"]
 
 FONTE_SAMPLES = os.path.join(ROOT_REPO, "samples")
 

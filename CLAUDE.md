@@ -112,8 +112,9 @@ do que ela **pressupõe**:
 - **`gitops/`** — Argo CD com escopo estreito: governa **apenas** os
   repositórios que o golden path do RHDH gera. `selfHeal` fica desligado,
   porque vários movimentos do roteiro são edições ao vivo.
-- **`samples/`** — as amostras do Istio (`bookinfo`, `websockets`,
-  `open-telemetry`, `grpc-echo`), **sem RHCL**: cada uma sobe com o gateway do
+- **`samples/`** — as amostras do Istio (`bookinfo`, `grpc-echo`,
+  `open-telemetry`; o **`websockets` está adiado** e não sobe por padrão —
+  `SAMPLES=websockets` o traz), **sem RHCL**: cada uma sobe com o gateway do
   *upstream* (Gateway API, classe `istio`) no próprio namespace, publicado por
   `Route`. A camada de policies de cada uma fica em `samples/<nome>/rhcl/`,
   **fora do `kustomization.yaml`** — não aplicar por engano.

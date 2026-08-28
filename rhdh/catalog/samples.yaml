@@ -24,6 +24,17 @@
 # -- e um portal que mente sobre o cluster e pior do que um portal incompleto.
 #
 # ---------------------------------------------------------------------------
+# O WEBSOCKETS ESTA ADIADO, e as entidades dele FICAM. Nao e contradicao com o
+# paragrafo seguinte: elas trazem rhcl.demo/cluster-object como todas as outras,
+# entao o setup-catalog.sh as descarta sozinho enquanto o namespace nao existir.
+# Quando a amostra voltar -- 'SAMPLES=websockets bash scripts/provision.sh
+# samples' --, o catalogo ja a descreve, sem ninguem lembrar de reescrever nada.
+#
+# E a diferenca entre 'adiado' e 'removido' escrita em codigo: policy do
+# Kuadrant nao aplicada SAI daqui, porque nao ha decisao de aplica-la; amostra
+# adiada FICA, porque ha.
+#
+# ---------------------------------------------------------------------------
 # NAO HA ENTIDADE DE POLICY DO KUADRANT AQUI, e a ausencia e a decisao de
 # 2026-08-28: as amostras sobem SEM RHCL. A camada de policies de cada uma
 # existe, pronta, em samples/<nome>/rhcl/, fora do kustomization -- e o catalogo
@@ -108,11 +119,14 @@ metadata:
   name: sample-websockets
   title: Amostra — websockets
   description: >-
-    HTTP/1.1 Upgrade sobre o Service Mesh, sem configuracao nenhuma para ligar:
-    o upgrade e o padrao do proxy para porta com nome 'http'. Duas linhas
-    impedem a conexao de cair -- maxRequestsPerConnection no proxy e o timeout
-    no Route. A camada de RHCL, que e onde a amostra fica interessante, esta em
-    samples/websockets/rhcl/ e nao e aplicada.
+    ADIADA -- os manifests estao completos e a amostra NAO e aplicada por
+    padrao ('SAMPLES=websockets bash scripts/provision.sh samples' a traz). E a
+    unica das quatro cuja subida depende do Docker Hub anonimo e de uma imagem
+    antiga sob a SCC restricted-v2, e ela nao sustenta ato nenhum.
+    Quando entrar: HTTP/1.1 Upgrade sobre o Service Mesh, sem configuracao
+    nenhuma para ligar -- o upgrade e o padrao do proxy para porta com nome
+    'http'. Duas linhas impedem a conexao de cair: maxRequestsPerConnection no
+    proxy e o timeout no Route.
   annotations:
     rhcl.demo/cluster-object: namespace//websockets
   labels:
