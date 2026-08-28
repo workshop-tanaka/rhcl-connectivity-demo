@@ -349,7 +349,7 @@ spec:
     serviceAccountName: pipeline
   params:
     - name: repo
-      value: https://gitlab.__DOMAIN__/rhcl/apps/travel-packages.git
+      value: https://gitlab.__DOMAIN__/rhcl/travel/travel-packages.git
     - name: imagem
       value: __IMAGEM__
     - name: tag

@@ -17,15 +17,15 @@
 #   |-- apis/      <- nasce VAZIO. Cada Create no RHDH cria um projeto aqui, e
 #   |                 estar no subgrupo E a condicao que o ApplicationSet usa
 #   |                 (nao ha topic para esquecer).
-#   |-- apps/
+#   |-- travel/
 #   |   `-- travel-packages  <- apps/travel-packages/ deste repo: o CODIGO que
 #   |                           a pipeline de build compila e assina
 #   `-- policies/
 #       `-- rhcl-policies    <- base/ + env/ + overlays/, com os caminhos
 #                               preservados, para a CI renderizar o OVERLAY
 #
-# apis/ e apps/ sao coisas diferentes: em apis/ o Ato 6 cria CONTRATO, em
-# apps/ mora codigo que compila. O ApplicationSet descobre por apis/, e um
+# apis/ e travel/ sao coisas diferentes: em apis/ o Ato 6 cria CONTRATO, em
+# travel/ mora o que o time de negocio opera -- codigo e servicos. O ApplicationSet descobre por apis/, e um
 # projeto Maven ali dentro ele tentaria sincronizar.
 #
 # Idempotente: reexecutar reconcilia. Arquivo que ja existe e atualizado, nao
@@ -129,11 +129,16 @@ root_id = ensure_group("rhcl", "RHCL")
 if root_id is None: sys.exit(1)
 apis_id     = ensure_group("apis", "APIs", root_id)
 policies_id = ensure_group("policies", "Policies", root_id)
-# 'apps' e diferente de 'apis': em apis/ o Ato 6 cria CONTRATO (a API que o
-# template gera); em apps/ mora CODIGO que compila. Sao os dois lados do
-# golden path, e misturar os dois num subgrupo so faria o ApplicationSet --
-# que descobre pelo subgrupo apis/ -- tentar sincronizar um projeto Maven.
-apps_id     = ensure_group("apps", "Apps", root_id)
+# 'travel' e diferente de 'apis': em apis/ o Ato 6 cria CONTRATO (a API que o
+# template gera); em travel/ mora o que o time de negocio ja opera. Sao os dois
+# lados do golden path, e misturar os dois num subgrupo so faria o
+# ApplicationSet -- que descobre pelo subgrupo apis/ -- tentar sincronizar um
+# projeto Maven.
+# 'travel' e nao 'apps': o subgrupo e do TIME de negocio, e nele cabem tanto o
+# codigo que compila (travel-packages) quanto os seis servicos do travel-agency,
+# um projeto cada. Agrupar por tipo de artefato ('apps') dava uma pasta; agrupar
+# por dono da uma organizacao -- ver docs/ESTRATEGIA-REPOS.md.
+travel_id   = ensure_group("travel", "Travel", root_id)
 
 # ----- 2. o projeto de policies -----
 proj_path = "rhcl/policies/rhcl-policies"
@@ -396,7 +401,7 @@ else:
 #
 # Sem lista de remocao: este projeto nunca teve outro layout, e um dia ele
 # pode receber commit de gente -- apagar por diferenca seria destrutivo.
-app_path = "rhcl/apps/travel-packages"
+app_path = "rhcl/travel/travel-packages"
 st, app = call("GET", "/projects/" + urllib.parse.quote(app_path, safe=""))
 if st == 200:
     ok(f"projeto {app_path} ja existe")
@@ -406,7 +411,7 @@ elif DRY:
 else:
     st, app = call("POST", "/projects", {
         "name": "travel-packages", "path": "travel-packages",
-        "namespace_id": apps_id, "visibility": "public",
+        "namespace_id": travel_id, "visibility": "public",
         "description": "Servico travel-packages (JBoss EAP 8): o artefato que a cadeia de suprimento assina.",
         "initialize_with_readme": True})
     if st in (200, 201):
@@ -427,6 +432,118 @@ if app_id:
         print(f"  [*] {len(codigo)} arquivo(s) em apps/travel-packages")
         semeia(app_id, app_path, codigo,
                "Semeadura do servico travel-packages a partir de apps/")
+
+# ----- 3c. um repositorio por servico do travel-agency ----------------------
+# POR QUE UM PROJETO POR SERVICO: o decorator "edit code" do Topology aponta
+# para a RAIZ de um repositorio. Com um espelho unico, os seis nos do grafo
+# levavam ao mesmo lugar -- correto no conteudo, inutil como navegacao. Aqui
+# cada no leva ao repositorio DAQUELE servico, que e o que uma organizacao
+# real tem. Ver docs/ESTRATEGIA-REPOS.md.
+#
+# O QUE ESTES REPOSITORIOS NAO SAO: fonte de aplicacao. Os seis backends sao
+# "o que a demo precisa para existir" -- os Atos 1 a 5 dependem deles de pe --,
+# entao quem os aplica continua sendo o provision.sh, a partir de
+# platform-reference/. Fazer o contrario colocaria o bootstrap do cluster na
+# dependencia do GitLab estar de pe. Aqui eles sao copia legivel e alvo do
+# ApplicationSet de leitura (gitops/applicationset-travel.template.yaml), com
+# selfHeal e prune desligados.
+#
+# SEM catalog-info.yaml, de proposito: as entidades do catalogo vivem em
+# rhdh/catalog/travel-agency.yaml, servido pelo httpd interno. Publicar um
+# catalog-info por repositorio com a descoberta GitLab ligada criaria a MESMA
+# entidade por duas locations -- o conflito de entityRef que o setup-github.sh
+# ja documenta. Passo previsto para depois de validar a descoberta.
+SERVICOS = {
+    "travels":    ["travels.yaml", "travels-v1.yaml"],
+    "flights":    ["flights.yaml", "flights-v1.yaml"],
+    "hotels":     ["hotels.yaml", "hotels-v1.yaml"],
+    "cars":       ["cars.yaml", "cars-v1.yaml"],
+    "insurances": ["insurances.yaml", "insurances-v1.yaml"],
+    # discounts leva quatro: e o servico do canary do Ato 7 (v1 e v2 dividem a
+    # MESMA imagem, mudando so o env CURRENT_VERSION) e o unico com
+    # ServiceAccount propria, exigida pela AuthorizationPolicy de leste-oeste.
+    "discounts":  ["discounts.yaml", "discounts-v1.yaml", "discounts-v2.yaml",
+                   "discount-access-sa.yaml"],
+}
+
+FONTE_SVC = os.path.join(ROOT_REPO, "platform-reference", "workloads", "travel-agency")
+
+def _readme_servico(nome, arquivos):
+    lista = "\n".join(f"- `manifests/{a}`" for a in arquivos)
+    return f"""# {nome}
+
+Servico `{nome}` do travel-agency, um dos seis backends que o Ato 1 percorre no
+Topology e que o Kiali desenha no grafo.
+
+## O que ha aqui
+
+{lista}
+
+## Quem aplica isto
+
+O `provision.sh` (etapa `platform`), a partir de `platform-reference/` no
+repositorio base. Este projeto e a **copia legivel**: e para onde o lapis
+"edit code" do Topology aponta, e o que o ApplicationSet `rhcl-travel` observa
+com `selfHeal` e `prune` desligados.
+
+A regra vem de docs/GITOPS-GITLAB.md: o GitLab guarda o que a demo demonstra,
+nunca o que a demo precisa para existir.
+
+## Imagem
+
+`quay.io/kiali/demo_travels_{nome}:v1` -- upstream, Apache-2.0, de
+github.com/kiali/demos (`travels/travel_agency/{nome}`). A construcao propria,
+com imagem no Quay do cluster, e o passo seguinte previsto em
+docs/ESTRATEGIA-REPOS.md.
+"""
+
+CODEOWNERS = """# Dono deste repositorio. O time de plataforma opera os backends do
+# travel-agency; os parceiros (acme-trips, initech-voyages, globex-travel) tem
+# Developer em rhcl/apis, onde abrem merge request de assinatura.
+* @plat-eng
+"""
+
+# Sem excluir o dry-run: com travel_id == -1 as consultas GET continuam validas
+# e cada projeto imprime o que faria. Um --dry-run que pula o bloco novo nao
+# serve para conferir o bloco novo.
+if travel_id:
+    import tempfile
+    _tmp = tempfile.mkdtemp(prefix="rhcl-svc-")
+    for _svc, _arqs in SERVICOS.items():
+        _faltando = [a for a in _arqs if not os.path.isfile(os.path.join(FONTE_SVC, a))]
+        if _faltando:
+            warn(f"{_svc}: arquivo(s) ausente(s) em platform-reference: {', '.join(_faltando)}")
+            continue
+        _path = f"rhcl/travel/{_svc}"
+        st, pr = call("GET", "/projects/" + urllib.parse.quote(_path, safe=""))
+        if st == 200:
+            ok(f"projeto {_path} ja existe"); _pid = pr["id"]
+        elif DRY:
+            print(f"    $ criar projeto {_path}"); _pid = -1
+        else:
+            st, pr = call("POST", "/projects", {
+                "name": _svc, "path": _svc, "namespace_id": travel_id,
+                "visibility": "public",
+                "description": f"Backend {_svc} do travel-agency. Copia legivel; quem aplica e o provision.sh.",
+                "initialize_with_readme": True})
+            if st in (200, 201):
+                ok(f"projeto {pr['path_with_namespace']} criado"); _pid = pr["id"]
+            else:
+                warn(f"falha ao criar {_path}: {pr.get('message')}"); continue
+        # README e CODEOWNERS sao gerados: semeia() le de arquivo local, entao
+        # eles passam por um diretorio temporario em vez de virar um caso
+        # especial na funcao.
+        _dir = os.path.join(_tmp, _svc)
+        os.makedirs(_dir, exist_ok=True)
+        with open(os.path.join(_dir, "README.md"), "w") as fh:
+            fh.write(_readme_servico(_svc, _arqs))
+        with open(os.path.join(_dir, "CODEOWNERS"), "w") as fh:
+            fh.write(CODEOWNERS)
+        _desejado = [(f"manifests/{a}", os.path.join(FONTE_SVC, a)) for a in _arqs]
+        _desejado += [("README.md", os.path.join(_dir, "README.md")),
+                      ("CODEOWNERS", os.path.join(_dir, "CODEOWNERS"))]
+        semeia(_pid, _path, _desejado,
+               f"Semeadura do servico {_svc} a partir de platform-reference/workloads")
 
 # ----- 4. o espelho do repo, para o portal nao depender do GitHub -----------
 # POR QUE ISTO EXISTE: o RHDH lia os templates de uma URL do github.com. Com a
@@ -559,7 +676,7 @@ echo
 if [[ $_rc -eq 0 && $DRY -eq 0 ]]; then
   _log "o subgrupo rhcl/apis nasce VAZIO -- e o Ato 6 que o povoa"
   _log "a CI valida o OVERLAY do repo de policies, nao a base (provision.sh cicd)"
-  _log "o build do servico clona rhcl/apps/travel-packages (provision.sh entrega)"
+  _log "o build do servico clona rhcl/travel/travel-packages (provision.sh entrega)"
   _log "confira: https://${GITLAB_HOST}/rhcl"
 fi
 exit $_rc

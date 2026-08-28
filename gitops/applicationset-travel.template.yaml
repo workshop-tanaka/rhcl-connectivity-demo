@@ -1,0 +1,98 @@
+# ===========================================================================
+# ApplicationSet do time travel — um Application por serviço do travel-agency.
+#
+# TEMPLATE: '__GITLAB_API__' é substituído por 'scripts/provision.sh gitops'.
+# Não aplique este arquivo direto — o placeholder viraria host literal.
+#
+# ---------------------------------------------------------------------------
+# O QUE ELE É, E O QUE ELE NÃO É
+#
+# Ele NÃO é quem instala os seis backends. Quem os aplica é o provision.sh, na
+# etapa 'platform', a partir de platform-reference/workloads/. Os seis são "o
+# que a demo precisa para existir" — os Atos 1 a 5 dependem deles de pé — e
+# fazê-los depender do GitLab colocaria o bootstrap do cluster atrás de um
+# serviço que roda dentro do próprio cluster. Ver docs/GITOPS-GITLAB.md §1.
+#
+# Ele É a leitura GitOps daquilo: cada repositório em rhcl/travel/ vira um
+# Application, e a tela do Argo passa a mostrar o que o Topology mostra — um
+# serviço, um repositório, um dono.
+#
+# ---------------------------------------------------------------------------
+# selfHeal: false E prune: false, pelos mesmos motivos de sempre
+#
+#   selfHeal  o Ato 7 edita mesh ao vivo (oc patch em PeerAuthentication,
+#             VirtualService e DestinationRule) e a tabela de troubleshooting
+#             do RUNBOOK conserta tudo com oc apply. Sob enforcement, o
+#             playbook de emergência deixa de funcionar como playbook.
+#             Esses três recursos moram em base/mesh/ (repo de policies, fora
+#             do Argo), então o risco aqui é menor -- mas a regra do projeto é
+#             uma só, e divergir por serviço confundiria mais do que ajudaria.
+#
+#   prune     o provision.sh aplica os mesmos manifests. Se o espelho no GitLab
+#             ficar para trás de uma mudança em platform-reference/, prune
+#             APAGARIA do cluster o que o provision acabou de criar.
+#
+# ---------------------------------------------------------------------------
+# POR QUE 'pathsExist: [manifests]' E NÃO O SUBGRUPO INTEIRO
+#
+# rhcl/travel/ também guarda travel-packages, que é código Maven, sem
+# manifests/. Sem o filtro, o Argo tentaria sincronizar um pom.xml e reportaria
+# erro de repositório inválido -- ruído permanente na tela do Ato 6.
+# ===========================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: rhcl-travel
+  namespace: openshift-gitops
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - scmProvider:
+        cloneProtocol: https
+        gitlab:
+          group: rhcl/travel
+          includeSubgroups: false
+          api: __GITLAB_API__
+          tokenRef:
+            secretName: golden-path-gitlab-token
+            key: token
+        filters:
+          - pathsExist: [manifests]
+        requeueAfterSeconds: 180
+  template:
+    metadata:
+      name: 'travel-{{ .repository }}'
+      labels:
+        app.kubernetes.io/part-of: rhcl-travel
+    spec:
+      project: default
+      source:
+        repoURL: '{{ .url }}'
+        targetRevision: '{{ .branch }}'
+        path: manifests
+        directory:
+          recurse: false
+          include: '*.yaml'
+      destination:
+        server: https://kubernetes.default.svc
+        # Fallback apenas: todo manifesto do travel-agency declara o próprio
+        # namespace. O namespace em si vem da etapa 'platform', com o label de
+        # injeção do Service Mesh -- sem ele o serviço nasce fora do mesh.
+        namespace: travel-agency
+      # O provision.sh anota os Deployments com vcs-uri/vcs-ref DEPOIS de
+      # aplica-los -- o host do GitLab so existe no cluster, e fixa-lo no
+      # manifesto quebraria o proximo ambiente (ver _vcs_topology). Sem esta
+      # excecao, todo Application nasce OutOfSync por causa de duas anotacoes
+      # que ninguem quer reconciliar, e a tela do Argo passa a mentir sobre o
+      # estado dos seis servicos.
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jqPathExpressions:
+            - '.metadata.annotations["app.openshift.io/vcs-uri"]'
+            - '.metadata.annotations["app.openshift.io/vcs-ref"]'
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
