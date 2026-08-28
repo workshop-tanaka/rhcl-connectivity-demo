@@ -1,10 +1,17 @@
 # ===========================================================================
 # Nexus Repository -- manifests proprios, mesma decisao do SonarQube.
 #
-# Papel duplo na demo: mirror Maven da pipeline (sem ele, cada build do EAP
-# baixa a internet inteira e o palco fica 8 minutos em silencio) e tela de
-# repositorio no portal via plugin do RHDH. O grupo maven-public ja nasce
-# proxy do Central -- zero configuracao para o settings.xml da pipeline.
+# O PAPEL DE MIRROR NAO ESTA EM USO -- medido em 2026-08-28. O grupo
+# maven-public de fato ja nasce proxy do Central (a afirmacao anterior deste
+# cabecalho estava certa nisso), mas o acesso anonimo nasce DESLIGADO, e mesmo
+# ligado, e mesmo autenticado como admin, o conteudo responde 403: a tag
+# 'latest' do sonatype/nexus3 embute recursos Pro (com.sonatype.nexus.clm no
+# log) e o conteudo parece gated por licenca. O cabecalho da
+# platform-reference/pipelines/build-travel-packages.yaml traz a medicao
+# inteira e como religar.
+#
+# Fica pelo SEGUNDO papel, que funciona: a tela de repositorio no portal via
+# plugin do RHDH. Quem faz o build ser rapido hoje e o PVC cache-maven.
 #
 # NEXUS_SECURITY_RANDOMPASSWORD=false fixa admin/admin123 -- lab-grade, e o
 # que o plugin do portal e a pipeline usam sem cerimonia de bootstrap.

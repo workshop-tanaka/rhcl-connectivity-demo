@@ -65,28 +65,27 @@
       elegante que ninguém rodou. É a primeira coisa a trocar depois do
       primeiro build verde.
     -->
-    <version.eap.galleon.pack>8.1.1.GA-redhat-00019</version.eap.galleon.pack>
-    <version.eap.datasources.pack>8.1.1.Final-redhat-00016</version.eap.datasources.pack>
     <version.eap.maven.plugin>2.0.1.Final-redhat-00016</version.eap.maven.plugin>
-    <version.eap.bom>8.1.7.GA-redhat-00004</version.eap.bom>
+    <version.jakartaee>10.0.0</version.jakartaee>
 
     <!-- Hot Rod: cliente do Data Grid. Vai DENTRO do WAR (escopo compile) —
          não é uma camada do servidor, e por isso não aparece no Galleon. -->
     <version.infinispan>15.0.11.Final</version.infinispan>
   </properties>
 
-  <dependencyManagement>
-    <dependencies>
-      <dependency>
-        <groupId>org.jboss.bom</groupId>
-        <artifactId>jboss-eap-ee</artifactId>
-        <version>${version.eap.bom}</version>
-        <type>pom</type>
-        <scope>import</scope>
-      </dependency>
-    </dependencies>
-  </dependencyManagement>
+  <!--
+    SEM O BOM jboss-eap-ee, e isto foi MEDIDO, nao escolhido de antemao.
+    A primeira versao o importava e declarava jakarta.jakartaee-api sem
+    versao, contando com ele. O build reprovou com
 
+      'dependencies.dependency.version' for jakarta.platform:jakarta.jakartaee-api:jar is missing
+
+    porque o BOM do EAP gerencia as APIs Jakarta UMA A UMA (jakarta.ws.rs-api,
+    jakarta.persistence-api, ...) e nao o artefato guarda-chuva. As saidas
+    eram declarar cinco dependencias em vez de uma, ou fixar a versao da
+    guarda-chuva e dispensar o BOM. Para uma aplicacao de demonstracao com
+    tres recursos JAX-RS, a segunda e menos peca para dar errado.
+  -->
   <dependencies>
     <!-- Jakarta EE 10 inteiro é 'provided': quem entrega é o servidor
          provisionado, e duplicá-lo no WAR é a forma clássica de ganhar
@@ -94,6 +93,7 @@
     <dependency>
       <groupId>jakarta.platform</groupId>
       <artifactId>jakarta.jakartaee-api</artifactId>
+      <version>${version.jakartaee}</version>
       <scope>provided</scope>
     </dependency>
 
@@ -150,16 +150,34 @@
         <artifactId>eap-maven-plugin</artifactId>
         <version>${version.eap.maven.plugin}</version>
         <configuration>
+          <!--
+            CANAL, e nao versao fixa. Isto foi medido: com as versoes fixadas
+            (wildfly-ee-galleon-pack 8.1.1.GA-redhat-00019) o provisionamento
+            morria em
+
+              Failed to resolve org.wildfly.core:wildfly-elytron-tool-wrapper:jar:27.1.11.Final-redhat-00001
+              ... could not be resolved ... in redhat-ga
+
+            O feature pack referencia dezenas de artefatos cujas versoes o GA
+            repo nao serve isoladamente. Quem sabe a combinacao que existe e o
+            MANIFESTO DO CANAL — por isso o EAP 8.1 publica
+            org.jboss.eap.channels:eap-8.1, e por isso o feature pack aqui vai
+            SEM versao: e o canal que a decide.
+          -->
+          <channels>
+            <channel>
+              <manifest>
+                <groupId>org.jboss.eap.channels</groupId>
+                <artifactId>eap-8.1</artifactId>
+              </manifest>
+            </channel>
+          </channels>
           <feature-packs>
             <feature-pack>
-              <groupId>org.jboss.eap</groupId>
-              <artifactId>wildfly-ee-galleon-pack</artifactId>
-              <version>${version.eap.galleon.pack}</version>
+              <location>org.jboss.eap:wildfly-ee-galleon-pack</location>
             </feature-pack>
             <feature-pack>
-              <groupId>org.jboss.eap</groupId>
-              <artifactId>eap-datasources-galleon-pack</artifactId>
-              <version>${version.eap.datasources.pack}</version>
+              <location>org.jboss.eap:eap-datasources-galleon-pack</location>
             </feature-pack>
           </feature-packs>
           <layers>

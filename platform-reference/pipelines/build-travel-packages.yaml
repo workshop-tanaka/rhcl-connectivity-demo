@@ -26,32 +26,45 @@ metadata:
   namespace: travel-packages
 data:
   # -------------------------------------------------------------------------
-  # <mirrorOf>central</mirrorOf> -- E NAO 'external:*', QUE SERIA O REFLEXO.
+  # SEM MIRROR, e isto foi MEDIDO neste cluster em 2026-08-28 -- nao e opiniao
+  # sobre o Nexus.
   #
-  # O grupo maven-public do Nexus nasce com UM proxy: o Maven Central
-  # (cabecalho de platform-reference/cicd/nexus.yaml). Os artefatos do EAP 8
-  # nao estao la -- vem de maven.repository.redhat.com, declarado no pom.
-  # Espelhar 'external:*' mandaria tambem esses pedidos para o Nexus, que
-  # responderia 404 para o eap-galleon-pack inteiro, e o erro falaria de
-  # artefato ausente e nao de mirror mal configurado.
+  # O que se tentou: settings.xml com <mirrorOf>central</mirrorOf> apontando
+  # para http://nexus.cicd.svc:8081/repository/maven-public/. O build morreu em
   #
-  # Espelhando so o central, o ganho de tempo (que e onde estao as centenas de
-  # dependencias transitivas) fica, e o repositorio da Red Hat e consultado
-  # direto. PARA FECHAR O CIRCULO um dia: criar no Nexus um proxy de
-  # maven.repository.redhat.com, acrescenta-lo ao grupo maven-public, e ai
-  # sim trocar por 'external:*'.
+  #   Could not transfer artifact org.jboss:jboss-parent:pom:47 ... status code: 401
+  #
+  # O que se descobriu, na ordem:
+  #   - o acesso anonimo do Nexus nasce DESLIGADO (dai o 401). Ligado por API.
+  #   - com ele ligado, e tambem autenticado como admin, qualquer artefato
+  #     responde 403 -- inclusive junit:4.13.2 pelo proxy maven-central, que
+  #     esta online e nao bloqueado.
+  #   - o log do Nexus nao registra o 403, e traz classes com.sonatype.nexus.clm
+  #     (Firewall/IQ): a tag 'latest' do sonatype/nexus3 hoje embute recursos
+  #     Pro, e o conteudo parece gated por licenca.
+  #
+  # A DECISAO: o mirror e otimizacao, nao requisito. Sem ele o build passa
+  # (BUILD SUCCESS, verificado), e quem faz o segundo build ser rapido e o PVC
+  # cache-maven, que independe do Nexus. Perseguir licenciamento de Nexus Pro
+  # para acelerar o build de uma aplicacao de demonstracao e trocar o problema
+  # certo por um mais caro.
+  #
+  # O Nexus continua no ambiente pelo OUTRO papel: a tela de repositorio no
+  # portal. Para religar o mirror depois de resolver o 403, basta descomentar
+  # o bloco <mirrors> abaixo.
   # -------------------------------------------------------------------------
   settings.xml: |
     <?xml version="1.0" encoding="UTF-8"?>
     <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
-      <mirrors>
-        <mirror>
-          <id>nexus-central</id>
-          <name>Nexus da demo, proxy do Maven Central</name>
-          <url>http://nexus.cicd.svc:8081/repository/maven-public/</url>
-          <mirrorOf>central</mirrorOf>
-        </mirror>
-      </mirrors>
+      <!--
+        <mirrors>
+          <mirror>
+            <id>nexus-central</id>
+            <url>http://nexus.cicd.svc:8081/repository/maven-public/</url>
+            <mirrorOf>central</mirrorOf>
+          </mirror>
+        </mirrors>
+      -->
     </settings>
 ---
 apiVersion: tekton.dev/v1
