@@ -125,6 +125,97 @@ oc create secret generic rhdh-kubernetes-secret -n "$RHDH_NS" \
   || _die "falha ao criar rhdh-kubernetes-secret."
 _ok "cluster registrado como '${K8S_CLUSTER_NAME}'."
 
+# ----- flags: o default e O QUE JA ESTA LIGADO -----------------------------
+# NAO um literal. Ate 2026-08-28 cada flag tinha default fixo, e "nao passei a
+# flag" era ambiguo entre "deixe como esta" e "desligue" -- o script escolhia
+# desligar, e o apply SUBSTITUI a lista inteira.
+#
+# Custou duas regressoes no mesmo dia: o Grafana e o SonarQube sumiram do portal
+# porque uma execucao de outra sessao nao passou as flags deles. Ninguem viu na
+# hora: o pod sobe 2/2, o portal responde 200, e a aba simplesmente nao existe
+# mais.
+#
+# Agora quem nao diz nada preserva. Desligar exige dizer WITH_X=false, que e
+# uma decisao explicita -- e a unica leitura sem ambiguidade de um comando que
+# reescreve estado compartilhado.
+_cm_atual="$(oc get cm dynamic-plugins-rhdh -n "$RHDH_NS" -o jsonpath='{.data}' 2>/dev/null || true)"
+_ja_ligado() { # padrao -> "true" se ja consta na ConfigMap em vigor
+  if [[ -n "$_cm_atual" ]] && printf '%s' "$_cm_atual" | grep -qi -- "$1"; then
+    printf 'true'
+  else
+    printf 'false'
+  fi
+}
+
+WITH_KIALI="${WITH_KIALI:-$(_ja_ligado 'plugin-kiali')}"
+WITH_QUAY="${WITH_QUAY:-$(_ja_ligado 'plugin-quay')}"
+WITH_KUADRANT="${WITH_KUADRANT:-$(_ja_ligado 'kuadrant-backstage-plugin')}"
+WITH_TEKTON="${WITH_TEKTON:-$(_ja_ligado 'plugin-tekton')}"
+WITH_ACS="${WITH_ACS:-$(_ja_ligado 'plugin-acs')}"
+WITH_NEXUS="${WITH_NEXUS:-$(_ja_ligado 'plugin-nexus-repository-manager')}"
+WITH_SONARQUBE="${WITH_SONARQUBE:-$(_ja_ligado 'plugin-sonarqube')}"
+WITH_JAEGER="${WITH_JAEGER:-$(_ja_ligado 'plugin-jaeger')}"
+WITH_GRAFANA="${WITH_GRAFANA:-$(_ja_ligado 'plugin-grafana')}"
+WITH_CL_OPS="${WITH_CL_OPS:-$(_ja_ligado 'connectivity-link-ops')}"
+WITH_ANSIBLE="${WITH_ANSIBLE:-$(_ja_ligado 'plugin-ansible')}"
+# O GitLab e a excecao deliberada: o build 7.0.1 nao carrega neste RHDH (ver o
+# bloco dele). Preservar "ligado" aqui seria preservar uma aba quebrada.
+WITH_GITLAB="${WITH_GITLAB:-false}"
+
+# Os que vem do plugin-registry precisam de integrity. Quem nao passa herda a
+# que JA ESTA na ConfigMap -- reaproveitar e o unico caminho que nao perde nada.
+#
+# A primeira versao deste bloco avisava e DESLIGAVA quando faltava a integrity,
+# o que reproduzia exatamente a remocao silenciosa que este trecho existe para
+# impedir: bastava alguem rodar sem calcular os hashes.
+# As duas funcoes deixam o python ler o JSON direto do oc, em vez de receber a
+# ConfigMap como string pelo shell. O conteudo tem as quebras escapadas, e
+# tentar casar "package" e "integrity" em linhas vizinhas passando por aspas de
+# shell, heredoc e regex era escape em tres camadas -- errava calado.
+_integrity_de() { # nome do .tgz -> integrity que a ConfigMap ja declara
+  oc get cm dynamic-plugins-rhdh -n "$RHDH_NS" -o json 2>/dev/null \
+    | ALVO="$1" python3 -c '
+import sys, os, json, re
+alvo = os.environ["ALVO"]
+dados = json.load(sys.stdin).get("data", {})
+for texto in dados.values():
+    m = re.search(r"plugin-registry:8080/" + re.escape(alvo) + r"[^\n]*\n\s*integrity:\s*\"?(sha512-[A-Za-z0-9+/=]+)", texto)
+    if m:
+        print(m.group(1)); break
+else:
+    print("")' 2>/dev/null || true
+}
+_versao_ligada() { # prefixo -> maior versao do .tgz que a ConfigMap declara
+  oc get cm dynamic-plugins-rhdh -n "$RHDH_NS" -o json 2>/dev/null \
+    | ALVO="$1" python3 -c '
+import sys, os, json, re
+alvo = os.environ["ALVO"]
+vs = []
+for texto in json.load(sys.stdin).get("data", {}).values():
+    vs += re.findall(re.escape(alvo) + r"-(\d+\.\d+\.\d+)\.tgz", texto)
+print(sorted(set(vs), key=lambda v: [int(x) for x in v.split(".")])[-1] if vs else "")' 2>/dev/null || true
+}
+
+if [[ "$WITH_CL_OPS" == "true" ]]; then
+  CL_OPS_VERSION="${CL_OPS_VERSION:-$(_versao_ligada 'rhcl-backstage-plugin-connectivity-link-ops')}"
+  CL_OPS_FRONTEND_INTEGRITY="${CL_OPS_FRONTEND_INTEGRITY:-$(_integrity_de "rhcl-backstage-plugin-connectivity-link-ops-${CL_OPS_VERSION}")}"
+  CL_OPS_BACKEND_INTEGRITY="${CL_OPS_BACKEND_INTEGRITY:-$(_integrity_de "rhcl-backstage-plugin-connectivity-link-ops-backend-dynamic-${CL_OPS_VERSION}")}"
+fi
+[[ "$WITH_JAEGER"  == "true" ]] && JAEGER_INTEGRITY="${JAEGER_INTEGRITY:-$(_integrity_de 'backstage-community-plugin-jaeger-dynamic')}"
+[[ "$WITH_GRAFANA" == "true" ]] && GRAFANA_INTEGRITY="${GRAFANA_INTEGRITY:-$(_integrity_de 'backstage-community-plugin-grafana-dynamic')}"
+
+# So desliga se nem o ambiente nem quem chamou souberam dizer a integrity --
+# aí nao ha como emitir a entrada, e prosseguir daria CrashLoopBackOff.
+[[ "$WITH_CL_OPS"  == "true" && -z "${CL_OPS_FRONTEND_INTEGRITY:-}" ]] && {
+  _warn "connectivity-link-ops ligado e sem integrity (nem herdada) -- desligado nesta execucao"; WITH_CL_OPS=false; }
+[[ "$WITH_JAEGER"  == "true" && -z "${JAEGER_INTEGRITY:-}"  ]] && {
+  _warn "jaeger ligado e sem integrity (nem herdada) -- desligado nesta execucao"; WITH_JAEGER=false; }
+[[ "$WITH_GRAFANA" == "true" && -z "${GRAFANA_INTEGRITY:-}" ]] && {
+  _warn "grafana ligado e sem integrity (nem herdada) -- desligado nesta execucao"; WITH_GRAFANA=false; }
+
+_log "flags: kiali=$WITH_KIALI quay=$WITH_QUAY kuadrant=$WITH_KUADRANT tekton=$WITH_TEKTON acs=$WITH_ACS nexus=$WITH_NEXUS sonarqube=$WITH_SONARQUBE jaeger=$WITH_JAEGER grafana=$WITH_GRAFANA cl-ops=$WITH_CL_OPS"
+
+
 # ----- 2. lista de plugins -------------------------------------------------
 # Caminhos ./dynamic-plugins/dist/... = ja estao na imagem, nada e baixado.
 # Suporte (doc 1.10): kubernetes-backend e Topology sao GA; o frontend do
