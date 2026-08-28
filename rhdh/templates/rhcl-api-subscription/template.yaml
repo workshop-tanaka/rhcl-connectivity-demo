@@ -13,6 +13,9 @@ metadata:
     - kuadrant
     - developer-portal
     - golden-path
+    - ato-6
+  labels:
+    rhcl.demo/origem: repo
 spec:
   type: subscription
   owner: group:default/platform-team

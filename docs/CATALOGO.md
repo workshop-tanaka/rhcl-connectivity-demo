@@ -61,10 +61,19 @@ O prefixo é `rhcl.demo/`, que é o que o repositório **já** usa em anotaçõe
 
 | Chave | Valores | Em quê | Para quê |
 | --- | --- | --- | --- |
-| `rhcl.demo/camada` | `borda`, `aplicacao`, `consumidor`, `plataforma`, `dados`, `cicd`, `seguranca` | toda entidade com `spec` | separar o que é infraestrutura do que é aplicação, sem depender do System |
+| `rhcl.demo/camada` | `borda`, `aplicacao`, `consumidor`, `plataforma`, `dados`, `cicd`, `seguranca` | `Component`, `Resource`, `System` | separar o que é infraestrutura do que é aplicação, sem depender do System |
 | `rhcl.demo/escopo-policy` | `gateway`, `rota` | só policies do Kuadrant | **a distinção do Ato 3** — o que vale para toda rota anexada vs. o que vale só para esta API |
-| `rhcl.demo/origem` | `repo`, `cluster`, `template` | toda entidade | de onde a entidade nasce: este repositório, o provider do plugin, ou o golden path |
+| `rhcl.demo/origem` | `repo`, `cluster`, `template` | todas | de onde a entidade nasce: este repositório, o provider do plugin, ou o golden path |
 | `rhcl.demo/produto` | `travels`, `echo` | o que pertence a um produto de API | agora que o `echo-api` é o segundo produto, "de qual produto é isto?" tem resposta |
+
+`camada` fica fora de `User`, `Group`, `Domain` e `Template`: são entidades
+organizacionais, não arquiteturais, e forçá-las numa camada só produziria um
+valor que ninguém consulta. Todas levam `origem`.
+
+**Toda policy do Kuadrant é `camada: borda`**, inclusive as que miram a
+HTTPRoute de uma aplicação: quem as aplica é o gateway, não o serviço. O que
+distingue uma da outra é `escopo-policy`, e é essa a distinção que o Ato 3
+explica — misturar as duas coisas em `camada` apagaria justamente o ponto.
 
 `dados`, `cicd` e `seguranca` estão reservados para a Fase 4 — os subsistemas
 `travel-packages/`, `cicd/` e `security/`, que hoje não têm entidade nenhuma.

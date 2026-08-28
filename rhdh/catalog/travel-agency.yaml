@@ -10,6 +10,21 @@
 #
 # ${DEMO_API_HOST} e ${DEMO_ECHO_HOST} sao substituidos pelo setup-catalog.sh
 # com os hostnames reais lidos das HTTPRoutes do cluster.
+#
+# ROTULOS: 'rhcl.demo/*' em metadata.labels e as tags seguem o vocabulario de
+# docs/CATALOGO.md -- leia antes de inventar um valor novo. As regras de forma
+# de label e de tag NAO sao as mesmas (a tag e mais estrita), e o
+# scripts/valida-catalogo.sh recusa o que sair da tabela.
+#
+#   camada         onde a entidade fica: borda, aplicacao, consumidor, plataforma
+#   escopo-policy  so em policy do Kuadrant: gateway (vale para toda rota
+#                  anexada) ou rota (vale so para esta API) -- e a distincao
+#                  que o Ato 3 explica
+#   origem         de onde a entidade nasce: repo, cluster, template
+#   produto        travels ou echo
+#
+# Toda policy do Kuadrant e 'camada: borda', inclusive as que miram a HTTPRoute
+# de uma aplicacao: quem as aplica e o gateway, nao o servico.
 # ===========================================================================
 # ---------------------------------------------------------------------------
 # O usuario 'guest'.
@@ -32,6 +47,10 @@ metadata:
   name: guest
   namespace: development
   description: Identidade emitida pelo provider guest. Lab apenas.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
 spec:
   profile:
     displayName: Guest
@@ -67,6 +86,12 @@ kind: User
 metadata:
   name: globex-travel
   description: Parceiro tier gold. Abre merge request de assinatura no GitLab.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - parceiro
+    - tier-gold
 spec:
   profile:
     displayName: Globex Travel
@@ -79,6 +104,12 @@ kind: User
 metadata:
   name: initech-voyages
   description: Parceiro tier silver. Abre merge request de assinatura no GitLab.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - parceiro
+    - tier-silver
 spec:
   profile:
     displayName: Initech Voyages
@@ -91,6 +122,12 @@ kind: User
 metadata:
   name: acme-trips
   description: Parceiro tier free. Abre merge request de assinatura no GitLab.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - parceiro
+    - tier-free
 spec:
   profile:
     displayName: ACME Trips
@@ -105,6 +142,10 @@ kind: User
 metadata:
   name: plat-eng
   description: Engenharia de plataforma. Aprova e faz merge das assinaturas.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
 spec:
   profile:
     displayName: Plataforma
@@ -117,6 +158,11 @@ kind: Group
 metadata:
   name: parceiros
   description: Consumidores da API. Abrem assinatura por merge request; nao aprovam.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - parceiro
 spec:
   type: team
   children: []
@@ -126,6 +172,10 @@ kind: Group
 metadata:
   name: platform-team
   description: Time responsavel pela plataforma e pelas policies de conectividade.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
 spec:
   type: team
   children: []
@@ -135,6 +185,10 @@ kind: Domain
 metadata:
   name: travel
   description: Dominio de negocio da demo de conectividade.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
 spec:
   owner: group:default/platform-team
 ---
@@ -148,6 +202,12 @@ metadata:
   description: >-
     Borda gerenciada pelo Red Hat Connectivity Link: o Gateway compartilhado e
     as policies de escopo de gateway.
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - gateway-api
 spec:
   owner: group:default/platform-team
   domain: travel
@@ -165,6 +225,14 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/ingress-gateway/gateway.networking.k8s.io~v1~Gateway/prod-web
       title: Abrir no console
       icon: web
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - gateway-api
+    - ato-1
+    - ato-3
 spec:
   type: gateway
   owner: group:default/platform-team
@@ -188,6 +256,14 @@ metadata:
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: gateway
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - kuadrant
+    - ato-1
 spec:
   type: kuadrant-authpolicy
   owner: group:default/platform-team
@@ -213,6 +289,14 @@ metadata:
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: gateway
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - kuadrant
+    - ato-3
 spec:
   type: kuadrant-ratelimitpolicy
   owner: group:default/platform-team
@@ -241,6 +325,13 @@ metadata:
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: gateway
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - kuadrant
 spec:
   type: kuadrant-dnspolicy
   owner: group:default/platform-team
@@ -267,6 +358,13 @@ metadata:
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: gateway
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - kuadrant
 spec:
   type: kuadrant-tlspolicy
   owner: group:default/platform-team
@@ -293,6 +391,16 @@ metadata:
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: gateway
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - kuadrant
+    - observabilidade
+    - ato-4
+    - ato-5
 spec:
   type: kuadrant-telemetrypolicy
   owner: group:default/platform-team
@@ -324,6 +432,12 @@ metadata:
     - url: https://${GRAFANA_HOST}/d/rhcl-planos
       title: Planos comerciais (Grafana)
       icon: dashboard
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: travels
+  tags:
+    - rhcl
 spec:
   owner: group:default/platform-team
   domain: travel
@@ -348,6 +462,15 @@ metadata:
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: rota
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: travels
+  tags:
+    - rhcl
+    - kuadrant
+    - ato-1
 spec:
   type: kuadrant-authpolicy
   owner: group:default/platform-team
@@ -373,6 +496,15 @@ metadata:
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: rota
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: travels
+  tags:
+    - rhcl
+    - kuadrant
+    - ato-2
 spec:
   type: kuadrant-planpolicy
   owner: group:default/platform-team
@@ -409,6 +541,16 @@ metadata:
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/policies/rhcl-policies
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/escopo-policy: rota
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: travels
+  tags:
+    - rhcl
+    - kuadrant
+    - ato-2
+    - ato-3
 spec:
   type: kuadrant-ratelimitpolicy
   owner: group:default/platform-team
@@ -506,6 +648,14 @@ metadata:
     - url: https://${CONSOLE_HOST}/observe/traces
       title: Traces — travels.travel-agency
       icon: dashboard
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: travels
+  tags:
+    - rhcl
+    - ato-1
+    - ato-2
 spec:
   type: service
   lifecycle: production
@@ -570,6 +720,12 @@ metadata:
     - url: https://${CONSOLE_HOST}/observe/traces
       title: Traces — flights.travel-agency
       icon: dashboard
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: travels
+  tags:
+    - rhcl
 spec:
   type: service
   lifecycle: production
@@ -622,6 +778,12 @@ metadata:
     - url: https://${CONSOLE_HOST}/observe/traces
       title: Traces — hotels.travel-agency
       icon: dashboard
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: travels
+  tags:
+    - rhcl
 spec:
   type: service
   lifecycle: production
@@ -674,6 +836,12 @@ metadata:
     - url: https://${CONSOLE_HOST}/observe/traces
       title: Traces — cars.travel-agency
       icon: dashboard
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: travels
+  tags:
+    - rhcl
 spec:
   type: service
   lifecycle: production
@@ -726,6 +894,12 @@ metadata:
     - url: https://${CONSOLE_HOST}/observe/traces
       title: Traces — insurances.travel-agency
       icon: dashboard
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: travels
+  tags:
+    - rhcl
 spec:
   type: service
   lifecycle: production
@@ -780,6 +954,14 @@ metadata:
     - url: https://${CONSOLE_HOST}/observe/traces
       title: Traces — discounts.travel-agency
       icon: dashboard
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: travels
+  tags:
+    - rhcl
+    - service-mesh
+    - ato-7
 spec:
   type: service
   lifecycle: production
@@ -831,6 +1013,13 @@ metadata:
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
     # bloco kiali.providers no app-config.
     kiali.io/provider: default
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: echo
+  tags:
+    - rhcl
+    - ato-3
 spec:
   type: service
   lifecycle: production
@@ -867,6 +1056,12 @@ metadata:
   tags:
     - parceiro
     - tier-gold
+    - rhcl
+    - ato-2
+  labels:
+    rhcl.demo/camada: consumidor
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: travels
 spec:
   type: api-consumer
   lifecycle: production
@@ -897,6 +1092,12 @@ metadata:
   tags:
     - parceiro
     - tier-silver
+    - rhcl
+    - ato-2
+  labels:
+    rhcl.demo/camada: consumidor
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: travels
 spec:
   type: api-consumer
   lifecycle: production
@@ -927,6 +1128,12 @@ metadata:
   tags:
     - parceiro
     - tier-free
+    - rhcl
+    - ato-2
+  labels:
+    rhcl.demo/camada: consumidor
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: travels
 spec:
   type: api-consumer
   lifecycle: production
@@ -957,6 +1164,11 @@ metadata:
     O que executa as policies e observa o trafego: plano de controle e de dados
     do Connectivity Link, Service Mesh, observabilidade e as ferramentas de
     entrega. Nao e a demo -- e o que a sustenta.
+  labels:
+    rhcl.demo/camada: plataforma
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
 spec:
   owner: group:default/platform-team
   domain: travel
@@ -976,6 +1188,12 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/kuadrant-system/kuadrant.io~v1beta1~Kuadrant/kuadrant
       title: Ver no console
       icon: web
+  labels:
+    rhcl.demo/camada: plataforma
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - kuadrant
 spec:
   type: control-plane
   owner: group:default/platform-team
@@ -996,6 +1214,13 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/kuadrant-system/operator.authorino.kuadrant.io~v1beta1~Authorino/authorino
       title: Ver no console
       icon: web
+  labels:
+    rhcl.demo/camada: plataforma
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - kuadrant
+    - ato-1
 spec:
   type: auth-service
   owner: group:default/platform-team
@@ -1018,6 +1243,13 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/kuadrant-system/limitador.kuadrant.io~v1alpha1~Limitador/limitador
       title: Ver no console
       icon: web
+  labels:
+    rhcl.demo/camada: plataforma
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - kuadrant
+    - ato-2
 spec:
   type: rate-limit-service
   owner: group:default/platform-team
@@ -1038,6 +1270,13 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/cluster/sailoperator.io~v1~Istio/default
       title: Ver no console
       icon: web
+  labels:
+    rhcl.demo/camada: plataforma
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - service-mesh
+    - ato-7
 spec:
   type: service-mesh
   owner: group:default/platform-team
@@ -1057,6 +1296,13 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/tracing-system/tempo.grafana.com~v1alpha1~TempoMonolithic/tempo
       title: Ver no console
       icon: web
+  labels:
+    rhcl.demo/camada: plataforma
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - observabilidade
+    - ato-5
 spec:
   type: tracing-backend
   owner: group:default/platform-team
@@ -1078,6 +1324,13 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/tracing-system/opentelemetry.io~v1beta1~OpenTelemetryCollector/otel
       title: Ver no console
       icon: web
+  labels:
+    rhcl.demo/camada: plataforma
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - observabilidade
+    - ato-5
 spec:
   type: otel-collector
   owner: group:default/platform-team
@@ -1102,6 +1355,14 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/istio-system/kiali.io~v1alpha1~Kiali/kiali
       title: Ver no console
       icon: web
+  labels:
+    rhcl.demo/camada: plataforma
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - observabilidade
+    - service-mesh
+    - ato-7
 spec:
   type: observability-console
   owner: group:default/platform-team
@@ -1124,6 +1385,13 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/monitoring/grafana.integreatly.org~v1beta1~Grafana/grafana
       title: Ver no console
       icon: web
+  labels:
+    rhcl.demo/camada: plataforma
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - observabilidade
+    - ato-4
 spec:
   type: dashboards
   owner: group:default/platform-team
@@ -1144,6 +1412,13 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/openshift-gitops/argoproj.io~v1beta1~ArgoCD/openshift-gitops
       title: Ver no console
       icon: web
+  labels:
+    rhcl.demo/camada: plataforma
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - gitops
+    - ato-6
 spec:
   type: gitops
   owner: group:default/platform-team
@@ -1164,6 +1439,13 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/gitlab-system/apps.gitlab.com~v1beta1~GitLab/gitlab
       title: Ver no console
       icon: web
+  labels:
+    rhcl.demo/camada: plataforma
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - gitops
+    - ato-6
 spec:
   type: scm
   owner: group:default/platform-team
@@ -1183,6 +1465,11 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/keycloak/k8s.keycloak.org~v2alpha1~Keycloak/keycloak
       title: Ver no console
       icon: web
+  labels:
+    rhcl.demo/camada: plataforma
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
 spec:
   type: idp
   owner: group:default/platform-team
@@ -1203,6 +1490,13 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/travel-agency/gateway.networking.k8s.io~v1~HTTPRoute/travel-agency
       title: Ver no console
       icon: web
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: travels
+  tags:
+    - rhcl
+    - gateway-api
 spec:
   type: httproute
   owner: group:default/platform-team
@@ -1224,6 +1518,13 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/echo-api/gateway.networking.k8s.io~v1~HTTPRoute/echo-api
       title: Ver no console
       icon: web
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: echo
+  tags:
+    - rhcl
+    - gateway-api
 spec:
   type: httproute
   owner: group:default/platform-team
@@ -1246,6 +1547,11 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/ingress-gateway/core~v1~Secret/api-tls
       title: Ver no console
       icon: web
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
 spec:
   type: certificate
   owner: group:default/platform-team

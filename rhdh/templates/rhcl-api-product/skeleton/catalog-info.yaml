@@ -44,6 +44,16 @@ metadata:
 {%- if values.mtlsStrict %}
     - mtls-strict
 {%- endif %}
+  # Vocabulario de docs/CATALOGO.md -- o mesmo do catalogo da demo, e e isso
+  # que faz um servico gerado aqui e um servico da demo aparecerem no mesmo
+  # filtro. 'origem: template' e o que os distingue depois.
+  #
+  # Sem 'produto': o vocabulario so tem 'travels' e 'echo', que sao os produtos
+  # da demo. Um servico gerado nao pertence a nenhum dos dois, e inventar um
+  # valor aqui furaria a tabela que o valida-catalogo.sh confere.
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: template
   links:
     - url: https://${{ values.hostname }}
       title: Endpoint
@@ -77,6 +87,9 @@ metadata:
   tags:
     - rhcl
     - golden-path
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: template
 spec:
   type: openapi
   lifecycle: experimental

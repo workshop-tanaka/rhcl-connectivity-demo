@@ -13,6 +13,9 @@ metadata:
     - service-mesh
     - canary
     - golden-path
+    - ato-6
+  labels:
+    rhcl.demo/origem: repo
 spec:
   type: service
   owner: group:default/platform-team

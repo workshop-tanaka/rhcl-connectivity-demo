@@ -14,6 +14,9 @@
       "aap",
       "rhcl"
     ],
+    "labels": {
+      "rhcl.demo/origem": "repo"
+    },
     "annotations": {
       "rhcl.demo/gerado-por": "rhdh/sync-survey.sh",
       "rhcl.demo/aap-job-template": "10"

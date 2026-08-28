@@ -146,6 +146,16 @@ entity = {
         'description': survey.get('description')
             or 'Dispara o job template do AAP a partir do portal.',
         'tags': ['ansible', 'aap', 'rhcl'],
+        # Vocabulario de docs/CATALOGO.md, conferido pelo
+        # scripts/valida-catalogo.sh. 'origem: repo' porque a entidade nasce
+        # deste repositorio -- o survey vem do AAP, mas quem a escreve e este
+        # script. Sem 'camada': Template e organizacional, nao arquitetural.
+        #
+        # Precisa estar AQUI e nao no arquivo gerado: o proximo sync
+        # sobrescreve rhdh/catalog/aap-smoke-test.yaml inteiro.
+        'labels': {
+            'rhcl.demo/origem': 'repo',
+        },
         'annotations': {
             # De onde este arquivo veio. Editar a mao nao adianta: o proximo
             # sync sobrescreve.

@@ -89,7 +89,10 @@ for _arq in "${_alvos[@]}"; do
       (.spec.system // \"\"),
       (.spec.domain // \"\"),
       (.spec.owner // \"\"),
-      (.spec.parent // \"\")
+      (.spec.parent // \"\"),
+      (.metadata.labels // {}),
+      (.metadata.tags // []),
+      (.spec.type // \"\")
     ]" "$_arq" >> "$_fatos_f" 2>/dev/null || _die "yq nao conseguiu ler ${_arq}"
 done
 
@@ -98,7 +101,7 @@ done
 # vazio e a validacao passa com "0 entidades" -- verde, sem ter conferido nada.
 # Foi exatamente assim que a primeira versao deste script passou.
 python3 - "$_externas" "$_fatos_f" <<'PY'
-import json, os, sys
+import json, os, re, sys
 
 externas_f, fatos_f = sys.argv[1], sys.argv[2]
 
@@ -174,7 +177,95 @@ for d in docs:
                 continue
             problemas.append((arq, origem, campo, ref, cands))
 
+# ----- passo 3: vocabulario (docs/CATALOGO.md) ------------------------------
+# As regras de FORMA sao as do @backstage/catalog-model, copiadas do proprio
+# pacote (validation/KubernetesValidatorFunctions.esm.js e makeValidator.esm.js)
+# e nao de memoria. Label e tag NAO seguem a mesma: a tag e mais estrita --
+# minuscula, e so '-' como separador. 'tier_gold' passaria como valor de label
+# e e recusada como tag.
+RE_OBJETO = re.compile(r'^([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]$')
+RE_DNS    = re.compile(r'^[a-z0-9]+(?:\-+[a-z0-9]+)*$')
+RE_TAG    = re.compile(r'^[a-z0-9:+#]+(\-[a-z0-9:+#]+)*$')
+
+VOCAB = {
+    'rhcl.demo/camada':        {'borda', 'aplicacao', 'consumidor', 'plataforma',
+                                'dados', 'cicd', 'seguranca'},
+    'rhcl.demo/escopo-policy': {'gateway', 'rota'},
+    'rhcl.demo/origem':        {'repo', 'cluster', 'template'},
+    'rhcl.demo/produto':       {'travels', 'echo'},
+}
+# camada fica fora de User/Group/Domain/Template: sao organizacionais, nao
+# arquiteturais. Todas levam origem.
+COM_CAMADA = {'component', 'resource', 'system'}
+
+def label_key_valida(v):
+    partes = v.split('/')
+    if len(partes) == 2:
+        pre, suf = partes
+        return (len(pre) <= 253
+                and all(RE_DNS.match(p) and len(p) <= 63 for p in pre.split('.'))
+                and RE_OBJETO.match(suf) is not None and len(suf) <= 63)
+    return len(partes) == 1 and RE_OBJETO.match(v) is not None and len(v) <= 63
+
+vocab_probs = []
+for d in docs:
+    arq, kind, ns, name = d[0], d[1], d[2], d[3]
+    if not (kind and name):
+        continue
+    labels, tags = d[13], d[14]
+    origem = f"{kind.lower()}:{ns}/{name}"
+
+    for k, v in (labels or {}).items():
+        if not label_key_valida(k):
+            vocab_probs.append((arq, origem, f"chave de label invalida: {k}"))
+            continue
+        if not k.startswith('rhcl.demo/'):
+            continue                      # prefixo de terceiro: nao e nosso
+        if k not in VOCAB:
+            vocab_probs.append((arq, origem,
+                f"label fora do vocabulario: {k} (ver docs/CATALOGO.md)"))
+            continue
+        # Valor de label PRECISA ser string: 'ato: 3' vira int em YAML e o
+        # Backstage recusa. O yq entrega int aqui, entao o teste pega.
+        if not isinstance(v, str):
+            vocab_probs.append((arq, origem,
+                f"{k}: valor nao e string ({v!r}) -- use aspas"))
+        elif not (v == "" or (len(v) <= 63 and RE_OBJETO.match(v))):
+            vocab_probs.append((arq, origem, f"{k}: valor com forma invalida: {v!r}"))
+        elif v not in VOCAB[k]:
+            vocab_probs.append((arq, origem,
+                f"{k}: '{v}' nao esta em {sorted(VOCAB[k])}"))
+
+    for t in (tags or []):
+        if not isinstance(t, str) or not RE_TAG.match(t) or len(t) > 63:
+            vocab_probs.append((arq, origem,
+                f"tag invalida: {t!r} -- minuscula, [a-z0-9:+#] separados por '-'"))
+
+    if kind.lower() in COM_CAMADA and 'rhcl.demo/camada' not in (labels or {}):
+        vocab_probs.append((arq, origem, "sem rhcl.demo/camada"))
+    if 'rhcl.demo/origem' not in (labels or {}):
+        vocab_probs.append((arq, origem, "sem rhcl.demo/origem"))
+    # escopo-policy so faz sentido -- e e obrigatorio -- em policy do Kuadrant
+    tipo = d[15] or ""
+    tem_escopo = 'rhcl.demo/escopo-policy' in (labels or {})
+    if tipo.startswith('kuadrant-') and not tem_escopo:
+        vocab_probs.append((arq, origem,
+            "policy do Kuadrant sem rhcl.demo/escopo-policy (gateway ou rota)"))
+    if tem_escopo and not tipo.startswith('kuadrant-'):
+        vocab_probs.append((arq, origem,
+            f"rhcl.demo/escopo-policy num spec.type '{tipo}' que nao e policy do Kuadrant"))
+
 arqs = sorted({d[0] for d in docs})
+if vocab_probs:
+    print(f"\033[31mFALHA\033[0m {len(vocab_probs)} problema(s) de vocabulario")
+    atual = None
+    for arq, origem, msg in vocab_probs:
+        if arq != atual:
+            print(f"\n  {arq}")
+            atual = arq
+        print(f"    {origem}: {msg}")
+    print()
+
 if problemas:
     print(f"\033[31mFALHA\033[0m {len(problemas)} referencia(s) sem destino")
     atual = None
@@ -189,8 +280,15 @@ if problemas:
     print("  provider do plugin Kuadrant, que ingere os APIProduct do cluster")
     print("  como entidades API --, declare-a em")
     print("  rhdh/catalog/entidades-externas.txt, com o porque.")
+
+# Os dois conjuntos sao reportados JUNTOS, e nao um por execucao: quem esta
+# arrumando o catalogo quer a lista inteira de uma vez.
+if problemas or vocab_probs:
     sys.exit(1)
 
+n_labels = sum(len(d[13] or {}) for d in docs)
+n_tags   = sum(len(d[14] or []) for d in docs)
 print(f"\033[32mok\033[0m   {len(definidas)} entidades em {len(arqs)} arquivo(s); "
       f"todas as referencias resolvem ({len(externas)} externa(s) declarada(s))")
+print(f"\033[32mok\033[0m   vocabulario: {n_labels} labels e {n_tags} tags conferidas")
 PY
