@@ -1,6 +1,6 @@
 {
   "name": "@rhcl/backstage-plugin-connectivity-link-ops-backend",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Backend do plugin de Connectivity Link para o Red Hat Developer Hub",
   "license": "Apache-2.0",
   "main": "src/index.ts",
@@ -34,7 +34,7 @@
     "tsc": "tsc",
     "prepack": "backstage-cli package prepack",
     "postpack": "backstage-cli package postpack",
-    "export-dynamic": "rhdh-cli plugin export --shared-package @backstage/plugin-signals-node"
+    "export-dynamic": "rhdh-cli plugin export --shared-package @backstage/plugin-signals-node --shared-package @backstage/plugin-catalog-node"
   },
   "dependencies": {
     "@kubernetes/client-node": "^0.20.0",
@@ -44,8 +44,10 @@
   "devDependencies": {
     "@backstage/backend-plugin-api": "^1.8.0",
     "@backstage/backend-test-utils": "^1.11.1",
+    "@backstage/catalog-model": "^1.7.7",
     "@backstage/cli": "^0.36.0",
     "@backstage/errors": "^1.2.7",
+    "@backstage/plugin-catalog-node": "^2.1.0",
     "@backstage/plugin-permission-common": "^0.9.7",
     "@backstage/plugin-permission-node": "^0.10.11",
     "@backstage/plugin-signals-node": "^0.1.29",

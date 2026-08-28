@@ -103,6 +103,24 @@ export class KubeClient {
   }
 
   /**
+   * Lista um recurso customizado em todos os namespaces, sem watch.
+   *
+   * O provider do catálogo usa isto em vez de um informer de propósito:
+   * sincronizar catálogo é trabalho periódico, e um segundo conjunto de watches
+   * sobre os mesmos objetos seria carga a mais na API do cluster para ganhar
+   * uma imediatez que o catálogo não precisa ter.
+   */
+  async listar(ref: CustomResourceRef): Promise<any[]> {
+    const api = this.kc.makeApiClient(k8s.CustomObjectsApi);
+    const { body } = (await api.listClusterCustomObject(
+      ref.group,
+      ref.version,
+      ref.plural,
+    )) as unknown as { body: { items?: any[] } };
+    return body?.items ?? [];
+  }
+
+  /**
    * Informer sobre um recurso customizado, em todos os namespaces.
    *
    * O `listFn` usa `listClusterCustomObject` porque o cliente não tem um método
