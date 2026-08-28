@@ -1,0 +1,97 @@
+# ===========================================================================
+# Nexus Repository -- manifests proprios, mesma decisao do SonarQube.
+#
+# Papel duplo na demo: mirror Maven da pipeline (sem ele, cada build do EAP
+# baixa a internet inteira e o palco fica 8 minutos em silencio) e tela de
+# repositorio no portal via plugin do RHDH. O grupo maven-public ja nasce
+# proxy do Central -- zero configuracao para o settings.xml da pipeline.
+#
+# NEXUS_SECURITY_RANDOMPASSWORD=false fixa admin/admin123 -- lab-grade, e o
+# que o plugin do portal e a pipeline usam sem cerimonia de bootstrap.
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nexus-data
+  namespace: cicd
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus
+  namespace: cicd
+  labels:
+    app: nexus
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nexus
+  template:
+    metadata:
+      labels:
+        app: nexus
+    spec:
+      containers:
+        - name: nexus
+          image: docker.io/sonatype/nexus3:latest
+          env:
+            - name: INSTALL4J_ADD_VM_PARAMS
+              value: >-
+                -Xms1g -Xmx1g -XX:MaxDirectMemorySize=1g
+                -Djava.util.prefs.userRoot=/nexus-data/javaprefs
+            - name: NEXUS_SECURITY_RANDOMPASSWORD
+              value: "false"
+          ports:
+            - containerPort: 8081
+          resources:
+            requests: {cpu: 500m, memory: 2Gi}
+            limits: {memory: 3Gi}
+          readinessProbe:
+            httpGet: {path: /service/rest/v1/status, port: 8081}
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: {path: /service/rest/v1/status, port: 8081}
+            initialDelaySeconds: 300
+            periodSeconds: 30
+          volumeMounts:
+            - {name: data, mountPath: /nexus-data}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: nexus-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus
+  namespace: cicd
+spec:
+  selector:
+    app: nexus
+  ports:
+    - port: 8081
+      targetPort: 8081
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: nexus
+  namespace: cicd
+spec:
+  to:
+    kind: Service
+    name: nexus
+  port:
+    targetPort: 8081
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

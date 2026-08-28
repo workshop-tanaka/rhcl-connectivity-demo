@@ -1,0 +1,23 @@
+# ===========================================================================
+# JBoss EAP (operador).
+#
+# Entrou em 2026-08-28 para o servico travel-packages: EAP 8 como runtime,
+# implantado por WildFlyServer CR -- o operador cuida de replicas e de
+# transacao em scale-down, que e o argumento de produto sobre um Deployment
+# escrito a mao.
+#
+# Canal unico 'stable'. Para conferir o que o cluster oferta:
+#   oc get packagemanifest eap -n openshift-marketplace \
+#     -o jsonpath='{range .status.channels[*]}{.name}{"\t"}{.currentCSV}{"\n"}{end}'
+# ===========================================================================
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: eap
+  namespace: openshift-operators
+spec:
+  channel: stable
+  name: eap
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

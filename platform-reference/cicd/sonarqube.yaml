@@ -1,0 +1,133 @@
+# ===========================================================================
+# SonarQube -- manifests proprios, decisao de 2026-08-28.
+#
+# O unico operador disponivel e community em canal alpha, e numa demo isso
+# aparece no OperatorHub com selo de nao suportado. Deployment + CNPG + Route
+# e menor, previsivel, e o sizing fica sob nosso controle.
+#
+# A tag 'community' e movel de proposito: cluster efemero, nao ha upgrade a
+# proteger. SONAR_ES_BOOTSTRAP_CHECKS_DISABLE evita o bootstrap check de
+# vm.max_map_count do Elasticsearch embutido -- ajuste de kernel que nao se
+# faz em node compartilhado por causa de um lab.
+#
+# Login inicial: admin/admin -- o Sonar forca troca no primeiro acesso; o
+# setup-cicd.sh troca para a senha lab-grade e cria o token da pipeline.
+# ===========================================================================
+# O Namespace 'cicd' nasce em 00-namespace.yaml, e nao aqui -- o nexus.yaml
+# vem antes no alfabeto e precisava dele.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: sonar-db
+  namespace: cicd
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+  bootstrap:
+    initdb:
+      database: sonar
+      owner: sonar
+      encoding: UTF8
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+  storage:
+    size: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sonarqube-data
+  namespace: cicd
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sonarqube
+  namespace: cicd
+  labels:
+    app: sonarqube
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: sonarqube
+  template:
+    metadata:
+      labels:
+        app: sonarqube
+    spec:
+      containers:
+        - name: sonarqube
+          image: docker.io/library/sonarqube:community
+          env:
+            - name: SONAR_JDBC_URL
+              value: jdbc:postgresql://sonar-db-rw.cicd.svc:5432/sonar
+            - name: SONAR_JDBC_USERNAME
+              valueFrom:
+                secretKeyRef: {name: sonar-db-app, key: username}
+            - name: SONAR_JDBC_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: sonar-db-app, key: password}
+            - name: SONAR_ES_BOOTSTRAP_CHECKS_DISABLE
+              value: "true"
+          ports:
+            - containerPort: 9000
+          resources:
+            requests: {cpu: 500m, memory: 2Gi}
+            limits: {memory: 3500Mi}
+          readinessProbe:
+            httpGet: {path: /api/system/status, port: 9000}
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 20
+          livenessProbe:
+            httpGet: {path: /api/system/status, port: 9000}
+            initialDelaySeconds: 300
+            periodSeconds: 30
+          volumeMounts:
+            - {name: data, mountPath: /opt/sonarqube/data}
+            - {name: temp, mountPath: /opt/sonarqube/temp}
+            - {name: logs, mountPath: /opt/sonarqube/logs}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: sonarqube-data}
+        - name: temp
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sonarqube
+  namespace: cicd
+spec:
+  selector:
+    app: sonarqube
+  ports:
+    - port: 9000
+      targetPort: 9000
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: sonarqube
+  namespace: cicd
+spec:
+  to:
+    kind: Service
+    name: sonarqube
+  port:
+    targetPort: 9000
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

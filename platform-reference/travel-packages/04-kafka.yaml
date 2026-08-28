@@ -1,0 +1,158 @@
+# ===========================================================================
+# Kafka do CDC -- Streams for Apache Kafka em KRaft, 3 nos combinados.
+#
+# O canal stable do operador ja e a linha 3.2 (Kafka sem ZooKeeper; as duas
+# annotations no CR Kafka sao obrigatorias nesse regime). A versao do Kafka
+# fica por conta do operador -- fixa-la aqui quebraria no proximo upgrade de
+# canal, e a demo nao depende de minor.
+#
+# O KafkaConnect CONSTROI a imagem com o conector do Debezium via BuildConfig
+# (output type imagestream -- e OpenShift, nao ha registry externo no
+# caminho). A senha do Postgres NAO esta no CR: o config provider de Secrets
+# do Strimzi le o Secret replicado neste namespace, e o RBAC minimo para isso
+# esta logo abaixo.
+# ===========================================================================
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: dual
+  namespace: travel-streams
+  labels:
+    strimzi.io/cluster: travel-streams
+spec:
+  replicas: 3
+  roles: [controller, broker]
+  storage:
+    type: persistent-claim
+    size: 10Gi
+    deleteClaim: true
+  resources:
+    requests: {cpu: 300m, memory: 1Gi}
+    limits: {memory: 2Gi}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: travel-streams
+  namespace: travel-streams
+  annotations:
+    strimzi.io/node-pools: enabled
+    strimzi.io/kraft: enabled
+spec:
+  kafka:
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+      default.replication.factor: 3
+      min.insync.replicas: 2
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+---
+# Replica do Secret de travel-db (01-postgres.yaml) -- o config provider so
+# le secret do proprio namespace sem RBAC cruzado, e duplicar uma senha
+# lab-grade e mais simples que um RoleBinding entre namespaces.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: travel-packages-db-debezium
+  namespace: travel-streams
+type: kubernetes.io/basic-auth
+stringData:
+  username: debezium
+  password: debezium-cdc-2026
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: le-secret-debezium
+  namespace: travel-streams
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [travel-packages-db-debezium]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cdc-connect-le-secret
+  namespace: travel-streams
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: le-secret-debezium
+subjects:
+  - kind: ServiceAccount
+    name: cdc-connect
+    namespace: travel-streams
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaConnect
+metadata:
+  name: cdc
+  namespace: travel-streams
+  annotations:
+    strimzi.io/use-connector-resources: "true"
+spec:
+  replicas: 1
+  bootstrapServers: travel-streams-kafka-bootstrap:9092
+  # Na API v1 do Strimzi, group.id e os topicos de storage viraram campos de
+  # primeira classe -- deixa-los em config e erro de validacao, nao aviso.
+  groupId: cdc
+  offsetStorageTopic: cdc-offsets
+  configStorageTopic: cdc-configs
+  statusStorageTopic: cdc-status
+  config:
+    config.storage.replication.factor: 3
+    offset.storage.replication.factor: 3
+    status.storage.replication.factor: 3
+    topic.creation.enable: "true"
+    config.providers: secrets
+    config.providers.secrets.class: io.strimzi.kafka.KubernetesSecretConfigProvider
+  build:
+    output:
+      type: imagestream
+      image: cdc-connect:latest
+    plugins:
+      - name: debezium-postgres
+        artifacts:
+          - type: maven
+            repository: https://repo1.maven.org/maven2
+            group: io.debezium
+            artifact: debezium-connector-postgres
+            version: 3.1.3.Final
+  resources:
+    requests: {cpu: 300m, memory: 1Gi}
+    limits: {memory: 2Gi}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaConnector
+metadata:
+  name: travel-cdc
+  namespace: travel-streams
+  labels:
+    strimzi.io/cluster: cdc
+spec:
+  class: io.debezium.connector.postgresql.PostgresConnector
+  tasksMax: 1
+  config:
+    database.hostname: travel-packages-db-rw.travel-db.svc
+    database.port: 5432
+    database.user: debezium
+    database.password: ${secrets:travel-streams/travel-packages-db-debezium:password}
+    database.dbname: travelpackages
+    topic.prefix: travel
+    plugin.name: pgoutput
+    publication.name: travel_pub
+    publication.autocreate.mode: disabled
+    slot.name: travel_cdc
+    snapshot.mode: initial
+    topic.creation.default.replication.factor: 3
+    topic.creation.default.partitions: 3

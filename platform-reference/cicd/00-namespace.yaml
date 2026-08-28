@@ -1,0 +1,17 @@
+# ===========================================================================
+# Namespace das ferramentas de CI/CD da demo: Nexus e SonarQube.
+#
+# EM ARQUIVO PROPRIO, e numerado, por uma razao mecanica: `oc apply -f` sobre
+# um diretorio percorre em ordem ALFABETICA. Ate 2026-08-28 o Namespace morava
+# dentro do sonarqube.yaml, e nexus.yaml -- que vem antes no alfabeto --
+# falhava com "namespaces cicd not found" em cluster novo. A mesma armadilha
+# que o comentario do _ns em provision.sh descreve para travel-db.
+#
+# FORA da malha de proposito: nem Nexus nem SonarQube participam de nenhuma
+# cena de Service Mesh, e o Sonar embute um Elasticsearch que nao ganha nada
+# com um Envoy no meio.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cicd

@@ -51,7 +51,7 @@ PR="${_here}/platform-reference"
 TIMEOUT="${TIMEOUT:-600}"
 DRY_RUN=0
 
-STAGES_ALL=(operators gitlab mesh platform gateway devportal demo consoles tracing dashboards gitops cicd security identity)
+STAGES_ALL=(operators gitlab mesh platform gateway devportal demo pacotes consoles tracing dashboards gitops cicd security identity)
 
 _usage() {
   cat <<EOF
@@ -71,6 +71,9 @@ Etapas, na ordem em que dependem umas das outras:
               passthrough que o publicam (nao ha LoadBalancer em SNO)
   devportal   liga o componente developerPortal no CR Kuadrant (RHCL 1.4+)
   demo        oc apply -k do overlay, com verificacao de hostname
+  pacotes     lastro de dados do travel-packages: Postgres (CNPG) com 480
+              pacotes e ~1200 reservas, Data Grid, Kafka e o CDC do Debezium.
+              Exige 'platform' (travel-db) e 'gitlab' (CloudNativePG)
   consoles    plugins do console: Connectivity Link, Service Mesh, e o Kiali
               com metrica (CA + RBAC + PodMonitors)
   tracing     Tempo com multitenancy, RBAC de tenant, collector e a aba
@@ -81,7 +84,8 @@ Etapas, na ordem em que dependem umas das outras:
               golden path pelo topic 'rhcl-golden-path' (Ato 6)
 
     cicd        OpenShift Pipelines (Tekton) e a pipeline que valida as
-                policies -- o que da conteudo a aba CI do portal
+                policies -- o que da conteudo a aba CI do portal --, mais o
+                Nexus (mirror Maven e tela de repositorio) e o SonarQube
     security    RHACS: operador, Central, o init bundle e o SecuredCluster.
                 LENTA -- o Central sobe banco e scanner
     identity    unifica o login no Keycloak: personas, clients, e o GitLab
@@ -891,6 +895,109 @@ EOF
 }
 
 # ===========================================================================
+# 7b. pacotes (travel-packages: dados, cache e CDC)
+# ===========================================================================
+# Entrou em 2026-08-28. O que ela levanta nao e um oitavo ato: e o LASTRO dos
+# atos que ja existem -- o RHCL passa a servir uma API com dado de verdade
+# atras (480 pacotes, ~1200 reservas), em vez da imagem de exemplo do Kiali.
+# O tier_minimo da massa espelha free/silver/gold, entao o Ato 2 ganha efeito
+# de negocio e nao so codigo de status.
+#
+# DEPENDE de duas etapas anteriores, e falha silenciosamente sem elas:
+#   platform  cria travel-db e poe o label de injecao nele;
+#   gitlab    instala o CloudNativePG, que e quem entende o CR Cluster.
+#
+# A ORDEM dos manifests e de dependencia, nao estetica: a publication do CDC
+# nasce no seed (02) porque so o dono das tabelas pode cria-la, e o Debezium
+# (04) a consome com autocreate desligado. Aplicar 04 antes de 02 poe o
+# conector em falha permanente com uma mensagem que nao cita o seed.
+st_pacotes() {
+  _sec "pacotes (travel-packages: dados, cache e CDC)"
+
+  if ! _has_crd clusters.postgresql.cnpg.io; then
+    _warn "CloudNativePG ausente -- rode 'provision.sh gitlab' antes (e ele quem o instala)"
+    return 0
+  fi
+  if [[ $DRY_RUN -eq 0 ]] && ! oc get ns travel-db >/dev/null 2>&1; then
+    _warn "namespace travel-db ausente -- rode 'provision.sh platform' antes"
+    return 0
+  fi
+
+  # ----- operadores desta etapa -----
+  local _cache=1 _kafka=1
+  if _has_crd infinispans.infinispan.org; then
+    _ok "Data Grid ja instalado"
+  else
+    _apply platform-reference/operators/subscription-datagrid.yaml
+    _wait_csv openshift-operators datagrid-operator 0 || _cache=0
+  fi
+  if _has_crd kafkas.kafka.strimzi.io; then
+    _ok "Streams for Apache Kafka ja instalado"
+  else
+    _apply platform-reference/operators/subscription-amq-streams.yaml
+    _wait_csv openshift-operators amqstreams 0 || _kafka=0
+  fi
+  # EAP entra aqui ainda que NENHUM WildFlyServer exista neste repo: ele e o
+  # runtime previsto do servico, o operador leva minutos para subir, e tira-lo
+  # do caminho critico custa uma Subscription. Nada nesta etapa depende dele --
+  # por isso o _wait_csv opcional e o aviso em vez de _die.
+  if _has_crd wildflyservers.wildfly.org; then
+    _ok "JBoss EAP ja instalado"
+  else
+    _apply platform-reference/operators/subscription-eap.yaml
+    _wait_csv openshift-operators eap-operator 0 \
+      || _warn "EAP nao ficou pronto -- sem efeito nesta etapa, que nao cria WildFlyServer"
+  fi
+
+  # ----- namespaces -----
+  # NAO aplica o 00-namespaces.yaml do repo, pelo mesmo motivo do helper _ns:
+  # manifest de Namespace capturado carrega faixa de UID/SCC do cluster de
+  # origem. O label de injecao vai so em travel-packages -- cache e streams
+  # ficam FORA da malha de proposito (o cabecalho daquele arquivo explica).
+  _ns travel-packages travel-cache travel-streams
+  _run oc label namespace travel-packages istio-injection=enabled --overwrite >/dev/null \
+    && _ok "travel-packages com istio-injection=enabled"
+
+  # ----- banco, schema e massa -----
+  _apply platform-reference/travel-packages/01-postgres.yaml || return 0
+  _wait_cond cluster/travel-packages-db travel-db Ready \
+    || _log "o Job do seed retenta ate o banco aceitar conexao (backoffLimit 8)"
+
+  # Job tem spec imutavel: um segundo apply com qualquer mudanca no template
+  # falha com "field is immutable". Recriar e seguro -- o seed.sql e idempotente
+  # (ON CONFLICT no codigo, e as reservas so entram com a tabela vazia).
+  if [[ $DRY_RUN -eq 0 ]] && oc get job seed-travel-packages -n travel-db >/dev/null 2>&1; then
+    _run oc delete job seed-travel-packages -n travel-db >/dev/null
+  fi
+  _apply platform-reference/travel-packages/02-schema-e-massa.yaml
+
+  # ----- cache -----
+  if [[ $_cache -eq 1 ]]; then
+    _apply platform-reference/travel-packages/03-datagrid.yaml
+  else
+    _warn "sem Data Grid -- 03-datagrid.yaml nao aplicado"
+  fi
+
+  # ----- streams e CDC -----
+  if [[ $_kafka -eq 1 ]]; then
+    _apply platform-reference/travel-packages/04-kafka.yaml
+    # O KafkaConnect CONSTROI a imagem (BuildConfig -> imagestream) baixando o
+    # conector do Debezium do Maven Central. Sao minutos, e ate terminar o
+    # KafkaConnector fica sem cluster para rodar -- estado que se le como
+    # conector quebrado. Nexus como mirror encurtaria isto; hoje nao esta no
+    # caminho (o Connect nao usa settings.xml da pipeline).
+    _log "o build do KafkaConnect leva minutos: oc get build -n travel-streams -w"
+  else
+    _warn "sem Streams for Apache Kafka -- 04 e 05 nao aplicados"
+    return 0
+  fi
+
+  _apply platform-reference/travel-packages/05-cdc-mutator.yaml
+  _log "pausar o fluxo do CDC no palco, se precisar:"
+  _cmd "oc patch cronjob cdc-mutador -n travel-db -p '{\"spec\":{\"suspend\":true}}'"
+}
+
+# ===========================================================================
 # 11. cicd (Tekton)
 # ===========================================================================
 # NAO fazia parte do desenho original: entrou em 2026-08-28 para dar conteudo a
@@ -915,6 +1022,32 @@ st_cicd() {
 
   _apply platform-reference/pipelines/valida-policies.yaml
   _ok "pipeline valida-policies aplicada (dispare com 'oc create -f' um PipelineRun)"
+
+  # ----- Nexus e SonarQube -------------------------------------------------
+  # Sem operador, de proposito: o unico do SonarQube e community em canal alpha
+  # (selo de nao suportado no OperatorHub, na frente do cliente), e o Nexus nem
+  # isso tem. O cabecalho de cada manifest carrega o resto do argumento.
+  #
+  # O apply e do DIRETORIO: a ordem alfabetica e a ordem de dependencia --
+  # 00-namespace.yaml, nexus.yaml, sonarqube.yaml.
+  #
+  # As duas imagens vem do docker.io sem autenticacao. Num cluster de workshop
+  # que ja puxou muita coisa, o limite anonimo do Docker Hub aparece como
+  # ImagePullBackOff, e nao como erro de manifest -- se um dos dois nao subir,
+  # `oc describe pod` antes de suspeitar do YAML.
+  if _has_crd clusters.postgresql.cnpg.io; then
+    _apply platform-reference/cicd
+    _rollout nexus cicd
+    _rollout sonarqube cicd
+    _log "SonarQube nasce admin/admin e forca troca no primeiro acesso"
+  else
+    # O Nexus nao depende de banco nenhum; so o Sonar fica para tras.
+    _ns cicd
+    _apply platform-reference/cicd/nexus.yaml
+    _rollout nexus cicd
+    _warn "CloudNativePG ausente -- SonarQube fora (precisa do Cluster sonar-db)"
+    printf '        %s\n' "rode 'provision.sh gitlab', que instala o CNPG, e repita esta etapa"
+  fi
 }
 
 # ===========================================================================
@@ -1048,6 +1181,11 @@ _check() {
   _c "Grafana"                 "$(_has_crd grafanas.grafana.integreatly.org && echo sim)"      "provision.sh dashboards"
   _c "Argo CD"                 "$(_has_crd applications.argoproj.io && echo sim)"              "provision.sh gitops"
   _c "Pipelines (Tekton)"      "$(_has_crd pipelineruns.tekton.dev && echo sim)"               "provision.sh cicd"
+  _c "Nexus + SonarQube"       "$(oc get deploy nexus sonarqube -n cicd >/dev/null 2>&1 && echo sim)" "provision.sh cicd"
+  _c "Data Grid"               "$(_has_crd infinispans.infinispan.org && echo sim)"            "provision.sh pacotes"
+  _c "Streams for Apache Kafka" "$(_has_crd kafkas.kafka.strimzi.io && echo sim)"              "provision.sh pacotes"
+  _c "dados do travel-packages" "$(oc get clusters.postgresql.cnpg.io travel-packages-db -n travel-db >/dev/null 2>&1 && echo sim)" "provision.sh pacotes"
+  _c "CDC do Debezium"         "$(oc get kafkaconnector travel-cdc -n travel-streams >/dev/null 2>&1 && echo sim)" "provision.sh pacotes"
   _c "RHACS"                   "$(_has_crd centrals.platform.stackrox.io && echo sim)"         "provision.sh security"
 
   printf '\n'

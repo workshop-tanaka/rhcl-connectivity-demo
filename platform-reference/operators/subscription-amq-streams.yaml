@@ -1,0 +1,34 @@
+# ===========================================================================
+# Streams for Apache Kafka (operador) + console.
+#
+# CDC do travel-packages: o Debezium roda em KafkaConnect e publica as
+# mudancas do Postgres em topicos. O canal 'stable' entrega o 3.2.x (Kafka em
+# KRaft; ZooKeeper ja nao existe nesta linha).
+#
+# O console (subscription separada) e a tela de topicos e mensagens da demo --
+# nao ha plugin de Kafka no overlay do RHDH, e o console de produto e melhor
+# tela do que um plugin construido a mao.
+# ===========================================================================
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: amq-streams
+  namespace: openshift-operators
+spec:
+  channel: stable
+  name: amq-streams
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: amq-streams-console
+  namespace: openshift-operators
+spec:
+  channel: stable
+  name: amq-streams-console
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

@@ -1,0 +1,21 @@
+# ===========================================================================
+# Red Hat Data Grid (operador).
+#
+# Cache do travel-packages: Infinispan de 3 nos com replicas de entrada,
+# consumido pelo EAP via Hot Rod. O canal 'stable' entrega o 8.6.x -- os
+# canais 8.2.x/8.3.x/8.4.x existem no catalogo, mas sao linhas antigas.
+#
+# O operador e instalado cluster-wide (openshift-operators) para poder criar
+# o Infinispan no namespace travel-cache sem OperatorGroup proprio.
+# ===========================================================================
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: datagrid
+  namespace: openshift-operators
+spec:
+  channel: stable
+  name: datagrid
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

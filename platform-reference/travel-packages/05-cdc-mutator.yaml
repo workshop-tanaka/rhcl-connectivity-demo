@@ -1,0 +1,56 @@
+# ===========================================================================
+# Mutador do CDC -- roda o mutador.sql (02-schema-e-massa.yaml) a cada minuto.
+#
+# E deliberadamente um CronJob, e nao um loop num Deployment: cada rodada e
+# uma transacao curta, o custo e visivel em `oc get jobs`, e pausar a demo e
+# `oc patch cronjob cdc-mutador -p '{"spec":{"suspend":true}}'` -- sem matar
+# pod. A decisao de sync manual do survey (CONHECIMENTO §9) nao se aplica
+# aqui: la o comando ao vivo e parte da narrativa; aqui o fluxo continuo E a
+# narrativa -- topico parado se le como integracao quebrada.
+# ===========================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cdc-mutador
+  namespace: travel-db
+spec:
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels:
+            app: cdc-mutador
+            # Mesmo motivo do Job do seed (02): travel-db esta na malha, e pod
+            # de Job com sidecar nao termina. Aqui o efeito e pior --
+            # concurrencyPolicy: Forbid mais um pod que nunca completa
+            # significa que a PRIMEIRA rodada bloqueia todas as seguintes, e o
+            # topico do CDC para sem nenhum erro em lugar nenhum.
+            sidecar.istio.io/inject: "false"
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: mutador
+              image: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+              command: [psql, -f, /sql/mutador.sql]
+              env:
+                - name: PGHOST
+                  value: travel-packages-db-rw.travel-db.svc
+                - name: PGDATABASE
+                  value: travelpackages
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef: {name: travel-packages-db-app, key: username}
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef: {name: travel-packages-db-app, key: password}
+              volumeMounts:
+                - {name: sql, mountPath: /sql}
+          volumes:
+            - name: sql
+              configMap: {name: travel-packages-sql}

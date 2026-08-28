@@ -1,0 +1,46 @@
+# ===========================================================================
+# Data Grid do travel-packages -- 3 nos, cada entrada em 2 deles.
+#
+# Fora do Service Mesh (00-namespaces.yaml explica: JGroups nao sobrevive ao
+# mTLS estrito). Sem autenticacao e sem TLS no endpoint Hot Rod -- lab-grade,
+# e o que faz o cliente no EAP ser tres linhas de configuracao em vez de um
+# keystore. Se um dia endurecer, o operador gera as credenciais sozinho e o
+# EAP le do Secret travel-cache-generated-secret.
+#
+# A cache 'pacotes' e distribuida com owners=2: com 3 nos, derrubar qualquer
+# um ao vivo nao perde entrada -- e o argumento de replica que a demo mostra.
+# Lifespan de 5 min porque o dado de origem muda pelo mutador do CDC; cache
+# eterna mentiria no palco.
+# ===========================================================================
+apiVersion: infinispan.org/v1
+kind: Infinispan
+metadata:
+  name: travel-cache
+  namespace: travel-cache
+spec:
+  replicas: 3
+  service:
+    type: DataGrid
+  security:
+    endpointAuthentication: false
+    endpointEncryption:
+      type: None
+  container:
+    memory: "1Gi:512Mi"
+    cpu: "500m:200m"
+---
+apiVersion: infinispan.org/v2alpha1
+kind: Cache
+metadata:
+  name: pacotes
+  namespace: travel-cache
+spec:
+  clusterName: travel-cache
+  name: pacotes
+  template: |
+    distributedCache:
+      mode: SYNC
+      owners: 2
+      statistics: true
+      expiration:
+        lifespan: "300000"

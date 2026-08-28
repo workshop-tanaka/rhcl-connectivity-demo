@@ -1,0 +1,60 @@
+# ===========================================================================
+# PostgreSQL do travel-packages -- CloudNativePG, o mesmo padrao do GitLab.
+#
+# Duas instancias: primaria + replica de streaming, que e a historia de HA que
+# a demo conta. O wal_level do CNPG ja nasce 'logical' (conferido na instancia
+# do GitLab em 2026-08-28), entao o Debezium nao pede parametro nenhum.
+#
+# O role 'debezium' e gerenciado pelo proprio CNPG (managed.roles), com
+# REPLICATION e login -- sem superusuario em lugar nenhum. A senha e lab-grade
+# e mora no Secret ao lado; o mesmo Secret e replicado em travel-streams para
+# o config provider do KafkaConnect (04-kafka.yaml).
+# ===========================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: travel-packages-db-debezium
+  namespace: travel-db
+type: kubernetes.io/basic-auth
+stringData:
+  username: debezium
+  password: debezium-cdc-2026
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: travel-packages-db
+  namespace: travel-db
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+  # travel-db esta no Service Mesh (label de namespace, por causa do mysqldb
+  # do Ato 7). O Postgres do CDC fica FORA de proposito: o Debezium conecta a
+  # partir de travel-streams, que nao tem sidecar -- e o Ato 7 endurece
+  # policies ao vivo. Replicacao e failover do CNPG tambem nao ganham nada
+  # com um Envoy no meio. O webhook le LABEL, nunca annotation (armadilha
+  # 5.4), e inheritedMetadata poe o label em todos os pods do cluster.
+  inheritedMetadata:
+    labels:
+      sidecar.istio.io/inject: "false"
+  affinity:
+    podAntiAffinityType: preferred
+  bootstrap:
+    initdb:
+      database: travelpackages
+      owner: travelapp
+      encoding: UTF8
+  managed:
+    roles:
+      - name: debezium
+        ensure: present
+        login: true
+        replication: true
+        passwordSecret:
+          name: travel-packages-db-debezium
+  resources:
+    requests:
+      cpu: 200m
+      memory: 768Mi
+  storage:
+    size: 10Gi

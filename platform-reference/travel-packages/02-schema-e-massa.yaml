@@ -1,0 +1,252 @@
+# ===========================================================================
+# Schema e massa de dados do travel-packages.
+#
+# A massa NAO e decorativa -- cada dimensao existe para uma cena:
+#   - tier_minimo (free/silver/gold) espelha os planos do RHCL: a API pode
+#     filtrar pacote por tier do chamador, e o Ato 2 ganha efeito de negocio;
+#   - parceiro das reservas usa as personas do Ato 6 (ACME Trips, Initech
+#     Voyages, Globex Travel) -- o mesmo nome que assina a merge request
+#     aparece comprando pacote;
+#   - destinos incluem as cidades da travel-agency (Roma, Paris...) para o
+#     cruzamento com /travels/<cidade> fazer sentido no palco.
+#
+# Seed deterministico (setseed) e idempotente: ON CONFLICT no codigo, tabela
+# ja povoada nao duplica. A publication travel_pub nasce aqui porque so o
+# dono das tabelas pode cria-la -- e o Debezium (04-kafka.yaml) a consome
+# com publication.autocreate.mode=disabled.
+# ===========================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: travel-packages-sql
+  namespace: travel-db
+data:
+  seed.sql: |
+    \set ON_ERROR_STOP on
+
+    CREATE TABLE IF NOT EXISTS pacotes (
+      id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      codigo        text UNIQUE NOT NULL,
+      destino       text NOT NULL,
+      pais          text NOT NULL,
+      categoria     text NOT NULL,
+      descricao     text NOT NULL,
+      duracao_dias  int  NOT NULL,
+      preco         numeric(10,2) NOT NULL,
+      moeda         char(3) NOT NULL DEFAULT 'BRL',
+      tier_minimo   text NOT NULL DEFAULT 'free',
+      vagas         int  NOT NULL,
+      partida       date NOT NULL,
+      ativo         boolean NOT NULL DEFAULT true,
+      atualizado_em timestamptz NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS reservas (
+      id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      pacote_id  bigint NOT NULL REFERENCES pacotes(id),
+      cliente    text NOT NULL,
+      parceiro   text NOT NULL,
+      status     text NOT NULL DEFAULT 'pendente',
+      valor      numeric(10,2) NOT NULL,
+      criada_em  timestamptz NOT NULL DEFAULT now()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pacotes_categoria ON pacotes (categoria);
+    CREATE INDEX IF NOT EXISTS idx_pacotes_destino   ON pacotes (destino);
+    CREATE INDEX IF NOT EXISTS idx_pacotes_partida   ON pacotes (partida);
+    CREATE INDEX IF NOT EXISTS idx_reservas_pacote   ON reservas (pacote_id);
+    CREATE INDEX IF NOT EXISTS idx_reservas_status   ON reservas (status);
+
+    -- UPDATE em pacote carimba atualizado_em; e o campo que prova na tela
+    -- que o CDC esta refletindo mudanca recente, nao snapshot antigo.
+    CREATE OR REPLACE FUNCTION carimba_atualizado_em() RETURNS trigger AS $$
+    BEGIN
+      NEW.atualizado_em := now();
+      RETURN NEW;
+    END $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS trg_pacotes_atualizado ON pacotes;
+    CREATE TRIGGER trg_pacotes_atualizado
+      BEFORE UPDATE ON pacotes
+      FOR EACH ROW EXECUTE FUNCTION carimba_atualizado_em();
+
+    -- ------------------------------------------------------------------
+    -- Massa: 24 destinos x 5 categorias x 4 partidas = 480 pacotes.
+    -- Preco deterministico por hashtext, tier derivado do preco -- a
+    -- distribuicao (~60/30/10) espelha free/silver/gold dos planos.
+    -- ------------------------------------------------------------------
+    SELECT setseed(0.42);
+
+    WITH destinos(destino, pais) AS (VALUES
+      ('Roma','Italia'), ('Paris','Franca'), ('Londres','Reino Unido'),
+      ('Madri','Espanha'), ('Berlim','Alemanha'), ('Lisboa','Portugal'),
+      ('Amsterda','Holanda'), ('Viena','Austria'), ('Praga','Tchequia'),
+      ('Atenas','Grecia'), ('Dublin','Irlanda'), ('Budapeste','Hungria'),
+      ('Cracovia','Polonia'), ('Porto','Portugal'), ('Florenca','Italia'),
+      ('Santorini','Grecia'), ('Rio de Janeiro','Brasil'),
+      ('Fernando de Noronha','Brasil'), ('Gramado','Brasil'),
+      ('Salvador','Brasil'), ('Buzios','Brasil'), ('Bonito','Brasil'),
+      ('Cusco','Peru'), ('Cartagena','Colombia')
+    ),
+    categorias(categoria, rotulo, base, dur_base) AS (VALUES
+      ('praia',        'sol e praia',          3200, 7),
+      ('cultural',     'imersao cultural',     2800, 5),
+      ('aventura',     'aventura e trilhas',   4100, 10),
+      ('gastronomico', 'rota gastronomica',    3600, 4),
+      ('romantico',    'escapada romantica',   4500, 6)
+    ),
+    partidas(seq, partida) AS (VALUES
+      (1, DATE '2026-09-15'), (2, DATE '2026-11-20'),
+      (3, DATE '2027-01-15'), (4, DATE '2027-03-10')
+    ),
+    grade AS (
+      SELECT d.destino, d.pais, c.categoria, c.rotulo, p.seq, p.partida,
+             c.dur_base + (abs(hashtext(d.destino || c.categoria)) % 5) AS duracao,
+             round((c.base
+                    * (0.75 + (abs(hashtext(d.destino)) % 100) / 111.0)
+                    * (0.8 + (c.dur_base + (abs(hashtext(d.destino || c.categoria)) % 5)) / 20.0)
+                   )::numeric, 2) AS preco
+      FROM destinos d CROSS JOIN categorias c CROSS JOIN partidas p
+    )
+    INSERT INTO pacotes (codigo, destino, pais, categoria, descricao,
+                         duracao_dias, preco, tier_minimo, vagas, partida)
+    SELECT upper(left(regexp_replace(destino, '[^A-Za-z]', '', 'g'), 3))
+             || '-' || upper(left(categoria, 3)) || '-' || seq,
+           destino, pais, categoria,
+           format('%s dias de %s em %s, %s — inclui aereo, hospedagem e passeios guiados.',
+                  duracao, rotulo, destino, pais),
+           duracao, preco,
+           CASE WHEN preco < 3400 THEN 'free'
+                WHEN preco < 5600 THEN 'silver'
+                ELSE 'gold' END,
+           8 + (abs(hashtext(destino || categoria || seq)) % 33),
+           partida
+    FROM grade
+    ON CONFLICT (codigo) DO NOTHING;
+
+    -- ------------------------------------------------------------------
+    -- Reservas historicas: ~1200, espalhadas por 90 dias, assinadas pelas
+    -- personas. So roda na primeira vez (tabela vazia) -- reexecutar o
+    -- seed nao reescreve historia.
+    -- ------------------------------------------------------------------
+    INSERT INTO reservas (pacote_id, cliente, parceiro, status, valor, criada_em)
+    SELECT p.id,
+           (ARRAY['Ana','Bruno','Carla','Diego','Elisa','Fabio','Gabriela','Heitor',
+                  'Iara','Joao','Karina','Lucas','Mariana','Nelson','Olivia','Paulo'])[1 + floor(random()*16)::int]
+             || ' ' ||
+           (ARRAY['Almeida','Barbosa','Cardoso','Duarte','Esteves','Ferreira','Gomes','Hara',
+                  'Ito','Lima','Moraes','Nogueira','Oliveira','Pereira','Ramos','Souza'])[1 + floor(random()*16)::int],
+           CASE WHEN random() < 0.45 THEN 'ACME Trips'
+                WHEN random() < 0.72 THEN 'Initech Voyages'
+                ELSE 'Globex Travel' END,
+           CASE WHEN random() < 0.70 THEN 'confirmada'
+                WHEN random() < 0.85 THEN 'pendente'
+                ELSE 'cancelada' END,
+           round((p.preco * (0.9 + random()*0.2))::numeric, 2),
+           now() - (random()*90 || ' days')::interval
+    FROM generate_series(1, 1200) g
+    JOIN LATERAL (SELECT id, preco FROM pacotes
+                  ORDER BY hashtext(g::text || id::text) LIMIT 1) p ON true
+    WHERE NOT EXISTS (SELECT 1 FROM reservas);
+
+    -- Publication do CDC + o que o role debezium precisa ler.
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'travel_pub') THEN
+        CREATE PUBLICATION travel_pub FOR TABLE pacotes, reservas;
+      END IF;
+    END $$;
+
+    GRANT USAGE ON SCHEMA public TO debezium;
+    GRANT SELECT ON pacotes, reservas TO debezium;
+
+    SELECT count(*) AS pacotes FROM pacotes;
+    SELECT count(*) AS reservas FROM reservas;
+
+  mutador.sql: |
+    \set ON_ERROR_STOP on
+    -- Mudancas continuas para o CDC ter fluxo -- mesma logica do
+    -- gitlab-simulate.sh: sem movimento, a tela de topicos se le como
+    -- "a integracao nao funciona", nao como "ninguem mudou nada ainda".
+    -- Cada rodada produz INSERT, UPDATE e (as vezes) DELETE.
+
+    -- precos oscilam ate 2% em 8 pacotes
+    UPDATE pacotes SET preco = round((preco * (1 + (random()-0.5)*0.04))::numeric, 2)
+     WHERE id IN (SELECT id FROM pacotes WHERE ativo ORDER BY random() LIMIT 8);
+
+    -- vagas se movem em 12 pacotes
+    UPDATE pacotes SET vagas = greatest(0, vagas + floor(random()*7)::int - 3)
+     WHERE id IN (SELECT id FROM pacotes WHERE ativo ORDER BY random() LIMIT 12);
+
+    -- 4 reservas novas, assinadas pelas personas
+    INSERT INTO reservas (pacote_id, cliente, parceiro, status, valor)
+    SELECT p.id,
+           (ARRAY['Ana','Bruno','Carla','Diego','Elisa','Fabio','Gabriela','Heitor',
+                  'Iara','Joao','Karina','Lucas','Mariana','Nelson','Olivia','Paulo'])[1 + floor(random()*16)::int]
+             || ' ' ||
+           (ARRAY['Almeida','Barbosa','Cardoso','Duarte','Esteves','Ferreira','Gomes','Hara',
+                  'Ito','Lima','Moraes','Nogueira','Oliveira','Pereira','Ramos','Souza'])[1 + floor(random()*16)::int],
+           (ARRAY['ACME Trips','Initech Voyages','Globex Travel'])[1 + floor(random()*3)::int],
+           'pendente',
+           round((p.preco * (0.9 + random()*0.2))::numeric, 2)
+    FROM (SELECT id, preco FROM pacotes WHERE ativo AND vagas > 0
+          ORDER BY random() LIMIT 4) p;
+
+    -- 3 pendentes confirmam
+    UPDATE reservas SET status = 'confirmada'
+     WHERE id IN (SELECT id FROM reservas WHERE status = 'pendente'
+                  ORDER BY criada_em LIMIT 3);
+
+    -- uma pendente desiste, de vez em quando
+    UPDATE reservas SET status = 'cancelada'
+     WHERE random() < 0.4
+       AND id IN (SELECT id FROM reservas WHERE status = 'pendente'
+                  ORDER BY random() LIMIT 1);
+
+    -- expurgo de canceladas antigas -- o DELETE do CDC
+    DELETE FROM reservas
+     WHERE status = 'cancelada' AND criada_em < now() - interval '120 days';
+---
+# O seed roda como Job com a credencial do dono (travel-packages-db-app, que o
+# CNPG gera sozinho). backoffLimit alto porque o Job pode nascer antes do
+# banco aceitar conexao -- cada retry e barato e o SQL e idempotente.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-travel-packages
+  namespace: travel-db
+spec:
+  backoffLimit: 8
+  ttlSecondsAfterFinished: 172800
+  template:
+    metadata:
+      labels:
+        app: seed-travel-packages
+        # SEM SIDECAR, e obrigatorio: o provision.sh poe istio-injection=enabled
+        # em travel-db (por causa do mysqldb do Ato 7). Job com sidecar NUNCA
+        # completa -- o psql termina, o Envoy continua vivo, e o pod fica em
+        # NotReady para sempre. Mesmo motivo do inheritedMetadata em
+        # 01-postgres.yaml; o webhook le LABEL, nunca annotation (armadilha 5.4).
+        sidecar.istio.io/inject: "false"
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+          command: [psql, -f, /sql/seed.sql]
+          env:
+            - name: PGHOST
+              value: travel-packages-db-rw.travel-db.svc
+            - name: PGDATABASE
+              value: travelpackages
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef: {name: travel-packages-db-app, key: username}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: {name: travel-packages-db-app, key: password}
+          volumeMounts:
+            - {name: sql, mountPath: /sql}
+      volumes:
+        - name: sql
+          configMap: {name: travel-packages-sql}

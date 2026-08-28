@@ -1,0 +1,28 @@
+# ===========================================================================
+# Namespaces do servico travel-packages e das pecas que ele consome.
+#
+# So o travel-packages entra no Service Mesh (label de NAMESPACE -- o webhook
+# olha label, nunca annotation; armadilha 5.4 do CONHECIMENTO). Cache e Kafka
+# ficam FORA da malha de proposito:
+#   - o Infinispan forma cluster por JGroups/DNS_PING, que o mTLS estrito
+#     quebra sem mensagem util;
+#   - o protocolo do Kafka, com advertised listeners, nao convive com o
+#     sidecar sem configuracao dedicada -- e a demo nao precisa dele na malha.
+# O Postgres (CNPG) mora em travel-db, que ja e o namespace de banco da demo.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: travel-packages
+  labels:
+    istio-injection: enabled
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: travel-cache
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: travel-streams
