@@ -1,0 +1,23 @@
+# ===========================================================================
+# OpenShift Pipelines (Tekton).
+#
+# NAO fazia parte do desenho original: entrou em 2026-08-27 para dar contexto
+# ao plugin Tekton do RHDH, que tem build exato bs_1.49.4__3.37.0 no overlay da
+# Red Hat. Sem o operador o plugin instala e a aba nasce vazia -- que e o modo
+# de falhar que este repo mais evita.
+#
+# Canal 'latest' e o default do produto. Para conferir o que o cluster oferta:
+#   oc get packagemanifest openshift-pipelines-operator-rh -n openshift-marketplace \
+#     -o jsonpath='{range .status.channels[*]}{.name}{"\t"}{.currentCSV}{"\n"}{end}'
+# ===========================================================================
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: openshift-pipelines-operator-rh
+  namespace: openshift-operators
+spec:
+  channel: latest
+  name: openshift-pipelines-operator-rh
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

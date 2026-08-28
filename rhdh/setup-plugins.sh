@@ -419,6 +419,110 @@ if [[ "${WITH_GRAFANA:-false}" == "true" ]]; then
 fi
 
 
+# GitLab: merge requests, issues e pipelines na pagina da entidade.
+#
+# DIFERENTE do Jaeger e do Grafana: aqui EXISTE build oficial da Red Hat, com
+# tag exata bs_1.49.4__7.0.1 para frontend e backend. Vem por OCI do registry
+# de overlays, como o Quay e o Kiali -- nada e construido aqui, e por isso
+# NAO leva marca de procedencia.
+#
+# A integracao ja existia para o scaffolder e para o login (o GitLab e SCM e
+# IdP ao mesmo tempo); este bloco so acrescenta a leitura de MRs e issues. O
+# token e o mesmo, vindo de integrations.gitlab do app-config-rhdh-gitlab.
+#
+# A aba so aparece em entidade com a anotacao gitlab.com/project-slug. Sem ela
+# o plugin fica instalado e invisivel, que e o comportamento desejado: a
+# maioria das entidades deste catalogo nao tem repositorio.
+if [[ "${WITH_GITLAB:-true}" == "true" ]]; then
+  _gitlab_tag="bs_1.49.4__7.0.1"
+  _plugins="${_plugins}
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/immobiliarelabs-backstage-plugin-gitlab-backend:${_gitlab_tag}!immobiliarelabs-backstage-plugin-gitlab-backend-dynamic
+        disabled: false
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/immobiliarelabs-backstage-plugin-gitlab:${_gitlab_tag}!immobiliarelabs-backstage-plugin-gitlab
+        disabled: false
+        pluginConfig:
+          dynamicPlugins:
+            frontend:
+              immobiliarelabs.backstage-plugin-gitlab:
+                entityTabs:
+                  - path: /gitlab
+                    title: GitLab
+                    mountPoint: entity.page.gitlab
+                mountPoints:
+                  - mountPoint: entity.page.gitlab/cards
+                    importName: EntityGitlabContent
+                    config:
+                      layout:
+                        gridColumn: '1 / -1'
+                      if:
+                        allOf:
+                          - hasAnnotation: gitlab.com/project-slug
+                  # Os dois cards abaixo vao para a visao geral, e nao para a
+                  # aba: MR aberta e issue aberta sao o tipo de coisa que se
+                  # quer ver sem procurar.
+                  - mountPoint: entity.page.overview/cards
+                    importName: EntityGitlabMergeRequestsTable
+                    config:
+                      layout:
+                        gridColumnEnd:
+                          lg: \"span 6\"
+                      if:
+                        allOf:
+                          - hasAnnotation: gitlab.com/project-slug
+                  - mountPoint: entity.page.overview/cards
+                    importName: EntityGitlabIssuesTable
+                    config:
+                      layout:
+                        gridColumnEnd:
+                          lg: \"span 6\"
+                      if:
+                        allOf:
+                          - hasAnnotation: gitlab.com/project-slug"
+  _log "GitLab incluido -- aba e cards nas entidades com gitlab.com/project-slug"
+fi
+
+
+# Tekton: PipelineRuns na pagina do componente.
+#
+# Build oficial da Red Hat, tag exata bs_1.49.4__3.37.0 -- vem por OCI, nao e
+# construido aqui, e nao leva marca de procedencia.
+#
+# O OPERADOR NAO FAZIA PARTE DO DESENHO deste repo: entrou em 2026-08-27
+# (platform-reference/operators/subscription-pipelines.yaml). Sem ele o plugin
+# instala e a aba nasce vazia -- e "vazio" e indistinguivel de "quebrado" na
+# frente de um cliente.
+#
+# O plugin le pela API do plugin Kubernetes, entao depende do PAR que este
+# arquivo ja aplica em outros lugares: as CRDs em customResources E a regra de
+# RBAC em rhdh/04-kubernetes-rbac.yaml. Uma sem a outra nao produz erro,
+# produz ausencia.
+if [[ "${WITH_TEKTON:-true}" == "true" ]]; then
+  _tekton_tag="bs_1.49.4__3.37.0"
+  _plugins="${_plugins}
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-community-plugin-tekton:${_tekton_tag}!backstage-community-plugin-tekton
+        disabled: false
+        pluginConfig:
+          dynamicPlugins:
+            frontend:
+              backstage-community.plugin-tekton:
+                entityTabs:
+                  - path: /ci
+                    title: CI
+                    mountPoint: entity.page.ci
+                mountPoints:
+                  - mountPoint: entity.page.ci/cards
+                    importName: TektonCI
+                    config:
+                      layout:
+                        gridColumn: '1 / -1'
+                      if:
+                        allOf:
+                          - isKind: component
+                          - hasAnnotation: janus-idp.io/tekton"
+  _log "Tekton incluido -- aba CI nos componentes com janus-idp.io/tekton"
+fi
+
+
 
 
 # Kuadrant / Connectivity Link. EXISTE plugin -- @kuadrant/*, no npm publico,
@@ -913,6 +1017,15 @@ data:
                 - group: kuadrant.io
                   apiVersion: v1
                   plural: tlspolicies
+                # Tekton. O plugin de CI le PipelineRun e TaskRun pela API do
+                # plugin Kubernetes -- sem estas duas entradas a aba abre e nao
+                # lista nada, mesmo com pipeline rodando.
+                - group: tekton.dev
+                  apiVersion: v1
+                  plural: pipelineruns
+                - group: tekton.dev
+                  apiVersion: v1
+                  plural: taskruns
                 # Service Mesh. Com os servicos do golden path -- que rotulam TUDO com
                 # 'app: <nome>', policies de borda e de Service Mesh -- a aba Kubernetes
                 # passa a mostrar os dois escopos de policy na mesma tela, que e

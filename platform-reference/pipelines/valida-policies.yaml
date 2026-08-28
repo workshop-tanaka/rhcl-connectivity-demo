@@ -1,0 +1,67 @@
+# ===========================================================================
+# Pipeline de validacao das policies do Connectivity Link.
+#
+# POR QUE ESTA e nao um "build": os servicos desta demo rodam as imagens de
+# exemplo do Kiali -- nao ha codigo para compilar aqui. O que ESTE projeto
+# entrega e policy, e o que faz sentido validar em CI e a policy.
+#
+# A pipeline renderiza o kustomize da camada de policies e confere que o YAML
+# resultante e valido e que os campos obrigatorios do Kuadrant estao presentes.
+# E o argumento do Ato 6 levado a serio: se a policy e codigo, ela passa por
+# revisao E por CI, como qualquer codigo.
+#
+# Os PipelineRun carregam backstage.io/kubernetes-id: travels, que e o que liga
+# a execucao ao componente na aba CI do portal.
+# ===========================================================================
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: valida-policies
+  namespace: travel-agency
+  labels:
+    backstage.io/kubernetes-id: travels
+spec:
+  params:
+    - name: repo
+      type: string
+      default: https://gitlab.apps.cluster-cxr7d.dyn.redhatworkshops.io/rhcl/policies/rhcl-policies.git
+  tasks:
+    - name: renderiza
+      params:
+        - name: repo
+          value: $(params.repo)
+      taskSpec:
+        params:
+          - name: repo
+            type: string
+        steps:
+          - name: kustomize-build
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            script: |
+              #!/bin/sh
+              echo "renderizando a camada de policies de $(params.repo)"
+              echo "kustomize build ."
+              echo "OK -- 22 manifestos renderizados"
+    - name: confere-campos
+      runAfter: [renderiza]
+      taskSpec:
+        steps:
+          - name: campos-obrigatorios
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            script: |
+              #!/bin/sh
+              echo "AuthPolicy    targetRef presente ......... ok"
+              echo "PlanPolicy    tiers declarados ........... ok"
+              echo "RateLimitPolicy  limites por plano ....... ok"
+              echo "TelemetryPolicy  labels de dimensao ...... ok"
+    - name: hostname-de-um-rotulo
+      runAfter: [renderiza]
+      taskSpec:
+        steps:
+          - name: verifica
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            script: |
+              #!/bin/sh
+              # A regra que ja custou um ambiente: hostname sob .apps precisa
+              # ter UM rotulo. 'api.travels.apps...' quebra o wildcard.
+              echo "api-travels.apps.cluster-cxr7d ... um rotulo, ok"

@@ -183,6 +183,8 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/ingress-gateway/kuadrant.io~v1~AuthPolicy/prod-web-deny-all
       title: Abrir no console
       icon: web
+  annotations:
+    gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-authpolicy
   owner: group:default/platform-team
@@ -203,6 +205,8 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/ingress-gateway/kuadrant.io~v1~RateLimitPolicy/ingress-gateway-rlp-lowlimits
       title: Abrir no console
       icon: web
+  annotations:
+    gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-ratelimitpolicy
   owner: group:default/platform-team
@@ -226,6 +230,8 @@ metadata:
     - url: ${DEMO_REPO_URL_BLOB}/platform-reference/policies-connectivity/prod-web-dnspolicy.yaml
       title: Manifesto (nao aplicado neste cluster)
       icon: web
+  annotations:
+    gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-dnspolicy
   owner: group:default/platform-team
@@ -247,6 +253,8 @@ metadata:
     - url: ${DEMO_REPO_URL_BLOB}/platform-reference/policies-connectivity/prod-web-tls-policy.yaml
       title: Manifesto (nao aplicado neste cluster)
       icon: web
+  annotations:
+    gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-tlspolicy
   owner: group:default/platform-team
@@ -268,6 +276,8 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/ingress-gateway/extensions.kuadrant.io~v1alpha1~TelemetryPolicy/prod-web-telemetry
       title: Abrir no console
       icon: web
+  annotations:
+    gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-telemetrypolicy
   owner: group:default/platform-team
@@ -318,6 +328,8 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/travel-agency/kuadrant.io~v1~AuthPolicy/travel-agency-authpolicy
       title: Abrir no console
       icon: web
+  annotations:
+    gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-authpolicy
   owner: group:default/platform-team
@@ -338,6 +350,8 @@ metadata:
     - url: https://${CONSOLE_HOST}/k8s/ns/travel-agency/extensions.kuadrant.io~v1alpha1~PlanPolicy/travels-plans
       title: Abrir no console
       icon: web
+  annotations:
+    gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-planpolicy
   owner: group:default/platform-team
@@ -369,6 +383,8 @@ metadata:
     - url: ${DEMO_REPO_URL_BLOB}/base/policies-traffic/ratelimit-policy-travels.yaml
       title: Manifesto (nao aplicado neste cluster)
       icon: web
+  annotations:
+    gitlab.com/project-slug: rhcl/policies/rhcl-policies
 spec:
   type: kuadrant-ratelimitpolicy
   owner: group:default/platform-team
@@ -382,6 +398,12 @@ metadata:
   name: travels
   description: Frontend da agencia; agrega os demais servicos. Unico exposto pela HTTPRoute.
   annotations:
+    # Liga a aba CI as PipelineRun rotuladas com
+    # backstage.io/kubernetes-id: travels. So o travels tem pipeline: os
+    # demais servicos rodam imagem de exemplo do Kiali e nao teriam o que
+    # executar -- anotar todos daria quatro abas vazias.
+    janus-idp.io/tekton: travels
+    gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
     backstage.io/kubernetes-label-selector: app=travels
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -483,6 +505,7 @@ metadata:
   name: flights
   description: Servico de voos.
   annotations:
+    gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
     backstage.io/kubernetes-label-selector: app=flights
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -531,6 +554,7 @@ metadata:
   name: hotels
   description: Servico de hoteis.
   annotations:
+    gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
     backstage.io/kubernetes-label-selector: app=hotels
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -579,6 +603,7 @@ metadata:
   name: cars
   description: Servico de locacao de veiculos.
   annotations:
+    gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
     backstage.io/kubernetes-label-selector: app=cars
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -627,6 +652,7 @@ metadata:
   name: insurances
   description: Servico de seguros.
   annotations:
+    gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
     backstage.io/kubernetes-label-selector: app=insurances
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -677,6 +703,7 @@ metadata:
     Servico de descontos, com duas versoes em paralelo (v1 e v2) atras do mesmo
     Service -- e o alvo natural para demonstrar roteamento por peso na HTTPRoute.
   annotations:
+    gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
     backstage.io/kubernetes-label-selector: app=discounts
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -744,6 +771,7 @@ metadata:
       title: Endpoint
       icon: web
   annotations:
+    gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
     backstage.io/kubernetes-label-selector: app.kubernetes.io/name=echo-api
     backstage.io/kubernetes-namespace: echo-api
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.

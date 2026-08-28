@@ -1,0 +1,43 @@
+# ===========================================================================
+# RHACS Central — a console do Advanced Cluster Security.
+#
+# Central sobe banco, scanner e a interface; e o componente pesado do produto.
+# O SecuredCluster (o agente que reporta) vem DEPOIS e num arquivo separado,
+# porque depende de um init bundle que so existe apos o Central estar de pe.
+#
+# Dimensionado para LAB, nao para producao:
+#   - scannerV4 desligado -- ele sozinho pede mais recurso que todo o resto da
+#     demo, e o que a apresentacao mostra (violacoes de policy, risco por
+#     deployment, imagem) o scanner classico ja entrega;
+#   - central.exposure.route ligado, que e como se chega na console.
+#
+# A senha do admin e gerada pelo operador no Secret central-htpasswd. Para ler:
+#   oc get secret central-htpasswd -n stackrox -o jsonpath='{.data.password}' | base64 -d
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: stackrox
+---
+apiVersion: platform.stackrox.io/v1alpha1
+kind: Central
+metadata:
+  name: stackrox-central-services
+  namespace: stackrox
+spec:
+  central:
+    exposure:
+      route:
+        enabled: true
+    db:
+      isEnabled: Default
+  egress:
+    connectivityPolicy: Online
+  scanner:
+    analyzer:
+      scaling:
+        autoScaling: Disabled
+        replicas: 1
+    scannerComponent: Enabled
+  scannerV4:
+    scannerComponent: Disabled

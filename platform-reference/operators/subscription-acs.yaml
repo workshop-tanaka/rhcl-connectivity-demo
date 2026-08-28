@@ -1,0 +1,38 @@
+# ===========================================================================
+# Red Hat Advanced Cluster Security (RHACS / StackRox).
+#
+# Ao contrario dos demais, ESTE operador nao vai em openshift-operators: ele
+# pede namespace proprio com OperatorGroup de escopo unico. Instalar em
+# openshift-operators (que e AllNamespaces) conflita com o modo de instalacao
+# que o produto declara.
+#
+# Canal 'stable', que e o default do packagemanifest -- e nao 'latest', que
+# neste catalogo aponta para a linha 3.74 e esta parada anos atras. Conferido
+# em 2026-08-27: stable = rhacs-operator.v4.11.3.
+#
+# Depois do operador vem Central (a console) e SecuredCluster (o agente). Sao
+# CRs separados e demoram: Central sobe banco e scanner.
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rhacs-operator
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: rhacs-operator-group
+  namespace: rhacs-operator
+spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: rhacs-operator
+  namespace: rhacs-operator
+spec:
+  channel: stable
+  name: rhacs-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

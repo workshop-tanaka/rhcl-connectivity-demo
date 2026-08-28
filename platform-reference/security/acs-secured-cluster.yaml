@@ -1,0 +1,29 @@
+# ===========================================================================
+# RHACS SecuredCluster -- o agente que faz o Central ter o que mostrar.
+#
+# O Central (acs-central.yaml) sobe sozinho; este CR depende de um init
+# bundle que so existe depois dele, e por isso quem aplica e o
+# setup-supply-chain.sh: busca o bundle na API do Central, aplica os Secrets
+# (collector-tls, sensor-tls, admission-control-tls) e entao este arquivo,
+# com __CLUSTER_NAME__ substituido.
+#
+# Sem o SecuredCluster, 'No resources found' -- o Central fica AVAILABLE e
+# vazio, que e o modo de falhar que este repo mais evita.
+# ===========================================================================
+apiVersion: platform.stackrox.io/v1alpha1
+kind: SecuredCluster
+metadata:
+  name: stackrox-secured-cluster-services
+  namespace: stackrox
+spec:
+  clusterName: __CLUSTER_NAME__
+  centralEndpoint: central.stackrox.svc:443
+  admissionControl:
+    listenOnCreates: true
+    listenOnUpdates: true
+    # So observa e alerta -- bloquear deploy ao vivo numa demo e roleta.
+    enforceOnCreates: false
+    enforceOnUpdates: false
+  perNode:
+    collector:
+      collection: CORE_BPF

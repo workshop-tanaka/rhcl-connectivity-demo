@@ -75,6 +75,13 @@ rules:
     resources: [planpolicies, telemetrypolicies]
     verbs: [get, list, watch]
 
+  # Tekton, para a aba CI. Mesma regra de sempre: customResources sem RBAC nao
+  # da erro, da ausencia -- o plugin lista os kinds, recebe forbidden, e a tela
+  # fica identica a de um projeto que nunca teve pipeline.
+  - apiGroups: [tekton.dev]
+    resources: [pipelines, pipelineruns, taskruns, tasks]
+    verbs: [get, list, watch]
+
   # Service Mesh. Sem estes dois grupos o plugin Kubernetes ate LISTA os kinds
   # declarados em customResources, mas recebe forbidden e a aba fica
   # exatamente igual -- sem erro na tela, sem log visivel ao apresentador.
