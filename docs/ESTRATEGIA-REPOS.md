@@ -46,9 +46,18 @@ uri="https://${host}/rhcl/base/rhcl-connectivity-demo"
 for ns in travel-agency echo-api; do ... done
 ```
 
-Clicar em "edit code" no nó `hotels` e no nó `travels` abre o mesmo projeto —
-que **nem contém** o manifesto de nenhum dos dois (o espelho só tem
-`rhdh/templates` e docs). Não é preferência estética: é um link que mente.
+Clicar em "edit code" no nó `hotels` e no nó `travels` abre **o mesmo projeto**.
+
+Correção de uma afirmação anterior deste documento: o espelho *contém* os
+manifestos — `ESPELHO_DIRS` no `gitlab-seed.sh` inclui
+`platform-reference/workloads/travel-agency` e `.../echo-api` desde 2026-08-28,
+e o projeto no `cluster-cxr7d` tem as 73 entradas. O link não está quebrado.
+
+O problema é de **granularidade**, não de conteúdo: seis serviços, um destino
+só. Quem clica em `hotels` cai na raiz de um repositório onde o manifesto do
+hotels está ao lado do de todos os outros, dos templates do golden path e da
+documentação. O decorator espera URL de repositório, não de arquivo — então
+quanto mais coisa o repositório tem, menos o clique significa.
 
 ### 2.5 As personas existem e quase não têm onde atuar
 
