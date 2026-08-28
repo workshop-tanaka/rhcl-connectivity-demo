@@ -1,0 +1,238 @@
+# ===========================================================================
+# Dashboard 'Fluxo de entrega' — pasta Desenvolvimento.
+#
+# As outras pastas medem o que a plataforma ENTREGA. Esta mede o caminho ate
+# la: build, pipeline, implantacao e o tempo que o desenvolvedor passa
+# esperando. E a unica tela do conjunto cujo publico e quem escreve codigo.
+#
+# ---------------------------------------------------------------------------
+# MEDIDO EM 2026-08-28, e cada numero destes virou painel:
+#
+#   builds concluidos 22 em 7 dias, nenhum falho na janela
+#   build mais lento: plugin-registry-21 com 1.046s (17 min)
+#   lead time p95 do taskrun: 29s
+#   Dev Spaces: p95 de 119s ate o ambiente subir
+#   implantacoes de aplicacao: 18 em 7 dias
+#
+# ---------------------------------------------------------------------------
+# A ARMADILHA DA FREQUENCIA DE IMPLANTACAO -- a consulta crua reporta 25
+# deploys por dia numa demo que implantou tres coisas.
+#
+# 'changes(kube_deployment_metadata_generation)' conta toda alteracao de spec,
+# e operator reescreve spec o tempo todo. Medido em 7 dias:
+#
+#   backstage-developer-hub  117    <- operator do RHDH reconciliando
+#   plugin-registry           31
+#   rhdh-catalog-server       29
+#   discounts-v2               1    <- implantacao de verdade
+#   cars-v1                    1
+#   echo-api                   1
+#
+# Por isso o painel separa as duas populacoes em vez de somar: 'aplicacao'
+# (namespaces da demo) e 'reconciliacao' (rhdh-rhcl). Mostrar as duas juntas
+# ensina a diferenca; somar as duas produz uma organizacao que entrega 25 vezes
+# por dia e nao entrega.
+#
+# ---------------------------------------------------------------------------
+# openshift_build_duration_seconds E GAUGE POR BUILD, nao histograma. Nao ha
+# _bucket, entao histogram_quantile devolve vazio -- a tabela usa topk sobre a
+# serie, que e o que existe. Um build sumido da tabela nao foi rapido: foi
+# podado (o cluster guarda um numero limitado de Build objects).
+#
+# POUCA AMOSTRA MENTE NO QUANTIL. Com tres taskruns na janela, o p95 cai onde
+# a amostra estiver -- a 'espera do pod' devolve 4,75ms, que nao e a verdade
+# sobre agendamento, e sim a ausencia de dado. Ler sempre com o contador ao
+# lado, como no dashboard da cadeia de suprimentos.
+#
+# ---------------------------------------------------------------------------
+# LACUNA CONHECIDA, e e a maior: GITLAB NAO TEM METRICA NENHUMA NO THANOS.
+# Consultado em 2026-08-28: {__name__=~"gitlab_.*"} devolve zero familias. Sem
+# isso nao ha merge request, tempo de revisao nem commit -- ou seja, falta
+# justamente a metade do DORA que fala de DESENVOLVIMENTO, e nao de entrega.
+# O GitLab expoe /-/metrics, mas o deploy de platform-reference/gitlab/ nao tem
+# ServiceMonitor; e lead time de revisao provavelmente sai melhor da API do
+# GitLab que do Prometheus. Trabalho de verdade, nao de dez linhas.
+#
+# SonarQube e Nexus, no namespace cicd, expoem Prometheus atras de credencial:
+# o ServiceMonitor precisaria de Secret de autorizacao. Quality gate talvez
+# renda mais no card do RHDH que num grafico.
+# ===========================================================================
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: rhcl-desenvolvimento-entrega
+  namespace: monitoring
+  labels:
+    rhcl.demo/origem: repo
+spec:
+  folder: "Desenvolvimento"
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  json: >
+    {
+      "title": "Fluxo de entrega",
+      "uid": "rhcl-desenvolvimento-entrega",
+      "tags": ["rhcl", "customizado", "desenvolvimento"],
+      "timezone": "browser",
+      "refresh": "5m",
+      "time": {"from": "now-7d", "to": "now"},
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {"text": "Thanos", "value": "Thanos", "selected": false},
+            "options": [], "refresh": 1, "hide": 0, "includeAll": false, "multi": false
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Builds concluidos",
+          "description": "Builds do OpenShift que terminaram Complete na janela. Sao os do plugin-registry, do console do Kuadrant e do KafkaConnect -- o caminho de imagem desta demo.",
+          "gridPos": {"h": 5, "w": 4, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "text", "value": null}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "sum(increase(openshift_build_total{phase=\"Complete\"}[$__range])) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Builds falhados",
+          "description": "Failed e Error na janela. O motivo aparece no grafico abaixo -- neste cluster ja houve FetchSourceFailed, que e repositorio inacessivel e nao codigo quebrado.",
+          "gridPos": {"h": 5, "w": 4, "x": 4, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "sum(increase(openshift_build_total{phase=~\"Failed|Error\"}[$__range])) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Taxa de falha",
+          "description": "Falhados sobre o total que terminou. E a metrica DORA de 'change failure rate' possivel aqui: mede o build, nao o incidente em producao -- a demo nao tem producao para medir.",
+          "gridPos": {"h": 5, "w": 4, "x": 8, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 10}, {"color": "red", "value": 25}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "100 * sum(increase(openshift_build_total{phase=~\"Failed|Error\"}[$__range])) / clamp_min(sum(increase(openshift_build_total{phase=~\"Complete|Failed|Error\"}[$__range])), 1)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Implantacoes de aplicacao",
+          "description": "Alteracoes de spec nos deployments DA DEMO. Nao inclui rhdh-rhcl de proposito: la o operator reconcilia sozinho e cada reconciliacao contaria como deploy. Ver o painel 'aplicacao x reconciliacao' abaixo.",
+          "gridPos": {"h": 5, "w": 4, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "text", "value": null}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "sum(changes(kube_deployment_metadata_generation{namespace=~\"travel-agency|travel-db|travel-cache|travel-streams|echo-api|ingress-gateway|cicd\"}[$__range])) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Lead time do taskrun",
+          "description": "p95 da duracao de um taskrun. E o tempo de TRABALHO; a fila esta no painel ao lado dele, embaixo, e as duas somadas sao o que o desenvolvedor espera de fato.",
+          "gridPos": {"h": 5, "w": 4, "x": 16, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "s", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 300}, {"color": "red", "value": 900}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "histogram_quantile(0.95, sum by (le) (rate(tekton_pipelines_controller_pipelinerun_taskrun_duration_seconds_bucket[$__range])))"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Ambiente de dev de pe",
+          "description": "p95 do tempo que o Dev Spaces leva para entregar um workspace pronto. Medido em 2026-08-28: 119s. E a metrica de experiencia do desenvolvedor -- e a unica aqui que mede o que ele SENTE, nao o que a plataforma faz.",
+          "gridPos": {"h": 5, "w": 4, "x": 20, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "s", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 180}, {"color": "red", "value": 600}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "histogram_quantile(0.95, sum by (le) (rate(devworkspace_startup_time_bucket[$__range])))"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Builds por resultado",
+          "description": "Por hora, com a fase na legenda. Barra vermelha isolada costuma ser infraestrutura (FetchSourceFailed, registry fora), nao codigo -- vale olhar o motivo antes de acusar o commit.",
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "custom": {"drawStyle": "bars", "fillOpacity": 70, "stacking": {"mode": "normal"}}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (phase, reason) (increase(openshift_build_total[1h])) > 0", "legendFormat": "{{phase}}{{reason}}"}
+          ]
+        },
+        {
+          "type": "table",
+          "title": "Builds mais lentos",
+          "description": "Duracao por build, do mais lento para o mais rapido. openshift_build_duration_seconds e GAUGE por build, nao histograma -- por isso topk e nao quantil. O plugin-registry costuma liderar: 1.046s no build 21, e e o mesmo componente cujo 'oc start-build --from-dir' ja desfez trabalho quatro vezes.",
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "s", "decimals": 0, "custom": {"align": "left"}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "format": "table", "expr": "topk(10, openshift_build_duration_seconds)"}
+          ],
+          "transformations": [
+            {"id": "organize", "options": {
+              "excludeByName": {"Time": true, "__name__": true, "container": true, "endpoint": true, "instance": true, "job": true, "pod": true, "service": true, "prometheus": true},
+              "indexByName": {"build": 0, "buildconfig": 1, "namespace": 2, "strategy": 3, "Value": 4},
+              "renameByName": {"build": "build", "buildconfig": "buildconfig", "namespace": "namespace", "strategy": "estrategia", "Value": "duracao"}}},
+            {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "duracao", "desc": true}]}}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Trabalho x fila no pipeline",
+          "description": "Duracao do taskrun contra o tempo ate o pod comecar. A segunda linha e atrito puro -- o desenvolvedor espera e nada acontece. CUIDADO COM POUCA AMOSTRA: com tres execucoes na janela o quantil cai onde a amostra estiver (4,75ms de espera, em 2026-08-28, e ausencia de dado, nao agendamento instantaneo).",
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 14},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(tekton_pipelines_controller_pipelinerun_taskrun_duration_seconds_bucket[6h])))", "legendFormat": "trabalho p50 (s)"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(tekton_pipelines_controller_pipelinerun_taskrun_duration_seconds_bucket[6h])))", "legendFormat": "trabalho p95 (s)"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "fila", "expr": "histogram_quantile(0.95, sum by (le) (rate(tekton_pipelines_controller_taskruns_pod_latency_milliseconds_bucket[6h]))) / 1000", "legendFormat": "fila p95 (s)"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "n", "expr": "sum(rate(tekton_pipelines_controller_pipelinerun_taskrun_duration_seconds_count[6h])) * 3600", "legendFormat": "taskruns por hora"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Implantacao: aplicacao x reconciliacao de operator",
+          "description": "As duas populacoes lado a lado, e a razao de o numero grande so contar a primeira. Em 7 dias: 18 alteracoes de spec nas aplicacoes contra 177 do operator do RHDH reescrevendo o proprio deployment. Somar as duas produz uma organizacao que entrega 25 vezes por dia e nao entrega.",
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 14},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "custom": {"drawStyle": "bars", "fillOpacity": 60}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "app", "expr": "sum(changes(kube_deployment_metadata_generation{namespace=~\"travel-agency|travel-db|travel-cache|travel-streams|echo-api|ingress-gateway|cicd\"}[6h])) > 0", "legendFormat": "aplicacao"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "op", "expr": "sum(changes(kube_deployment_metadata_generation{namespace=~\"rhdh-rhcl\"}[6h])) > 0", "legendFormat": "reconciliacao de operator"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Dev Spaces: subida do ambiente",
+          "description": "Quantis do devworkspace_startup_time com o numero de workspaces iniciados por baixo. Quantil sem workspace novo na janela e memoria do passado, nao medicao -- por isso o contador esta no mesmo painel.",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 23},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 0, "lineWidth": 2}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(devworkspace_startup_time_bucket[24h])))", "legendFormat": "p50"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(devworkspace_startup_time_bucket[24h])))", "legendFormat": "p95"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "n", "expr": "sum(increase(devworkspace_started_total[24h]))", "legendFormat": "workspaces iniciados (24h)"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Dev Spaces: respostas da API",
+          "description": "che_server_api_response_total por classe de codigo. 5xx aqui e o autosservico quebrado para quem tenta comecar a trabalhar -- e nao aparece em nenhum outro dashboard.",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 23},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "custom": {"drawStyle": "line", "fillOpacity": 15}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (code) (increase(che_server_api_response_total[1h])) > 0", "legendFormat": "{{code}}"}
+          ]
+        }
+      ]
+    }

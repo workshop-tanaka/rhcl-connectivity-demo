@@ -595,6 +595,7 @@ diz o assunto:
 | **Plataforma** | Catalogo e golden path | `rhcl-plataforma-catalogo` | **as APIs nascem com política?** (Ato 6) | KSM (`gatewayapi_*`, `devportal_apiproduct_*`) + Tekton + Argo CD |
 | **Ambiente** | Cluster e operadores | `rhcl-ambiente-cluster` | o chão: operadores, nodes, disco, alertas | monitoring de **plataforma** (`kube_*`, `node_*`, `csv_*`, `ALERTS`) |
 | **Seguranca** | Cadeia de suprimentos | `rhcl-seguranca-cadeia` | **todo artefato sai com procedência?** (Ato 7) | Tekton Chains (`watcher_*`) + ACS (`rox_*`) + Istio |
+| **Desenvolvimento** | Fluxo de entrega | `rhcl-desenvolvimento-entrega` | build, pipeline, implantação e a espera do desenvolvedor | OpenShift Builds + Tekton + Dev Spaces + `kube_*` |
 | **Kuadrant (de fabrica)** | Business User / App Developer / Platform Engineer | (uid do upstream) | tráfego agregado, sem quebra por `plan` | vendorizado do `kuadrant-operator` |
 
 O do Ato 4 continua sendo o `rhcl-negocio-planos`: é o único que quebra por `plan`.
@@ -807,6 +808,37 @@ ignorando ~97% das revisões** (`result="bypassed"`), sem nenhuma `denied`. Est�
 instalado, verde, e praticamente não barra nada — a mesma classe de falha que os
 outros dashboards perseguem. Se a demo quiser mostrar "a plataforma recusa
 imagem sem assinatura", isso precisa ser resolvido antes.
+
+### Fluxo de entrega — a única tela cujo público escreve código
+
+O `rhcl-desenvolvimento-entrega` mede o caminho até a plataforma: build,
+pipeline, implantação e o tempo que o desenvolvedor passa esperando. Medido em
+2026-08-28: 22 builds concluídos em 7 dias, o mais lento sendo o
+`plugin-registry-21` com **1.046s**; lead time p95 do taskrun em 29s; e o Dev
+Spaces entregando um workspace pronto em **119s (p95)** — a única métrica do
+conjunto que mede o que o desenvolvedor *sente*, e não o que a plataforma faz.
+
+> **A armadilha da frequência de implantação.** `changes(kube_deployment_metadata_generation)`
+> conta toda alteração de spec, e operator reescreve spec o tempo todo. Em 7
+> dias: `backstage-developer-hub` 117, `plugin-registry` 31,
+> `rhdh-catalog-server` 29 — contra **1 cada** em `discounts-v2`, `cars-v1` e
+> `echo-api`. O dashboard separa as duas populações num painel em vez de somá-las:
+> mostrar as duas ensina a diferença, somar produz uma organização que entrega 25
+> vezes por dia e não entrega.
+
+Duas notas de leitura que estão no próprio arquivo: `openshift_build_duration_seconds`
+é **gauge por build**, não histograma — não existe `_bucket`, então a tabela usa
+`topk` e não quantil; e quantil com pouca amostra cai onde a amostra estiver (a
+"fila do pod" devolveu 4,75 ms, que é ausência de dado, não agendamento
+instantâneo), por isso todo painel de quantil traz o contador ao lado.
+
+**A maior lacuna do conjunto está aqui:** `{__name__=~"gitlab_.*"}` devolve
+**zero famílias**. Sem isso não há merge request, tempo de revisão nem commit —
+falta justamente a metade do DORA que fala de *desenvolvimento*, e não de
+entrega. O GitLab expõe `/-/metrics`, mas o deploy de `platform-reference/gitlab/`
+não tem `ServiceMonitor`, e lead time de revisão provavelmente sai melhor da API
+do GitLab que do Prometheus. SonarQube e Nexus, em `cicd`, expõem Prometheus
+atrás de credencial.
 
 Antes de qualquer dashboard, a instância: `GrafanaDashboard` sem um `Grafana`
 com o label `dashboards: grafana` fica órfão, e com a instância mas sem o

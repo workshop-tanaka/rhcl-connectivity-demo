@@ -182,17 +182,38 @@ _vcs_topology() {
     _warn "GitLab ausente — o lapis 'edit code' do Topology fica de fora"
     return 0
   fi
-  uri="https://${host}/rhcl/base/rhcl-connectivity-demo"
+  # UM REPOSITORIO POR SERVICO, e nao o espelho para todos. O decorator aponta
+  # para a RAIZ de um repositorio: com destino unico, os seis nos do grafo
+  # levavam ao mesmo lugar, onde o manifesto do hotels fica ao lado de todo o
+  # resto. O nome do Deployment perde o sufixo de versao (hotels-v1 -> hotels),
+  # que e exatamente o nome do projeto em rhcl/travel/.
+  #
+  # Quem nao tem repositorio proprio -- hoje o echo-api, que e da plataforma --
+  # cai no espelho. Nao inventar repositorio so para a anotacao existir: o
+  # espelho contem o manifesto dele, entao o clique continua chegando a algum
+  # lugar util.
+  local espelho svc uri_svc
+  espelho="https://${host}/rhcl/base/rhcl-connectivity-demo"
   for ns in travel-agency echo-api; do
     while read -r n; do
       [[ -z "$n" ]] && continue
+      svc="${n%-v[0-9]}"
+      uri_svc="https://${host}/rhcl/travel/${svc}"
+      # CONFERE ANTES DE ANOTAR. Nem todo Deployment do namespace tem projeto
+      # proprio: o bookings-grpc vem de base/grpc/ (camada de demo, portanto do
+      # repositorio de policies) e nao de platform-reference/. Anotar por
+      # convencao de nome mandaria o lapis para um 404 -- pior que nao ter
+      # lapis. Projeto do GitLab e publico, entao um GET simples decide.
+      if ! curl -sk -o /dev/null -w '%{http_code}' --max-time 5 "$uri_svc" 2>/dev/null | grep -q '^200$'; then
+        uri_svc="$espelho"
+      fi
       _run oc annotate deployment "$n" -n "$ns" --overwrite \
-        "app.openshift.io/vcs-uri=${uri}" \
+        "app.openshift.io/vcs-uri=${uri_svc}" \
         "app.openshift.io/vcs-ref=main" >/dev/null
     done < <(oc get deploy -n "$ns" \
                -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
   done
-  _ok "decorator 'edit code' apontando para ${uri}"
+  _ok "decorator 'edit code': um repositorio por servico em rhcl/travel/"
 }
 
 _has_crd() { oc get crd "$1" >/dev/null 2>&1; }
@@ -876,6 +897,7 @@ st_dashboards() {
   _apply platform-reference/monitoring/dashboard-plataforma-catalogo.yaml # a plataforma como produto (Ato 6)
   _apply platform-reference/monitoring/dashboard-ambiente-cluster.yaml  # o chao: operadores, nodes, disco
   _apply platform-reference/monitoring/dashboard-seguranca-cadeia.yaml  # assinatura, admissao e malha
+  _apply platform-reference/monitoring/dashboard-desenvolvimento-entrega.yaml # build, pipeline e Dev Spaces
   _apply platform-reference/monitoring/kuadrant-dashboards              # os tres de fabrica
 }
 
@@ -967,12 +989,24 @@ EOF
   fi
   glapi="https://${glhost}"
 
+  # O segundo ApplicationSet e opcional de proposito: um repo por servico em
+  # rhcl/travel/ so existe depois de gitlab-seed.sh. Sem ele o AppSet fica
+  # verdinho com zero Applications -- a falha silenciosa que o cabecalho do
+  # seed descreve --, entao aqui ele so entra se o arquivo existir.
+  local tpl_travel="${_here}/gitops/applicationset-travel.template.yaml"
+
   if [[ $DRY_RUN -eq 1 ]]; then
     _cmd "aplicar ApplicationSet rhcl-golden-path (api ${glapi}, grupo rhcl/apis)"
+    [[ -f "$tpl_travel" ]] && _cmd "aplicar ApplicationSet rhcl-travel (grupo rhcl/travel)"
   else
     sed "s|__GITLAB_API__|${glapi}|" "$tpl" | oc apply -f - >/dev/null \
       && _ok "ApplicationSet rhcl-golden-path aplicado (grupo rhcl/apis em ${glhost})" \
       || _warn "falha ao aplicar o ApplicationSet"
+    if [[ -f "$tpl_travel" ]]; then
+      sed "s|__GITLAB_API__|${glapi}|" "$tpl_travel" | oc apply -f - >/dev/null \
+        && _ok "ApplicationSet rhcl-travel aplicado (grupo rhcl/travel em ${glhost})" \
+        || _warn "falha ao aplicar o ApplicationSet do time travel"
+    fi
   fi
 
   local rt
