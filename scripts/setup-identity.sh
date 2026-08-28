@@ -43,14 +43,32 @@ command -v envsubst >/dev/null || _die "envsubst não encontrado"
 oc whoami >/dev/null 2>&1 || _die "não autenticado no cluster (oc login)"
 
 # ----- descoberta --------------------------------------------------------------
+# O '|| true' nao e cosmetico: com pipefail, o grep sem resultado retorna 1 e
+# mata o script ANTES do _die logo abaixo -- some ate a mensagem de erro, e o
+# que sobra e um exit 1 mudo. Vale para as tres descobertas.
 GITLAB_HOST="${GITLAB_HOST:-$(oc get cm app-config-rhdh-gitlab -n "$RHDH_NS" \
-  -o jsonpath='{.data}' 2>/dev/null | grep -oE 'host: [a-z0-9.-]+' | awk '{print $2}' | head -1)}"
+  -o jsonpath='{.data}' 2>/dev/null | grep -oE 'host: [a-z0-9.-]+' | awk '{print $2}' | head -1 || true)}"
+# O host do portal NAO pode exigir que o portal exista: num cluster novo o
+# install.sh precisa do segredo que ESTA etapa cria, e esta etapa precisaria da
+# rota que aquele cria. Era um impasse -- nenhum dos dois podia ser o primeiro.
+#
+# A saida e derivar do dominio de apps, exatamente como o install.sh faz para o
+# RHDH_HOST. Se a rota ja existir, ela vence: e o host que as pessoas tem
+# aberto, e o redirect_uri precisa bater com ele.
 PORTAL_HOST="${PORTAL_HOST:-$(oc get route -n "$RHDH_NS" --no-headers 2>/dev/null \
-  | grep -i portal | awk '{print $2}' | head -1)}"
-KC_HOST="$(oc get route -n "$KC_NS" --no-headers 2>/dev/null | awk '{print $2}' | head -1)"
+  | grep -i portal | awk '{print $2}' | head -1 || true)}"
+if [[ -z "$PORTAL_HOST" ]]; then
+  PORTAL_HOST="$(oc get backstage -n "$RHDH_NS" \
+    -o jsonpath='{.items[0].spec.application.route.host}' 2>/dev/null || true)"
+fi
+if [[ -z "$PORTAL_HOST" ]]; then
+  _dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)"
+  [[ -n "$_dom" ]] && PORTAL_HOST="rhcl-portal.${_dom}"
+fi
+KC_HOST="$(oc get route -n "$KC_NS" --no-headers 2>/dev/null | awk '{print $2}' | head -1 || true)"
 
 [[ -n "$GITLAB_HOST" ]] || _die "host do GitLab não encontrado"
-[[ -n "$PORTAL_HOST" ]] || _die "rota do portal não encontrada"
+[[ -n "$PORTAL_HOST" ]] || _die "não consegui determinar o host do portal (defina PORTAL_HOST)"
 [[ -n "$KC_HOST"     ]] || _die "rota do Keycloak não encontrada"
 
 if [[ "$_ETAPA" == "--status" ]]; then

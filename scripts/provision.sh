@@ -988,9 +988,15 @@ st_identity() {
     _warn "Keycloak ausente -- ele chega com o RHCL 1.4+; rode a etapa 'operators' antes"
     return 0
   fi
+  # NAO bloqueia se o portal ainda nao existe. Ate 2026-08-28 bloqueava, e isso
+  # era um impasse: o install.sh do portal exige o segredo do client 'rhdh', que
+  # e ESTA etapa que cria, e esta etapa exigia a rota que aquele cria. Nenhum dos
+  # dois podia ser o primeiro, e um cluster novo nao instalava.
+  #
+  # O setup-identity.sh passou a derivar o host do dominio de apps, como o
+  # install.sh sempre fez. Se a rota ja existir, ela vence.
   if ! oc get route -n rhdh-rhcl --no-headers 2>/dev/null | grep -qi portal; then
-    _warn "portal RHDH nao encontrado -- rode 'bash rhdh/install.sh' antes desta etapa"
-    return 0
+    _log "portal ainda nao instalado -- o redirect_uri sai do dominio de apps; rode esta etapa de novo depois do rhdh/install.sh se o host mudar"
   fi
 
   if [[ $DRY_RUN -eq 1 ]]; then
