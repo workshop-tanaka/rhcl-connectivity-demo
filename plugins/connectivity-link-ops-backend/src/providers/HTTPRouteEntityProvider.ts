@@ -38,6 +38,11 @@ export class HTTPRouteEntityProvider implements EntityProvider {
     private readonly logger: LoggerService,
     /** Vazio = todos. Num cluster real, sem isto o catálogo afoga. */
     private readonly namespaces: string[] = [],
+    /** Recuos entre tentativas de ler o catálogo, em ms. Somados ficam bem
+     *  abaixo do timeout da tarefa. Injetável para o teste não dormir. */
+    private readonly recuos: number[] = [3000, 7000, 15000, 25000],
+    private readonly esperar: (ms: number) => Promise<void> = ms =>
+      new Promise(r => setTimeout(r, ms)),
   ) {}
 
   /**
@@ -51,38 +56,71 @@ export class HTTPRouteEntityProvider implements EntityProvider {
    * descoberto. Rota nova, como a que o golden path cria, aparece sozinha.
    */
   private async jaDescritasAMao(): Promise<Set<string>> {
-    try {
-      const { items } = await this.catalog.getEntities(
-        { filter: { kind: 'Resource', 'spec.type': 'httproute' } },
-        // O provider fala com o catálogo como SERVIÇO, não como pessoa: não há
-        // usuário numa tarefa agendada, e forjar um seria mentir para o
-        // permission framework.
-        { credentials: await this.auth.getOwnServiceCredentials() },
-      );
-      return new Set(
-        items
-          .map(e => e.metadata.annotations?.['rhcl.demo/cluster-object'])
-          .filter((a): a is string => !!a?.startsWith('httproute/'))
-          .map(a => a.slice('httproute/'.length)),
-      );
-    } catch (err) {
-      // Sem conseguir ler o catálogo, o seguro é não emitir nada: emitir
-      // criaria as duplicatas que esta função existe para evitar.
-      this.logger.warn(
-        `catálogo: não consegui ler as entidades existentes (${err}); ` +
-          'nada será sincronizado nesta passada',
-      );
-      throw err;
+    let ultimoErro: unknown;
+
+    // O catálogo demora a servir a própria API depois de subir, e a primeira
+    // passada cai bem nessa janela: 503. Sem repetição, a recusa correta de
+    // emitir vira meia hora de catálogo desatualizado a cada reinício -- e a
+    // janela é justamente a do golden path, que cria uma rota e espera vê-la.
+    for (let tentativa = 0; tentativa < this.recuos.length + 1; tentativa++) {
+      try {
+        const { items } = await this.catalog.getEntities(
+          { filter: { kind: 'Resource', 'spec.type': 'httproute' } },
+          // O provider fala com o catálogo como SERVIÇO, não como pessoa: não
+          // há usuário numa tarefa agendada, e forjar um seria mentir para o
+          // permission framework.
+          { credentials: await this.auth.getOwnServiceCredentials() },
+        );
+        if (tentativa > 0) {
+          this.logger.info(
+            `catálogo: respondeu na tentativa ${tentativa + 1}`,
+          );
+        }
+        return new Set(
+          items
+            .map(e => e.metadata.annotations?.['rhcl.demo/cluster-object'])
+            .filter((a): a is string => !!a?.startsWith('httproute/'))
+            .map(a => a.slice('httproute/'.length)),
+        );
+      } catch (err) {
+        ultimoErro = err;
+        const recuo = this.recuos[tentativa];
+        if (recuo === undefined) break;
+        await this.esperar(recuo);
+      }
     }
+
+    // Esgotadas as tentativas, o seguro continua sendo não emitir nada: emitir
+    // criaria as duplicatas que esta função existe para evitar.
+    this.logger.warn(
+      `catálogo: não consegui ler as entidades existentes (${ultimoErro}); ` +
+        'nada será sincronizado nesta passada',
+    );
+    throw ultimoErro;
   }
 
   getProviderName(): string {
     return 'connectivity-link-ops:httproutes';
   }
 
+  /**
+   * Guarda a conexão e dispara a primeira passada — SEM esperar por ela.
+   *
+   * É aqui e em nenhum outro lugar. Antes disto não há conexão, e `sincronizar`
+   * sai calado no `if (!this.connection)`; o agendador não serve porque persiste
+   * a cadência no banco, e uma passada devida que caia no arranque some por
+   * meia hora. Esta é a única passada garantida a cada início de pod.
+   *
+   * Sem `await` de propósito: o catálogo chama isto durante a própria
+   * inicialização, e segurá-lo aqui atrasaria a subida dele. A leitura falha
+   * enquanto ele não serve, e é justamente para isso que existe a repetição com
+   * recuo lá dentro.
+   */
   async connect(connection: EntityProviderConnection): Promise<void> {
     this.connection = connection;
-    await this.sincronizar();
+    this.sincronizar().catch(err =>
+      this.logger.warn(`catálogo: passada de arranque falhou (${err})`),
+    );
   }
 
   /**
