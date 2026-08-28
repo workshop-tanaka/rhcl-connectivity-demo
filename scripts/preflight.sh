@@ -1243,6 +1243,48 @@ done
 fi
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# O que o POD leu contra o que a ConfigMap tem.
+#
+# O Backstage le o app-config na PARTIDA. Editar a ConfigMap por fora nao
+# reinicia nada, e o pod segue com a lista antiga de catalog.locations por
+# tempo indeterminado.
+#
+# O sintoma aparece longe da causa. Em 2026-08-28 o catalogo foi dividido em
+# varios arquivos e as locations novas entraram na ConfigMap; o pod, que tinha
+# subido antes, leu quatro de oito. Faltou o organizacao.yaml, o catalogo ficou
+# com ZERO entidades User, e o login passou a falhar com "unable to resolve
+# user identity" -- mensagem que fala de resolver e nao de arquivo faltando.
+# Nada no log menciona location nem ingestao.
+#
+# A conferencia e barata: contar as duas listas e comparar.
+_pod_rhdh="$(oc get pods -n "${RHDH_NS:-rhdh-rhcl}" --no-headers 2>/dev/null \
+              | grep backstage-developer | grep Running | awk '{print $1}' | head -1 || true)"
+if [[ -n "$_pod_rhdh" ]]; then
+  _loc_cm="$(oc get cm app-config-rhdh-catalog -n "${RHDH_NS:-rhdh-rhcl}" -o jsonpath='{.data}' 2>/dev/null \
+              | grep -oE '8080/[a-z0-9-]+\.yaml' | sort -u | wc -l | tr -d ' ' || true)"
+  _loc_pod="$(oc exec -n "${RHDH_NS:-rhdh-rhcl}" "$_pod_rhdh" -c backstage-backend -- \
+              sh -c "grep -oE '8080/[a-z0-9-]+\.yaml' /opt/app-root/src/app-config-catalog.yaml 2>/dev/null | sort -u | wc -l" 2>/dev/null | tr -d ' ' || true)"
+  if [[ -n "$_loc_cm" && -n "$_loc_pod" && "$_loc_cm" != "$_loc_pod" ]]; then
+    _bad "o portal leu ${_loc_pod} location(s) e a ConfigMap tem ${_loc_cm} -- ele subiu antes da mudanca" \
+         "oc rollout restart deploy/backstage-developer-hub -n ${RHDH_NS:-rhdh-rhcl}"
+  elif [[ -n "$_loc_pod" ]]; then
+    _ok "o portal leu as ${_loc_pod} location(s) que a ConfigMap declara"
+  fi
+
+  # A consequencia mais cara dessa divergencia tem verificacao propria: sem
+  # entidade User, TODO login falha -- e a mensagem culpa o resolver.
+  _n_users="$(oc exec -n "${RHDH_NS:-rhdh-rhcl}" "$_pod_rhdh" -c backstage-backend -- \
+    sh -c 'curl -s -H "Authorization: Bearer ${AUTOMATION_TOKEN}" "http://localhost:7007/api/catalog/entities?filter=kind=user" | grep -o "\"kind\":\"User\"" | wc -l' 2>/dev/null | tr -d ' ' || true)"
+  if [[ "${_n_users:-0}" -eq 0 ]]; then
+    _bad "catalogo sem entidade User -- nenhum login resolve identidade" \
+         "o resolver casa pelo nome da entidade; confira organizacao.yaml e reinicie o portal"
+  else
+    _ok "catalogo com ${_n_users} entidade(s) User para o resolver de login"
+  fi
+fi
+
+
 # Anotacoes cujo formato quem valida e o plugin, nao o catalogo.
 #
 # O Backstage aceita qualquer string; quem reprova e o consumidor, ja na tela.
