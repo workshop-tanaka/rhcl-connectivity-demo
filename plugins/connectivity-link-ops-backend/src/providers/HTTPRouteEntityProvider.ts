@@ -1,6 +1,8 @@
 import { Entity } from '@backstage/catalog-model';
 import { EntityProvider, EntityProviderConnection } from '@backstage/plugin-catalog-node';
-import { LoggerService } from '@backstage/backend-plugin-api';
+import { AuthService, LoggerService } from '@backstage/backend-plugin-api';
+
+import { CatalogService } from '@backstage/plugin-catalog-node';
 
 import { KubeClient } from '../service/KubeClient';
 import { K8sObject } from '../service/posture';
@@ -31,10 +33,48 @@ export class HTTPRouteEntityProvider implements EntityProvider {
 
   constructor(
     private readonly kube: KubeClient,
+    private readonly catalog: CatalogService,
+    private readonly auth: AuthService,
     private readonly logger: LoggerService,
     /** Vazio = todos. Num cluster real, sem isto o catálogo afoga. */
     private readonly namespaces: string[] = [],
   ) {}
+
+  /**
+   * As rotas que alguém já descreveu à mão, pela anotação que o catálogo desta
+   * demo usa para apontar para um objeto do cluster.
+   *
+   * O provider NÃO as recria. Entidade curada carrega o que descoberta nenhuma
+   * inventa — dono, System, e a prosa que explica por que aquela rota importa —
+   * e duplicá-la daria duas entidades para o mesmo objeto, cada uma com metade
+   * da verdade. A regra que resolve: quem foi descrito à mão manda; o resto é
+   * descoberto. Rota nova, como a que o golden path cria, aparece sozinha.
+   */
+  private async jaDescritasAMao(): Promise<Set<string>> {
+    try {
+      const { items } = await this.catalog.getEntities(
+        { filter: { kind: 'Resource', 'spec.type': 'httproute' } },
+        // O provider fala com o catálogo como SERVIÇO, não como pessoa: não há
+        // usuário numa tarefa agendada, e forjar um seria mentir para o
+        // permission framework.
+        { credentials: await this.auth.getOwnServiceCredentials() },
+      );
+      return new Set(
+        items
+          .map(e => e.metadata.annotations?.['rhcl.demo/cluster-object'])
+          .filter((a): a is string => !!a?.startsWith('httproute/'))
+          .map(a => a.slice('httproute/'.length)),
+      );
+    } catch (err) {
+      // Sem conseguir ler o catálogo, o seguro é não emitir nada: emitir
+      // criaria as duplicatas que esta função existe para evitar.
+      this.logger.warn(
+        `catálogo: não consegui ler as entidades existentes (${err}); ` +
+          'nada será sincronizado nesta passada',
+      );
+      throw err;
+    }
+  }
 
   getProviderName(): string {
     return 'connectivity-link-ops:httproutes';
@@ -67,7 +107,23 @@ export class HTTPRouteEntityProvider implements EntityProvider {
       return;
     }
 
-    const dentro = rotas.filter(r => this.dentroDoEscopo(r));
+    let curadas: Set<string>;
+    try {
+      curadas = await this.jaDescritasAMao();
+    } catch {
+      return;
+    }
+
+    const dentro = rotas
+      .filter(r => this.dentroDoEscopo(r))
+      .filter(r => {
+        const ref = `${r.metadata?.namespace}/${r.metadata?.name}`;
+        if (curadas.has(ref)) {
+          this.logger.info(`catálogo: ${ref} já descrita à mão — não recriada`);
+          return false;
+        }
+        return true;
+      });
 
     await this.connection.applyMutation({
       type: 'full',
@@ -104,6 +160,13 @@ export class HTTPRouteEntityProvider implements EntityProvider {
           ? `Exposição de ${backends.join(', ') || 'nenhum backend'} em ${hostnames.join(', ')}`
           : `Rota em ${ns}, sem hostname declarado`,
         annotations: {
+          // SEM ESTAS DUAS A ENTIDADE É DESCARTADA. O catálogo exige que toda
+          // entidade declare de onde veio, e um provider que não as escreve vê
+          // no log 'does not have the annotation backstage.io/managed-by-
+          // location' e mais nada: a mutation é aceita, a entidade some, e o
+          // contador de sincronizadas segue mentindo que deu certo.
+          'backstage.io/managed-by-location': `${this.getProviderName()}:${ns}/${nome}`,
+          'backstage.io/managed-by-origin-location': `${this.getProviderName()}:${ns}/${nome}`,
           // A mesma anotação que o plugin Kubernetes usa. Reaproveitada de
           // propósito: o card de postura já sabe lê-la.
           'backstage.io/kubernetes-namespace': ns,

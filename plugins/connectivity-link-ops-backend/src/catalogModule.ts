@@ -7,7 +7,10 @@ import {
 // dois caminhos, herdado de quando a mudanca aconteceu. Aqui o alvo e uma
 // versao so, entao o import direto e o certo: um fallback silencioso esconderia
 // a proxima mudanca em vez de acusa-la.
-import { catalogProcessingExtensionPoint } from '@backstage/plugin-catalog-node';
+import {
+  catalogProcessingExtensionPoint,
+  catalogServiceRef,
+} from '@backstage/plugin-catalog-node';
 
 import { HTTPRouteEntityProvider } from './providers/HTTPRouteEntityProvider';
 import { KubeClient } from './service/KubeClient';
@@ -34,9 +37,11 @@ export const connectivityLinkCatalogModule = createBackendModule({
         logger: coreServices.logger,
         config: coreServices.rootConfig,
         scheduler: coreServices.scheduler,
+        auth: coreServices.auth,
         catalog: catalogProcessingExtensionPoint,
+        catalogApi: catalogServiceRef,
       },
-      async init({ logger, config, scheduler, catalog }) {
+      async init({ logger, config, scheduler, auth, catalog, catalogApi }) {
         const escopo =
           config.getOptionalStringArray(
             'connectivityLinkOps.catalog.namespaces',
@@ -48,6 +53,8 @@ export const connectivityLinkCatalogModule = createBackendModule({
 
         const provider = new HTTPRouteEntityProvider(
           new KubeClient(config),
+          catalogApi,
+          auth,
           logger,
           escopo,
         );
