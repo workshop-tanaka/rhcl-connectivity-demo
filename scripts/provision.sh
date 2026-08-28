@@ -851,6 +851,8 @@ st_dashboards() {
   _apply platform-reference/monitoring/grafana-dashboard-onboarding.yaml # demanda de chave (Ato 6)
   _apply platform-reference/monitoring/grafana-dashboard-postura.yaml   # o que esta valendo agora
   _apply platform-reference/monitoring/grafana-dashboard-borda.yaml     # latencia e forma da resposta
+  _apply platform-reference/monitoring/grafana-dashboard-plataforma.yaml # a plataforma como produto (Ato 6)
+  _apply platform-reference/monitoring/grafana-dashboard-ambiente.yaml  # o chao: operadores, nodes, disco
   _apply platform-reference/monitoring/kuadrant-dashboards              # os tres de fabrica
 }
 

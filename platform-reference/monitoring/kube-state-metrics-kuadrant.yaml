@@ -226,6 +226,77 @@ data:
                   reason: ["reason"]
                 valueFrom: ["status"]
 
+        # APIProduct -- a VITRINE. Tambem acrescentado por nos; o upstream nao
+        # conhece o grupo devportal.kuadrant.io (a ClusterRole ja concedia
+        # 'apiproducts', so faltava a entrada). E o objeto que transforma rota
+        # em produto publicavel, e o status dele responde a pergunta do Ato 6
+        # sem abrir o portal: a API esta na vitrine, com quais planos, e o spec
+        # foi buscado?
+        #
+        # As condicoes, medidas nos dois APIProducts deste cluster:
+        #   Ready                  HTTPRouteAccepted -- a rota alvo existe e vale
+        #   PlanPolicyDiscovered   achou os tiers; sem ela nao ha o que assinar
+        #   AuthPolicyDiscovered   achou o esquema de credencial
+        #   OpenAPISpecReady       so aparece quando ha spec publicado
+        #   OIDCDiscovered=False   normal aqui: a demo usa API key, nao OIDC
+        - groupVersionKind:
+            group: devportal.kuadrant.io
+            kind: "APIProduct"
+            version: "v1alpha1"
+          metricNamePrefix: devportal_apiproduct
+          labelsFromPath:
+            name:
+            - metadata
+            - name
+            namespace:
+            - metadata
+            - namespace
+          metrics:
+          - name: "created"
+            help: "created timestamp"
+            each:
+              type: Gauge
+              gauge:
+                path: [metadata, creationTimestamp]
+          - name: "info"
+            help: "publicacao e versao do produto"
+            each:
+              type: Info
+              info:
+                path: [spec]
+                labelsFromPath:
+                  publish_status: ["publishStatus"]
+                  version: ["version"]
+          - name: "target_info"
+            help: "rota que o produto publica"
+            each:
+              type: Info
+              info:
+                path: [spec, targetRef]
+                labelsFromPath:
+                  target_kind: ["kind"]
+                  target_name: ["name"]
+          # Um por tier que o produto descobriu no PlanPolicy. E a vitrine do
+          # lado de quem compra -- o que o portal oferece para assinatura.
+          - name: "plan_info"
+            help: "tiers descobertos pelo produto"
+            each:
+              type: Info
+              info:
+                path: [status, discoveredPlans]
+                labelsFromPath:
+                  tier: ["tier"]
+          - name: "status_condition"
+            help: "condicoes do APIProduct. 1 = True"
+            each:
+              type: Gauge
+              gauge:
+                path: [status, conditions]
+                labelsFromPath:
+                  type: ["type"]
+                  reason: ["reason"]
+                valueFrom: ["status"]
+
         - groupVersionKind:
             group: gateway.networking.k8s.io
             kind: "HTTPRoute"

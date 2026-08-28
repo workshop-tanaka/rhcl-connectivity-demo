@@ -1,0 +1,230 @@
+# ===========================================================================
+# Dashboard 'RHCL — plataforma como produto'.
+#
+# A tese que a demo defende e que o RHCL e uma PLATAFORMA DE API, nao um
+# gateway. Os dashboards de trafego provam que a policy funciona; nenhum prova
+# a tese. Esta e a tela do time de plataforma: quantas APIs a plataforma
+# publicou, quantas nasceram com politica, o que esta na vitrine e quanto tempo
+# leva o caminho do golden path.
+#
+# A PERGUNTA QUE ELE RESPONDE: se amanha entrar mais uma API, ela nasce fechada
+# e com plano, ou nasce aberta e alguem descobre depois?
+#
+# 'Rotas sem AuthPolicy' e o painel mais importante do dashboard. Zero e a
+# plataforma cumprindo o contrato. Um e uma API publicada sem porta -- e o
+# caminho de dados nao vai reclamar: vai responder 200 para qualquer um.
+#
+# ---------------------------------------------------------------------------
+# FONTE: kube-state-metrics-kuadrant.yaml (gatewayapi_*, devportal_*,
+# kuadrant_planpolicy_*) + Tekton e Argo CD, que o cluster ja coleta por
+# ServiceMonitors do proprio operador.
+#
+# A entrada de CustomResourceState do APIProduct foi acrescentada por nos junto
+# com este dashboard -- a ClusterRole ja concedia 'apiproducts', so faltava a
+# entrada. Medido em 2026-08-28, depois do acerto: 2 produtos, 5 tiers
+# descobertos, ambos com Ready=True/HTTPRouteAccepted.
+#
+# ---------------------------------------------------------------------------
+# DOIS PAINEIS PODEM ABRIR VAZIOS, E OS DOIS SAO ESTADO, NAO DEFEITO:
+#
+#   GitOps        argocd_app_info so existe quando ha Application. Neste cluster
+#                 o ApplicationSet 'rhcl-golden-path' existe e ainda nao gerou
+#                 nenhuma -- o Ato 6 nao foi rodado aqui. O painel enche na
+#                 primeira vez que alguem usar o software template.
+#                 Conferir com: oc get applications -A
+#
+#   Pipelines     ha 3 PipelineRuns de 'valida-policies' neste cluster; a
+#                 duracao p95 volta NaN quando nao houve execucao na janela.
+#                 Quantil sem amostra e NaN, nao zero -- Grafana mostra buraco.
+# ===========================================================================
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: rhcl-plataforma
+  namespace: monitoring
+  labels:
+    rhcl.demo/origem: repo
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  json: >
+    {
+      "title": "RHCL — plataforma como produto",
+      "uid": "rhcl-plataforma",
+      "tags": ["rhcl", "customizado", "plataforma", "ato-6"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "time": {"from": "now-24h", "to": "now"},
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {"text": "Thanos", "value": "Thanos", "selected": false},
+            "options": [], "refresh": 1, "hide": 0, "includeAll": false, "multi": false
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "stat",
+          "title": "APIs publicadas",
+          "description": "HTTPRoutes no cluster. E o denominador de tudo o mais nesta tela: cada uma deveria ter identidade e plano.",
+          "gridPos": {"h": 5, "w": 4, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "text", "value": null}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count(gatewayapi_httproute_labels) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Na vitrine",
+          "description": "APIProducts com Ready=True: a rota alvo existe, os planos foram descobertos e o produto pode ser assinado no developer portal. Publicar rota nao e publicar produto.",
+          "gridPos": {"h": 5, "w": 4, "x": 4, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "text", "value": null}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count(devportal_apiproduct_status_condition{type=\"Ready\"} == 1) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Rotas sem AuthPolicy",
+          "description": "O painel mais importante desta tela. Rota publicada sem policy de identidade responde 200 para qualquer um, e nada no caminho de dados reclama. Zero e o contrato da plataforma sendo cumprido.",
+          "gridPos": {"h": 5, "w": 4, "x": 8, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count(gatewayapi_httproute_labels unless on (name) label_replace(gatewayapi_authpolicy_target_info{target_kind=\"HTTPRoute\"}, \"name\", \"$1\", \"target_name\", \"(.*)\")) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Rotas sem plano",
+          "description": "Rota com identidade mas sem PlanPolicy: passa a ser controlada, e sem limite nenhum. Tambem impede emitir chave -- 'planTier' e obrigatorio no CRD do APIKey.",
+          "gridPos": {"h": 5, "w": 4, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count(gatewayapi_httproute_labels unless on (name) label_replace(kuadrant_planpolicy_target_info{target_kind=\"HTTPRoute\"}, \"name\", \"$1\", \"target_name\", \"(.*)\")) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Tiers ofertados",
+          "description": "Soma dos planos descobertos por todos os produtos -- o que o portal oferece para assinatura hoje. Cai sozinho se um PlanPolicy sair de vigor, que e a armadilha 5.2 vista pelo lado comercial.",
+          "gridPos": {"h": 5, "w": 4, "x": 16, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "text", "value": null}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count(devportal_apiproduct_plan_info) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Chaves aprovadas",
+          "description": "Contratos vivos. O 'rhcl-onboarding' mostra a fila de quem espera; este mostra quem ja entrou.",
+          "gridPos": {"h": 5, "w": 4, "x": 20, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "text", "value": null}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count(devportal_apikey_status_condition{type=\"Approved\"} == 1) or vector(0)"}
+          ]
+        },
+        {
+          "type": "table",
+          "title": "Toda API nasce com politica?",
+          "description": "Uma linha por rota publicada, com o que esta anexado a ela. Coluna vazia e API sem aquela politica -- a tese da demo se defende ou se perde nesta tabela.",
+          "gridPos": {"h": 10, "w": 11, "x": 0, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {
+            "defaults": {
+              "custom": {"align": "left", "cellOptions": {"type": "color-text"}},
+              "noValue": "NAO",
+              "mappings": [{"type": "value", "options": {"1": {"text": "sim", "color": "green", "index": 0}}}]
+            }
+          },
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "rota", "instant": true, "format": "table", "expr": "max by (name) (gatewayapi_httproute_labels)"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "auth", "instant": true, "format": "table", "expr": "max by (name) (label_replace(gatewayapi_authpolicy_target_info{target_kind=\"HTTPRoute\"}, \"name\", \"$1\", \"target_name\", \"(.*)\"))"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "plano", "instant": true, "format": "table", "expr": "max by (name) (label_replace(kuadrant_planpolicy_target_info{target_kind=\"HTTPRoute\"}, \"name\", \"$1\", \"target_name\", \"(.*)\"))"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "produto", "instant": true, "format": "table", "expr": "max by (name) (label_replace(devportal_apiproduct_target_info{target_kind=\"HTTPRoute\"}, \"name\", \"$1\", \"target_name\", \"(.*)\"))"}
+          ],
+          "transformations": [
+            {"id": "joinByField", "options": {"byField": "name", "mode": "outer"}},
+            {"id": "organize", "options": {
+              "excludeByName": {"Time": true, "Time 1": true, "Time 2": true, "Time 3": true, "Time 4": true, "Value #rota": true},
+              "indexByName": {"name": 0, "Value #auth": 1, "Value #plano": 2, "Value #produto": 3},
+              "renameByName": {"name": "rota", "Value #auth": "AuthPolicy", "Value #plano": "PlanPolicy", "Value #produto": "na vitrine"}}}
+          ]
+        },
+        {
+          "type": "table",
+          "title": "Catalogo da plataforma",
+          "description": "Os APIProducts como o portal os ve: versao, estado de publicacao, quantos planos foram descobertos e se o spec OpenAPI foi buscado. 'planos' em zero com Ready=True e vitrine sem assinatura possivel.",
+          "gridPos": {"h": 10, "w": 13, "x": 11, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {
+            "defaults": {
+              "custom": {"align": "left", "cellOptions": {"type": "color-text"}},
+              "noValue": "—",
+              "mappings": [{"type": "value", "options": {"0": {"text": "NAO", "color": "red", "index": 0}, "1": {"text": "sim", "color": "green", "index": 1}}}]
+            },
+            "overrides": [
+              {"matcher": {"id": "byName", "options": "planos"}, "properties": [{"id": "mappings", "value": []}, {"id": "custom.cellOptions", "value": {"type": "auto"}}]}
+            ]
+          },
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "ready", "instant": true, "format": "table", "expr": "max by (name, exported_namespace) (devportal_apiproduct_status_condition{type=\"Ready\"})"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "info", "instant": true, "format": "table", "expr": "max by (name, publish_status, version) (devportal_apiproduct_info)"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "planos", "instant": true, "format": "table", "expr": "count by (name) (devportal_apiproduct_plan_info)"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "spec", "instant": true, "format": "table", "expr": "max by (name) (devportal_apiproduct_status_condition{type=\"OpenAPISpecReady\"})"}
+          ],
+          "transformations": [
+            {"id": "joinByField", "options": {"byField": "name", "mode": "outer"}},
+            {"id": "organize", "options": {
+              "excludeByName": {"Time": true, "Time 1": true, "Time 2": true, "Time 3": true, "Time 4": true, "Value #info": true},
+              "indexByName": {"name": 0, "exported_namespace": 1, "version": 2, "publish_status": 3, "Value #planos": 4, "Value #ready": 5, "Value #spec": 6},
+              "renameByName": {"name": "produto", "exported_namespace": "namespace", "version": "versao", "publish_status": "publicacao", "Value #planos": "planos", "Value #ready": "pronto", "Value #spec": "spec OpenAPI"}}}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Crescimento do catalogo",
+          "description": "Rotas e produtos ao longo do tempo. E a curva de adocao da plataforma: cada degrau e alguem que usou o golden path em vez de abrir um chamado.",
+          "gridPos": {"h": 9, "w": 8, "x": 0, "y": 15},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "custom": {"drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 15}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "rotas", "expr": "count(gatewayapi_httproute_labels)", "legendFormat": "rotas publicadas"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "produtos", "expr": "count(devportal_apiproduct_created)", "legendFormat": "produtos na vitrine"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "chaves", "expr": "count(devportal_apikey_created)", "legendFormat": "chaves solicitadas"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Pipelines (Tekton)",
+          "description": "PipelineRuns por resultado, em janelas de 1h. Neste cluster quem roda e o 'valida-policies' do golden path. Barra vermelha aqui e mudanca de policy que nao passou na validacao -- o Ato 6 defendendo o Ato 1.",
+          "gridPos": {"h": 9, "w": 8, "x": 8, "y": 15},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "custom": {"drawStyle": "bars", "fillOpacity": 70, "stacking": {"mode": "normal"}}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "runs", "expr": "sum by (status) (increase(tekton_pipelines_controller_pipelinerun_total[1h])) > 0", "legendFormat": "{{status}}"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "GitOps (Argo CD)",
+          "description": "Applications por saude e sincronia. VAZIO NAO E DEFEITO: argocd_app_info so existe quando ha Application, e neste cluster o ApplicationSet 'rhcl-golden-path' ainda nao gerou nenhuma -- o Ato 6 nao foi rodado aqui. Conferir com 'oc get applications -A'.",
+          "gridPos": {"h": 9, "w": 8, "x": 16, "y": 15},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "custom": {"drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 15}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "apps", "expr": "count by (health_status, sync_status) (argocd_app_info)", "legendFormat": "{{health_status}} / {{sync_status}}"}
+          ]
+        }
+      ]
+    }

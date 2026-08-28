@@ -1,0 +1,210 @@
+# ===========================================================================
+# Dashboard 'RHCL — ambiente'.
+#
+# Os outros cinco dashboards olham para a DEMO. Este olha para o CHAO em que
+# ela roda: operadores, nodes, disco, pods, alertas. E o 'preflight.sh' virado
+# painel -- o script mede antes de subir no palco e some; isto continua medindo
+# durante e depois, que e quando ninguem esta olhando.
+#
+# POR QUE ISTO EXISTE
+# Metade das falhas que custaram tempo neste projeto nao eram de policy nem de
+# configuracao do RHCL: eram do ambiente, e chegavam disfarcadas.
+#
+#   DiskPressure     o Authorino cai e a API devolve 500 no lugar de 401 --
+#                    e a policy leva a culpa (armadilha 5.3 do RUNBOOK)
+#   CPU no teto      o kube-state-metrics estrangulado se declara ready e nao
+#                    serve /metrics: TODOS os dashboards abrem vazios, e parece
+#                    falta de trafego (o cabecalho do KSM conta a medicao)
+#   pod sem sidecar  injecao por anotacao em vez de label -- o Kiali fica vazio
+#   CSV degradado    o operador para de reconciliar e nada denuncia
+#
+# ---------------------------------------------------------------------------
+# FONTE: tudo ja coletado, nada de novo. As familias vem do monitoring de
+# PLATAFORMA do OpenShift (kube_*, node_*, csv_*, ALERTS), que o datasource
+# Thanos enxerga junto com as de user workload -- e por isso o RBAC do
+# grafana-sa e cluster-monitoring-view, e nao um role por namespace.
+#
+# Medido em 2026-08-28 neste cluster: 38 CSVs, 12 alertas firing, 2 deployments
+# incompletos, 5 pods fora de Running, CPU pedida em 104% do alocavel e o PVC
+# mais cheio em 69%.
+#
+# ATENCAO AO PAINEL DE ALERTAS: doze disparando e o normal deste ambiente, nao
+# emergencia -- a secao 7 do CONHECIMENTO lista um por um o ruido benigno
+# (pods Pending de storage, receivers do Alertmanager, APIKeyAguardandoAprovacao
+# que e a propria demo). O painel esta ai para mostrar o que MUDOU, nao para ser
+# zerado. Alerta que nao pode ser zerado ensina a plateia a ignorar alerta.
+#
+# CPU acima de 100% nao e defeito: e a soma dos REQUESTS contra o alocavel, e
+# um cluster de workshop over-committed roda assim. Vermelho aqui significa
+# 'nao provisione mais nada sem olhar', nao 'esta caindo'.
+# ===========================================================================
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: rhcl-ambiente
+  namespace: monitoring
+  labels:
+    rhcl.demo/origem: repo
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  json: >
+    {
+      "title": "RHCL — ambiente",
+      "uid": "rhcl-ambiente",
+      "tags": ["rhcl", "customizado", "plataforma", "ambiente"],
+      "timezone": "browser",
+      "refresh": "30s",
+      "time": {"from": "now-6h", "to": "now"},
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {"text": "Thanos", "value": "Thanos", "selected": false},
+            "options": [], "refresh": 1, "hide": 0, "includeAll": false, "multi": false
+          },
+          {
+            "name": "ns",
+            "type": "query",
+            "label": "Namespace",
+            "datasource": {"type": "prometheus", "uid": "${datasource}"},
+            "query": {"query": "label_values(kube_pod_info, namespace)", "refId": "StandardVariableQuery"},
+            "regex": "/^(travel.*|kuadrant.*|istio.*|ingress-gateway|monitoring|tracing-system|rhdh.*|echo-api|openshift-gitops|openshift-pipelines|gitlab.*)$/",
+            "refresh": 2, "includeAll": true, "multi": true, "current": {"text": "All", "value": "$__all"}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Operadores degradados",
+          "description": "CSVs fora de Succeeded. Operador degradado para de reconciliar em silencio: a policy que voce aplicou fica no cluster e nunca vira configuracao de gateway.",
+          "gridPos": {"h": 5, "w": 4, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count(csv_succeeded == 0) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Alertas criticos",
+          "description": "So os de severidade critical. Os warnings ficam na tabela abaixo, porque doze disparando e o estado normal deste cluster -- ver CONHECIMENTO secao 7.",
+          "gridPos": {"h": 5, "w": 4, "x": 4, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count(ALERTS{alertstate=\"firing\", severity=\"critical\"}) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Deployments incompletos",
+          "description": "Replica declarada e nao disponivel, nos namespaces da demo. E o primeiro lugar para olhar quando um ato 'nao responde' -- antes de acusar policy.",
+          "gridPos": {"h": 5, "w": 4, "x": 8, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 3}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count(kube_deployment_status_replicas_unavailable{namespace=~\"$ns\"} > 0) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Pods fora de Running",
+          "description": "Pending, Failed ou Unknown. Neste cluster de 5 nodes, pod Pending merece investigacao -- o anti-affinity que explicava os Pending do cluster de 1 node nao se aplica mais.",
+          "gridPos": {"h": 5, "w": 4, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "sum(kube_pod_status_phase{namespace=~\"$ns\", phase=~\"Pending|Failed|Unknown\"}) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "CPU pedida / alocavel",
+          "description": "Soma dos REQUESTS contra o alocavel do cluster. Acima de 100% e over-commit, nao queda -- significa 'nao provisione mais nada sem olhar'. Foi assim que o KSM ficou sem CPU e todos os dashboards abriram vazios.",
+          "gridPos": {"h": 5, "w": 4, "x": 16, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 90}, {"color": "red", "value": 110}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "100 * sum(kube_pod_container_resource_requests{resource=\"cpu\"}) / sum(kube_node_status_allocatable{resource=\"cpu\"})"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "PVC mais cheio",
+          "description": "O volume mais proximo do teto. Disco cheio derruba o Authorino e a API passa a devolver 500 no lugar de 401 -- armadilha 5.3, a que mais custou tempo a este projeto.",
+          "gridPos": {"h": 5, "w": 4, "x": 20, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 75}, {"color": "red", "value": 90}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "max(100 * kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes)"}
+          ]
+        },
+        {
+          "type": "table",
+          "title": "Namespaces da demo",
+          "description": "Uma linha por namespace: quantos pods de pe, quantos fora de Running, quantos reinicios na ultima hora. A leitura util e a coluna de reinicios -- pod que reinicia sozinho e a forma silenciosa de um ato quebrar entre o ensaio e o palco.",
+          "gridPos": {"h": 11, "w": 14, "x": 0, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"custom": {"align": "left"}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "running", "instant": true, "format": "table", "expr": "sum by (namespace) (kube_pod_status_phase{namespace=~\"$ns\", phase=\"Running\"})"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "parados", "instant": true, "format": "table", "expr": "sum by (namespace) (kube_pod_status_phase{namespace=~\"$ns\", phase=~\"Pending|Failed|Unknown\"})"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "restarts", "instant": true, "format": "table", "expr": "sum by (namespace) (increase(kube_pod_container_status_restarts_total{namespace=~\"$ns\"}[1h]))"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "incompletos", "instant": true, "format": "table", "expr": "sum by (namespace) (kube_deployment_status_replicas_unavailable{namespace=~\"$ns\"})"}
+          ],
+          "transformations": [
+            {"id": "joinByField", "options": {"byField": "namespace", "mode": "outer"}},
+            {"id": "organize", "options": {
+              "excludeByName": {"Time": true, "Time 1": true, "Time 2": true, "Time 3": true, "Time 4": true},
+              "indexByName": {"namespace": 0, "Value #running": 1, "Value #parados": 2, "Value #restarts": 3, "Value #incompletos": 4},
+              "renameByName": {"namespace": "namespace", "Value #running": "pods de pe", "Value #parados": "fora de Running", "Value #restarts": "reinicios (1h)", "Value #incompletos": "replicas faltando"}}},
+            {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "fora de Running", "desc": true}]}}
+          ]
+        },
+        {
+          "type": "table",
+          "title": "Alertas disparando",
+          "description": "Todos os firing, com severidade e namespace. NAO tente zerar: a secao 7 do CONHECIMENTO lista o ruido benigno deste ambiente, incluindo o APIKeyAguardandoAprovacao, que e a propria demo. O valor desta tabela e comparar com aquela lista e ver o que apareceu de novo.",
+          "gridPos": {"h": 11, "w": 10, "x": 14, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"custom": {"align": "left"}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "format": "table", "expr": "ALERTS{alertstate=\"firing\"}"}
+          ],
+          "transformations": [
+            {"id": "organize", "options": {
+              "excludeByName": {"Time": true, "__name__": true, "alertstate": true, "prometheus": true, "instance": true, "job": true, "pod": true, "container": true, "endpoint": true, "service": true, "Value": true},
+              "indexByName": {"severity": 0, "alertname": 1, "namespace": 2},
+              "renameByName": {"severity": "sev", "alertname": "alerta", "namespace": "namespace"}}},
+            {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "sev", "desc": false}]}}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Pressao nos nodes",
+          "description": "DiskPressure e MemoryPressure por node, 1 = ligado. E o painel que explica um 500 sem culpa da policy. Num cluster de 5 nodes o risco e menor que no SNO anterior, mas nao e zero.",
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"min": 0, "max": 1, "custom": {"drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 20}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "max by (node, condition) (kube_node_status_condition{condition=~\"DiskPressure|MemoryPressure|PIDPressure\", status=\"true\"})", "legendFormat": "{{node}} — {{condition}}"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Reinicios de container, por namespace",
+          "description": "Vazio e o estado saudavel -- o painel so desenha quando ha reinicio. Acumulado em janelas de 15 min. Um degrau aqui costuma anteceder em minutos o sintoma que aparece nos outros dashboards.",
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "fillOpacity": 60, "stacking": {"mode": "normal"}}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (namespace) (increase(kube_pod_container_status_restarts_total{namespace=~\"$ns\"}[15m])) > 0", "legendFormat": "{{namespace}}"}
+          ]
+        }
+      ]
+    }

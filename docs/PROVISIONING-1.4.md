@@ -588,6 +588,8 @@ sem precisar listar nome nenhum:
 | RHCL — onboarding de parceiro | `rhcl-onboarding` | `negocio`, `ato-6` | demanda de chave e fila de aprovação | KSM (`devportal_apikey_*`) |
 | RHCL — postura de policies | `rhcl-postura` | `plataforma`, `ato-3` | **o que está valendo agora** | KSM (`gatewayapi_*_status`, `kuadrant_planpolicy_status`) |
 | RHCL — borda | `rhcl-borda` | `plataforma`, `ato-1` | latência e forma da resposta no gateway | proxies do Istio em `ingress-gateway` |
+| RHCL — plataforma como produto | `rhcl-plataforma` | `plataforma`, `ato-6` | quantas APIs a plataforma publicou e **se nascem com política** | KSM (`gatewayapi_*`, `devportal_apiproduct_*`) + Tekton + Argo CD |
+| RHCL — ambiente | `rhcl-ambiente` | `plataforma`, `ambiente` | o chão: operadores, nodes, disco, alertas | monitoring de **plataforma** (`kube_*`, `node_*`, `csv_*`, `ALERTS`) |
 
 O do Ato 4 continua sendo o `rhcl-planos`: é o único que quebra por `plan`.
 
@@ -714,6 +716,46 @@ painéis usam é por AuthConfig, que sai sem flag nenhuma.
 
 Medido logo depois, com o `traffic.sh` rodando: **p50 26 ms, p95 48 ms** de
 decisão do Authorino, contra 49 ms de p95 da requisição inteira na borda.
+
+### Plataforma e ambiente — as duas telas que não falam de tráfego
+
+O `rhcl-plataforma` responde à pergunta que sustenta a tese da demo ("o RHCL é
+uma plataforma de API, não um gateway"): **toda API nasce com política?** A
+tabela cruza cada `HTTPRoute` publicada com o que está anexado a ela — AuthPolicy,
+PlanPolicy, APIProduct — e o número grande conta *rotas sem AuthPolicy*. Zero é
+o contrato sendo cumprido; um é uma API publicada sem porta, respondendo 200
+para qualquer um, sem que nada no caminho de dados reclame.
+
+O que sustenta essa tela é uma entrada nova de `CustomResourceState` para
+`APIProduct` (a `ClusterRole` já concedia `apiproducts` — faltava a entrada).
+Ela expõe versão, estado de publicação, os tiers descobertos e as condições
+`Ready` / `PlanPolicyDiscovered` / `OpenAPISpecReady`. Medido depois do acerto:
+2 produtos, 5 tiers, ambos `Ready=True/HTTPRouteAccepted`.
+
+> Nas consultas de cobertura, os `target_info` são filtrados por
+> `target_kind="HTTPRoute"`. Sem isso, a `AuthPolicy` do Gateway
+> (`prod-web-deny-all`) entra na tabela como uma linha `prod-web`, que não é API.
+
+Dois painéis dele abrem vazios **por estado, não por defeito**: `argocd_app_info`
+só existe quando há `Application`, e neste cluster o `ApplicationSet`
+`rhcl-golden-path` ainda não gerou nenhuma (`oc get applications -A` devolve
+zero); e a duração p95 do Tekton volta `NaN` quando não houve execução na janela
+— quantil sem amostra é `NaN`, não zero.
+
+O `rhcl-ambiente` é o `preflight.sh` virado painel: CSVs fora de `Succeeded`,
+alertas, deployments incompletos, pods fora de `Running`, pressão nos nodes,
+PVC mais cheio, reinícios por namespace. Nada de coleta nova — tudo vem do
+monitoring de **plataforma**, que o datasource Thanos enxerga junto com o de
+user workload (é por isso que o RBAC do `grafana-sa` é `cluster-monitoring-view`).
+Medido em 2026-08-28: 38 CSVs, 12 alertas *firing*, 2 deployments incompletos,
+CPU pedida em **104%** do alocável e o PVC mais cheio em 69%.
+
+Dois avisos de leitura, os dois no próprio painel: **doze alertas disparando é o
+normal deste ambiente** (a §7 do CONHECIMENTO lista o ruído benigno um por um —
+o painel serve para ver o que *mudou*, não para ser zerado), e **CPU acima de
+100% é over-commit, não queda** — é a soma dos *requests* contra o alocável.
+Foi assim que o `kube-state-metrics` ficou sem CPU e todos os dashboards
+abriram vazios.
 
 Antes de qualquer dashboard, a instância: `GrafanaDashboard` sem um `Grafana`
 com o label `dashboards: grafana` fica órfão, e com a instância mas sem o
