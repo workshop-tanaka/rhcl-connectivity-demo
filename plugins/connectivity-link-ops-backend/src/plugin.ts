@@ -8,6 +8,7 @@ import { signalsServiceRef } from '@backstage/plugin-signals-node';
 import { createRouter } from './router';
 import { KubeClient } from './service/KubeClient';
 import { MetricsClient } from './service/MetricsClient';
+import { Sineta } from './service/Sineta';
 import { ResourceCache } from './service/ResourceCache';
 
 export const connectivityLinkOpsPlugin = createBackendPlugin({
@@ -21,6 +22,8 @@ export const connectivityLinkOpsPlugin = createBackendPlugin({
         httpRouter: coreServices.httpRouter,
         lifecycle: coreServices.rootLifecycle,
         permissions: coreServices.permissions,
+        auth: coreServices.auth,
+        discovery: coreServices.discovery,
         signals: signalsServiceRef,
       },
       async init({
@@ -30,6 +33,8 @@ export const connectivityLinkOpsPlugin = createBackendPlugin({
         httpRouter,
         lifecycle,
         permissions,
+        auth,
+        discovery,
         signals,
       }) {
         const kube = new KubeClient(config);
@@ -75,6 +80,20 @@ export const connectivityLinkOpsPlugin = createBackendPlugin({
               message: { changed: true },
             })
             .catch(err => logger.warn(`falha ao publicar signal: ${err}`));
+        });
+
+        // A sineta: policy que estava valendo e deixa de valer vira aviso.
+        // Ligada por padrão nesta demo, onde três policies mudam de estado no
+        // roteiro; num cluster grande, desligar é a escolha certa até haver
+        // recorte por dono -- aviso que ninguém pode acionar vira ruído.
+        const sineta = new Sineta(
+          auth,
+          discovery,
+          logger,
+          config.getOptionalBoolean('connectivityLinkOps.notificacoes') ?? true,
+        );
+        cache.onPiora(p => {
+          sineta.avisar(p).catch(() => undefined);
         });
 
         lifecycle.addShutdownHook(() => cache.stop());

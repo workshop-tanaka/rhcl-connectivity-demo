@@ -82,6 +82,16 @@ export class ResourceCache {
   private aoMudar?: () => void;
   private avisoPendente?: ReturnType<typeof setTimeout>;
 
+  /** Enforced conhecido de cada policy, para detectar a TRANSICAO. Sem guardar
+   *  o anterior, todo update de uma policy nao-enforced viraria um aviso. */
+  private enforcedAnterior = new Map<string, boolean>();
+  private aoPiorar?: (p: {
+    kind: string;
+    name: string;
+    namespace: string;
+    o_que: string;
+  }) => void;
+
   constructor(
     private readonly kube: KubeClient,
     private readonly logger: LoggerService,
@@ -98,6 +108,43 @@ export class ResourceCache {
    */
   onChange(cb: () => void): void {
     this.aoMudar = cb;
+  }
+
+  /**
+   * Avisado quando uma policy que ESTAVA valendo deixa de valer, ou some.
+   *
+   * A transição é o evento, e não o estado: uma policy que nunca esteve
+   * enforced não piorou nada, e avisar sobre ela a cada reconcile encheria a
+   * sineta de ruído até ninguém mais olhar.
+   */
+  onPiora(cb: (p: { kind: string; name: string; namespace: string; o_que: string }) => void): void {
+    this.aoPiorar = cb;
+  }
+
+  private avaliarPostura(kind: WatchedKind, obj: K8sish, sumiu: boolean): void {
+    const ref = `${kind.kind}/${obj.metadata?.namespace}/${obj.metadata?.name}`;
+    const agora =
+      !sumiu &&
+      ((obj.status?.conditions ?? []) as Array<{ type?: string; status?: string }>).some(
+        c => c.type === 'Enforced' && c.status === 'True',
+      );
+    const antes = this.enforcedAnterior.get(ref);
+
+    if (sumiu) {
+      this.enforcedAnterior.delete(ref);
+    } else {
+      this.enforcedAnterior.set(ref, agora);
+    }
+
+    // Só a queda interessa: de valendo para não valendo, ou desaparecida.
+    if (antes === true && !agora) {
+      this.aoPiorar?.({
+        kind: kind.kind,
+        name: obj.metadata?.name ?? '',
+        namespace: obj.metadata?.namespace ?? '',
+        o_que: sumiu ? 'foi removida' : 'deixou de valer',
+      });
+    }
   }
 
   private agendarAviso(): void {
@@ -147,7 +194,22 @@ export class ResourceCache {
       // emite um 'add' por objeto existente -- avisar durante a carga inicial
       // seria uma rajada que nao diz nada, porque nada mudou de fato.
       for (const verbo of ['add', 'update', 'delete'] as const) {
-        informer.on(verbo, () => this.agendarAviso());
+        informer.on(verbo, (obj: any) => {
+          this.avaliarPostura(kind, obj as K8sish, verbo === 'delete');
+          this.agendarAviso();
+        });
+      }
+
+      // A carga inicial popula o estado conhecido SEM avisar: no arranque nada
+      // piorou, tudo apenas passou a ser observado.
+      for (const obj of informer.list() as K8sish[]) {
+        const ref = `${kind.kind}/${obj.metadata?.namespace}/${obj.metadata?.name}`;
+        this.enforcedAnterior.set(
+          ref,
+          ((obj.status?.conditions ?? []) as Array<{ type?: string; status?: string }>).some(
+            c => c.type === 'Enforced' && c.status === 'True',
+          ),
+        );
       }
       this.agendarAviso();
     });
