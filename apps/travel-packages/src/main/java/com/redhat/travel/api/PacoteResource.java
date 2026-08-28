@@ -49,32 +49,26 @@ public class PacoteResource {
     @PersistenceContext
     private EntityManager em;
 
-    private final CacheDePacotes cache;
-
-    // POR CONSTRUTOR, e nao no campo: campo injetado nao pode ser final, e uma
-    // dependencia obrigatoria que o compilador nao garante e a que falta em
-    // teste.
+    // INJECAO EM CAMPO, DE VOLTA -- e a supressao e deliberada.
     //
-    // @RequestScoped NA CLASSE NAO E DECORACAO -- sem ela o deploy FALHA:
+    // A regra java:S6813 do SonarQube pede injecao por construtor. Ela vem do
+    // mundo Spring e NAO se aplica a um recurso JAX-RS: trocar custou tres
+    // ciclos de build e o deploy nunca subiu, sempre com
     //
-    //   RESTEASY003190: Could not find constructor for class ...PacoteResource
+    //   RESTEASY003190: Could not find constructor for class ...
     //
-    // Com bean-discovery-mode=annotated (o padrao no Jakarta EE 10), @Inject
-    // sozinho NAO define um bean. Sem escopo, a classe nao e bean CDI, o
-    // RESTEasy tenta instancia-la por conta propria e exige construtor publico
-    // sem argumentos -- que a injecao por construtor nao tem. O servidor sobe
-    // "with errors" e o pod fica 1/2 para sempre. Medido em 2026-08-28.
+    // mesmo com @RequestScoped na classe, beans.xml com
+    // bean-discovery-mode=all no WAR e o subsistema weld presente no servidor
+    // provisionado -- as tres coisas verificadas dentro do pod. O RESTEasy
+    // continua instanciando a classe por conta propria e exigindo construtor
+    // publico sem argumentos.
     //
-    // O construtor sem argumentos continua existindo porque escopo normal
-    // exige bean proxiavel; protegido, para nao virar caminho de uso.
-    protected PacoteResource() {
-        this.cache = null;
-    }
-
+    // Deixar o linter dirigir o desenho aqui trocou codigo que funciona por
+    // codigo que passa na regra e nao sobe. A supressao e a resposta honesta:
+    // a regra esta errada para este contexto, e o comentario diz por que.
+    @SuppressWarnings("java:S6813")
     @Inject
-    public PacoteResource(CacheDePacotes cache) {
-        this.cache = cache;
-    }
+    private CacheDePacotes cache;
 
     @GET
     public Response lista(@HeaderParam("x-plan") String plano,

@@ -34,18 +34,13 @@ public class SaudeResource {
     @PersistenceContext
     private EntityManager em;
 
-    private final CacheDePacotes cache;
-
-    // Mesma razao do PacoteResource, incluindo o @RequestScoped na classe --
-    // sem ele o RESTEasy nao acha construtor e o deploy falha.
-    protected SaudeResource() {
-        this.cache = null;
-    }
-
+    // INJECAO EM CAMPO, DE VOLTA -- e a supressao e deliberada.
+    //
+    // Mesma razao do PacoteResource: a regra java:S6813 nao se aplica a um
+    // recurso JAX-RS, e obedece-la impede o deploy.
+    @SuppressWarnings("java:S6813")
     @Inject
-    public SaudeResource(CacheDePacotes cache) {
-        this.cache = cache;
-    }
+    private CacheDePacotes cache;
 
     @GET
     public Response estado() {
