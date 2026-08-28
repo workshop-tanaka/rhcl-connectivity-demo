@@ -998,6 +998,47 @@ spec:
   owner: group:default/platform-team
   system: travel-agency
 ---
+# ---------------------------------------------------------------------------
+# System: echo-api -- o segundo produto.
+#
+# POR QUE ELE TEM System PROPRIO. O echo-api e uma APLICACAO (camada=aplicacao)
+# e vivia no System 'rhcl-ingress', que existe para a BORDA -- o Gateway e as
+# policies de escopo de gateway. Era a unica entidade do catalogo cuja camada
+# contradizia o proprio System.
+#
+# E ele nao pertence ao 'travel-agency': e um servico em namespace separado, e
+# o Ato 3 depende exatamente de ele ser um produto DIFERENTE atras do MESMO
+# Gateway. Dizer que e da agencia de viagens apagaria o ponto do ato.
+#
+# Fica com uma entidade so por enquanto. Na Fase 4, quando as policies do echo
+# (echo-api-authpolicy e echo-plans, hoje so em env/*/devportal/echo-api.yaml)
+# virarem Resources, este System fica simetrico com o travel-agency: app mais
+# as policies de escopo de rota.
+#
+# A rota (echo-api-route) NAO vem para ca -- ela fica no rhcl-ingress junto com
+# a travel-agency-route, porque rota e objeto de borda. Mesmo criterio para os
+# dois produtos.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: echo-api
+  title: Echo API
+  description: >-
+    Segundo produto publicado no Gateway prod-web. Existe para provar que a
+    fronteira e por PRODUTO, e nao "tem chave / nao tem chave": tem AuthPolicy
+    e PlanPolicy proprias, e a chave de um produto nao abre o outro.
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: echo
+  tags:
+    - rhcl
+    - ato-3
+spec:
+  owner: group:default/platform-team
+  domain: travel
+---
 apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
@@ -1063,7 +1104,12 @@ spec:
   type: service
   lifecycle: production
   owner: group:default/platform-team
-  system: rhcl-ingress
+  # 'echo-api', e nao 'rhcl-ingress': este e um servico, e o rhcl-ingress e a
+  # borda. Era a unica entidade do catalogo cuja camada contradizia o System.
+  # O System homonimo esta declarado logo acima -- kind diferente, ref
+  # diferente ('system:default/echo-api' x 'component:default/echo-api'), o
+  # Backstage nao confunde os dois.
+  system: echo-api
 ---
 # ---------------------------------------------------------------------------
 # Consumidores da API.

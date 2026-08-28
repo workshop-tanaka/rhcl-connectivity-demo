@@ -538,9 +538,28 @@ escopo do `targetRef` — que é o que decide o alcance de cada uma:
   `prod-web-tls-policy`, `prod-web-telemetry`). Valem para **toda** rota anexada.
 - **`travel-agency`** — a aplicação e as policies que miram a HTTPRoute
   (`travel-agency-authpolicy`, `travels-plans`). Valem só para essa API.
+- **`echo-api`** — o segundo produto. Tem `AuthPolicy` e `PlanPolicy` próprias,
+  e é sobre o par dele com o `travels` que o Ato 3 é contado.
+- **`plataforma`** — Authorino, Limitador, Tempo, OTel, Kiali, Grafana, Argo CD,
+  GitLab e Keycloak: o que **executa** as policies. Fica no domínio
+  `plataforma`, e não no `travel` — a demo separa o que sustenta do que vende.
+
+> As duas HTTPRoutes ficam no `rhcl-ingress`, e não no System do seu produto:
+> rota é objeto de borda. É o mesmo critério para os dois, e é o que faz a
+> pergunta *"o que mais está atrás do prod-web?"* ter uma lista só.
 
 Os três parceiros do Ato 2 aparecem como consumidores, um por API key — o
 portal mostra **quem consome a API e em qual tier**.
+
+**Filtros que o catálogo passou a aceitar** (ver
+[docs/CATALOGO.md](CATALOGO.md)) — úteis ao vivo, para mostrar só o que o ato
+em questão usa:
+
+| Filtro | Devolve |
+| --- | --- |
+| tag `ato-3` | `prod-web`, `ingress-gateway-rlp-lowlimits`, `ratelimit-policy-travels`, `echo-api` |
+| label `rhcl.demo/escopo-policy=gateway` | as 5 que valem para **toda** rota |
+| label `rhcl.demo/escopo-policy=rota` | as 3 que valem só para a sua API |
 
 **b) O golden path.** *Create* tem três templates, e a ordem deles é a jornada:
 
