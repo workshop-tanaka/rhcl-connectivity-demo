@@ -9,7 +9,7 @@
       O JNDI casa com POSTGRESQL_DATASOURCE=TravelPackagesDS, que o
       WildFlyServer injeta (06-eap.yaml). A camada postgresql-datasource do
       Galleon monta o datasource a partir dessas variaveis em tempo de
-      EXECUCAO -- por isso nenhuma senha entra na imagem e a mesma imagem
+      EXECUCAO — por isso nenhuma senha entra na imagem e a mesma imagem
       serve qualquer ambiente.
     -->
     <jta-data-source>java:jboss/datasources/TravelPackagesDS</jta-data-source>

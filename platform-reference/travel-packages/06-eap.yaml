@@ -46,6 +46,14 @@ metadata:
     # Mesma armadilha medida em 2026-08-28 com os PipelineRun.
     backstage.io/kubernetes-id: travel-packages
 spec:
+  # A imagem e a NOSSA, construida pela pipeline e publicada no Quay -- entao
+  # nao depende de resolver nome de repositorio da Red Hat. O que ainda
+  # depende e a imagem BASE do Dockerfile: em 2026-08-28 nenhum dos caminhos
+  # tentados resolveu com o pull secret do cluster (o operador mora sob
+  # registry.redhat.io/jboss-eap/, e nao jboss-eap-8/). Settle com:
+  #   oc get secret pull-secret -n openshift-config \
+  #     -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/auth.json
+  #   oc image info -a /tmp/auth.json registry.redhat.io/jboss-eap/<repo>:<tag>
   applicationImage: quay.io/__QUAY_ORG__/travel-packages:latest
   replicas: 2
   serviceAccountName: travel-packages
@@ -96,16 +104,14 @@ spec:
       value: "-Djava.io.tmpdir=/tmp -Djava.net.preferIPv4Stack=true"
 
   # ------------------------------------------------------------------------
-  # SONDAS EXPLICITAS, e este e o ponto mais fragil deste arquivo.
+  # SONDAS EXPLICITAS. CONFERIDO no cluster em 2026-08-28: a CRD do
+  # eap-operator.v3.2.24 aceita readinessProbe, livenessProbe e startupProbe
+  #   oc explain wildflyserver.spec | grep -i probe
   #
-  # O operador, por padrao, sonda o subsistema de health -- que a camada
-  # 'jaxrs-server' NAO traz (ele vem em 'cloud-server', que arrasta bastante
-  # servidor junto). Por isso apontamos para o recurso JAX-RS /api/saude.
-  #
-  # SE A CRD DESTE OPERADOR RECUSAR ESTES CAMPOS: a alternativa e acrescentar
-  # a camada 'microprofile-health' ao eap-maven-plugin no pom.xml e remover
-  # este bloco. Conferir com:
-  #   oc explain wildflyserver.spec.readinessProbe
+  # Por que explicitas: o operador, por padrao, sonda o subsistema de health --
+  # que a camada 'jaxrs-server' NAO traz (ele vem em 'cloud-server', que
+  # arrasta bastante servidor junto). Por isso apontamos para o recurso JAX-RS
+  # /api/saude, que custa vinte linhas em vez de uma camada inteira.
   # ------------------------------------------------------------------------
   readinessProbe:
     httpGet:

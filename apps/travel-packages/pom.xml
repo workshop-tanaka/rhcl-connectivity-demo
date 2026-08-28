@@ -14,7 +14,7 @@
   filtrados por tier — o mesmo free/silver/gold dos planos do RHCL. É o que
   faz o Ato 2 ter efeito de negócio, e não só código de status.
 
-  ---------------------------------------------------------------------------
+  ===========================================================================
   EAP 8 NÃO SE CONFIGURA POR VARIÁVEL DE AMBIENTE NO BUILD.
 
   No EAP 7 havia GALLEON_PROVISION_LAYERS na imagem s2i. No 8 esse caminho é
@@ -45,24 +45,32 @@
     <failOnMissingWebXml>false</failOnMissingWebXml>
 
     <!--
-      AS QUATRO COORDENADAS QUE PRECISAM SER CONFIRMADAS ANTES DO PRIMEIRO
-      BUILD. Elas vêm do repositório Maven da Red Hat, não do Central, e a
-      versão exata muda a cada micro-release do EAP. Confirmar assim, já com
-      o Nexus da etapa 'cicd' no caminho:
+      COORDENADAS CONFERIDAS contra maven.repository.redhat.com em 2026-08-28.
+      A primeira versão deste arquivo tinha TRÊS das quatro erradas, e ainda
+      apontava para a linha 8.0 — a atual é a 8.1. Comando que resolve:
 
-        curl -s 'http://nexus.cicd.svc:8081/service/rest/v1/search?repository=maven-public&group=org.jboss.eap&name=eap-galleon-pack' \
-          | python3 -m json.tool | grep '"version"'
+        curl -s https://maven.repository.redhat.com/ga/org/jboss/eap/\
+        wildfly-ee-galleon-pack/maven-metadata.xml | grep '<version>' | tail -3
 
-      Errar aqui dá 'Could not resolve artifact' no primeiro build, que é uma
-      falha barata e imediata -- e é por isso que estão em propriedades, num
-      lugar só, em vez de espalhadas pelas declarações.
+      O ERRO MAIS CARO ERA O NOME, e não a versão: 'eap-galleon-pack' não
+      existe (HTTP 404 no metadata). O feature pack base chama-se
+      'wildfly-ee-galleon-pack', sob o mesmo groupId org.jboss.eap.
+
+      FIXAR VERSÃO AQUI É A OPÇÃO CONSERVADORA, não a recomendada. O EAP 8.1
+      publica CANAIS (org.jboss.eap.channels:eap-8.1, hoje na 1.7.1.GA-redhat-00001)
+      e o eap-maven-plugin 2.x os aceita em <channels>, resolvendo as versões
+      dos feature packs sozinho — o que faz este bloco inteiro desaparecer.
+      Ficou de fora porque a forma exata do <channels> não foi verificada
+      contra um build real, e coordenada verificada vale mais que configuração
+      elegante que ninguém rodou. É a primeira coisa a trocar depois do
+      primeiro build verde.
     -->
-    <version.eap.galleon.pack>8.0.0.GA-redhat-00011</version.eap.galleon.pack>
-    <version.eap.datasources.pack>2.0.0.Final-redhat-00003</version.eap.datasources.pack>
-    <version.eap.maven.plugin>1.0.0.Final-redhat-00014</version.eap.maven.plugin>
-    <version.eap.bom>8.0.0.GA-redhat-00009</version.eap.bom>
+    <version.eap.galleon.pack>8.1.1.GA-redhat-00019</version.eap.galleon.pack>
+    <version.eap.datasources.pack>8.1.1.Final-redhat-00016</version.eap.datasources.pack>
+    <version.eap.maven.plugin>2.0.1.Final-redhat-00016</version.eap.maven.plugin>
+    <version.eap.bom>8.1.7.GA-redhat-00004</version.eap.bom>
 
-    <!-- Hot Rod: cliente do Data Grid. Vai DENTRO do WAR (escopo compile) --
+    <!-- Hot Rod: cliente do Data Grid. Vai DENTRO do WAR (escopo compile) —
          não é uma camada do servidor, e por isso não aparece no Galleon. -->
     <version.infinispan>15.0.11.Final</version.infinispan>
   </properties>
@@ -145,7 +153,7 @@
           <feature-packs>
             <feature-pack>
               <groupId>org.jboss.eap</groupId>
-              <artifactId>eap-galleon-pack</artifactId>
+              <artifactId>wildfly-ee-galleon-pack</artifactId>
               <version>${version.eap.galleon.pack}</version>
             </feature-pack>
             <feature-pack>
