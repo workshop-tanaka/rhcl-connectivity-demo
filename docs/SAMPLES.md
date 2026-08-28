@@ -107,10 +107,10 @@ ele que não declare a sua própria é **negada** — foi por isso que o `echo-a
 precisou de uma. Uma amostra sem RHCL pendurada lá responderia 401 em tudo, e a
 causa estaria num objeto de outro namespace.
 
-**E o `Route` do OpenShift?** Não há LoadBalancer num SNO. O `Service` que a
-`GatewayClass` cria nasce `ClusterIP`; sem o `Route`, a amostra sobe inteira e
-não é alcançável de fora — com o `Gateway` reportando `Programmed=True`, o que
-se lê como "está publicado". A terminação é *edge*, com o certificado padrão do
+**E o `Route` do OpenShift?** Não há LoadBalancer neste sandbox. Sem o `Route`,
+a amostra sobe inteira e não é alcançável de fora. E o `Service` que a
+`GatewayClass` cria nasce **LoadBalancer**, o que produz a armadilha da §8.2 —
+por isso os manifests forçam `ClusterIP`. A terminação é *edge*, com o certificado padrão do
 router (real neste cluster), o que evita copiar certificado para dentro do
 namespace da amostra e conviver com a renovação divergindo.
 

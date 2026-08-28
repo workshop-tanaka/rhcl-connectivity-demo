@@ -32,9 +32,9 @@
 # causa estaria num objeto de outro namespace. Gateway proprio resolve isso e,
 # de quebra, torna cada amostra removivel sozinha.
 #
-# O preco e um pod de gateway por amostra. Num SNO isso se sente, e e o motivo
-# de o grpc-echo NAO ter gateway: o upstream dele tambem nao tem, e o que ele
-# demonstra -- canario sobre gRPC -- e leste-oeste.
+# O preco e um pod de gateway por amostra, e e o motivo de o grpc-echo NAO ter
+# gateway: o upstream dele tambem nao tem, e o que ele demonstra -- canario
+# sobre gRPC -- e leste-oeste.
 #
 # ---------------------------------------------------------------------------
 # HTTP NA 80, e nao HTTPS: e o que o upstream declara. Quem termina TLS aqui e

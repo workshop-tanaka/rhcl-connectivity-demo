@@ -71,8 +71,8 @@ a `GatewayClass istio`, a partir do próprio recurso `Gateway`. A variante
 nunca recebe tráfego — sem erro em lugar nenhum.
 
 [21-route-openshift.yaml](21-route-openshift.yaml) publica esse gateway: **não
-há LoadBalancer num SNO**, e sem o `Route` a amostra sobe inteira e não é
-alcançável de fora, com o `Gateway` reportando `Programmed=True`.
+há LoadBalancer neste sandbox**, e sem o `Route` a amostra sobe inteira e não é
+alcançável de fora.
 
 **Gateway próprio, e não o `prod-web`.** O `prod-web` carrega uma `AuthPolicy`
 de escopo de gateway (`prod-web-deny-all`): toda rota anexada a ele que não
@@ -86,11 +86,11 @@ responderia 401 em tudo, e a causa estaria num objeto de outro namespace.
 | tudo em `bookinfo.yaml` | um arquivo por serviço, com prefixo numérico | o `ApplicationSet` sincroniza `manifests/[0-9]*.yaml`, e a ordem é a da explicação |
 | `securityContext.runAsUser: 1000` (variante `-psa`) | sem `runAsUser` | sob a SCC `restricted-v2` o UID sai da faixa do namespace; valor fixo fora dela faz o pod ser **recusado na admissão**, com mensagem sobre SCC |
 | `networking/bookinfo-gateway.yaml` | a variante `gateway-api/` | não há `istio-ingressgateway` neste cluster (acima) |
-| sem publicação externa | `Route` do OpenShift, edge | não há LoadBalancer num SNO |
+| sem publicação externa | `Route` do OpenShift, edge | **não há LoadBalancer neste sandbox** — é o mesmo motivo pelo qual o `prod-web` é publicado por `Route` passthrough |
 | `destination-rule-all-mtls.yaml` com `ISTIO_MUTUAL` | mTLS só na `PeerAuthentication` | duas origens para o mesmo fato fariam a resposta a "de onde vem o mTLS?" depender de qual arquivo se abriu primeiro |
 | sem `VirtualService` de `reviews` no default | 90/10 já aplicado | o canário é o que a amostra vem mostrar |
 | anotação `prometheus.io/scrape` | removida | aqui quem raspa é o user workload monitoring por `ServiceMonitor`; a anotação seria pista falsa |
-| sem limites de recurso | `requests`/`limits` em todos | o cluster da demo é SNO e roda ACS, Quay, GitLab e Tempo junto |
+| sem limites de recurso | `requests`/`limits` em todos | o cluster da demo roda ACS, Quay, GitLab e Tempo junto |
 
 ## Medido no cluster — 2026-08-28
 

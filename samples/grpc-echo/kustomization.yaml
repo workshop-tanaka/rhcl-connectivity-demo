@@ -7,8 +7,8 @@ kind: Kustomization
 # ESTA E A UNICA DAS QUATRO AMOSTRAS SEM ENTRADA EXTERNA, e nao e omissao: o
 # samples/grpc-echo do upstream tambem nao tem. Ele e uma carga de TESTE, e o
 # que esta amostra demonstra -- canario 80/20 sobre gRPC, com mTLS e a dimensao
-# grpc_status -- e leste-oeste. Um gateway aqui acrescentaria um pod num SNO
-# para provar algo que a amostra nao prova.
+# grpc_status -- e leste-oeste. Um gateway aqui acrescentaria um pod para
+# provar algo que a amostra nao prova.
 #
 # Chegar nele, do proprio cluster:
 #

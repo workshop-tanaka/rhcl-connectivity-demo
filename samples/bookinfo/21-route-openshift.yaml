@@ -1,10 +1,14 @@
 # ===========================================================================
 # Como o gateway da amostra chega ao mundo, NESTE cluster.
 #
-# NAO HA LoadBalancer num SNO. O Service que a GatewayClass 'istio' cria
-# (bookinfo-gateway-istio) nasce como ClusterIP, e sem isto a amostra sobe
-# inteira e nao e alcancavel de fora -- o Gateway reporta Programmed=True, o
-# que se le como "esta publicado" e nao esta.
+# NAO HA LoadBalancer NESTE SANDBOX -- e o mesmo motivo pelo qual o prod-web e
+# publicado por Route passthrough. Sem isto a amostra sobe inteira e nao e
+# alcancavel de fora.
+#
+# O Service que a GatewayClass 'istio' cria nasce LoadBalancer, e e dai que vem
+# a armadilha registrada no cabecalho de 20-: EXTERNAL-IP <pending> para sempre
+# e Gateway Programmed=False, num gateway que funciona. Por isso 20- forca
+# ClusterIP.
 #
 # EDGE, e nao passthrough. O prod-web da demo usa passthrough porque ELE
 # termina o TLS (tem o Secret api-tls). Aqui o listener e HTTP na 80, como o

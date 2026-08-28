@@ -11,7 +11,7 @@ governa gRPC, está pronta em [rhcl/](rhcl/), fora do `kustomization.yaml`.
 `samples/grpc-echo` do upstream **não traz ingress nenhum** — é uma carga de
 teste. E o que esta amostra demonstra sozinha é leste-oeste: canário 80/20
 sobre gRPC, mTLS, e a dimensão `grpc_status`. Um gateway aqui acrescentaria um
-pod num SNO para provar algo que a amostra não prova.
+pod para provar algo que a amostra não prova.
 
 O caminho **externo** de gRPC já existe nesta demo, em
 [base/grpc/](../../base/grpc/) — pelo `prod-web`, com passthrough e ALPN. Ele é

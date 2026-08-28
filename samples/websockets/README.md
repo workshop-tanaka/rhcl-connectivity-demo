@@ -80,9 +80,9 @@ melhor do que trocar uma pela outra.
 | --- | --- | --- |
 | `route.yaml`: `Gateway` do Istio + `VirtualService` | `Gateway` API + `HTTPRoute` | não existe `istio-ingressgateway` neste cluster — o `Gateway` do upstream ficaria aceito e sem endereço, e o `VirtualService` nunca receberia tráfego |
 | `hosts: "*"` | hostname no `Route`, e a rota sem `hostnames` | `*` capturaria tráfego de qualquer hostname que chegasse ao gateway |
-| sem publicação externa | `Route` do OpenShift, edge, com `timeout: 1h` | não há LoadBalancer num SNO |
+| sem publicação externa | `Route` do OpenShift, edge, com `timeout: 1h` | **não há LoadBalancer neste sandbox** — o `Service` do gateway fica com `EXTERNAL-IP <pending>` |
 | sem `DestinationRule` | pool de conexão declarado | ver acima |
-| sem limites de recurso | `requests`/`limits` | o cluster da demo é SNO |
+| sem limites de recurso | `requests`/`limits` | o cluster da demo roda ACS, Quay, GitLab e Tempo junto |
 
 ## O que ainda não foi executado num cluster
 
