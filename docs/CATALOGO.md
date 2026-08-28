@@ -130,8 +130,7 @@ Multivaloradas, e é o que o filtro do catálogo mostra na tela.
 | `ato-1` … `ato-7` | o que aquele ato usa. Mais de uma por entidade quando for o caso |
 | `kuadrant` | policies e control plane do RHCL |
 | `service-mesh` | o par leste-oeste do Ato 7 e o control plane do Istio |
-| `gateway-api` | Gateway e HTTPRoute **descritos à mão** |
-| `httproute` | HTTPRoute **descoberta pelo provider** — ver §5.1. Não escreva esta tag à mão |
+| `gateway-api` | Gateway e HTTPRoute, descritas à mão **ou** descobertas pelo provider (§5.1) — o que as distingue é `rhcl.demo/origem`, não a tag |
 | `observabilidade` | Tempo, OTel, Kiali, Grafana |
 | `gitops` | Argo CD e o que ele reconcilia |
 | `golden-path` | gerado pelos templates — **já em uso**, vem do skeleton |
@@ -165,7 +164,7 @@ para depois da Fase 4, e a decisão consciente é: por ora convivem. O que as
 liga ao resto é a entidade `Component` correspondente, que carrega
 `rhcl.demo/produto`.
 
-### 5.1 O provider de HTTPRoute — dívida conhecida
+### 5.1 O provider de HTTPRoute
 
 `plugins/connectivity-link-ops-backend/src/providers/HTTPRouteEntityProvider.ts`
 publica no catálogo toda HTTPRoute do cluster que **não** foi descrita à mão
@@ -173,36 +172,37 @@ publica no catálogo toda HTTPRoute do cluster que **não** foi descrita à mão
 há duplicata). É a fonte que faz a rota criada pelo golden path aparecer
 sozinha.
 
-Ele **ainda não fala este vocabulário**, e a divergência é visível:
+Ele fala este vocabulário desde 2026-08-28:
 
 | | rota curada | rota do provider |
 | --- | --- | --- |
-| labels | `camada=borda`, `origem=repo`, `produto=…` | **nenhuma** |
-| tags | `rhcl`, `gateway-api` | `rhcl`, `httproute` |
+| labels | `camada=borda`, `origem=repo`, `produto=…` | `camada=borda`, `origem=cluster` |
+| tags | `rhcl`, `gateway-api` | `rhcl`, `gateway-api` |
 | owner | `platform-team` | `unknown` |
 
-Três consequências, e nenhuma é fatal — por isso é dívida e não defeito:
+`origem` é o que as distingue — e é o valor `cluster` do §3, que existia na
+tabela desde a Fase 1 reservado para exatamente este caso.
 
-- **`origem: cluster` é prometido no §3 e ninguém o emite.** O valor existe na
-  tabela exatamente para este caso.
-- **Duas tags para o mesmo conceito.** Filtrar por `gateway-api` mostra as duas
-  rotas curadas e esconde as descobertas. É por isso que as duas estão na
-  tabela do §4 com a distinção escrita: enquanto o provider não mudar, saber
-  qual delas usar depende de saber de onde a entidade veio.
-- `owner: unknown` é **deliberado** e fica — o cluster não declara dono, e
-  herdar seria inventar. O próprio provider registra isso em comentário.
+`owner: unknown` é **deliberado** e fica: o cluster não declara dono, e herdar
+seria inventar. O próprio provider registra isso em comentário.
 
-O conserto é de uma linha no `entidade()` do provider — acrescentar
+> **Antes disso a tag era `httproute`**, e as curadas levavam `gateway-api` —
+> duas tags para o mesmo conceito. Filtrar por uma escondia metade das rotas, e
+> saber qual usar dependia de saber de onde a entidade tinha vindo. Se você
+> encontrar `httproute` em alguma anotação ou documento antigo, é isto que
+> mudou.
 
-```ts
-labels: { 'rhcl.demo/camada': 'borda', 'rhcl.demo/origem': 'cluster' },
+**O `valida-catalogo.sh` não alcança este arquivo** — ele lê os YAML do
+repositório, e entidade de provider só existe em tempo de execução. Quem guarda
+o vocabulário aqui é um teste:
+
+```
+src/providers/HTTPRouteEntityProvider.test.ts
+  ✓ fala o vocabulario de docs/CATALOGO.md — senao o filtro do portal mente
 ```
 
-e trocar a tag `httproute` por `gateway-api`. Não foi feito junto da Fase 2
-porque o arquivo estava sob edição de outra frente de trabalho, e o
-`valida-catalogo.sh` não alcança TypeScript: ele lê os YAML do repositório, e
-entidade de provider só existe em tempo de execução. Quem mexer no provider,
-mexa aqui também.
+Conferido nos dois sentidos: com o provider revertido para `httproute` e sem
+labels, o teste falha; com a correção, passa. Ao mexer nesta página, mexa nele.
 
 ---
 
@@ -230,7 +230,9 @@ confere.
 
 - **Entidades de provider.** O validador lê os YAML do repositório; o que o
   `HTTPRouteEntityProvider` e o plugin Kuadrant publicam só existe em tempo de
-  execução. É o buraco que o §5.1 descreve.
+  execução. Para o `HTTPRouteEntityProvider` — que é nosso — quem cobre é o
+  teste unitário citado no §5.1. Para o provider do plugin Kuadrant, que não
+  é, não há cobertura: as tags dele vêm dos `APIProduct` (§5).
 - **O skeleton.** Tem sintaxe de template (`${{ values.name }}`) e não é YAML
   de entidade até o scaffolder renderizar — o CI o exclui pelo mesmo motivo.
   Rode `bash scripts/valida-catalogo.sh <arquivo>` num render de teste se

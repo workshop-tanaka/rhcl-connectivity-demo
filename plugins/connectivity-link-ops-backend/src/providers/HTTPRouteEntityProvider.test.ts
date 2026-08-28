@@ -111,6 +111,29 @@ describe('HTTPRouteEntityProvider', () => {
     expect(e.metadata.annotations['backstage.io/kubernetes-namespace']).toBe('travel-agency');
   });
 
+  // ESTE TESTE É O ÚNICO GUARDA DO VOCABULÁRIO AQUI. O
+  // scripts/valida-catalogo.sh confere rótulos e tags de rhdh/catalog/*.yaml,
+  // mas não alcança entidade de provider: ela só existe em tempo de execução.
+  // Sem este teste, o provider volta a divergir de docs/CATALOGO.md em silêncio
+  // -- foi o que aconteceu até 2026-08-28, com tag 'httproute' de um lado e
+  // 'gateway-api' do outro para a mesma coisa.
+  it('fala o vocabulario de docs/CATALOGO.md — senao o filtro do portal mente', async () => {
+    const { p, emitidas, conectar } = montar({ catalogo: async () => ({ items: [] }) });
+    await conectar();
+    await p.sincronizar();
+
+    const e = emitidas[emitidas.length - 1].entities[0].entity;
+    // camada=borda: rota é objeto de borda, como as curadas em catalog/borda.yaml
+    expect(e.metadata.labels['rhcl.demo/camada']).toBe('borda');
+    // origem=cluster: nasce do cluster, e não deste repositório
+    expect(e.metadata.labels['rhcl.demo/origem']).toBe('cluster');
+    // a MESMA tag das rotas curadas -- duas tags para o mesmo conceito fariam
+    // o filtro por 'gateway-api' esconder metade das rotas
+    expect(e.metadata.tags).toContain('gateway-api');
+    expect(e.metadata.tags).toContain('rhcl');
+    expect(e.metadata.tags).not.toContain('httproute');
+  });
+
   it('o nome carrega o namespace — duas rotas homonimas nao colidem', async () => {
     const { p, emitidas, conectar } = montar({
       rotas: [rota('a', 'api'), rota('b', 'api')],

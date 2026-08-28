@@ -213,7 +213,24 @@ export class HTTPRouteEntityProvider implements EntityProvider {
             ? { 'connectivity-link.rhcl/gateway': `${pai.namespace ?? ns}/${pai.name}` }
             : {}),
         },
-        tags: ['rhcl', 'httproute'],
+        // O MESMO VOCABULÁRIO DAS ENTIDADES CURADAS -- docs/CATALOGO.md.
+        //
+        // A tag era 'httproute', e as rotas descritas à mão levam 'gateway-api'.
+        // Duas tags para o mesmo conceito: filtrar por uma escondia metade das
+        // rotas, e qual delas usar dependia de saber de onde a entidade tinha
+        // vindo -- que é exatamente o que o rótulo 'origem' passa a dizer.
+        //
+        // 'origem: cluster' existia na tabela do §3 desde a Fase 1 reservado
+        // para este caso, e até aqui ninguém o emitia.
+        //
+        // O scripts/valida-catalogo.sh NÃO alcança isto: ele lê os YAML do
+        // repositório, e entidade de provider só existe em tempo de execução.
+        // Se o vocabulário mudar, este arquivo tem de ser mudado junto.
+        labels: {
+          'rhcl.demo/camada': 'borda',
+          'rhcl.demo/origem': 'cluster',
+        },
+        tags: ['rhcl', 'gateway-api'],
         links: hostnames.map(h => ({
           url: `https://${h}`,
           title: h,
