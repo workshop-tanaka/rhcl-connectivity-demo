@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<persistence xmlns="https://jakarta.ee/xml/ns/persistence"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xsi:schemaLocation="https://jakarta.ee/xml/ns/persistence
+                                 https://jakarta.ee/xml/ns/persistence/persistence_3_0.xsd"
+             version="3.0">
+  <persistence-unit name="travel-packages" transaction-type="JTA">
+    <!--
+      O JNDI casa com POSTGRESQL_DATASOURCE=TravelPackagesDS, que o
+      WildFlyServer injeta (06-eap.yaml). A camada postgresql-datasource do
+      Galleon monta o datasource a partir dessas variaveis em tempo de
+      EXECUCAO -- por isso nenhuma senha entra na imagem e a mesma imagem
+      serve qualquer ambiente.
+    -->
+    <jta-data-source>java:jboss/datasources/TravelPackagesDS</jta-data-source>
+
+    <properties>
+      <!--
+        'none' NAO E CONSERVADORISMO: a tabela nasce do seed.sql, com trigger
+        de atualizado_em, indices e a publication travel_pub do CDC. Deixar o
+        Hibernate criar ou validar-e-corrigir produziria um schema PARECIDO,
+        sem trigger e sem publication, e o Debezium pararia de emitir sem
+        nenhum erro que aponte para aqui.
+      -->
+      <property name="jakarta.persistence.schema-generation.database.action" value="none"/>
+      <property name="hibernate.hbm2ddl.auto" value="none"/>
+      <property name="hibernate.dialect" value="org.hibernate.dialect.PostgreSQLDialect"/>
+      <!-- Ligar em investigacao; no palco polui o log a ponto de esconder o
+           que interessa. -->
+      <property name="hibernate.show_sql" value="false"/>
+    </properties>
+  </persistence-unit>
+</persistence>

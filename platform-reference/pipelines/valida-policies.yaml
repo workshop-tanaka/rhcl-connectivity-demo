@@ -1,14 +1,49 @@
 # ===========================================================================
 # Pipeline de validacao das policies do Connectivity Link.
 #
-# POR QUE ESTA e nao um "build": os servicos desta demo rodam as imagens de
-# exemplo do Kiali -- nao ha codigo para compilar aqui. O que ESTE projeto
-# entrega e policy, e o que faz sentido validar em CI e a policy.
+# ---------------------------------------------------------------------------
+# REESCRITA EM 2026-08-28. A versao anterior nao validava nada: os tres steps
+# imprimiam a propria conclusao com 'echo'. Nao havia clone, nao havia
+# kustomize, e nao havia como reprovar -- a aba CI do portal mostrava
+# execucoes verdes que seriam verdes para sempre.
 #
-# A pipeline renderiza o kustomize da camada de policies e confere que o YAML
-# resultante e valido e que os campos obrigatorios do Kuadrant estao presentes.
-# E o argumento do Ato 6 levado a serio: se a policy e codigo, ela passa por
-# revisao E por CI, como qualquer codigo.
+# Passava como ilustracao enquanto o assunto da demo era policy na borda.
+# Deixou de passar quando a conversa virou engenharia de plataforma: e
+# exatamente esse o ponto que o cliente testa.
+# ---------------------------------------------------------------------------
+#
+# O QUE ELA CONFERE, e por que cada um: as tres checagens sao as tres
+# armadilhas que ja custaram ambiente neste projeto, e todas compartilham o
+# mesmo modo de falhar -- a policy fica aceita, o caminho de dados continua
+# respondendo 200, e ninguem percebe ate o palco.
+#
+#   1. AuthPolicy com spec.defaults.rules em vez de spec.rules
+#      -> Accepted=True, Enforced=False, nenhuma chave funciona
+#   2. RateLimitPolicy plana no mesmo alvo de um PlanPolicy
+#      -> no RHCL 1.4 a precedencia inverteu; a plana vence e os tiers somem
+#   3. hostname com mais de um rotulo sob .apps
+#      -> nao cabe no wildcard, e emitir cert por DNS01 quebra a resolucao do
+#         proprio host (armadilha 6 do RUNBOOK)
+#
+# Nenhuma delas precisa de cluster: sao propriedades do YAML renderizado. Por
+# isso a pipeline nao pede RBAC e roda igual em qualquer lugar.
+#
+# ---------------------------------------------------------------------------
+# O QUE SE VALIDA E O QUE SE IMPLANTA -- ler antes de reclamar da checagem 2.
+#
+# 'base/' sozinho CONTEM as duas policies de limite no mesmo alvo
+# (ratelimit-policy-travels e travels-plans). Isso nao e um defeito da base: no
+# RHCL 1.2 a plana era a que valia. Quem resolve para o 1.4 e a camada de
+# ambiente -- env/rhcl-1.4_ocp-4.21 remove a plana do render com $patch:
+# delete, e o comentario dela explica por que.
+#
+# Consequencia pratica: apontar o parametro 'caminho' para a raiz de um repo
+# que so tem base/ faz a checagem 2 REPROVAR -- corretamente, porque naquele
+# render as duas coexistem mesmo. Para a pipeline falar do que e IMPLANTADO,
+# o repo precisa carregar env/ e overlays/ junto, e 'caminho' precisa apontar
+# para o overlay. Verificado em 2026-08-28 rodando as duas checagens contra o
+# 'oc kustomize base' deste repo.
+# ---------------------------------------------------------------------------
 #
 # Os PipelineRun carregam backstage.io/kubernetes-id: travels, que e o que liga
 # a execucao ao componente na aba CI do portal.
@@ -33,44 +68,244 @@ spec:
   params:
     - name: repo
       type: string
-      default: https://gitlab.apps.cluster-cxr7d.dyn.redhatworkshops.io/rhcl/policies/rhcl-policies.git
+      default: https://gitlab.__DOMAIN__/rhcl/policies/rhcl-policies.git
+    - name: revisao
+      type: string
+      default: main
+    - name: caminho
+      type: string
+      description: >-
+        o que renderizar dentro do repo clonado. '.' so faz sentido se a raiz
+        do repo for a base; para validar o que e implantado, aponte para o
+        overlay (ex.: overlays/rhcl-1.4).
+      default: .
+
+  workspaces:
+    - name: fonte
+
   tasks:
+    # -----------------------------------------------------------------------
     - name: renderiza
       params:
         - name: repo
           value: $(params.repo)
+        - name: revisao
+          value: $(params.revisao)
+        - name: caminho
+          value: $(params.caminho)
+      workspaces:
+        - name: fonte
+          workspace: fonte
       taskSpec:
         params:
           - name: repo
             type: string
+          - name: revisao
+            type: string
+          - name: caminho
+            type: string
+        workspaces:
+          - name: fonte
+        results:
+          - name: documentos
+            description: quantos manifestos o kustomize produziu
         steps:
           - name: kustomize-build
-            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            image: registry.redhat.io/openshift4/ose-cli:latest
+            workingDir: $(workspaces.fonte.path)
             script: |
-              #!/bin/sh
-              echo "renderizando a camada de policies de $(params.repo)"
-              echo "kustomize build ."
-              echo "OK -- 22 manifestos renderizados"
+              #!/bin/bash
+              set -euo pipefail
+              microdnf install -y git >/dev/null 2>&1 || true
+
+              rm -rf repo
+              # sslVerify desligado: o GitLab da demo serve com o wildcard do
+              # proprio cluster, que a imagem base nao conhece.
+              git -c http.sslVerify=false clone --depth 1 \
+                  --branch "$(params.revisao)" "$(params.repo)" repo
+
+              # 'oc kustomize' e o kustomize embutido -- nao ha binario extra
+              # para baixar, e um cluster sem saida para a internet continua
+              # conseguindo rodar esta pipeline.
+              oc kustomize "repo/$(params.caminho)" > rendered.yaml
+
+              N="$(grep -c '^---' rendered.yaml || true)"
+              echo "$N" | tr -d '\n' > $(results.documentos.path)
+              echo "kustomize build: ${N} documento(s) em rendered.yaml"
+
+    # -----------------------------------------------------------------------
     - name: confere-campos
       runAfter: [renderiza]
+      workspaces:
+        - name: fonte
+          workspace: fonte
       taskSpec:
+        workspaces:
+          - name: fonte
         steps:
           - name: campos-obrigatorios
-            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            image: registry.access.redhat.com/ubi9/python-311:latest
+            workingDir: $(workspaces.fonte.path)
             script: |
-              #!/bin/sh
-              echo "AuthPolicy    targetRef presente ......... ok"
-              echo "PlanPolicy    tiers declarados ........... ok"
-              echo "RateLimitPolicy  limites por plano ....... ok"
-              echo "TelemetryPolicy  labels de dimensao ...... ok"
+              #!/usr/bin/env python3
+              import sys, yaml
+
+              docs = [d for d in yaml.safe_load_all(open("rendered.yaml")) if d]
+              falhas, vistos = [], []
+
+              # Alvo de uma policy, normalizado em texto -- e a chave que
+              # detecta duas policies mirando a mesma coisa.
+              def alvo(d):
+                  t = (d.get("spec") or {}).get("targetRef") or {}
+                  ns = (d.get("metadata") or {}).get("namespace", "")
+                  return f"{t.get('kind','?')}/{t.get('name','?')}@{ns}"
+
+              limitadores = {}
+
+              for d in docs:
+                  kind = d.get("kind")
+                  nome = (d.get("metadata") or {}).get("name", "<sem nome>")
+                  spec = d.get("spec") or {}
+
+                  if kind in ("AuthPolicy", "RateLimitPolicy", "PlanPolicy", "TelemetryPolicy"):
+                      vistos.append(kind)
+                      if not spec.get("targetRef"):
+                          falhas.append(f"{kind}/{nome}: sem spec.targetRef")
+
+                  # ARMADILHA 1 -- AuthSchemeNotFound.
+                  # spec.defaults.rules e aceito pelo controlador e NAO entra
+                  # em vigor: Accepted=True, Enforced=False, e nenhuma chave
+                  # funciona. As regras tem de estar em spec.rules.
+                  if kind == "AuthPolicy":
+                      if "rules" in (spec.get("defaults") or {}):
+                          falhas.append(
+                              f"AuthPolicy/{nome}: regras sob spec.defaults.rules -- "
+                              "use spec.rules, ou a policy fica Enforced=False")
+                      elif not spec.get("rules"):
+                          falhas.append(f"AuthPolicy/{nome}: sem spec.rules")
+
+                  if kind == "PlanPolicy":
+                      planos = spec.get("plans") or []
+                      if not planos:
+                          falhas.append(f"PlanPolicy/{nome}: nenhum plano declarado")
+                      for p in planos:
+                          if not p.get("limits"):
+                              falhas.append(
+                                  f"PlanPolicy/{nome}: plano '{p.get('tier','?')}' sem limits")
+                      limitadores.setdefault(alvo(d), []).append(f"PlanPolicy/{nome}")
+
+                  if kind == "RateLimitPolicy":
+                      if not (spec.get("limits") or (spec.get("defaults") or {}).get("limits")):
+                          falhas.append(f"RateLimitPolicy/{nome}: sem limits")
+                      limitadores.setdefault(alvo(d), []).append(f"RateLimitPolicy/{nome}")
+
+                  if kind == "TelemetryPolicy":
+                      metricas = (spec.get("defaults") or spec).get("metrics") or {}
+                      if not metricas.get("default", metricas):
+                          falhas.append(f"TelemetryPolicy/{nome}: sem dimensoes declaradas")
+
+              # ARMADILHA 2 -- precedencia invertida no RHCL 1.4.
+              # Um RateLimitPolicy plano e um PlanPolicy no MESMO alvo: a plana
+              # vence, e os tiers do Ato 2 desaparecem sem produzir 429 em
+              # lugar nenhum. Duas policies de limite no mesmo targetRef nunca
+              # sao intencionais.
+              for t, quem in limitadores.items():
+                  tipos = {q.split("/")[0] for q in quem}
+                  if len(tipos) > 1:
+                      falhas.append(
+                          f"CONFLITO DE PRECEDENCIA em {t}: {', '.join(sorted(quem))} "
+                          "-- no RHCL 1.4 a RateLimitPolicy plana vence o PlanPolicy, "
+                          "e os tiers ficam Enforced=False sem produzir 429. "
+                          "Resolucao neste repo: env/rhcl-1.4_ocp-4.21 remove a plana "
+                          "com $patch: delete -- valide o OVERLAY, nao a base")
+
+              for k in ("AuthPolicy", "PlanPolicy", "RateLimitPolicy", "TelemetryPolicy"):
+                  marca = "ok" if k in vistos else "AUSENTE"
+                  print(f"  {k:20s} {'.' * 22} {marca}")
+
+              if falhas:
+                  print("\nREPROVADO:", file=sys.stderr)
+                  for f in falhas:
+                      print("  - " + f, file=sys.stderr)
+                  sys.exit(1)
+              print("\ncampos obrigatorios: ok")
+
+    # -----------------------------------------------------------------------
     - name: hostname-de-um-rotulo
       runAfter: [renderiza]
+      workspaces:
+        - name: fonte
+          workspace: fonte
       taskSpec:
+        workspaces:
+          - name: fonte
         steps:
           - name: verifica
-            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            image: registry.access.redhat.com/ubi9/python-311:latest
+            workingDir: $(workspaces.fonte.path)
             script: |
-              #!/bin/sh
+              #!/usr/bin/env python3
+              import sys, yaml
+
               # A regra que ja custou um ambiente: hostname sob .apps precisa
-              # ter UM rotulo. 'api.travels.apps...' quebra o wildcard.
-              echo "api-travels.apps.cluster-cxr7d ... um rotulo, ok"
+              # ter UM rotulo. 'api.travels.apps...' nao cabe no wildcard do
+              # cluster, e emitir certificado proprio por DNS01 quebra a
+              # resolucao do proprio host -- armadilha 6 do RUNBOOK.
+              falhas, conferidos = [], 0
+
+              for d in (d for d in yaml.safe_load_all(open("rendered.yaml")) if d):
+                  if d.get("kind") not in ("HTTPRoute", "Gateway"):
+                      continue
+                  spec = d.get("spec") or {}
+                  nomes = list(spec.get("hostnames") or [])
+                  for ouvinte in spec.get("listeners") or []:
+                      if ouvinte.get("hostname"):
+                          nomes.append(ouvinte["hostname"])
+
+                  for h in nomes:
+                      conferidos += 1
+                      if ".apps." not in h:
+                          print(f"  {h} ... fora de .apps, nao se aplica")
+                          continue
+                      rotulo = h.split(".apps.")[0]
+                      if "." in rotulo:
+                          falhas.append(
+                              f"{h}: '{rotulo}' tem {rotulo.count('.') + 1} rotulos "
+                              "-- o wildcard *.apps cobre so um")
+                      else:
+                          print(f"  {h} ... um rotulo, ok")
+
+              if not conferidos:
+                  print("nenhum hostname no render -- nada a conferir")
+
+              if falhas:
+                  print("\nREPROVADO:", file=sys.stderr)
+                  for f in falhas:
+                      print("  - " + f, file=sys.stderr)
+                  sys.exit(1)
+---
+# ===========================================================================
+# Modelo de execucao. O workspace some com o PipelineRun -- esta pipeline nao
+# guarda estado entre execucoes, e o clone e raso.
+# ===========================================================================
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: valida-policies-
+  namespace: travel-agency
+  labels:
+    app: travels
+    backstage.io/kubernetes-id: travels
+spec:
+  pipelineRef:
+    name: valida-policies
+  taskRunTemplate:
+    serviceAccountName: pipeline
+  workspaces:
+    - name: fonte
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 1Gi

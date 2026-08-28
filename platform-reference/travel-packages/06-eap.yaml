@@ -1,0 +1,173 @@
+# ===========================================================================
+# O servico travel-packages em JBoss EAP 8, pelo operador.
+#
+# POR QUE OPERADOR E NAO DEPLOYMENT: o WildFlyServer cuida de replicas e de
+# TRANSACAO EM SCALE-DOWN -- ao reduzir replicas ele mantem o pod vivo ate as
+# transacoes pendentes terminarem, em vez de matar no meio. E o argumento de
+# produto sobre um Deployment escrito a mao, e e visivel ao vivo:
+#   oc scale wildflyserver travel-packages -n travel-packages --replicas=1
+#
+# A IMAGEM VEM DO QUAY, construida pela pipeline build-travel-packages
+# (platform-reference/pipelines/). Este arquivo NAO constroi nada -- se a tag
+# nao existir, os pods ficam em ImagePullBackOff, que e o sintoma correto.
+#
+# ---------------------------------------------------------------------------
+# DUAS COISAS QUE ESTE ARQUIVO NAO PODE RESOLVER SOZINHO, e por isso o
+# provision.sh faz antes (etapa 'pacotes'):
+#
+#   1. o Secret travel-packages-db-app e gerado pelo CloudNativePG em
+#      travel-db, com senha aleatoria. Ele e COPIADO para ca -- nao ha como
+#      escreve-lo num manifest, e um RoleBinding entre namespaces nao ajuda:
+#      env.valueFrom.secretKeyRef so le do proprio namespace.
+#
+#   2. o pull secret do Quay. O repositorio e privado, entao a
+#      ServiceAccount abaixo precisa do secret 'quay-pull' vinculado. Sem
+#      ele o sintoma e ImagePullBackOff com 'unauthorized', que se le como
+#      tag errada.
+# ===========================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: travel-packages
+  namespace: travel-packages
+# imagePullSecrets e preenchido pelo provision.sh depois de criar o secret do
+# Quay -- deixa-lo aqui com um nome que talvez nao exista faria o kubelet
+# reclamar a cada pod.
+---
+apiVersion: wildfly.org/v1alpha1
+kind: WildFlyServer
+metadata:
+  name: travel-packages
+  namespace: travel-packages
+  labels:
+    app: travel-packages
+    # O par que a aba do portal exige. O plugin Kubernetes le pelo SELETOR da
+    # entidade; rotular so com kubernetes-id faz a aba abrir vazia, sem erro.
+    # Mesma armadilha medida em 2026-08-28 com os PipelineRun.
+    backstage.io/kubernetes-id: travel-packages
+spec:
+  applicationImage: quay.io/__QUAY_ORG__/travel-packages:latest
+  replicas: 2
+  serviceAccountName: travel-packages
+
+  # ------------------------------------------------------------------------
+  # As variaveis que a camada 'postgresql-datasource' do Galleon le em tempo
+  # de execucao. Os nomes NAO sao escolha nossa: vem do
+  # eap-datasources-galleon-pack, e errar um deles nao da erro de arranque --
+  # da um datasource apontando para localhost:5432, que falha na primeira
+  # consulta com 'Connection refused'.
+  #
+  # POSTGRESQL_DATASOURCE=TravelPackagesDS casa com o jta-data-source do
+  # persistence.xml (java:jboss/datasources/TravelPackagesDS).
+  # ------------------------------------------------------------------------
+  env:
+    - name: POSTGRESQL_DATASOURCE
+      value: TravelPackagesDS
+    - name: POSTGRESQL_HOST
+      value: travel-packages-db-rw.travel-db.svc
+    - name: POSTGRESQL_PORT
+      value: "5432"
+    - name: POSTGRESQL_DATABASE
+      value: travelpackages
+    - name: POSTGRESQL_USER
+      valueFrom:
+        secretKeyRef:
+          name: travel-packages-db-app
+          key: username
+    - name: POSTGRESQL_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: travel-packages-db-app
+          key: password
+
+    # Hot Rod. O Service do Infinispan chama-se como o CR (travel-cache), no
+    # namespace travel-cache. O cliente usa clientIntelligence BASIC de
+    # proposito -- ver o comentario em CacheDePacotes.java.
+    - name: DATAGRID_HOST
+      value: travel-cache.travel-cache.svc
+    - name: DATAGRID_PORT
+      value: "11222"
+    - name: DATAGRID_CACHE
+      value: pacotes
+
+    # O servidor provisionado escreve em standalone/data; com UID aleatorio do
+    # SCC restricted-v2, o java.io.tmpdir do sistema nem sempre e gravavel.
+    - name: JAVA_OPTS_APPEND
+      value: "-Djava.io.tmpdir=/tmp -Djava.net.preferIPv4Stack=true"
+
+  # ------------------------------------------------------------------------
+  # SONDAS EXPLICITAS, e este e o ponto mais fragil deste arquivo.
+  #
+  # O operador, por padrao, sonda o subsistema de health -- que a camada
+  # 'jaxrs-server' NAO traz (ele vem em 'cloud-server', que arrasta bastante
+  # servidor junto). Por isso apontamos para o recurso JAX-RS /api/saude.
+  #
+  # SE A CRD DESTE OPERADOR RECUSAR ESTES CAMPOS: a alternativa e acrescentar
+  # a camada 'microprofile-health' ao eap-maven-plugin no pom.xml e remover
+  # este bloco. Conferir com:
+  #   oc explain wildflyserver.spec.readinessProbe
+  # ------------------------------------------------------------------------
+  readinessProbe:
+    httpGet:
+      path: /api/saude
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 12
+  livenessProbe:
+    httpGet:
+      path: /api/saude
+      port: 8080
+    initialDelaySeconds: 90
+    periodSeconds: 30
+
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {memory: 2Gi}
+---
+# ===========================================================================
+# Exposicao pela borda do RHCL.
+#
+# A rota anexa ao MESMO Gateway prod-web dos outros atos -- e de proposito:
+# um segundo gateway contaria uma historia diferente da que a demo defende
+# (uma plataforma de API, nao um gateway por servico). As policies que valem
+# para toda rota anexada (prod-web-deny-all, o TLS, o DNS) passam a valer
+# para esta tambem, sem nada a declarar.
+#
+# HOSTNAME DE UM ROTULO SO: 'pacotes-travels.apps...' cabe no wildcard que o
+# cluster ja tem. 'pacotes.travels.apps...' teria dois e exigiria certificado
+# proprio -- e emitir por DNS01 quebra a resolucao do proprio host (armadilha
+# 6 do RUNBOOK). O provision.sh substitui __PKG_HOST__.
+#
+# SEM AuthPolicy E SEM PlanPolicy AQUI. Elas sao da camada da demo (base/), e
+# entram com o Ato 8 -- este arquivo entrega a rota; o ato entrega a
+# governanca sobre ela. Ate la a rota responde sem autenticacao, que e o
+# estado correto para conferir que o servico subiu.
+# ===========================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: travel-packages
+  namespace: travel-packages
+  labels:
+    app: travel-packages
+spec:
+  parentRefs:
+    - name: prod-web
+      namespace: ingress-gateway
+  hostnames:
+    - __PKG_HOST__
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+      backendRefs:
+        # O NOME DO SERVICE E DO OPERADOR, nao nosso -- ele deriva do nome do
+        # WildFlyServer e ja mudou entre versoes do operador. Confirmar depois
+        # do primeiro reconcile, que custa um comando:
+        #   oc get svc -n travel-packages
+        # Service errado aqui da 503 na borda com a HTTPRoute Accepted=True,
+        # que e o par de sintomas mais enganoso do Gateway API.
+        - name: travel-packages-loadbalancer
+          port: 8080

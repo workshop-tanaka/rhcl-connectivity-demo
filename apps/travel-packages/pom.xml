@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ===========================================================================
+  travel-packages — o primeiro artefato COMPILÁVEL desta demo.
+
+  POR QUE ELE EXISTE: até 2026-08-28 nenhum serviço daqui tinha código. Os
+  backends rodam a imagem de exemplo do Kiali, e a consequência é que sete
+  produtos de cadeia de suprimento (Nexus, SonarQube, Chains, Rekor, ACS,
+  Quay, Tekton) estavam instalados sem nada passando por eles. Este módulo é
+  o que os acende.
+
+  O QUE ELE SERVE: os 480 pacotes e ~1200 reservas que o seed de
+  platform-reference/travel-packages/02-schema-e-massa.yaml pôs no Postgres,
+  filtrados por tier — o mesmo free/silver/gold dos planos do RHCL. É o que
+  faz o Ato 2 ter efeito de negócio, e não só código de status.
+
+  ---------------------------------------------------------------------------
+  EAP 8 NÃO SE CONFIGURA POR VARIÁVEL DE AMBIENTE NO BUILD.
+
+  No EAP 7 havia GALLEON_PROVISION_LAYERS na imagem s2i. No 8 esse caminho é
+  deprecado: quem provisiona o servidor é o eap-maven-plugin, aqui embaixo, e
+  o resultado sai em target/server — que o Dockerfile copia para /opt/server
+  da imagem de runtime (que nasce vazia de propósito).
+
+  A camada 'postgresql-datasource' vem do eap-datasources-galleon-pack e é ela
+  que lê POSTGRESQL_HOST/PORT/DATABASE/USER/PASSWORD em TEMPO DE EXECUÇÃO —
+  as mesmas variáveis que o WildFlyServer de 06-eap.yaml injeta a partir do
+  Secret que o CloudNativePG gera. Nenhuma senha entra na imagem.
+  ===========================================================================
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.redhat.travel</groupId>
+  <artifactId>travel-packages</artifactId>
+  <version>1.0.0</version>
+  <packaging>war</packaging>
+  <name>travel-packages</name>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <failOnMissingWebXml>false</failOnMissingWebXml>
+
+    <!--
+      AS QUATRO COORDENADAS QUE PRECISAM SER CONFIRMADAS ANTES DO PRIMEIRO
+      BUILD. Elas vêm do repositório Maven da Red Hat, não do Central, e a
+      versão exata muda a cada micro-release do EAP. Confirmar assim, já com
+      o Nexus da etapa 'cicd' no caminho:
+
+        curl -s 'http://nexus.cicd.svc:8081/service/rest/v1/search?repository=maven-public&group=org.jboss.eap&name=eap-galleon-pack' \
+          | python3 -m json.tool | grep '"version"'
+
+      Errar aqui dá 'Could not resolve artifact' no primeiro build, que é uma
+      falha barata e imediata -- e é por isso que estão em propriedades, num
+      lugar só, em vez de espalhadas pelas declarações.
+    -->
+    <version.eap.galleon.pack>8.0.0.GA-redhat-00011</version.eap.galleon.pack>
+    <version.eap.datasources.pack>2.0.0.Final-redhat-00003</version.eap.datasources.pack>
+    <version.eap.maven.plugin>1.0.0.Final-redhat-00014</version.eap.maven.plugin>
+    <version.eap.bom>8.0.0.GA-redhat-00009</version.eap.bom>
+
+    <!-- Hot Rod: cliente do Data Grid. Vai DENTRO do WAR (escopo compile) --
+         não é uma camada do servidor, e por isso não aparece no Galleon. -->
+    <version.infinispan>15.0.11.Final</version.infinispan>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.jboss.bom</groupId>
+        <artifactId>jboss-eap-ee</artifactId>
+        <version>${version.eap.bom}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- Jakarta EE 10 inteiro é 'provided': quem entrega é o servidor
+         provisionado, e duplicá-lo no WAR é a forma clássica de ganhar
+         ClassCastException entre dois carregadores de classe. -->
+    <dependency>
+      <groupId>jakarta.platform</groupId>
+      <artifactId>jakarta.jakartaee-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.infinispan</groupId>
+      <artifactId>infinispan-client-hotrod</artifactId>
+      <version>${version.infinispan}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.10.2</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>travel-packages</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-war-plugin</artifactId>
+        <version>3.4.0</version>
+      </plugin>
+
+      <!-- JaCoCo existe por causa do PORTÃO DE QUALIDADE: sem relatório de
+           cobertura o SonarQube aceita o projeto e reporta 0%, o que passa
+           em qualquer quality gate baseado em código novo. O portão que não
+           reprova não é portão. -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>0.8.12</version>
+        <executions>
+          <execution>
+            <id>prepara-agente</id>
+            <goals><goal>prepare-agent</goal></goals>
+          </execution>
+          <execution>
+            <id>relatorio</id>
+            <phase>test</phase>
+            <goals><goal>report</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Provisiona o servidor em target/server e implanta o WAR nele.
+           'jaxrs-server' é a camada base (Jakarta REST + CDI + JPA);
+           'postgresql-datasource' acrescenta driver, módulo e o datasource
+           configurável por ambiente. -->
+      <plugin>
+        <groupId>org.jboss.eap.plugins</groupId>
+        <artifactId>eap-maven-plugin</artifactId>
+        <version>${version.eap.maven.plugin}</version>
+        <configuration>
+          <feature-packs>
+            <feature-pack>
+              <groupId>org.jboss.eap</groupId>
+              <artifactId>eap-galleon-pack</artifactId>
+              <version>${version.eap.galleon.pack}</version>
+            </feature-pack>
+            <feature-pack>
+              <groupId>org.jboss.eap</groupId>
+              <artifactId>eap-datasources-galleon-pack</artifactId>
+              <version>${version.eap.datasources.pack}</version>
+            </feature-pack>
+          </feature-packs>
+          <layers>
+            <layer>jaxrs-server</layer>
+            <layer>postgresql-datasource</layer>
+          </layers>
+          <!-- Sem isto o provisionamento falha pedindo a versão do driver.
+               É build-time; nada a ver com as variáveis de execução. -->
+          <galleon-options>
+            <jboss-fork-embedded>true</jboss-fork-embedded>
+          </galleon-options>
+        </configuration>
+        <executions>
+          <execution>
+            <goals><goal>package</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <repositories>
+    <repository>
+      <id>redhat-ga</id>
+      <url>https://maven.repository.redhat.com/ga/</url>
+      <releases><enabled>true</enabled></releases>
+      <snapshots><enabled>false</enabled></snapshots>
+    </repository>
+  </repositories>
+  <pluginRepositories>
+    <pluginRepository>
+      <id>redhat-ga</id>
+      <url>https://maven.repository.redhat.com/ga/</url>
+      <releases><enabled>true</enabled></releases>
+      <snapshots><enabled>false</enabled></snapshots>
+    </pluginRepository>
+  </pluginRepositories>
+</project>

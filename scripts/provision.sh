@@ -51,7 +51,7 @@ PR="${_here}/platform-reference"
 TIMEOUT="${TIMEOUT:-600}"
 DRY_RUN=0
 
-STAGES_ALL=(operators gitlab mesh platform gateway devportal demo pacotes consoles tracing dashboards gitops cicd security identity)
+STAGES_ALL=(operators gitlab mesh platform gateway devportal demo pacotes consoles tracing dashboards gitops cicd entrega security identity)
 
 _usage() {
   cat <<EOF
@@ -86,6 +86,9 @@ Etapas, na ordem em que dependem umas das outras:
     cicd        OpenShift Pipelines (Tekton) e a pipeline que valida as
                 policies -- o que da conteudo a aba CI do portal --, mais o
                 Nexus (mirror Maven e tela de repositorio) e o SonarQube
+    entrega     o build ASSINADO do travel-packages: credenciais do Quay e do
+                Sonar, cache do Maven, a pipeline de build e o WildFlyServer.
+                Exige QUAY_ORG e QUAY_TOKEN no ambiente
     security    RHACS: operador, Central, o init bundle e o SecuredCluster.
                 LENTA -- o Central sobe banco e scanner
     identity    unifica o login no Keycloak: personas, clients, e o GitLab
@@ -1072,8 +1075,18 @@ st_cicd() {
     }
   fi
 
-  _apply platform-reference/pipelines/valida-policies.yaml
-  _ok "pipeline valida-policies aplicada (dispare com 'oc create -f' um PipelineRun)"
+  # A valida-policies passou a clonar de verdade o repo de policies no GitLab
+  # do cluster, entao o host deixa de ser literal e vira __DOMAIN__. sed antes
+  # do apply, como o SecuredCluster do setup-supply-chain.sh ja faz.
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "sed __DOMAIN__ | oc apply -f platform-reference/pipelines/valida-policies.yaml"
+  else
+    sed "s/__DOMAIN__/${DOMAIN}/g" \
+      "${_here}/platform-reference/pipelines/valida-policies.yaml" \
+      | oc apply -f - >/dev/null \
+      && _ok "pipeline valida-policies aplicada (ela agora REPROVA -- ver o cabecalho)" \
+      || _warn "falha ao aplicar a valida-policies"
+  fi
 
   # ----- Nexus e SonarQube -------------------------------------------------
   # Sem operador, de proposito: o unico do SonarQube e community em canal alpha
@@ -1100,6 +1113,159 @@ st_cicd() {
     _warn "CloudNativePG ausente -- SonarQube fora (precisa do Cluster sonar-db)"
     printf '        %s\n' "rode 'provision.sh gitlab', que instala o CNPG, e repita esta etapa"
   fi
+}
+
+# ===========================================================================
+# 11b. entrega (build assinado do travel-packages)
+# ===========================================================================
+# A etapa que faz os produtos da cadeia pararem de ser decoracao. Ate aqui o
+# cluster tinha Nexus, SonarQube, Chains, Rekor, ACS e Quay instalados com
+# NADA passando por eles -- porque nao havia artefato: os servicos da demo
+# rodam a imagem de exemplo do Kiali.
+#
+# Esta etapa monta o que a pipeline de build precisa e implanta o resultado.
+# Ela NAO dispara o build: disparar leva minutos e depende de rede externa, e
+# uma etapa de provisionamento que as vezes leva 8 minutos e as vezes 40s e
+# uma etapa em que ninguem confia. O comando fica impresso no fim.
+#
+# EXIGE, e recusa sem elas:
+#   pacotes   o banco com massa e o operador do EAP
+#   cicd      Tekton, Nexus e SonarQube
+#   QUAY_ORG e QUAY_TOKEN no ambiente -- credencial nao mora em repo
+st_entrega() {
+  _sec "entrega (build assinado do travel-packages)"
+
+  if ! _has_crd pipelineruns.tekton.dev; then
+    _warn "Tekton ausente -- rode 'provision.sh cicd' antes"
+    return 0
+  fi
+  if ! _has_crd wildflyservers.wildfly.org; then
+    _warn "operador do EAP ausente -- rode 'provision.sh pacotes' antes"
+    return 0
+  fi
+  if [[ -z "${QUAY_ORG:-}" || -z "${QUAY_TOKEN:-}" ]]; then
+    _warn "QUAY_ORG e QUAY_TOKEN nao definidos -- etapa pulada"
+    printf '        %s\n' "QUAY_ORG=<org> QUAY_TOKEN=<robot-token> bash scripts/provision.sh entrega"
+    return 0
+  fi
+
+  _ns travel-packages
+
+  # ----- 1. credencial do banco, COPIADA de travel-db ----------------------
+  # O CloudNativePG gera a senha; nao ha como escreve-la num manifest. E
+  # secretKeyRef so le do proprio namespace, entao nao adianta RoleBinding.
+  # Mesmo padrao do mysql-credentials na etapa 'platform'.
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "copiar secret travel-packages-db-app de travel-db para travel-packages"
+  elif oc get secret travel-packages-db-app -n travel-packages >/dev/null 2>&1; then
+    _ok "secret do banco ja existe em travel-packages"
+  elif oc get secret travel-packages-db-app -n travel-db -o json 2>/dev/null \
+        | python3 -c 'import sys, json
+d = json.load(sys.stdin)
+d["metadata"] = {"name": "travel-packages-db-app", "namespace": "travel-packages"}
+d.pop("status", None)
+json.dump(d, sys.stdout)' \
+        | oc apply -f - >/dev/null 2>&1; then
+    _ok "secret do banco copiado para travel-packages"
+  else
+    _warn "nao consegui copiar travel-packages-db-app -- o CNPG ja gerou? (oc get secret -n travel-db)"
+  fi
+
+  # ----- 2. Quay: um secret para empurrar, outro para puxar ----------------
+  # Sao dois porque tem donos diferentes: o de push e montado como workspace
+  # da task do buildah (arquivo), o de pull e vinculado a ServiceAccount do
+  # WildFlyServer (kubelet). Mesmo conteudo, dois consumidores.
+  for _s in quay-push quay-pull; do
+    if [[ $DRY_RUN -eq 1 ]]; then
+      _cmd "oc create secret docker-registry ${_s} -n travel-packages"
+    elif oc get secret "$_s" -n travel-packages >/dev/null 2>&1; then
+      _ok "secret ${_s} ja existe"
+    else
+      oc create secret docker-registry "$_s" -n travel-packages \
+        --docker-server=quay.io \
+        --docker-username="${QUAY_USER:-$QUAY_ORG}" \
+        --docker-password="$QUAY_TOKEN" >/dev/null 2>&1 \
+        && _ok "secret ${_s} criado" || _warn "falha ao criar ${_s}"
+    fi
+  done
+  _run oc secrets link travel-packages quay-pull --for=pull -n travel-packages >/dev/null 2>&1 \
+    && _ok "quay-pull vinculado a ServiceAccount travel-packages" \
+    || _warn "nao consegui vincular quay-pull (a ServiceAccount ja existe?)"
+
+  # ----- 3. token do SonarQube ---------------------------------------------
+  # NAO da para emitir sozinho: o Sonar nasce admin/admin e forca troca no
+  # primeiro acesso, entao qualquer automacao aqui dependeria de uma senha que
+  # so existe depois de alguem entrar. Fica explicito e manual.
+  if [[ -n "${SONAR_TOKEN:-}" ]]; then
+    if [[ $DRY_RUN -eq 1 ]]; then
+      _cmd "oc create secret generic sonarqube-token -n travel-packages"
+    elif oc get secret sonarqube-token -n travel-packages >/dev/null 2>&1; then
+      _ok "secret sonarqube-token ja existe"
+    else
+      oc create secret generic sonarqube-token -n travel-packages \
+        --from-literal=token="$SONAR_TOKEN" >/dev/null 2>&1 \
+        && _ok "secret sonarqube-token criado"
+    fi
+  else
+    _warn "SONAR_TOKEN nao definido -- a task 'portao-de-qualidade' vai falhar"
+    printf '        %s\n' "abra https://\$(oc get route sonarqube -n cicd -o jsonpath={.spec.host}), troque a senha e gere um token"
+  fi
+
+  # ----- 4. cache do Maven, que NAO e efemero ------------------------------
+  # E ele que faz o segundo build levar um minuto em vez de oito. Perder este
+  # PVC no palco e a diferenca entre uma cena e um silencio.
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "oc apply -f - (PVC cache-maven, 5Gi)"
+  elif oc get pvc cache-maven -n travel-packages >/dev/null 2>&1; then
+    _ok "PVC cache-maven ja existe"
+  else
+    printf '%s\n' "apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cache-maven
+  namespace: travel-packages
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi" | oc apply -f - >/dev/null && _ok "PVC cache-maven criado"
+  fi
+
+  # ----- 5. SCC para o buildah ---------------------------------------------
+  # O buildah precisa de SETFCAP para montar camadas. Sem isto o build morre
+  # no commit da imagem com 'operation not permitted' -- mensagem que nao
+  # menciona SCC nenhuma, e por isso se procura o erro no Dockerfile.
+  _run oc adm policy add-scc-to-user privileged -z pipeline -n travel-packages >/dev/null 2>&1 \
+    && _ok "SCC privileged concedida a ServiceAccount pipeline"
+
+  # ----- 6. pipeline de build ----------------------------------------------
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "sed __DOMAIN__/__QUAY_ORG__ | oc apply -f platform-reference/pipelines/build-travel-packages.yaml"
+  else
+    sed -e "s/__DOMAIN__/${DOMAIN}/g" -e "s/__QUAY_ORG__/${QUAY_ORG}/g" \
+      "${_here}/platform-reference/pipelines/build-travel-packages.yaml" \
+      | oc apply -f - >/dev/null \
+      && _ok "pipeline build-travel-packages aplicada" \
+      || _warn "falha ao aplicar a pipeline de build"
+  fi
+
+  # ----- 7. o servico -------------------------------------------------------
+  # Aplicado mesmo sem a imagem existir: os pods ficam em ImagePullBackOff,
+  # que e o sintoma CORRETO e diz exatamente o que falta. Esconder o CR ate o
+  # build passar deixaria a etapa silenciosa sobre a metade que falta.
+  local _pkg_host="${PKG_HOST:-pacotes-travels.${DOMAIN}}"
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "sed __QUAY_ORG__/__PKG_HOST__ | oc apply -f platform-reference/travel-packages/06-eap.yaml"
+  else
+    sed -e "s/__QUAY_ORG__/${QUAY_ORG}/g" -e "s/__PKG_HOST__/${_pkg_host}/g" \
+      "${_here}/platform-reference/travel-packages/06-eap.yaml" \
+      | oc apply -f - >/dev/null \
+      && _ok "WildFlyServer e HTTPRoute aplicados (host: ${_pkg_host})" \
+      || _warn "falha ao aplicar o 06-eap.yaml"
+  fi
+
+  _log "o build NAO foi disparado -- dispare quando quiser:"
+  _cmd "oc create -f <(sed -e 's/__DOMAIN__/${DOMAIN}/g' -e 's/__QUAY_ORG__/${QUAY_ORG}/g' platform-reference/pipelines/build-travel-packages.yaml | python3 -c 'import sys,yaml;print(yaml.dump([d for d in yaml.safe_load_all(sys.stdin) if d and d[\"kind\"]==\"PipelineRun\"][0]))')"
 }
 
 # ===========================================================================
@@ -1238,6 +1404,9 @@ _check() {
   _c "Streams for Apache Kafka" "$(_has_crd kafkas.kafka.strimzi.io && echo sim)"              "provision.sh pacotes"
   _c "dados do travel-packages" "$(oc get clusters.postgresql.cnpg.io travel-packages-db -n travel-db >/dev/null 2>&1 && echo sim)" "provision.sh pacotes"
   _c "CDC do Debezium"         "$(oc get kafkaconnector travel-cdc -n travel-streams >/dev/null 2>&1 && echo sim)" "provision.sh pacotes"
+  _c "JBoss EAP"               "$(_has_crd wildflyservers.wildfly.org && echo sim)"           "provision.sh pacotes"
+  _c "servico travel-packages" "$(oc get wildflyserver travel-packages -n travel-packages >/dev/null 2>&1 && echo sim)" "provision.sh entrega"
+  _c "pipeline de build"       "$(oc get pipeline build-travel-packages -n travel-packages >/dev/null 2>&1 && echo sim)" "provision.sh entrega"
   _c "RHACS"                   "$(_has_crd centrals.platform.stackrox.io && echo sim)"         "provision.sh security"
 
   printf '\n'

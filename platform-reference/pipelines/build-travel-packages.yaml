@@ -1,0 +1,341 @@
+# ===========================================================================
+# build-travel-packages -- a primeira pipeline deste repo que CONSTROI algo.
+#
+# A valida-policies valida policy porque nao havia codigo. Esta compila o
+# servico travel-packages (apps/travel-packages), analisa no SonarQube com
+# portao, publica no Quay -- e o Tekton Chains assina o resultado sozinho,
+# registrando no Rekor. O TektonConfig ja esta configurado para isso pelo
+# scripts/setup-supply-chain.sh; nada aqui pede assinatura, ela acontece.
+#
+# Verificar, depois do primeiro run:
+#   oc get pipelinerun -n travel-packages \
+#     -o jsonpath='{.items[-1].metadata.annotations.chains\.tekton\.dev/signed}'
+#
+# ---------------------------------------------------------------------------
+# TUDO EM taskSpec INLINE, sem ClusterTask e sem Tekton Hub.
+#
+# Nao e preferencia de estilo: as ClusterTask foram removidas no OpenShift
+# Pipelines recente, e uma pipeline que depende de resolver task remota falha
+# num cluster sem saida para a internet -- com uma mensagem sobre resolver, e
+# nao sobre build. O que esta aqui roda com o que a imagem base ja tem.
+# ===========================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: maven-settings
+  namespace: travel-packages
+data:
+  # -------------------------------------------------------------------------
+  # <mirrorOf>central</mirrorOf> -- E NAO 'external:*', QUE SERIA O REFLEXO.
+  #
+  # O grupo maven-public do Nexus nasce com UM proxy: o Maven Central
+  # (cabecalho de platform-reference/cicd/nexus.yaml). Os artefatos do EAP 8
+  # nao estao la -- vem de maven.repository.redhat.com, declarado no pom.
+  # Espelhar 'external:*' mandaria tambem esses pedidos para o Nexus, que
+  # responderia 404 para o eap-galleon-pack inteiro, e o erro falaria de
+  # artefato ausente e nao de mirror mal configurado.
+  #
+  # Espelhando so o central, o ganho de tempo (que e onde estao as centenas de
+  # dependencias transitivas) fica, e o repositorio da Red Hat e consultado
+  # direto. PARA FECHAR O CIRCULO um dia: criar no Nexus um proxy de
+  # maven.repository.redhat.com, acrescenta-lo ao grupo maven-public, e ai
+  # sim trocar por 'external:*'.
+  # -------------------------------------------------------------------------
+  settings.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+      <mirrors>
+        <mirror>
+          <id>nexus-central</id>
+          <name>Nexus da demo, proxy do Maven Central</name>
+          <url>http://nexus.cicd.svc:8081/repository/maven-public/</url>
+          <mirrorOf>central</mirrorOf>
+        </mirror>
+      </mirrors>
+    </settings>
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-travel-packages
+  namespace: travel-packages
+  labels:
+    # O mesmo par da valida-policies, pelo mesmo motivo: o plugin Tekton do
+    # portal enxerga pelo SELETOR da entidade, e nao pela anotacao. Sem
+    # 'app', a aba CI do componente abre e lista vazio.
+    app: travel-packages
+    backstage.io/kubernetes-id: travel-packages
+spec:
+  params:
+    - name: repo
+      type: string
+      description: repositorio do servico no GitLab do cluster
+    - name: revisao
+      type: string
+      default: main
+    - name: imagem
+      type: string
+      description: destino no Quay, sem tag
+    - name: tag
+      type: string
+      default: latest
+    - name: sonar-host
+      type: string
+      default: http://sonarqube.cicd.svc:9000
+
+  workspaces:
+    - name: fonte
+      description: codigo clonado e target/ do Maven
+    - name: cache-maven
+      description: ~/.m2 entre execucoes -- e o que faz o segundo build ser rapido
+    - name: settings
+      description: ConfigMap maven-settings
+    - name: sonar
+      description: Secret com o token do SonarQube
+    - name: quay
+      description: Secret dockerconfigjson do Quay
+
+  results:
+    - name: digest
+      description: digest da imagem publicada -- e o que o Chains assina
+      value: $(tasks.constroi-imagem.results.digest)
+
+  tasks:
+    # -----------------------------------------------------------------------
+    - name: clona
+      params:
+        - name: repo
+          value: $(params.repo)
+        - name: revisao
+          value: $(params.revisao)
+      workspaces:
+        - name: fonte
+          workspace: fonte
+      taskSpec:
+        params:
+          - name: repo
+            type: string
+          - name: revisao
+            type: string
+        workspaces:
+          - name: fonte
+        results:
+          - name: commit
+            description: SHA do que foi construido
+        steps:
+          - name: git-clone
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            workingDir: $(workspaces.fonte.path)
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+              microdnf install -y git >/dev/null
+
+              # O GitLab do cluster serve com o wildcard do proprio cluster,
+              # que a imagem base nao conhece. -c http.sslVerify=false e
+              # lab-grade e deliberado: a alternativa seria montar a CA do
+              # cluster em toda task, para um SCM que vive dentro dele.
+              rm -rf ./* .git 2>/dev/null || true
+              git -c http.sslVerify=false clone --depth 1 \
+                  --branch "$(params.revisao)" "$(params.repo)" .
+
+              git rev-parse HEAD | tr -d '\n' > $(results.commit.path)
+              echo "clonado $(params.repo) @ $(cat $(results.commit.path))"
+
+    # -----------------------------------------------------------------------
+    - name: compila
+      runAfter: [clona]
+      workspaces:
+        - name: fonte
+          workspace: fonte
+        - name: cache-maven
+          workspace: cache-maven
+        - name: settings
+          workspace: settings
+      taskSpec:
+        workspaces:
+          - name: fonte
+          - name: cache-maven
+          - name: settings
+        steps:
+          - name: maven
+            image: registry.access.redhat.com/ubi9/openjdk-17:latest
+            workingDir: $(workspaces.fonte.path)
+            env:
+              # Build-time, e nao execucao: e o eap-datasources-galleon-pack
+              # que le esta variavel para saber qual driver instalar no
+              # servidor provisionado. Sem ela o provisionamento para pedindo
+              # a versao, com uma mensagem que nao diz onde definir.
+              - name: POSTGRESQL_DRIVER_VERSION
+                value: "42.7.3"
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+              # -B silencioso e -ntp sem barra de progresso: log de build com
+              # milhares de linhas de download esconde o erro que importa.
+              mvn -B -ntp \
+                  -s $(workspaces.settings.path)/settings.xml \
+                  -Dmaven.repo.local=$(workspaces.cache-maven.path) \
+                  clean verify
+              echo "WAR e servidor provisionado em target/"
+              ls -la target/server >/dev/null
+
+    # -----------------------------------------------------------------------
+    # O PORTAO DE QUALIDADE. Task separada de proposito: na aba CI do portal a
+    # etapa aparece com nome proprio, e quando ela reprova fica obvio o QUE
+    # reprovou -- 'compila' verde e 'portao-de-qualidade' vermelho conta a
+    # historia sozinho.
+    - name: portao-de-qualidade
+      runAfter: [compila]
+      params:
+        - name: sonar-host
+          value: $(params.sonar-host)
+      workspaces:
+        - name: fonte
+          workspace: fonte
+        - name: cache-maven
+          workspace: cache-maven
+        - name: settings
+          workspace: settings
+        - name: sonar
+          workspace: sonar
+      taskSpec:
+        params:
+          - name: sonar-host
+            type: string
+        workspaces:
+          - name: fonte
+          - name: cache-maven
+          - name: settings
+          - name: sonar
+        steps:
+          - name: sonar-scanner
+            image: registry.access.redhat.com/ubi9/openjdk-17:latest
+            workingDir: $(workspaces.fonte.path)
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+              # -Dsonar.qualitygate.wait=true E A LINHA INTEIRA DESTA TASK.
+              # Sem ela o scanner envia a analise e sai com 0 -- o portao
+              # existe no Sonar e nao tem efeito nenhum na pipeline. Foi assim
+              # que a valida-policies acabou verde para sempre.
+              mvn -B -ntp \
+                  -s $(workspaces.settings.path)/settings.xml \
+                  -Dmaven.repo.local=$(workspaces.cache-maven.path) \
+                  sonar:sonar \
+                  -Dsonar.host.url="$(params.sonar-host)" \
+                  -Dsonar.token="$(cat $(workspaces.sonar.path)/token)" \
+                  -Dsonar.qualitygate.wait=true
+
+    # -----------------------------------------------------------------------
+    - name: constroi-imagem
+      runAfter: [portao-de-qualidade]
+      params:
+        - name: imagem
+          value: $(params.imagem)
+        - name: tag
+          value: $(params.tag)
+      workspaces:
+        - name: fonte
+          workspace: fonte
+        - name: quay
+          workspace: quay
+      taskSpec:
+        params:
+          - name: imagem
+            type: string
+          - name: tag
+            type: string
+        workspaces:
+          - name: fonte
+          - name: quay
+        results:
+          - name: digest
+            description: digest da imagem publicada
+        steps:
+          - name: buildah
+            image: registry.redhat.io/rhel9/buildah:latest
+            workingDir: $(workspaces.fonte.path)
+            securityContext:
+              # O buildah precisa de SETFCAP para montar camadas. E por isso
+              # que o provision.sh vincula a SCC 'privileged' a ServiceAccount
+              # 'pipeline' deste namespace -- sem isso o sintoma e um erro de
+              # 'operation not permitted' no meio do commit da imagem, que nao
+              # menciona SCC nenhuma.
+              capabilities:
+                add: ["SETFCAP"]
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+              DESTINO="$(params.imagem):$(params.tag)"
+
+              # vfs, e nao overlay: overlay dentro de container exige
+              # /dev/fuse, que a SCC nao concede. vfs e mais lento e sempre
+              # funciona -- a troca certa para uma imagem que se constroi
+              # uma vez por demo.
+              buildah --storage-driver=vfs bud \
+                      --format=oci \
+                      --tls-verify=true \
+                      -f ./Dockerfile -t "$DESTINO" .
+
+              buildah --storage-driver=vfs push \
+                      --authfile "$(workspaces.quay.path)/.dockerconfigjson" \
+                      --digestfile /tmp/digest \
+                      --tls-verify=true \
+                      "$DESTINO" "docker://$DESTINO"
+
+              tr -d '\n' < /tmp/digest > $(results.digest.path)
+              echo "publicado $DESTINO"
+              echo "digest: $(cat $(results.digest.path))"
+---
+# ===========================================================================
+# Modelo de execucao. generateName porque cada disparo e um objeto novo:
+#   oc create -f platform-reference/pipelines/build-travel-packages.yaml
+# (o oc create aplica so o PipelineRun se voce recortar este documento; para
+#  disparar sem recortar, use scripts/build-app.sh)
+#
+# O volumeClaimTemplate do workspace 'fonte' morre com o PipelineRun. O do
+# cache do Maven NAO -- ele e um PVC nomeado, criado pelo provision.sh, e e
+# ele que faz o segundo build levar um minuto em vez de oito. Perder esse
+# cache no palco e a diferenca entre uma cena e um silencio.
+# ===========================================================================
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: build-travel-packages-
+  namespace: travel-packages
+  labels:
+    app: travel-packages
+    backstage.io/kubernetes-id: travel-packages
+spec:
+  pipelineRef:
+    name: build-travel-packages
+  taskRunTemplate:
+    serviceAccountName: pipeline
+  params:
+    - name: repo
+      value: https://gitlab.__DOMAIN__/rhcl/apps/travel-packages.git
+    - name: imagem
+      value: quay.io/__QUAY_ORG__/travel-packages
+    - name: tag
+      value: latest
+  workspaces:
+    - name: fonte
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 4Gi
+    - name: cache-maven
+      persistentVolumeClaim:
+        claimName: cache-maven
+    - name: settings
+      configMap:
+        name: maven-settings
+    - name: sonar
+      secret:
+        secretName: sonarqube-token
+    - name: quay
+      secret:
+        secretName: quay-push
