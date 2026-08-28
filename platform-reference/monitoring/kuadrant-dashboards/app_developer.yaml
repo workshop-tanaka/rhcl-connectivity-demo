@@ -1593,7 +1593,8 @@ data:
       "schemaVersion": 38,
       "style": "dark",
       "tags": [
-        "kuadrant"
+        "kuadrant",
+        "de-fabrica"
       ],
       "templating": {
         "list": [
@@ -1684,6 +1685,11 @@ kind: GrafanaDashboard
 metadata:
   name: grafana-app-developer
   namespace: monitoring
+  labels:
+    # Vendorizado do upstream, nao escrito aqui -- e o contraponto de
+    # rhcl.demo/origem=repo. Nao leva a tag 'rhcl': o card do RHDH busca por
+    # ela, e estes tres agregam sem quebrar por plano (nao servem ao Ato 4).
+    rhcl.demo/origem: vendorizado
 spec:
   instanceSelector:
     matchLabels:

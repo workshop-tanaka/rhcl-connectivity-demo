@@ -39,6 +39,10 @@ kind: GrafanaDashboard
 metadata:
   name: rhcl-onboarding
   namespace: monitoring
+  labels:
+    # Origem do dashboard, para separar o que este repo escreveu do que veio
+    # vendorizado: oc get grafanadashboard -n monitoring -l rhcl.demo/origem=repo
+    rhcl.demo/origem: repo
 spec:
   instanceSelector:
     matchLabels:
@@ -47,7 +51,7 @@ spec:
     {
       "title": "RHCL — onboarding de parceiro",
       "uid": "rhcl-onboarding",
-      "tags": ["rhcl"],
+      "tags": ["rhcl", "customizado", "negocio", "ato-6"],
       "timezone": "browser",
       "refresh": "10s",
       "time": {"from": "now-6h", "to": "now"},

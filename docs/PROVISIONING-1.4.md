@@ -581,15 +581,37 @@ Os dashboards autorais estão em `platform-reference/monitoring/`, todos com
 `"tags": ["rhcl"]` — é por essa tag que o card do Grafana no RHDH os encontra,
 sem precisar listar nome nenhum:
 
-| dashboard | uid | mede | fonte da série |
-| --- | --- | --- | --- |
-| RHCL — planos comerciais | `rhcl-planos` | consumo por tier (Ato 4) | Limitador (`authorized_calls` / `limited_calls`) |
-| RHCL — consumo por parceiro | `rhcl-parceiros` | quem consumiu, dentro do tier | Istio + dimensão `partner` |
-| RHCL — onboarding de parceiro | `rhcl-onboarding` | demanda de chave e fila de aprovação | KSM (`devportal_apikey_*`) |
-| RHCL — postura de policies | `rhcl-postura` | **o que está valendo agora** | KSM (`gatewayapi_*_status`, `kuadrant_planpolicy_status`) |
-| RHCL — borda | `rhcl-borda` | latência e forma da resposta no gateway | proxies do Istio em `ingress-gateway` |
+| dashboard | uid | tags | mede | fonte da série |
+| --- | --- | --- | --- | --- |
+| RHCL — planos comerciais | `rhcl-planos` | `negocio`, `ato-4` | consumo por tier | Limitador (`authorized_calls` / `limited_calls`) |
+| RHCL — consumo por parceiro | `rhcl-parceiros` | `negocio` | quem consumiu, dentro do tier | Istio + dimensão `partner` |
+| RHCL — onboarding de parceiro | `rhcl-onboarding` | `negocio`, `ato-6` | demanda de chave e fila de aprovação | KSM (`devportal_apikey_*`) |
+| RHCL — postura de policies | `rhcl-postura` | `plataforma`, `ato-3` | **o que está valendo agora** | KSM (`gatewayapi_*_status`, `kuadrant_planpolicy_status`) |
+| RHCL — borda | `rhcl-borda` | `plataforma`, `ato-1` | latência e forma da resposta no gateway | proxies do Istio em `ingress-gateway` |
 
 O do Ato 4 continua sendo o `rhcl-planos`: é o único que quebra por `plan`.
+
+### Convenção de tags — o que é nosso e o que é vendorizado
+
+Todo dashboard carrega, além das tags acima:
+
+| tag | significado |
+| --- | --- |
+| `rhcl` | **seletor do card no RHDH.** Só nos nossos: `grafana/dashboard-selector: rhcl` no catálogo faz busca por tag, e um dashboard novo aparece no componente só por ganhar essa tag |
+| `customizado` | escrito neste repositório |
+| `de-fabrica` | vendorizado do upstream (os três do `kuadrant-dashboards/`) — que mantêm a tag `kuadrant` porque o painel *Kuadrant Dashboards* deles é um `dashlist` que filtra por ela |
+| `negocio` / `plataforma` | para quem o painel fala |
+| `ato-N` | onde ele entra no roteiro dos sete atos |
+
+Os três de fábrica **não levam a tag `rhcl`** de propósito: eles agregam sem
+quebrar por `plan`, e apareceriam nos cards do portal como se fossem resposta ao
+Ato 4. A mesma separação existe fora do JSON, como label do CR — útil quando o
+que se quer é a lista, não a busca:
+
+```bash
+oc get grafanadashboard -n monitoring -l rhcl.demo/origem=repo
+oc get grafanadashboard -n monitoring -l rhcl.demo/origem=vendorizado
+```
 
 ### Postura de policies — por que ele existe
 
@@ -615,6 +637,32 @@ A entrada e o `rule` de RBAC (`planpolicies` em `extensions.kuadrant.io`) já
 estão em `kube-state-metrics-kuadrant.yaml`, marcados como adição nossa. Sem o
 `rule`, a entrada é aceita **em silêncio** e a família nunca aparece — o painel
 abre vazio, e vazio ali lê-se como "não há PlanPolicy", não como "falta RBAC".
+
+Duas descobertas mudaram o dashboard depois de medi-lo contra o cluster, e as
+duas valem para quem for ler os painéis:
+
+1. **`Enforced=False` não é sinônimo de quebra.** As duas policies do Gateway
+   ficam assim o tempo todo, e é o Ato 3 acontecendo:
+
+   ```
+   authpolicy/prod-web-deny-all              Enforced=False reason=Overridden
+   ratelimitpolicy/ingress-gateway-rlp-...   Enforced=False reason=Overridden
+   ```
+
+   Por isso a métrica de status ganhou o label `reason` (também adição nossa, nas
+   quatro famílias de policy), e o número grande do dashboard conta só o que
+   **não** tem explicação. Um painel que contasse os dois ficaria vermelho para
+   sempre — a melhor forma de ensinar a plateia a ignorar o painel.
+
+2. **O `PlanPolicy` gera uma `RateLimitPolicy` de mesmo nome**, com
+   `ownerReferences` apontando para ele. A primeira versão do painel de conflito
+   contava essa RLP gerada e acusava conflito em toda rota saudável; o
+   `unless on (name, exported_namespace)` a desconta, e sobra só a RLP escrita à
+   mão — que é a que dispara a armadilha 5.2.
+
+   ```bash
+   oc get ratelimitpolicy -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,OWNER:.metadata.ownerReferences[*].kind
+   ```
 Em cluster que já tem o KSM de pé, **aplicar não basta**: o exporter lê a
 config no boot e o Deployment não tem gatilho de ConfigMap — sem o restart o pod
 segue servindo a lista antiga de recursos, e o sintoma parece "o apply não
@@ -640,10 +688,32 @@ por esse namespace não é cosmético — sem ele a consulta soma o proxy da bor
 com os sidecars de `travel-agency`, que reportam a mesma requisição do outro
 lado, e a latência vira média de duas populações.
 
-Um painel dele abre vazio hoje, e está anotado no próprio painel: nenhuma série
-`auth_server_*` chega ao Thanos. O `ServiceMonitor` `authorino` casa três
-Services com porta `http` em `kuadrant-system` (`authorization`, `oidc`,
-`controller-metrics`) e só o último serve `/metrics`.
+Os painéis do Authorino, esses, exigiram um scrape novo — e o diagnóstico não
+era o que parecia. Nenhuma série `auth_server_*` chegava ao Thanos com o
+`ServiceMonitor` `authorino` de pé há dias e o target **UP**, servindo 100
+séries. A causa: o Authorino expõe **dois conteúdos diferentes na mesma porta**,
+e só um estava declarado (medido com `oc port-forward` no pod):
+
+```
+:8080/metrics          controller_runtime_*, certwatcher_*, go_*
+:8080/server-metrics   auth_server_authconfig_duration_seconds
+                       auth_server_authconfig_response_status
+                       auth_server_authconfig_total
+                       auth_server_response_status
+```
+
+O segundo endpoint entrou em `servicemonitors.yaml`. Dois cuidados no caminho:
+o label `endpoint` é sobrescrito para `server-metrics` (sem isso os dois targets
+sairiam com o mesmo conjunto de labels e as séries comuns — `go_*`, `process_*`,
+o próprio `up` — colidiriam com valores diferentes no mesmo timestamp), e um
+`metricRelabelings` guarda só a família `auth_server_.*`.
+
+`auth_server_evaluator_*` (por *evaluator*: cada identidade, cada authorization)
+continua fora — depende de `DEEP_METRICS_ENABLED` no CR do Authorino. O que os
+painéis usam é por AuthConfig, que sai sem flag nenhuma.
+
+Medido logo depois, com o `traffic.sh` rodando: **p50 26 ms, p95 48 ms** de
+decisão do Authorino, contra 49 ms de p95 da requisição inteira na borda.
 
 Antes de qualquer dashboard, a instância: `GrafanaDashboard` sem um `Grafana`
 com o label `dashboards: grafana` fica órfão, e com a instância mas sem o

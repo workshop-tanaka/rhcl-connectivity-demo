@@ -84,6 +84,10 @@ kind: GrafanaDashboard
 metadata:
   name: rhcl-planos
   namespace: monitoring
+  labels:
+    # Origem do dashboard, para separar o que este repo escreveu do que veio
+    # vendorizado: oc get grafanadashboard -n monitoring -l rhcl.demo/origem=repo
+    rhcl.demo/origem: repo
 spec:
   instanceSelector:
     matchLabels:
@@ -92,7 +96,7 @@ spec:
     {
       "title": "RHCL — planos comerciais",
       "uid": "rhcl-planos",
-      "tags": ["rhcl"],
+      "tags": ["rhcl", "customizado", "negocio", "ato-4"],
       "timezone": "browser",
       "refresh": "5s",
       "time": {"from": "now-15m", "to": "now"},

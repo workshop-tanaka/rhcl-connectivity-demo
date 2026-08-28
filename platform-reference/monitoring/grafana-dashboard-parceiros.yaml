@@ -25,6 +25,10 @@ kind: GrafanaDashboard
 metadata:
   name: rhcl-parceiros
   namespace: monitoring
+  labels:
+    # Origem do dashboard, para separar o que este repo escreveu do que veio
+    # vendorizado: oc get grafanadashboard -n monitoring -l rhcl.demo/origem=repo
+    rhcl.demo/origem: repo
 spec:
   instanceSelector:
     matchLabels:
@@ -33,7 +37,7 @@ spec:
     {
       "title": "RHCL — consumo por parceiro",
       "uid": "rhcl-parceiros",
-      "tags": ["rhcl"],
+      "tags": ["rhcl", "customizado", "negocio"],
       "timezone": "browser",
       "refresh": "10s",
       "time": {"from": "now-1h", "to": "now"},

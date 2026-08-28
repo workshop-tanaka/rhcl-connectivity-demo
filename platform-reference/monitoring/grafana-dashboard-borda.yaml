@@ -31,23 +31,33 @@
 #   Ato 3  ao trocar a precedencia, o formato do grafico muda na hora.
 #
 # ---------------------------------------------------------------------------
-# PENDENCIA CONHECIDA -- painel 'Custo da autorizacao'
-# Medido em 2026-08-28: {__name__=~"auth_server_.*"} devolve ZERO series no
-# Thanos, apesar do ServiceMonitor 'authorino' existir ha dias. O seletor dele
-# (control-plane: controller-manager, porta 'http') casa TRES Services em
-# kuadrant-system -- authorization, oidc e controller-metrics -- e so o ultimo
-# serve /metrics. Ate isso ser resolvido, o painel abre vazio.
-#   oc get svc -n kuadrant-system -l control-plane=controller-manager
-#   oc exec -n kuadrant-system deploy/authorino -- curl -s localhost:8080/metrics | grep auth_server
-# E 'auth_server_evaluator_*' (por evaluator) exige DEEP_METRICS_ENABLED no CR
-# do Authorino; 'auth_server_authconfig_*' (por AuthConfig), que e o que este
-# painel usa, sai sem flag nenhuma.
+# OS PAINEIS DO AUTHORINO EXIGIRAM UM SCRAPE NOVO
+# Ate 2026-08-28 nenhuma serie auth_server_* chegava ao Thanos, com o
+# ServiceMonitor 'authorino' de pe ha dias e o target UP. A causa nao era o
+# seletor nem a porta: o Authorino serve DOIS conteudos diferentes na 8080.
+#
+#   :8080/metrics          controller_runtime_*, certwatcher_*, go_*
+#   :8080/server-metrics   auth_server_authconfig_duration_seconds,
+#                          auth_server_authconfig_response_status,
+#                          auth_server_authconfig_total, auth_server_response_status
+#
+# So o primeiro estava declarado. O segundo endpoint foi acrescentado em
+# platform-reference/monitoring/servicemonitors.yaml, com o label 'endpoint'
+# sobrescrito para os dois targets nao colidirem -- o cabecalho de la explica.
+#
+# 'auth_server_evaluator_*' (por evaluator: cada identidade, cada authorization)
+# continua fora: depende de DEEP_METRICS_ENABLED no CR do Authorino. O que os
+# paineis usam e por AuthConfig, que sai sem flag nenhuma.
 # ===========================================================================
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
   name: rhcl-borda
   namespace: monitoring
+  labels:
+    # Origem do dashboard, para separar o que este repo escreveu do que veio
+    # vendorizado: oc get grafanadashboard -n monitoring -l rhcl.demo/origem=repo
+    rhcl.demo/origem: repo
 spec:
   instanceSelector:
     matchLabels:
@@ -56,7 +66,7 @@ spec:
     {
       "title": "RHCL — borda",
       "uid": "rhcl-borda",
-      "tags": ["rhcl"],
+      "tags": ["rhcl", "customizado", "plataforma", "ato-1"],
       "timezone": "browser",
       "refresh": "10s",
       "time": {"from": "now-1h", "to": "now"},
@@ -163,7 +173,7 @@ spec:
         {
           "type": "timeseries",
           "title": "Custo da autorizacao (Authorino)",
-          "description": "p95 e p50 de auth_server_authconfig_duration_seconds. ATENCAO: medido em 2026-08-28, nenhuma serie auth_server_* chega ao Thanos -- o ServiceMonitor 'authorino' casa tres Services e so um serve /metrics. Painel vazio aqui e coleta, nao ausencia de autorizacao; o cabecalho do arquivo traz o diagnostico.",
+          "description": "p95 e p50 de auth_server_authconfig_duration_seconds -- quanto o Authorino leva para decidir. Medido em 2026-08-28 com o traffic.sh rodando: p50 26ms, p95 48ms, contra 49ms de p95 da requisicao inteira. Ou seja: quase todo o tempo da borda e decisao de identidade, e ainda assim sao dezenas de milissegundos.",
           "gridPos": {"h": 9, "w": 12, "x": 12, "y": 14},
           "datasource": {"type": "prometheus", "uid": "${datasource}"},
           "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 0, "lineWidth": 2}}},
@@ -192,6 +202,17 @@ spec:
               "indexByName": {"destination_service_name": 0, "Value #total": 1, "Value #servidas": 2, "Value #barradas": 3, "Value #p95": 4},
               "renameByName": {"destination_service_name": "servico", "Value #total": "requisicoes", "Value #servidas": "servidas (200)", "Value #barradas": "barradas (401/429)", "Value #p95": "p95 (ms)"}}},
             {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "requisicoes", "desc": true}]}}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Veredito do Authorino, por hostname",
+          "description": "auth_server_authconfig_response_status: OK e UNAUTHENTICATED como o proprio Authorino os contou, quebrado por vhost. E a mesma decisao do painel de 401, vista do outro lado -- se os dois discordarem, o 401 nao veio da policy.",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 15}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (vhost, status) (rate(auth_server_authconfig_response_status[2m]))", "legendFormat": "{{status}} — {{vhost}}"}
           ]
         }
       ]

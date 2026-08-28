@@ -33,7 +33,34 @@ spec:
       interval: 30s
 ---
 # authorized_calls / limited_calls saem do Limitador; o Authorino entra aqui
-# para o lado de identidade (auth_server_evaluator_*), usado no Ato 5.
+# para o lado de identidade -- quantas autorizacoes, com que veredito e em
+# quanto tempo.
+#
+# DOIS ENDPOINTS NA MESMA PORTA, e a razao custou uma investigacao inteira:
+# o Authorino serve /metrics e /server-metrics na 8080, com conteudos
+# DIFERENTES. Medido em 2026-08-28, com port-forward no pod:
+#
+#   :8080/metrics          controller_runtime_*, certwatcher_*, go_*   (100 series)
+#   :8080/server-metrics   auth_server_authconfig_duration_seconds,
+#                          auth_server_authconfig_response_status,
+#                          auth_server_authconfig_total,
+#                          auth_server_response_status
+#
+# So havia o primeiro aqui. O sintoma nao era erro nenhum: o target aparecia
+# UP, com 100 series chegando ao Thanos, e {__name__=~"auth_server.*"} voltava
+# VAZIO -- o que se le como "o Authorino nao esta instrumentado", quando na
+# verdade a metrica estava a um path de distancia.
+#
+# 'auth_server_evaluator_*' (por evaluator: cada identidade, cada authorization)
+# NAO sai nem assim: depende de DEEP_METRICS_ENABLED no CR do Authorino. O que
+# esta aqui e por AuthConfig, e ja basta para medir o custo da politica.
+#
+# O label 'endpoint' e sobrescrito de proposito no segundo scrape. Sem isso os
+# dois targets sairiam com o MESMO conjunto de labels (job, instance, endpoint,
+# pod, service) e as series comuns aos dois -- go_*, process_*, e o proprio
+# 'up' -- colidiriam com valores diferentes no mesmo timestamp. O
+# metricRelabelings fecha a conta guardando so a familia que interessa: sem
+# ele, todo go_* do Authorino seria coletado duas vezes.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -49,3 +76,14 @@ spec:
     - port: http
       path: /metrics
       interval: 30s
+    - port: http
+      path: /server-metrics
+      interval: 30s
+      relabelings:
+        - action: replace
+          targetLabel: endpoint
+          replacement: server-metrics
+      metricRelabelings:
+        - action: keep
+          sourceLabels: ["__name__"]
+          regex: "auth_server_.*"

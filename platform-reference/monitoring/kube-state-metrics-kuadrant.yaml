@@ -646,6 +646,14 @@ data:
                 path: [status, conditions]
                 labelsFromPath:
                   type: ["type"]
+                  # 'reason' ACRESCENTADO por nos. Sem ele, Enforced=False e um
+                  # bit sem contexto -- e os dois estados que ele mistura sao
+                  # opostos: 'Overridden' e o Ato 3 (o Gateway cede para a rota,
+                  # e o esperado), qualquer outro motivo e defeito. Medido em
+                  # 2026-08-28: prod-web-deny-all e ingress-gateway-rlp-lowlimits
+                  # estao Enforced=False com reason=Overridden, e um painel que
+                  # os contasse como quebra ficaria vermelho para sempre.
+                  reason: ["reason"]
                 valueFrom: ["status"]
         - groupVersionKind:
             group: kuadrant.io
@@ -752,6 +760,14 @@ data:
                 path: [status, conditions]
                 labelsFromPath:
                   type: ["type"]
+                  # 'reason' ACRESCENTADO por nos. Sem ele, Enforced=False e um
+                  # bit sem contexto -- e os dois estados que ele mistura sao
+                  # opostos: 'Overridden' e o Ato 3 (o Gateway cede para a rota,
+                  # e o esperado), qualquer outro motivo e defeito. Medido em
+                  # 2026-08-28: prod-web-deny-all e ingress-gateway-rlp-lowlimits
+                  # estao Enforced=False com reason=Overridden, e um painel que
+                  # os contasse como quebra ficaria vermelho para sempre.
+                  reason: ["reason"]
                 valueFrom: ["status"]
         - groupVersionKind:
             group: kuadrant.io
@@ -805,6 +821,14 @@ data:
                 path: [status, conditions]
                 labelsFromPath:
                   type: ["type"]
+                  # 'reason' ACRESCENTADO por nos. Sem ele, Enforced=False e um
+                  # bit sem contexto -- e os dois estados que ele mistura sao
+                  # opostos: 'Overridden' e o Ato 3 (o Gateway cede para a rota,
+                  # e o esperado), qualquer outro motivo e defeito. Medido em
+                  # 2026-08-28: prod-web-deny-all e ingress-gateway-rlp-lowlimits
+                  # estao Enforced=False com reason=Overridden, e um painel que
+                  # os contasse como quebra ficaria vermelho para sempre.
+                  reason: ["reason"]
                 valueFrom: ["status"]
         # ACRESCENTADO por nos -- nao existe no gateway-api-state-metrics 0.7.0,
         # que so conhece os policies do grupo kuadrant.io. O PlanPolicy mora em
@@ -885,6 +909,14 @@ data:
                 path: [status, conditions]
                 labelsFromPath:
                   type: ["type"]
+                  # 'reason' ACRESCENTADO por nos. Sem ele, Enforced=False e um
+                  # bit sem contexto -- e os dois estados que ele mistura sao
+                  # opostos: 'Overridden' e o Ato 3 (o Gateway cede para a rota,
+                  # e o esperado), qualquer outro motivo e defeito. Medido em
+                  # 2026-08-28: prod-web-deny-all e ingress-gateway-rlp-lowlimits
+                  # estao Enforced=False com reason=Overridden, e um painel que
+                  # os contasse como quebra ficaria vermelho para sempre.
+                  reason: ["reason"]
                 valueFrom: ["status"]
         - groupVersionKind:
             group: kuadrant.io

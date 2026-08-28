@@ -394,6 +394,8 @@ Confirmado inofensivo em 2026-08-20/21. Some da lista se o comportamento mudar.
 | `ExtensionsPackageProcessor … additionalProperty: author` no log do RHDH | **defeito do próprio RHDH 1.10**: o descritor `package:rhdh/roadiehq-scaffolder-backend-module-http-request` vem *dentro da imagem* (`file:extensions…`) declarando um campo que o schema dela mesma rejeita. Não é config nossa e não há o que corrigir do nosso lado. Cerca de 5 avisos a cada 10 min, sobre uma entidade de catálogo — o plugin em si funciona: o golden path de 2026-08-26 rodou com ele |
 | `techdocs Unable to get metadata for 'component:default/<novo>'` | esperado logo após o golden path criar um componente: os TechDocs ainda não foram construídos para ele |
 | `APIKeyAguardandoAprovacao` | **alerta da própria demo** — é o estado esperado (5.7) |
+| `Enforced=False` na AuthPolicy e na RLP do **Gateway** (`prod-web-deny-all`, `ingress-gateway-rlp-lowlimits`) | `reason=Overridden` — é o **Ato 3 acontecendo**: a policy do Gateway cede para a da rota. O dashboard `rhcl-postura` conta essas à parte, no painel *Cedidas para a rota*; o número que importa é o *Sem efeito, sem explicação* |
+| `RateLimitPolicy` com o mesmo nome de um `PlanPolicy` | é **gerada** por ele (`ownerReferences: PlanPolicy`), não é a RLP plana da armadilha 5.2. `oc get ratelimitpolicy -A -o custom-columns=NAME:.metadata.name,OWNER:.metadata.ownerReferences[*].kind` |
 | `IST0133` / `IST0151` em EnvoyFilters `kuadrant-*` | gerados pelo RHCL, não escritos à mão; o caminho de dados prova que aplicam |
 | `IST0102` em `ingress-gateway` | correto — é gateway da Gateway API, injeção vem do recurso `Gateway` |
 | `IST0107` `networking.istio.io/service-type` | anotação propagada do Gateway para Deployment/Pod/Service |

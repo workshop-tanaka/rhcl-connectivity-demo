@@ -22,16 +22,41 @@
 # pega DURANTE, e continua pegando depois -- que e quando ninguem esta olhando.
 #
 # ---------------------------------------------------------------------------
-# FONTE: kube-state-metrics-kuadrant.yaml, familias gatewayapi_*_status e
-# kuadrant_planpolicy_status. Medido no cluster em 2026-08-28: as familias de
-# authpolicy, ratelimitpolicy, gateway e httproute ja existiam; a de PlanPolicy
-# NAO -- a entrada de CustomResourceState e o rule de RBAC foram acrescentados
-# junto com este arquivo. Sem o KSM atualizado, os paineis de PlanPolicy abrem
-# vazios (e vazio aqui se le como 'nao existe policy', nao como 'falta metrica').
+# DUAS DESCOBERTAS QUE MUDARAM O DASHBOARD (medidas em 2026-08-28, neste cluster)
 #
-# LEITURA DOS PAINEIS: valor 1 = a condicao e True. O que interessa e o ZERO.
+# 1. Enforced=False NAO e sinonimo de quebra. As duas policies do Gateway
+#    respondem assim o tempo todo, e e o Ato 3 acontecendo:
+#
+#      authpolicy/prod-web-deny-all            Enforced=False reason=Overridden
+#      ratelimitpolicy/ingress-gateway-rlp-... Enforced=False reason=Overridden
+#
+#    Por isso a entrada de CustomResourceState ganhou o label 'reason', e o
+#    numero grande conta so o que NAO tem explicacao. Um painel que contasse os
+#    dois ficaria vermelho para sempre -- a melhor forma de ensinar a plateia a
+#    ignorar o painel.
+#
+# 2. O PlanPolicy GERA uma RateLimitPolicy de mesmo nome, com ownerReference
+#    apontando para ele:
+#
+#      oc get ratelimitpolicy -A -o custom-columns=NAME:.metadata.name,\
+#        OWNER:.metadata.ownerReferences[*].kind
+#      travels-plans   PlanPolicy
+#
+#    A primeira versao do painel de conflito contava essa RLP gerada e acusava
+#    conflito em toda rota saudavel. O 'unless on (name, exported_namespace)'
+#    a remove: sobra so a RLP escrita a mao, que e a que dispara a armadilha 5.2.
+#
+# ---------------------------------------------------------------------------
+# FONTE: kube-state-metrics-kuadrant.yaml, familias gatewayapi_*_status e
+# kuadrant_planpolicy_status. A entrada de PlanPolicy, o label 'reason' e o
+# rule de RBAC sobre extensions.kuadrant.io foram acrescentados por nos --
+# nenhum vem do gateway-api-state-metrics 0.7.0. Sem o KSM atualizado os
+# paineis de PlanPolicy abrem vazios, e vazio aqui se le como 'nao existe
+# policy', nao como 'falta metrica'.
+#
+# LEITURA: valor 1 = a condicao e True. O que interessa e o ZERO.
 #   Accepted=False   o controlador recusou o objeto (erro de spec)
-#   Enforced=False   o objeto foi aceito e NAO esta em vigor -- o caso perigoso
+#   Enforced=False   aceito e fora de vigor -- ver 'reason' antes de se assustar
 #
 # exported_namespace, e nao namespace: o user workload monitoring reserva
 # 'namespace' para o alvo do scrape (o pod do KSM, em monitoring) e desloca o
@@ -47,6 +72,10 @@ kind: GrafanaDashboard
 metadata:
   name: rhcl-postura
   namespace: monitoring
+  labels:
+    # Origem do dashboard, para separar o que este repo escreveu do que veio
+    # vendorizado: oc get grafanadashboard -n monitoring -l rhcl.demo/origem=repo
+    rhcl.demo/origem: repo
 spec:
   instanceSelector:
     matchLabels:
@@ -55,7 +84,7 @@ spec:
     {
       "title": "RHCL — postura de policies",
       "uid": "rhcl-postura",
-      "tags": ["rhcl"],
+      "tags": ["rhcl", "customizado", "plataforma", "ato-3"],
       "timezone": "browser",
       "refresh": "30s",
       "time": {"from": "now-3h", "to": "now"},
@@ -73,31 +102,53 @@ spec:
       "panels": [
         {
           "type": "stat",
-          "title": "Policies sem efeito",
-          "description": "Objetos com Enforced=False. Aceitos pelo controlador e NAO em vigor -- e a falha que responde 200 e nao aparece em log nenhum. Qualquer numero acima de zero merece 'oc get <policy> -o yaml' antes de subir no palco.",
-          "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+          "title": "Sem efeito, sem explicacao",
+          "description": "Enforced=False com reason DIFERENTE de Overridden. E a falha que responde 200 e nao aparece em log nenhum: AuthSchemeNotFound, alvo inexistente, spec aceita que nao vigora. Qualquer numero acima de zero merece 'oc get <policy> -o yaml' antes de subir no palco.",
+          "gridPos": {"h": 5, "w": 4, "x": 0, "y": 0},
           "datasource": {"type": "prometheus", "uid": "${datasource}"},
           "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
           "targets": [
-            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count((gatewayapi_authpolicy_status{type=\"Enforced\"} == 0) or (gatewayapi_ratelimitpolicy_status{type=\"Enforced\"} == 0) or (kuadrant_planpolicy_status{type=\"Enforced\"} == 0) or (gatewayapi_tlspolicy_status{type=\"Enforced\"} == 0) or (gatewayapi_dnspolicy_status{type=\"Enforced\"} == 0)) or vector(0)"}
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count((gatewayapi_authpolicy_status{type=\"Enforced\", reason!=\"Overridden\"} == 0) or (gatewayapi_ratelimitpolicy_status{type=\"Enforced\", reason!=\"Overridden\"} == 0) or (kuadrant_planpolicy_status{type=\"Enforced\", reason!=\"Overridden\"} == 0) or (gatewayapi_tlspolicy_status{type=\"Enforced\", reason!=\"Overridden\"} == 0)) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Cedidas para a rota",
+          "description": "Enforced=False com reason=Overridden: o Ato 3 em numero. Neste ambiente o esperado sao DUAS -- a AuthPolicy e a RateLimitPolicy do Gateway cedendo para as da rota. Uma terceira, ou qualquer uma anexada a HTTPRoute, e sinal de que a armadilha 5.2 apareceu: veja o painel de conflito.",
+          "gridPos": {"h": 5, "w": 4, "x": 4, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count((gatewayapi_authpolicy_status{type=\"Enforced\", reason=\"Overridden\"} == 0) or (gatewayapi_ratelimitpolicy_status{type=\"Enforced\", reason=\"Overridden\"} == 0) or (kuadrant_planpolicy_status{type=\"Enforced\", reason=\"Overridden\"} == 0)) or vector(0)"}
           ]
         },
         {
           "type": "stat",
           "title": "Policies recusadas",
-          "description": "Accepted=False -- o controlador rejeitou o objeto. Barulhento e facil de achar; esta aqui para separar 'spec errada' de 'spec certa que nao vale', que e o painel ao lado.",
-          "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+          "description": "Accepted=False -- o controlador rejeitou o objeto. Barulhento e facil de achar; esta aqui para separar 'spec errada' de 'spec certa que nao vigora', que e o primeiro painel.",
+          "gridPos": {"h": 5, "w": 4, "x": 8, "y": 0},
           "datasource": {"type": "prometheus", "uid": "${datasource}"},
           "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}]}}},
           "targets": [
-            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count((gatewayapi_authpolicy_status{type=\"Accepted\"} == 0) or (gatewayapi_ratelimitpolicy_status{type=\"Accepted\"} == 0) or (kuadrant_planpolicy_status{type=\"Accepted\"} == 0) or (gatewayapi_tlspolicy_status{type=\"Accepted\"} == 0) or (gatewayapi_dnspolicy_status{type=\"Accepted\"} == 0)) or vector(0)"}
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count((gatewayapi_authpolicy_status{type=\"Accepted\"} == 0) or (gatewayapi_ratelimitpolicy_status{type=\"Accepted\"} == 0) or (kuadrant_planpolicy_status{type=\"Accepted\"} == 0) or (gatewayapi_tlspolicy_status{type=\"Accepted\"} == 0)) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Conflitos de precedencia",
+          "description": "Rota que tem PlanPolicy E uma RateLimitPolicy escrita a mao. No 1.4.2 a segunda vence e os tiers somem. A RLP que o proprio PlanPolicy gera nao conta -- ela tem o mesmo nome, e a consulta a desconta.",
+          "gridPos": {"h": 5, "w": 4, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "count(count by (target_kind, target_name) (gatewayapi_ratelimitpolicy_target_info unless on (name, exported_namespace) kuadrant_planpolicy_target_info) and on (target_kind, target_name) count by (target_kind, target_name) (kuadrant_planpolicy_target_info)) or vector(0)"}
           ]
         },
         {
           "type": "stat",
           "title": "Rotas anexadas ao gateway",
           "description": "attachedRoutes somado sobre os listeners do Gateway. Zero aqui e o outro jeito de a demo morrer sem erro: a HTTPRoute existe, o Gateway existe, e nao ha vinculo -- toda policy anexada a rota deixa de ter alvo.",
-          "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+          "gridPos": {"h": 5, "w": 4, "x": 16, "y": 0},
           "datasource": {"type": "prometheus", "uid": "${datasource}"},
           "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}},
           "targets": [
@@ -108,7 +159,7 @@ spec:
           "type": "stat",
           "title": "Tiers declarados",
           "description": "Um por 'tier' em spec.plans, catch-all 'unclassified' incluido. Serve de conferencia contra o dashboard de planos: tier declarado aqui e sem serie em authorized_calls e tier que nunca foi exercitado.",
-          "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+          "gridPos": {"h": 5, "w": 4, "x": 20, "y": 0},
           "datasource": {"type": "prometheus", "uid": "${datasource}"},
           "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}},
           "targets": [
@@ -118,8 +169,8 @@ spec:
         {
           "type": "table",
           "title": "Semaforo — o que esta valendo agora",
-          "description": "Uma linha por condicao de cada policy. Vermelho e o que nao vale. Esta e a tela para abrir quando a demo 'passa mas nao limita'.",
-          "gridPos": {"h": 11, "w": 14, "x": 0, "y": 5},
+          "description": "Uma linha por condicao de cada policy, com o motivo. Vermelho com reason=Overridden e precedencia funcionando; vermelho com qualquer outro motivo e a tela para abrir quando a demo 'passa mas nao limita'.",
+          "gridPos": {"h": 11, "w": 15, "x": 0, "y": 5},
           "datasource": {"type": "prometheus", "uid": "${datasource}"},
           "fieldConfig": {
             "defaults": {
@@ -133,38 +184,38 @@ spec:
           "transformations": [
             {"id": "organize", "options": {
               "excludeByName": {"Time": true, "__name__": true, "container": true, "endpoint": true, "instance": true, "job": true, "namespace": true, "pod": true, "service": true, "prometheus": true, "customresource_group": true, "customresource_kind": true, "customresource_version": true},
-              "indexByName": {"tipo": 0, "name": 1, "exported_namespace": 2, "type": 3, "Value": 4},
-              "renameByName": {"tipo": "tipo", "name": "policy", "exported_namespace": "namespace", "type": "condicao", "Value": "vale?"}}},
+              "indexByName": {"tipo": 0, "name": 1, "exported_namespace": 2, "type": 3, "Value": 4, "reason": 5},
+              "renameByName": {"tipo": "tipo", "name": "policy", "exported_namespace": "namespace", "type": "condicao", "Value": "vale?", "reason": "motivo"}}},
             {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "vale?", "desc": false}]}}
           ]
         },
         {
           "type": "table",
           "title": "Conflito de precedencia — dois limites no mesmo alvo",
-          "description": "Alvo com RateLimitPolicy E PlanPolicy anexados ao mesmo tempo. E a armadilha 5.2 inteira num painel: no 1.4.2 a RLP plana vence e o PlanPolicy vira enfeite. Vazio e o estado saudavel.",
-          "gridPos": {"h": 11, "w": 10, "x": 14, "y": 5},
+          "description": "Rota com PlanPolicy e uma RateLimitPolicy que NAO foi gerada por ele. E a armadilha 5.2 inteira num painel: no 1.4.2 a RLP escrita a mao vence e o PlanPolicy vira enfeite. Vazio e o estado saudavel -- e foi o que este cluster devolveu depois de descontar a RLP gerada.",
+          "gridPos": {"h": 11, "w": 9, "x": 15, "y": 5},
           "datasource": {"type": "prometheus", "uid": "${datasource}"},
-          "fieldConfig": {"defaults": {"custom": {"align": "left", "cellOptions": {"type": "color-background"}}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 2}]}}},
+          "fieldConfig": {"defaults": {"custom": {"align": "left", "cellOptions": {"type": "color-background"}}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
           "targets": [
-            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "format": "table", "expr": "count by (target_kind, target_name) (gatewayapi_ratelimitpolicy_target_info or kuadrant_planpolicy_target_info) > 1"}
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "format": "table", "expr": "count by (target_kind, target_name) (gatewayapi_ratelimitpolicy_target_info unless on (name, exported_namespace) kuadrant_planpolicy_target_info) and on (target_kind, target_name) count by (target_kind, target_name) (kuadrant_planpolicy_target_info)"}
           ],
           "transformations": [
             {"id": "organize", "options": {"excludeByName": {"Time": true},
               "indexByName": {"target_kind": 0, "target_name": 1, "Value": 2},
-              "renameByName": {"target_kind": "alvo (kind)", "target_name": "alvo", "Value": "policies anexadas"}}}
+              "renameByName": {"target_kind": "alvo (kind)", "target_name": "alvo", "Value": "RLPs escritas a mao"}}}
           ]
         },
         {
           "type": "timeseries",
           "title": "Desde quando deixou de valer",
-          "description": "Enforced ao longo do tempo. O degrau para baixo data a quebra -- e quase sempre coincide com o apply que a plateia acabou de ver.",
+          "description": "Enforced ao longo do tempo, com o motivo na legenda. As linhas coladas no zero com (Overridden) sao as do Gateway cedendo para a rota, e ficam assim o tempo todo. O que importa e o DEGRAU para baixo -- ele data a quebra, e quase sempre coincide com o apply que a plateia acabou de ver.",
           "gridPos": {"h": 9, "w": 12, "x": 0, "y": 16},
           "datasource": {"type": "prometheus", "uid": "${datasource}"},
           "fieldConfig": {"defaults": {"min": 0, "max": 1, "custom": {"drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 15, "lineWidth": 2}}},
           "targets": [
-            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "auth", "expr": "gatewayapi_authpolicy_status{type=\"Enforced\"}", "legendFormat": "AuthPolicy {{name}}"},
-            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "rlp", "expr": "gatewayapi_ratelimitpolicy_status{type=\"Enforced\"}", "legendFormat": "RateLimitPolicy {{name}}"},
-            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "plan", "expr": "kuadrant_planpolicy_status{type=\"Enforced\"}", "legendFormat": "PlanPolicy {{name}}"}
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "auth", "expr": "gatewayapi_authpolicy_status{type=\"Enforced\"}", "legendFormat": "AuthPolicy {{name}} ({{reason}})"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "rlp", "expr": "gatewayapi_ratelimitpolicy_status{type=\"Enforced\"}", "legendFormat": "RateLimitPolicy {{name}} ({{reason}})"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "plan", "expr": "kuadrant_planpolicy_status{type=\"Enforced\"}", "legendFormat": "PlanPolicy {{name}} ({{reason}})"}
           ]
         },
         {
