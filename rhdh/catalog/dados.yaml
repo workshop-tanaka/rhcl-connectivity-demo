@@ -1,0 +1,181 @@
+# ===========================================================================
+# Catalogo RHDH — a camada de DADOS dos pacotes de viagem.
+#
+# Modela platform-reference/travel-packages/: o Postgres com os pacotes, o
+# cache do Data Grid, o topico do AMQ Streams e o CDC que liga os dois. Ate
+# 2026-08-28 nada disso existia no catalogo -- o Ato 6 dizia que o portal
+# reflete a plataforma, e a plataforma tinha uma camada inteira invisivel.
+#
+# ROTULOS: vocabulario de docs/CATALOGO.md, conferido por
+# scripts/valida-catalogo.sh. Aqui a camada e 'dados', que estava reservada na
+# tabela justamente para isto.
+#
+# rhcl.demo/cluster-object em TODAS as entidades: e o que faz o filtro do
+# setup-catalog.sh conferir a existencia antes de publicar. Num cluster sem a
+# etapa 'pacotes' do provision.sh, este arquivo inteiro sai do portal sozinho,
+# em vez de descrever recursos que nao existem.
+# ===========================================================================
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: travel-packages
+  title: Pacotes de viagem
+  description: >-
+    O lastro de dados da demo: pacotes em Postgres, replicados para o cache do
+    Data Grid por CDC via Kafka. Existe para a demo ter volume e movimento
+    reais -- topico parado se le como integracao quebrada.
+  annotations:
+    # O System tambem se ancora num objeto real, e o objeto e o NAMESPACE. Sem
+    # isto, num cluster sem a etapa 'pacotes' os seis Resources caem e sobra um
+    # System vazio -- um card que abre e nao tem nada dentro.
+    #
+    # Namespace e cluster-scoped, entao o campo do meio fica vazio. O formato
+    # aguenta: o setup-catalog.sh monta 'oc get namespace travel-packages -n ""',
+    # e o -n vazio e ignorado para recurso sem namespace (medido em 2026-08-28).
+    rhcl.demo/cluster-object: namespace//travel-packages
+  labels:
+    rhcl.demo/camada: dados
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+spec:
+  owner: group:default/platform-team
+  domain: travel
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: travel-packages-db
+  title: Postgres — pacotes
+  description: >-
+    Cluster CNPG com a tabela de pacotes. E a FONTE do CDC: o Debezium le o WAL
+    daqui, entao o slot de replicacao vive neste cluster e nao no consumidor.
+  annotations:
+    rhcl.demo/cluster-object: cluster.postgresql.cnpg.io/travel-db/travel-packages-db
+    backstage.io/kubernetes-namespace: travel-db
+  labels:
+    rhcl.demo/camada: dados
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+spec:
+  type: database
+  owner: group:default/platform-team
+  system: travel-packages
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: travel-cache
+  title: Data Grid — cache de pacotes
+  description: >-
+    Infinispan que serve as consultas de pacote sem ir ao banco. E o DESTINO do
+    CDC: quem escreve aqui e o conector, nao a aplicacao.
+  annotations:
+    rhcl.demo/cluster-object: infinispan/travel-cache/travel-cache
+    backstage.io/kubernetes-namespace: travel-cache
+  labels:
+    rhcl.demo/camada: dados
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+spec:
+  type: cache
+  owner: group:default/platform-team
+  system: travel-packages
+  dependsOn:
+    - resource:default/travel-cdc
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: travel-streams
+  title: AMQ Streams — travel-streams
+  description: >-
+    O broker Kafka por onde passa a mudanca capturada no Postgres. Um cluster
+    dedicado a demo; o topico do CDC nasce do conector, nao declarado a mao.
+  annotations:
+    rhcl.demo/cluster-object: kafka/travel-streams/travel-streams
+    backstage.io/kubernetes-namespace: travel-streams
+  labels:
+    rhcl.demo/camada: dados
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+spec:
+  type: message-broker
+  owner: group:default/platform-team
+  system: travel-packages
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: cdc-connect
+  title: KafkaConnect — cdc
+  description: >-
+    O runtime do Connect. Separado do conector de proposito: este e o processo
+    que hospeda plugins; o que le o Postgres e o KafkaConnector travel-cdc.
+    Confundir os dois e o que faz procurar erro de conexao no lugar errado.
+  annotations:
+    rhcl.demo/cluster-object: kafkaconnect/travel-streams/cdc
+    backstage.io/kubernetes-namespace: travel-streams
+  labels:
+    rhcl.demo/camada: dados
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+spec:
+  type: stream-processing
+  owner: group:default/platform-team
+  system: travel-packages
+  dependsOn:
+    - resource:default/travel-streams
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: travel-cdc
+  title: Debezium — travel-cdc
+  description: >-
+    O conector que captura mudanca no Postgres e publica no Kafka. E a peca que
+    torna a replicacao observavel: parar este conector para o cache sem parar o
+    banco nem o broker.
+  annotations:
+    rhcl.demo/cluster-object: kafkaconnector/travel-streams/travel-cdc
+    backstage.io/kubernetes-namespace: travel-streams
+  labels:
+    rhcl.demo/camada: dados
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+spec:
+  type: cdc-connector
+  owner: group:default/platform-team
+  system: travel-packages
+  dependsOn:
+    - resource:default/cdc-connect
+    - resource:default/travel-packages-db
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: cdc-mutador
+  title: CronJob — mutador do CDC
+  description: >-
+    Roda o mutador.sql a cada minuto para o fluxo nao ficar parado. E CronJob e
+    nao loop num Deployment: cada rodada e transacao curta, o custo aparece em
+    'oc get jobs', e pausar a demo e um patch de suspend -- sem matar pod.
+  annotations:
+    rhcl.demo/cluster-object: cronjob/travel-db/cdc-mutador
+    backstage.io/kubernetes-namespace: travel-db
+  labels:
+    rhcl.demo/camada: dados
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+spec:
+  type: scheduled-job
+  owner: group:default/platform-team
+  system: travel-packages
+  dependsOn:
+    - resource:default/travel-packages-db

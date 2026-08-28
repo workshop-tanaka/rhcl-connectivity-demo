@@ -138,10 +138,39 @@ export GITLAB_HOST OPENAPI_SHA
 _log "hosts da demo: ${DEMO_API_HOST} / ${DEMO_ECHO_HOST}"
 
 # ----- 2. entidades renderizadas -------------------------------------------
-_rendered="$(mktemp)"
-trap 'rm -f "$_rendered" "$_openapi"' EXIT
-envsubst '${GITLAB_HOST} ${OPENAPI_SHA} ${CATALOG_SVC} ${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_URL} ${DEMO_REPO_URL_BLOB} ${GRAFANA_HOST} ${TRACING_HOST} ${CONSOLE_HOST} ${DEVSPACES_HOST}' < "${_here}/catalog/travel-agency.yaml" > "$_rendered" \
-  || _die "falha ao renderizar catalog/travel-agency.yaml"
+# TODO catalog/*.yaml e servido, e nao um arquivo fixo (mudou em 2026-08-28).
+# Antes daqui saiam so travel-agency.yaml e aap-smoke-test.yaml, com o nome
+# escrito em quatro lugares -- copia, location, allowlist e o filtro. Acrescentar
+# um arquivo de catalogo exigia lembrar dos quatro, e esquecer um deles falha
+# calado: a entidade some do portal sem erro, ou fica registrada uma location
+# que o httpd nao entrega.
+#
+# Duas excecoes, e as duas por natureza e nao por nome:
+#   travels-openapi.yaml   e SPEC de API, nao entidade -- vai para o ConfigMap
+#                          pelo caminho proprio (o hash dele vira query string)
+#   aap-smoke-test.yaml    so entra se houver AAP NESTE cluster; ver o bloco
+#                          da secao 3, que repete a mesma condicao
+_rdir="$(mktemp -d)"
+trap 'rm -f "$_openapi"; rm -rf "$_rdir"' EXIT
+
+_entity_files=()
+while IFS= read -r _f; do
+  case "$(basename "$_f")" in
+    travels-openapi.yaml) continue ;;
+  esac
+  _entity_files+=("$_f")
+done < <(find "${_here}/catalog" -maxdepth 1 -name '*.yaml' | sort)
+[[ ${#_entity_files[@]} -gt 0 ]] || _die "nenhum arquivo de entidades em ${_here}/catalog/."
+
+# Passada 1: so o render. O filtro precisa conhecer as anotacoes
+# rhcl.demo/cluster-object de TODOS os arquivos antes de decidir qualquer um,
+# entao a substituicao acontece inteira primeiro.
+for _f in "${_entity_files[@]}"; do
+  _b="$(basename "$_f")"
+  envsubst '${GITLAB_HOST} ${OPENAPI_SHA} ${CATALOG_SVC} ${DEMO_API_HOST} ${DEMO_ECHO_HOST} ${DEMO_REPO_URL} ${DEMO_REPO_URL_BLOB} ${GRAFANA_HOST} ${TRACING_HOST} ${CONSOLE_HOST} ${DEVSPACES_HOST}' \
+    < "$_f" > "${_rdir}/${_b}" || _die "falha ao renderizar catalog/${_b}"
+done
+_log "arquivos de catalogo: $(printf '%s ' "${_entity_files[@]##*/}")"
 
 # Espelho ausente: TechDocs e source-location sairiam com URL vazia, e o portal
 # mostraria abas que carregam e nao vao a lugar nenhum -- pior que a ausencia.
@@ -206,7 +235,7 @@ fi
 # 299 comentarios entram, 299 saem.
 _present="$(mktemp)"; _filtered="$(mktemp)"; _dropped="$(mktemp)"
 _fatos="$(mktemp)"; _expr="$(mktemp)"; _warn_refs="$(mktemp)"
-trap 'rm -f "$_rendered" "$_openapi" "$_present" "$_filtered" "$_dropped" "$_fatos" "$_expr" "$_warn_refs"' EXIT
+trap 'rm -f "$_openapi" "$_present" "$_filtered" "$_dropped" "$_fatos" "$_expr" "$_warn_refs"; rm -rf "$_rdir"' EXIT
 
 for _k in gateway dnspolicy tlspolicy authpolicy ratelimitpolicy planpolicy telemetrypolicy; do
   oc get "$_k" -A -o jsonpath="{range .items[*]}${_k}/{.metadata.name}{'\n'}{end}" 2>/dev/null
@@ -227,14 +256,20 @@ while IFS= read -r _obj; do
   if oc get "$_r" "$_nm" -n "$_ns" >/dev/null 2>&1; then
     printf 'obj/%s\n' "$_obj" >> "$_present"
   fi
-done < <(yq -N '.metadata.annotations."rhcl.demo/cluster-object" // ""' "$_rendered" \
+done < <(yq -N '.metadata.annotations."rhcl.demo/cluster-object" // ""' "${_rdir}"/*.yaml \
           | grep -v '^$' | sort -u)
+
+# A partir daqui e um arquivo por vez. O inventario ($_present) ja esta pronto e
+# vale para todos -- ele descreve o CLUSTER, nao o arquivo.
+_dropped_all=""; _warn_all=""
+for _rf in "${_rdir}"/*.yaml; do
+_b="$(basename "$_rf")"
 
 # Os fatos de cada documento, um JSON por linha, na ordem que o decide abaixo le.
 yq -o=json -I=0 '[documentIndex, .kind, (.metadata.namespace // "default"), (.metadata.name // ""), (.spec.type // ""), (.metadata.annotations."rhcl.demo/cluster-object" // ""), (.spec.subcomponentOf // ""), (.spec.system // ""), (.spec.domain // ""), (.spec.owner // ""), (.spec.parent // "")]' \
-   "$_rendered" > "$_fatos" || _die "falha ao extrair os fatos do catalogo."
+   "$_rf" > "$_fatos" || _die "falha ao extrair os fatos de ${_b}."
 
-python3 - "$_fatos" "$_present" "$_expr" "$_dropped" "$_warn_refs" "$_drop_devspaces" <<'PY' || _die "falha ao decidir o filtro do catalogo."
+python3 - "$_fatos" "$_present" "$_expr" "$_dropped" "$_warn_refs" "$_drop_devspaces" <<'PY' || _die "falha ao decidir o filtro de ${_b}."
 # Decide o que sai e monta a expressao yq que aplica a decisao. Nao le YAML --
 # quem parseia e o yq; aqui so ha json da stdlib (PyYAML nao esta instalado no
 # python3 do macOS, e exigi-lo tornaria o script nao-executavel no laptop).
@@ -302,22 +337,38 @@ for d in kept:
 open(warn_f, 'w').write('\n'.join(avisos))
 PY
 
-yq "$(cat "$_expr")" "$_rendered" > "$_filtered" \
-  || _die "falha ao aplicar o filtro do catalogo."
+yq "$(cat "$_expr")" "$_rf" > "$_filtered" \
+  || _die "falha ao aplicar o filtro em ${_b}."
+cat "$_filtered" > "$_rf"
 
-if [[ -s "$_dropped" ]]; then
-  _warn "fora do catalogo, nao existem neste cluster: $(cat "$_dropped")"
+[[ -s "$_dropped" ]]   && _dropped_all="${_dropped_all}${_dropped_all:+, }$(cat "$_dropped")"
+[[ -s "$_warn_refs" ]] && _warn_all="${_warn_all}$(tr '\n' ' ' < "$_warn_refs")"
+
+# Arquivo que perdeu TODAS as entidades sai inteiro. Servir um YAML vazio e
+# registrar uma location para ele funciona -- o Backstage ingere zero entidades
+# --, mas polui o app-config e o diagnostico: uma location valida apontando
+# para nada e indistinguivel de uma que falhou ao carregar.
+#
+# E o caso de um subsistema opcional ausente: num cluster sem a etapa
+# 'pacotes', o dados.yaml inteiro se resolve para vazio.
+if [[ -z "$(yq -N 'select(.kind) | .kind' "$_rf" 2>/dev/null)" ]]; then
+  rm -f "$_rf"
+  _log "catalog/${_b}: nenhuma entidade existe neste cluster -- arquivo inteiro omitido."
+fi
+done   # fim do laco por arquivo de catalogo
+
+if [[ -n "$_dropped_all" ]]; then
+  _warn "fora do catalogo, nao existem neste cluster: ${_dropped_all}"
 else
   _ok "todas as entidades do catalogo existem no cluster."
 fi
 
 # Ref escalar pendurada quebra a entidade INTEIRA, e nao so o vizinho -- por
 # isso aparece como aviso alto, e nao e corrigida em silencio.
-if [[ -s "$_warn_refs" ]]; then
+if [[ -n "$_warn_all" ]]; then
   _warn "referencia escalar apontando para entidade descartada -- corrija em rhdh/catalog/:" \
-        "$(tr '\n' ' ' < "$_warn_refs")"
+        "${_warn_all}"
 fi
-cat "$_filtered" > "$_rendered"
 
 _log "publicando as entidades..."
 # O spec OpenAPI vai no mesmo ConfigMap: o httpd serve os dois, e o APIProduct
@@ -331,12 +382,16 @@ _log "publicando as entidades..."
 _cmdir="$(mktemp -d)"
 # Este trap SUBSTITUI o da secao 2b -- 'trap ... EXIT' nao acumula. Os temporarios
 # da filtragem precisam continuar listados aqui, senao vazam a cada execucao.
-trap 'rm -f "$_rendered" "$_openapi" "$_present" "$_filtered" "$_dropped" "$_fatos" "$_expr" "$_warn_refs"; rm -rf "$_cmdir"' EXIT
+trap 'rm -f "$_openapi" "$_present" "$_filtered" "$_dropped" "$_fatos" "$_expr" "$_warn_refs"; rm -rf "$_cmdir" "$_rdir"' EXIT
 # envsubst, e nao cp: o spec declara servers[0].url, e um placeholder ali vira
 # "Try it out" apontando para outro cluster assim que o Swagger UI aparecer.
 # Era cp ate 2026-08-27, e passava despercebido porque nada renderizava o spec.
 cp "$_openapi" "${_cmdir}/travels-openapi.yaml"
-cp "$_rendered" "${_cmdir}/travel-agency.yaml"
+
+# Os arquivos de entidade ja renderizados e filtrados. O aap-smoke-test.yaml sai
+# daqui logo abaixo se nao houver AAP -- a condicao esta num lugar so, e a
+# location da secao 3 le a mesma lista.
+cp "${_rdir}"/*.yaml "${_cmdir}/"
 
 # Template do job template do AAP, se o sync do survey ja rodou. Ele vem pelo
 # httpd interno em vez do git porque a entidade nao tem skeleton nenhum -- so
@@ -355,14 +410,15 @@ cp "$_rendered" "${_cmdir}/travel-agency.yaml"
 # Com AAP presente, o sync-survey.sh regenera o arquivo contra a instancia
 # local e os hostnames saem certos -- entao a checagem tambem e o que mantem o
 # conteudo honesto.
-_aap_tpl="${_here}/catalog/aap-smoke-test.yaml"
-if [[ -f "$_aap_tpl" ]] && oc get ns aap >/dev/null 2>&1; then
-  cp "$_aap_tpl" "${_cmdir}/aap-smoke-test.yaml"
-  _log "template do AAP incluido (gerado por sync-survey.sh)."
-elif [[ -f "$_aap_tpl" ]]; then
-  _warn "catalog/aap-smoke-test.yaml existe mas NAO ha AAP neste cluster --" \
-        "omitido para nao publicar template apontando para outro ambiente." \
-        "Com AAP: bash rhdh/sync-survey.sh regenera contra a instancia local."
+if [[ -f "${_cmdir}/aap-smoke-test.yaml" ]]; then
+  if oc get ns aap >/dev/null 2>&1; then
+    _log "template do AAP incluido (gerado por sync-survey.sh)."
+  else
+    rm -f "${_cmdir}/aap-smoke-test.yaml"
+    _warn "catalog/aap-smoke-test.yaml existe mas NAO ha AAP neste cluster --" \
+          "omitido para nao publicar template apontando para outro ambiente." \
+          "Com AAP: bash rhdh/sync-survey.sh regenera contra a instancia local."
+  fi
 fi
 
 oc create configmap rhdh-catalog-entities -n "$RHDH_NS" \
@@ -377,7 +433,7 @@ envsubst '${RHDH_NS}' < "${_here}/03-catalog-server.yaml" | oc apply -f - >/dev/
 oc rollout restart deployment/rhdh-catalog-server -n "$RHDH_NS" >/dev/null 2>&1
 oc rollout status deployment/rhdh-catalog-server -n "$RHDH_NS" --timeout=300s >/dev/null \
   || _die "o servidor de catalogo nao ficou pronto."
-_ok "entidades sendo servidas em http://${CATALOG_SVC}/travel-agency.yaml"
+_ok "entidades sendo servidas em http://${CATALOG_SVC}/ ($(ls "$_cmdir" | grep -v travels-openapi | tr '\n' ' '))"
 
 # ----- 2b. cutucar quem consome o spec ------------------------------------
 # O controlador do devportal busca o openAPISpecURL UMA vez e trava em
@@ -416,21 +472,23 @@ fi
 # entre arquivos de app-config -- o ultimo vence. Por isso o software template
 # entra NESTA lista, e o setup-github.sh chama este script em vez de escrever
 # um app-config proprio.
-_locations="        - type: url
-          target: http://${CATALOG_SVC}/travel-agency.yaml"
-
-# Mesma condicao do bloco que copiou o arquivo acima -- e ela precisa ser
-# IDENTICA, incluindo a checagem de AAP. Registrar sem servir deixa a Location
-# apontando para uma URL que o httpd nao entrega, e o Backstage MANTEM a
-# entidade ja ingerida: some do ConfigMap e continua no portal.
+# A LISTA SAI DO QUE FOI SERVIDO, e nao de nomes escritos aqui. Registrar uma
+# location sem servir o arquivo deixa a URL apontando para algo que o httpd nao
+# entrega -- e o Backstage MANTEM a entidade ja ingerida: some do ConfigMap e
+# continua no portal. Foi o que aconteceu em 2026-08-25 com o aap-smoke-test.
 #
-# Foi o que aconteceu na primeira tentativa de corrigir isto em 2026-08-25 --
-# o arquivo saiu do ConfigMap e o aap-smoke-test continuou listado.
-if [[ -f "${_here}/catalog/aap-smoke-test.yaml" ]] && oc get ns aap >/dev/null 2>&1; then
-  _locations="${_locations}
-        - type: url
-          target: http://${CATALOG_SVC}/aap-smoke-test.yaml"
-fi
+# Derivar de $_cmdir elimina a classe inteira: o que e servido e o que e
+# registrado vem da MESMA fonte, entao nao ha como divergirem. Vale tambem para
+# a condicao do AAP, que agora existe num lugar so (a remocao do arquivo).
+_locations=""
+for _cf in "${_cmdir}"/*.yaml; do
+  _cb="$(basename "$_cf")"
+  [[ "$_cb" == "travels-openapi.yaml" ]] && continue   # spec, nao entidade
+  _locations="${_locations}${_locations:+
+}        - type: url
+          target: http://${CATALOG_SVC}/${_cb}"
+done
+[[ -n "$_locations" ]] || _die "nenhum arquivo de entidades sobrou para registrar."
 
 # backend.reading.allow e uma ALLOWLIST: host que nao esta nela e recusado, e
 # ter 'integrations.github' configurado NAO isenta. Cada location adicionada
