@@ -207,9 +207,16 @@ export class ResourceCache {
     // O 'on' do informer faz push num array de callbacks e nao deduplica, e o
     // 'connect' e reemitido a cada religada do watch -- que o apiserver provoca
     // por rotina, nao so em erro. Registrar aqui dentro acrescentava uma copia
-    // dos handlers por religada. Enquanto o unico efeito era agendarAviso(),
-    // coalescido, a duplicacao passava despercebida; com a Sineta ela virou
-    // sintoma, porque uma policy que deixa de valer gerava N+1 avisos iguais.
+    // dos handlers por religada, para sempre: um portal que fica semanas de pe
+    // acumula uma copia por queda de watch, e cada evento passa a custar N
+    // vezes mais.
+    //
+    // O QUE ISSO NAO CAUSA, e vale registrar porque a suspeita e natural:
+    // avisos duplicados. As copias se calam sozinhas, porque avaliarPostura()
+    // grava o novo estado em enforcedAnterior antes da copia seguinte rodar --
+    // a segunda ja le 'antes = false' e nao avisa. O defeito e o crescimento
+    // sem teto, nao a sineta tocando duas vezes; foi medido reintroduzindo o
+    // bug contra a suite. Quem guarda isto e o teste de contagem de handlers.
     for (const verbo of ['add', 'update', 'delete'] as const) {
       informer.on(verbo, (obj: any) => {
         this.avaliarPostura(kind, obj as K8sish, verbo === 'delete');

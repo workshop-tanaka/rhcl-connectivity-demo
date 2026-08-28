@@ -126,6 +126,56 @@ o tipo não existe é o **404 da própria listagem**. Deixar o cluster responder
 em vez de inferir de um sinal indireto, é a mesma disciplina que separa N/A de
 zero — aplicada ao motivo, e não ao número.
 
+## A sineta, e como desligá-la
+
+`connectivityLinkOps.notificacoes` — booleano, **default `true`**.
+
+O cache de informers não serve só à tela: quando uma policy que *estava* valendo
+deixa de valer, ou some, o backend posta uma notificação em `/api/notifications`.
+É o que separa um portal que **mostra** estado de um que **avisa** — ninguém fica
+olhando uma tela esperando uma `AuthPolicy` parar de valer, e quando ela para o
+efeito aparece do outro lado, no cliente que passou a entrar sem credencial.
+
+A chamada é HTTP e não um service ref: o `@backstage/plugin-notifications-node`
+não existe no runtime deste RHDH — o que existe é o plugin dinâmico servindo a
+API. E é autenticada **como serviço**: não há usuário numa reação a evento de
+cluster, e forjar um seria mentir para o permission framework.
+
+Desligar é legítimo e por isso a chave existe. Nesta demo ela fica ligada porque
+três policies mudam de estado no roteiro e o aviso *é* a cena; num cluster
+grande, sem recorte por dono, todo mundo receberia tudo — e aviso que quem
+recebe não pode acionar vira ruído, que acaba ignorado. Ignorado é pior do que
+ausente, porque parece cobertura.
+
+O `rhdh/setup-plugins.sh` escreve a chave explicitamente, mesmo sendo o default:
+flag que só existe no código não pode ser desligada por quem não lê o código.
+
+### A transição é o evento, não o estado
+
+Só a **queda** avisa: de `Enforced=True` para qualquer outra coisa, ou o
+desaparecimento do objeto. Uma policy que nunca esteve enforced não piorou nada,
+e avisar sobre ela a cada reconcile encheria a caixa até ninguém mais olhar.
+
+Isso também é o que torna a carga inicial inofensiva sem tratamento especial: na
+primeira vez que se vê um objeto o estado anterior é `undefined`, e `undefined`
+não é `true`. Vale registrar porque a primeira versão tentou "primar" o mapa a
+partir de `informer.list()` dentro do `connect` — e o laço não primava nada, já
+que o informer emite a rajada de `add` **depois** do `connect`, não antes.
+
+### Por que os handlers não moram dentro do `connect`
+
+O `on()` do `@kubernetes/client-node` faz *push* num array por verbo e não
+deduplica, e o `connect` é reemitido a cada religada do watch — que o apiserver
+provoca por rotina, não só em erro. Registrar os handlers ali dentro
+acrescentava uma cópia por religada, para sempre: um portal de pé por semanas
+acumula uma cópia por queda de watch, e cada evento passa a custar N vezes mais.
+
+O que isso **não** causava, e a suspeita é natural: avisos duplicados. As cópias
+se calam sozinhas, porque a avaliação grava o estado novo antes de a cópia
+seguinte rodar — a segunda já lê `antes = false`. Foi medido reintroduzindo o
+bug contra a suíte: dos testes de religada, só o de **contagem de handlers**
+falha. É ele que guarda a correção.
+
 ## Sobre as dependências em devDependencies
 
 `@backstage/*` está em `devDependencies`, não em `dependencies`, e isso é

@@ -989,6 +989,17 @@ if [[ "${WITH_CL_OPS:-false}" == "true" ]]; then
             prometheus:
               url: https://thanos-querier.openshift-monitoring.svc:9092
               caFile: ${CA_MOUNT}/service-ca.crt
+            # A sineta: policy que ESTAVA valendo e deixa de valer vira
+            # notificacao na caixa de entrada do portal. Escrito aqui mesmo
+            # sendo o default do codigo, porque flag que so existe no codigo
+            # nao pode ser desligada por quem nao le o codigo.
+            #
+            # Ligada nesta demo, onde tres policies mudam de estado no roteiro
+            # e o aviso E a cena. Num cluster grande, desligar e a escolha
+            # certa ate haver recorte por dono: aviso que ninguem pode acionar
+            # vira ruido, e ruido acaba ignorado -- que e pior do que nao
+            # avisar.
+            notificacoes: true
       - package: http://plugin-registry:8080/${_clo_fe}
         integrity: \"${CL_OPS_FRONTEND_INTEGRITY}\"
         disabled: false
