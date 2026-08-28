@@ -193,6 +193,36 @@ spec:
   owner: group:default/platform-team
 ---
 # ---------------------------------------------------------------------------
+# Domain: plataforma.
+#
+# EXISTE PARA TIRAR A PLATAFORMA DE DENTRO DO NEGOCIO. Ate 2026-08-28 os tres
+# Systems declaravam 'domain: travel' -- inclusive o 'plataforma', o que punha
+# Authorino, Limitador, Tempo, Argo CD, GitLab e Keycloak dentro do dominio de
+# negocio de viagens. Nao quebrava nada: o Backstage aceita, a pagina do
+# dominio abre, e a lista simplesmente mistura o que sustenta a demo com o que
+# a demo vende.
+#
+# A separacao e o que faz a pergunta "o que e nosso negocio e o que e
+# infraestrutura?" ter resposta na tela -- que e a mesma pergunta que o rotulo
+# rhcl.demo/camada responde no nivel da entidade. Aqui ela vale no nivel do
+# System.
+# ---------------------------------------------------------------------------
+apiVersion: backstage.io/v1alpha1
+kind: Domain
+metadata:
+  name: plataforma
+  description: >-
+    Plataforma que executa a demo: control plane do RHCL, Service Mesh,
+    observabilidade, GitOps e identidade. Nao e produto -- e o que sustenta os
+    produtos do dominio travel.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+spec:
+  owner: group:default/platform-team
+---
+# ---------------------------------------------------------------------------
 # System: borda (RHCL / Kuadrant)
 # ---------------------------------------------------------------------------
 apiVersion: backstage.io/v1alpha1
@@ -972,9 +1002,18 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: echo-api
+  # A descricao anterior dizia "sem AuthPolicy propria, esta rota nao responde".
+  # Isso deixou de ser verdade quando o echo ganhou AuthPolicy e PlanPolicy
+  # proprias (env/*/devportal/echo-api.yaml) e virou o SEGUNDO PRODUTO -- que e
+  # justamente o que o Ato 3 passou a contar. O RUNBOOK ja registra a virada
+  # ("Este par mudou quando o echo-api virou o segundo produto do catalogo");
+  # a entidade e que tinha ficado descrevendo o estado antigo.
   description: >-
-    Servico de eco em namespace separado, anexado ao mesmo Gateway. Serve para
-    mostrar o deny-all da borda: sem AuthPolicy propria, esta rota nao responde.
+    Servico de eco em namespace separado, anexado ao MESMO Gateway que o
+    travels. Segundo produto do catalogo: tem AuthPolicy e PlanPolicy proprias,
+    e e sobre esse par que o Ato 3 mostra a precedencia -- as duas rotas
+    declaram a sua, as duas respondem 401, e o Gateway registra quem venceu
+    rota por rota.
   links:
     # Dev Spaces: abre o repositorio DESTA demo num IDE em container, com um
     # clique a partir do componente. Nao confundir com o decorator "edit code"
@@ -1171,7 +1210,9 @@ metadata:
     - rhcl
 spec:
   owner: group:default/platform-team
-  domain: travel
+  # 'plataforma', e nao 'travel': o que sustenta a demo nao pertence ao dominio
+  # de negocio dela. Ver o comentario do Domain plataforma, mais acima.
+  domain: plataforma
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Resource

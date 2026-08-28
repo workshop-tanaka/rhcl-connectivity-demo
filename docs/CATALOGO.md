@@ -130,7 +130,8 @@ Multivaloradas, e é o que o filtro do catálogo mostra na tela.
 | `ato-1` … `ato-7` | o que aquele ato usa. Mais de uma por entidade quando for o caso |
 | `kuadrant` | policies e control plane do RHCL |
 | `service-mesh` | o par leste-oeste do Ato 7 e o control plane do Istio |
-| `gateway-api` | Gateway, HTTPRoute |
+| `gateway-api` | Gateway e HTTPRoute **descritos à mão** |
+| `httproute` | HTTPRoute **descoberta pelo provider** — ver §5.1. Não escreva esta tag à mão |
 | `observabilidade` | Tempo, OTel, Kiali, Grafana |
 | `gitops` | Argo CD e o que ele reconcilia |
 | `golden-path` | gerado pelos templates — **já em uso**, vem do skeleton |
@@ -164,22 +165,78 @@ para depois da Fase 4, e a decisão consciente é: por ora convivem. O que as
 liga ao resto é a entidade `Component` correspondente, que carrega
 `rhcl.demo/produto`.
 
+### 5.1 O provider de HTTPRoute — dívida conhecida
+
+`plugins/connectivity-link-ops-backend/src/providers/HTTPRouteEntityProvider.ts`
+publica no catálogo toda HTTPRoute do cluster que **não** foi descrita à mão
+(ele dedupa lendo `rhcl.demo/cluster-object` das entidades curadas, então não
+há duplicata). É a fonte que faz a rota criada pelo golden path aparecer
+sozinha.
+
+Ele **ainda não fala este vocabulário**, e a divergência é visível:
+
+| | rota curada | rota do provider |
+| --- | --- | --- |
+| labels | `camada=borda`, `origem=repo`, `produto=…` | **nenhuma** |
+| tags | `rhcl`, `gateway-api` | `rhcl`, `httproute` |
+| owner | `platform-team` | `unknown` |
+
+Três consequências, e nenhuma é fatal — por isso é dívida e não defeito:
+
+- **`origem: cluster` é prometido no §3 e ninguém o emite.** O valor existe na
+  tabela exatamente para este caso.
+- **Duas tags para o mesmo conceito.** Filtrar por `gateway-api` mostra as duas
+  rotas curadas e esconde as descobertas. É por isso que as duas estão na
+  tabela do §4 com a distinção escrita: enquanto o provider não mudar, saber
+  qual delas usar depende de saber de onde a entidade veio.
+- `owner: unknown` é **deliberado** e fica — o cluster não declara dono, e
+  herdar seria inventar. O próprio provider registra isso em comentário.
+
+O conserto é de uma linha no `entidade()` do provider — acrescentar
+
+```ts
+labels: { 'rhcl.demo/camada': 'borda', 'rhcl.demo/origem': 'cluster' },
+```
+
+e trocar a tag `httproute` por `gateway-api`. Não foi feito junto da Fase 2
+porque o arquivo estava sob edição de outra frente de trabalho, e o
+`valida-catalogo.sh` não alcança TypeScript: ele lê os YAML do repositório, e
+entidade de provider só existe em tempo de execução. Quem mexer no provider,
+mexa aqui também.
+
 ---
 
 ## 6. O que é conferido, e o que não é
 
-Hoje o `scripts/valida-catalogo.sh` (Fase 0) confere que toda **referência**
-entre entidades resolve. Ele **não** confere vocabulário — não existe entidade
-rotulada ainda para conferir.
+O `scripts/valida-catalogo.sh` roda no laptop e no job `Catalogo` do CI, e
+recusa:
 
-Quando a Fase 2 aplicar os rótulos, o validador ganha a conferência de:
+- referência entre entidades que não resolve — a menos que esteja declarada em
+  `rhdh/catalog/entidades-externas.txt`
+- chave de label `rhcl.demo/*` fora da tabela do §3
+- valor fora do conjunto declarado para aquela chave
+- valor que não é string (`ato: 3`), ou com forma inválida pelo §3
+- tag que não passa na regra de tag — que é a mais estrita das duas
+- `Component`, `Resource` ou `System` sem `rhcl.demo/camada`
+- qualquer entidade sem `rhcl.demo/origem`
+- policy do Kuadrant sem `rhcl.demo/escopo-policy`, e `escopo-policy` em quem
+  não é policy do Kuadrant
 
-- chave de label fora da tabela do §3 → erro de digitação
-- valor fora do conjunto declarado → erro
-- valor com acento, maiúscula ou não-string → erro, pelo §3
-- entidade sem `rhcl.demo/camada` → erro
+As regexes de forma são **copiadas do `@backstage/catalog-model`**, não
+reescritas de memória — se a versão do RHDH mudar as regras, é ali que se
+confere.
 
-Até lá, esta página é a fonte, e ela é só convenção.
+### O que ele NÃO alcança
+
+- **Entidades de provider.** O validador lê os YAML do repositório; o que o
+  `HTTPRouteEntityProvider` e o plugin Kuadrant publicam só existe em tempo de
+  execução. É o buraco que o §5.1 descreve.
+- **O skeleton.** Tem sintaxe de template (`${{ values.name }}`) e não é YAML
+  de entidade até o scaffolder renderizar — o CI o exclui pelo mesmo motivo.
+  Rode `bash scripts/valida-catalogo.sh <arquivo>` num render de teste se
+  mexer nele.
+- **Se a entidade existe no cluster.** Isso é do `setup-catalog.sh`, que
+  precisa de `oc`.
 
 ---
 
