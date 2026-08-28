@@ -198,7 +198,7 @@ metadata:
     # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
-    gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
+    gitlab.com/project-slug: rhcl/travel/travels
     backstage.io/kubernetes-label-selector: app=travels
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -251,7 +251,7 @@ metadata:
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
-    backstage.io/source-location: url:${DEMO_REPO_URL}/
+    backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/travel/travels/-/tree/main/
     backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
@@ -312,7 +312,7 @@ metadata:
     # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
-    gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
+    gitlab.com/project-slug: rhcl/travel/flights
     backstage.io/kubernetes-label-selector: app=flights
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -324,7 +324,7 @@ metadata:
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
-    backstage.io/source-location: url:${DEMO_REPO_URL}/
+    backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/travel/flights/-/tree/main/
     backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
@@ -371,7 +371,7 @@ metadata:
     # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
-    gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
+    gitlab.com/project-slug: rhcl/travel/hotels
     backstage.io/kubernetes-label-selector: app=hotels
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -383,7 +383,7 @@ metadata:
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
-    backstage.io/source-location: url:${DEMO_REPO_URL}/
+    backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/travel/hotels/-/tree/main/
     backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
@@ -430,7 +430,7 @@ metadata:
     # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
-    gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
+    gitlab.com/project-slug: rhcl/travel/cars
     backstage.io/kubernetes-label-selector: app=cars
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -442,7 +442,7 @@ metadata:
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
-    backstage.io/source-location: url:${DEMO_REPO_URL}/
+    backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/travel/cars/-/tree/main/
     backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
@@ -489,7 +489,7 @@ metadata:
     # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
-    gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
+    gitlab.com/project-slug: rhcl/travel/insurances
     backstage.io/kubernetes-label-selector: app=insurances
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -501,7 +501,7 @@ metadata:
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
-    backstage.io/source-location: url:${DEMO_REPO_URL}/
+    backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/travel/insurances/-/tree/main/
     backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
@@ -550,7 +550,7 @@ metadata:
     # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
-    gitlab.com/project-slug: rhcl/base/rhcl-connectivity-demo
+    gitlab.com/project-slug: rhcl/travel/discounts
     backstage.io/kubernetes-label-selector: app=discounts
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -562,7 +562,7 @@ metadata:
     # View Source e View TechDocs no card About: sem estas duas anotacoes os
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
-    backstage.io/source-location: url:${DEMO_REPO_URL}/
+    backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/travel/discounts/-/tree/main/
     backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
