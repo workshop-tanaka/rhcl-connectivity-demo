@@ -666,6 +666,19 @@ tem. Foi o que já apareceu com o `@axis-backstage/plugin-readme`.
 tabela própria e avalia as regras; sem ele a aba abre vazia — o modo de falhar
 que este arquivo repete desde a janela de traces.
 
+**CORRIGIDO em 2026-08-28, no mesmo dia:** a conclusão acima estava certa sobre
+o fato e errada sobre o desfecho. Não haver build oficial não impede — o
+`scripts/build-plugins.sh` constrói da fonte, e a versão **não é palpite**: a
+Red Hat publicou o frontend `1.2.0` para o nosso Backstage, e no tag desse
+frontend o workspace traz o backend **2.5.2**. É o par que eles já validaram.
+
+O backend foi construído e o `.tgz` sai do script
+(`bash scripts/build-plugins.sh tech-insights-backend`). Não foi publicado nem
+ligado: **o que falta não é o plugin, são os fact retrievers.** Os que o
+projeto entrega são exemplos genéricos — tem dono? tem docs? —, justamente o
+que não vale mostrar. O scorecard de governança descrito abaixo exige escrever
+quatro retrievers que leiam o cluster. É um dia de trabalho, não configuração.
+
 **O caso de uso que valeria a pena.** Não a checagem genérica de catálogo (tem
 dono? tem docs?), que todo mundo demonstra e ninguém usa. Um scorecard só,
 sobre **governança de API**, com quatro fatos que este ambiente já produz:

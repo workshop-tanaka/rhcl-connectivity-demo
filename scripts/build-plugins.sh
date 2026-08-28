@@ -44,9 +44,13 @@ _here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SAIDA="${SAIDA:-${_here}/.plugins-build}"
 REPO_COMUNIDADE="https://github.com/backstage/community-plugins"
 
-# nome no monorepo | versão | Backstage que o workspace mira | pacote npm
-PLUGINS="jaeger|0.15.0|1.49.2|@backstage-community/plugin-jaeger
-grafana|0.17.0|1.49.2|@backstage-community/plugin-grafana"
+# workspace | diretorio do plugin | versão | Backstage do workspace | pacote npm
+#
+# workspace e diretorio costumam coincidir, mas nao sempre: o tech-insights tem
+# o backend em plugins/tech-insights-backend dentro do workspace tech-insights.
+PLUGINS="jaeger|jaeger|0.15.0|1.49.2|@backstage-community/plugin-jaeger
+grafana|grafana|0.17.0|1.49.2|@backstage-community/plugin-grafana
+tech-insights|tech-insights-backend|2.5.2|1.47.2|@backstage-community/plugin-tech-insights-backend"
 
 _MODO="build"; _ALVO=""; _PUBLICAR=false
 while [[ $# -gt 0 ]]; do
@@ -79,9 +83,9 @@ _node_bom() {
 # Bate o pin contra o backstage.json do workspace, na tag. É a única fonte que
 # vale, e a checagem é barata: uma chamada de API por plugin, sem clonar nada.
 _confere_pin() {
-  local _nome="$1" _ver="$2" _bs="$3" _pkg="$4"
+  local _ws="$1" _nome="$2" _ver="$3" _bs="$4" _pkg="$5"
   local _real
-  _real="$(gh api "repos/backstage/community-plugins/contents/workspaces/${_nome}/backstage.json?ref=${_pkg}@${_ver}" \
+  _real="$(gh api "repos/backstage/community-plugins/contents/workspaces/${_ws}/backstage.json?ref=${_pkg}@${_ver}" \
     --jq '.content' 2>/dev/null | base64 -d 2>/dev/null \
     | python3 -c 'import sys,json; print(json.load(sys.stdin)["version"])' 2>/dev/null || true)"
   if [[ -z "$_real" ]]; then
@@ -97,10 +101,10 @@ _confere_pin() {
 
 if [[ "$_MODO" == "check" ]]; then
   _log "conferindo os pins contra o backstage.json de cada workspace"
-  while IFS='|' read -r _n _v _b _p; do
-    [[ -z "$_n" ]] && continue
-    [[ -n "$_ALVO" && "$_n" != "$_ALVO" ]] && continue
-    _confere_pin "$_n" "$_v" "$_b" "$_p"
+  while IFS='|' read -r _ws _n _v _b _p; do
+    [[ -z "$_ws" ]] && continue
+    [[ -n "$_ALVO" && "$_n" != "$_ALVO" && "$_ws" != "$_ALVO" ]] && continue
+    _confere_pin "$_ws" "$_n" "$_v" "$_b" "$_p"
   done <<< "$PLUGINS"
   printf '\n'
   _log "o RHDH deste cluster embute:"
@@ -120,14 +124,14 @@ mkdir -p "$SAIDA"
 _construidos=()
 
 _constroi() {
-  local _nome="$1" _ver="$2" _pkg="$3"
+  local _ws_nome="$1" _nome="$2" _ver="$3" _pkg="$4"
   local _tag="${_pkg}@${_ver}"
   local _tmp; _tmp="$(mktemp -d)"
   _log "${_nome} ${_ver} — clonando a tag"
   git clone --depth 1 --branch "$_tag" "$REPO_COMUNIDADE" "${_tmp}/cp" >/dev/null 2>&1 \
     || { rm -rf "$_tmp"; _die "tag não encontrada: ${_tag}"; }
 
-  local _ws="${_tmp}/cp/workspaces/${_nome}"
+  local _ws="${_tmp}/cp/workspaces/${_ws_nome}"
   [[ -d "$_ws" ]] || { rm -rf "$_tmp"; _die "workspace ${_nome} não existe nessa tag"; }
 
   _log "${_nome} — yarn install (leva minutos)"
@@ -171,10 +175,10 @@ _constroi() {
   rm -rf "$_tmp"
 }
 
-while IFS='|' read -r _n _v _b _p; do
-  [[ -z "$_n" ]] && continue
-  [[ -n "$_ALVO" && "$_n" != "$_ALVO" ]] && continue
-  _constroi "$_n" "$_v" "$_p"
+while IFS='|' read -r _ws _n _v _b _p; do
+  [[ -z "$_ws" ]] && continue
+  [[ -n "$_ALVO" && "$_n" != "$_ALVO" && "$_ws" != "$_ALVO" ]] && continue
+  _constroi "$_ws" "$_n" "$_v" "$_p"
 done <<< "$PLUGINS"
 
 [[ ${#_construidos[@]} -gt 0 ]] || _die "nada foi construído — o alvo '${_ALVO}' existe na tabela?"
