@@ -853,6 +853,7 @@ st_dashboards() {
   _apply platform-reference/monitoring/dashboard-plataforma-borda.yaml     # latencia e forma da resposta
   _apply platform-reference/monitoring/dashboard-plataforma-catalogo.yaml # a plataforma como produto (Ato 6)
   _apply platform-reference/monitoring/dashboard-ambiente-cluster.yaml  # o chao: operadores, nodes, disco
+  _apply platform-reference/monitoring/dashboard-seguranca-cadeia.yaml  # assinatura, admissao e malha
   _apply platform-reference/monitoring/kuadrant-dashboards              # os tres de fabrica
 }
 

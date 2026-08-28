@@ -594,6 +594,7 @@ diz o assunto:
 | **Plataforma** | Trafego na borda | `rhcl-plataforma-borda` | latência e forma da resposta (Ato 1) | proxies do Istio em `ingress-gateway` |
 | **Plataforma** | Catalogo e golden path | `rhcl-plataforma-catalogo` | **as APIs nascem com política?** (Ato 6) | KSM (`gatewayapi_*`, `devportal_apiproduct_*`) + Tekton + Argo CD |
 | **Ambiente** | Cluster e operadores | `rhcl-ambiente-cluster` | o chão: operadores, nodes, disco, alertas | monitoring de **plataforma** (`kube_*`, `node_*`, `csv_*`, `ALERTS`) |
+| **Seguranca** | Cadeia de suprimentos | `rhcl-seguranca-cadeia` | **todo artefato sai com procedência?** (Ato 7) | Tekton Chains (`watcher_*`) + ACS (`rox_*`) + Istio |
 | **Kuadrant (de fabrica)** | Business User / App Developer / Platform Engineer | (uid do upstream) | tráfego agregado, sem quebra por `plan` | vendorizado do `kuadrant-operator` |
 
 O do Ato 4 continua sendo o `rhcl-negocio-planos`: é o único que quebra por `plan`.
@@ -768,6 +769,44 @@ o painel serve para ver o que *mudou*, não para ser zerado), e **CPU acima de
 100% é over-commit, não queda** — é a soma dos *requests* contra o alocável.
 Foi assim que o `kube-state-metrics` ficou sem CPU e todos os dashboards
 abriram vazios.
+
+### Cadeia de suprimentos — a pergunta do outro lado do pipeline
+
+Se o `rhcl-plataforma-catalogo` pergunta *toda API nasce com política?*, o
+`rhcl-seguranca-cadeia` pergunta **todo artefato sai com procedência?** — e o
+que a plataforma barra depois que ele existe. Cobre três fronteiras que a demo
+cruza e nunca mediu juntas: o build (Tekton Chains assinando em in-toto), a
+admissão (o webhook do ACS) e a malha (mTLS e `AuthorizationPolicy`, Ato 7).
+
+Nada de coleta nova: o `openshift-chains-monitor`, os três `*-monitor-stackrox`
+e os `PodMonitor` do Istio já estavam de pé. Medido em 2026-08-28:
+
+```
+taskruns executados 7, assinados 6        -> 86% de cobertura
+admissao: allowed 1.026, bypassed 29.398  -> 3,4% das revisoes avaliadas
+ACS: 128 violacoes novas/h, 109 resolvidas/h
+mTLS pelo destino: 100%
+```
+
+> **A armadilha do mTLS.** Somando `connection_security_policy` sem filtrar
+> `reporter`, este cluster devolve 54% de tráfego cifrado — 33,5k `mutual_tls`
+> contra 28,8k `unknown`. É mentira: `unknown` é a série do `reporter=source`,
+> que não determina a política de conexão (§7 do CONHECIMENTO). Com
+> `reporter="destination"` a cobertura é **100%**. Todo painel de malha do
+> dashboard filtra por reporter.
+
+Três coisas ficaram de fora, sondadas e não supostas: **violação do ACS por
+policy ou por deployment** (as 284 famílias `rox_*` são telemetria interna do
+Central — precisaria de um exporter contra a API), **RHTAS** (`port-forward` na
+3000 do `rekor-server` não devolve `/metrics`, então as entradas no log de
+transparência ficam fora até alguém achar a porta certa) e **SonarQube/Nexus**
+(expõem Prometheus atrás de credencial; o ServiceMonitor precisaria de Secret).
+
+E um achado que vale além do painel: **o admission controller do ACS está
+ignorando ~97% das revisões** (`result="bypassed"`), sem nenhuma `denied`. Está
+instalado, verde, e praticamente não barra nada — a mesma classe de falha que os
+outros dashboards perseguem. Se a demo quiser mostrar "a plataforma recusa
+imagem sem assinatura", isso precisa ser resolvido antes.
 
 Antes de qualquer dashboard, a instância: `GrafanaDashboard` sem um `Grafana`
 com o label `dashboards: grafana` fica órfão, e com a instância mas sem o

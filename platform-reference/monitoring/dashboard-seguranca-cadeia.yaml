@@ -1,0 +1,211 @@
+# ===========================================================================
+# Dashboard 'Cadeia de suprimentos' — pasta Seguranca.
+#
+# O 'Catalogo e golden path' pergunta se toda API nasce com politica. Este faz
+# a pergunta equivalente do outro lado do pipeline: TODO ARTEFATO SAI COM
+# PROCEDENCIA? E, uma vez publicado, o que a plataforma barra depois.
+#
+# Cobre tres fronteiras que a demo cruza e nunca mediu junto:
+#   build     Tekton Chains assina taskrun/pipelinerun (in-toto, storage OCI)
+#   admissao  o admission controller do ACS avalia (ou nao) o que entra
+#   malha     mTLS e AuthorizationPolicy no leste-oeste (Ato 7)
+#
+# ---------------------------------------------------------------------------
+# MEDIDO EM 2026-08-28, e cada numero destes e um painel:
+#
+#   taskruns executados 7, assinados 6      -- 86% de cobertura, nao 100%
+#   admissao: allowed 1.026, bypassed 29.398 -- 3,4% das revisoes avaliadas
+#   ACS: 128 violacoes novas/h, 109 resolvidas/h
+#   mTLS pelo destino: 100%
+#
+# ---------------------------------------------------------------------------
+# A ARMADILHA DO mTLS -- a consulta ingenua acusa metade da malha em claro.
+# Somando 'connection_security_policy' sem filtrar reporter, este cluster
+# devolve 33,5k mutual_tls contra 28,8k 'unknown', ou seja 54%. E mentira: a
+# serie 'unknown' e a do reporter=source, que NAO determina a politica de
+# conexao (secao 7 do CONHECIMENTO). Quem sabe e o destino. Com
+# reporter="destination" a cobertura e 100%, que e a verdade.
+# Todo painel de malha aqui filtra por reporter -- nao mexa nisso.
+#
+# ---------------------------------------------------------------------------
+# O QUE NAO ENTROU, E POR QUE (sondado, nao suposto):
+#
+#   ACS por policy/deployment  as 284 familias rox_* sao telemetria INTERNA do
+#                              Central (filas, semaforos, duracao). Violacao por
+#                              politica ou por imagem so pela API do Central --
+#                              exigiria um exporter, nao um ServiceMonitor.
+#   RHTAS (Rekor/Fulcio)       port-forward na 3000 do rekor-server: NAO ha
+#                              /metrics. Entradas no log de transparencia, que
+#                              seriam a prova publica da assinatura, ficam de
+#                              fora ate alguem achar a porta/flag certa.
+#   SonarQube e Nexus          expoem Prometheus atras de credencial; o
+#                              ServiceMonitor precisaria de Secret de
+#                              autorizacao. Quality gate talvez renda mais no
+#                              card do RHDH que num grafico.
+#
+# CONTADOR DE PROCESSO, NAO DE VERDADE ABSOLUTA: watcher_* zera quando o
+# controller do Chains reinicia, e tekton_* idem. Por isso tudo aqui e
+# increase() numa janela, e nao o total acumulado -- comparar dois contadores
+# de processos diferentes pelo valor absoluto da numero errado depois de um
+# rollout.
+# ===========================================================================
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: rhcl-seguranca-cadeia
+  namespace: monitoring
+  labels:
+    rhcl.demo/origem: repo
+spec:
+  folder: "Seguranca"
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  json: >
+    {
+      "title": "Cadeia de suprimentos",
+      "uid": "rhcl-seguranca-cadeia",
+      "tags": ["rhcl", "customizado", "seguranca", "ato-7"],
+      "timezone": "browser",
+      "refresh": "1m",
+      "time": {"from": "now-24h", "to": "now"},
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {"text": "Thanos", "value": "Thanos", "selected": false},
+            "options": [], "refresh": 1, "hide": 0, "includeAll": false, "multi": false
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Cobertura de assinatura",
+          "description": "Taskruns assinados pelo Tekton Chains sobre taskruns executados, na janela. Menos de 100% e artefato que saiu do build sem attestation -- e ninguem no caminho reclama. Medido em 2026-08-28: 6 de 7.",
+          "gridPos": {"h": 5, "w": 4, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 0, "max": 100, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 90}, {"color": "green", "value": 100}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "100 * sum(increase(watcher_taskrun_marked_signed_total[$__range])) / clamp_min(sum(increase(tekton_pipelines_controller_taskrun_total[$__range])), 1)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Artefatos assinados",
+          "description": "Taskruns que o Chains marcou como assinados na janela. O par com o painel ao lado: aqui o numero absoluto, la a fracao.",
+          "gridPos": {"h": 5, "w": 4, "x": 4, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "text", "value": null}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "sum(increase(watcher_taskrun_marked_signed_total[$__range])) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Execucoes no build",
+          "description": "Taskruns executados na janela, de qualquer resultado. Zero aqui com cobertura verde nao e boa noticia: e pipeline que nao rodou.",
+          "gridPos": {"h": 5, "w": 4, "x": 8, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "text", "value": null}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "sum(increase(tekton_pipelines_controller_taskrun_total[$__range])) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Revisoes avaliadas",
+          "description": "Fracao das revisoes de admissao em que o ACS realmente avaliou policy ('bypassed' e o resto). Medido em 2026-08-28: 1.026 avaliadas contra 29.398 ignoradas, ou 3,4%. O controlador esta instalado e praticamente nao barra nada -- a mesma classe de falha dos outros dashboards: verde, de pe, sem efeito.",
+          "gridPos": {"h": 5, "w": 4, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "max": 100, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 25}, {"color": "green", "value": 75}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "100 * sum(increase(rox_admission_control_policyeval_review_total{result!=\"bypassed\"}[$__range])) / clamp_min(sum(increase(rox_admission_control_policyeval_review_total[$__range])), 1)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Violacoes novas",
+          "description": "Alertas que o Central do ACS abriu na janela. O numero sozinho diz pouco; vale contra o painel de novas x resolvidas abaixo -- o que interessa e a diferenca.",
+          "gridPos": {"h": 5, "w": 4, "x": 16, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "orange", "value": null}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "sum(increase(rox_central_alert_outcome_total{outcome=\"new\"}[$__range])) or vector(0)"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "mTLS leste-oeste",
+          "description": "Trafego interno cifrado, MEDIDO PELO DESTINO. Sem o filtro reporter=\"destination\" este numero cai para ~54% e manda investigar o que nao existe: a serie 'unknown' e a do reporter=source, que nao determina a politica de conexao.",
+          "gridPos": {"h": 5, "w": 4, "x": 20, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 0, "max": 100, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 90}, {"color": "green", "value": 100}]}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "instant": true, "expr": "100 * sum(increase(istio_requests_total{reporter=\"destination\", namespace=~\"travel-agency|travel-db\", connection_security_policy=\"mutual_tls\"}[$__range])) / clamp_min(sum(increase(istio_requests_total{reporter=\"destination\", namespace=~\"travel-agency|travel-db\"}[$__range])), 1)"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Build: executados x assinados",
+          "description": "As duas barras deveriam ter a mesma altura. Onde a de assinados fica menor, houve artefato sem procedencia -- e o Chains nao emite alerta por isso.",
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "custom": {"drawStyle": "bars", "fillOpacity": 60, "lineWidth": 1}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "exec", "expr": "sum(increase(tekton_pipelines_controller_taskrun_total[1h])) > 0", "legendFormat": "taskruns executados"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "assin", "expr": "sum(increase(watcher_taskrun_marked_signed_total[1h])) > 0", "legendFormat": "assinados"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "ACS: violacoes novas x resolvidas",
+          "description": "Por hora. Novas acima de resolvidas por muito tempo e divida de seguranca acumulando. 'updated' fica de fora do grafico de proposito: e reavaliacao do mesmo alerta e abafaria as outras duas.",
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 5},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 2}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "novas", "expr": "sum(increase(rox_central_alert_outcome_total{outcome=\"new\"}[1h]))", "legendFormat": "novas"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "resolvidas", "expr": "sum(increase(rox_central_alert_outcome_total{outcome=\"resolved\"}[1h]))", "legendFormat": "resolvidas"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Admissao: avaliada x ignorada",
+          "description": "Toda requisicao de criacao passa pelo webhook; nem toda e avaliada. A faixa 'bypassed' e o tamanho do que entra sem passar por policy -- hoje, quase tudo.",
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 14},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "custom": {"drawStyle": "line", "fillOpacity": 30, "stacking": {"mode": "normal"}}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (result) (increase(rox_admission_control_policyeval_review_total[1h]))", "legendFormat": "{{result}}"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Fronteira interna (Ato 7)",
+          "description": "Do lado do DESTINO: o que trafega cifrado e o que a AuthorizationPolicy recusa. O 403 caindo a zero nao e paz -- e o sintoma de AuthorizationPolicy sumida, que devolve 200 sem erro nenhum (armadilha 5.1).",
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 14},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"decimals": 0, "custom": {"drawStyle": "line", "fillOpacity": 15}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "mtls", "expr": "sum by (connection_security_policy) (increase(istio_requests_total{reporter=\"destination\", namespace=~\"travel-agency|travel-db\"}[1h]))", "legendFormat": "{{connection_security_policy}}"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "negado", "expr": "sum(increase(istio_requests_total{reporter=\"destination\", namespace=\"travel-agency\", response_code=\"403\"}[1h])) or vector(0)", "legendFormat": "403 — negado pela AuthorizationPolicy"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Custo de assinar",
+          "description": "Quantis de watcher_run_storage_latency_seconds -- quanto o Chains leva para gravar a attestation no registry. CUIDADO COM POUCA AMOSTRA: com dois ou tres runs na janela o quantil cai no teto do bucket (1800s em 2026-08-28) e nao significa meia hora de latencia; significa que nao ha amostra suficiente. Ler junto com o painel de executados.",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 23},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 0, "lineWidth": 2}}},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(watcher_run_storage_latency_seconds_bucket[6h])))", "legendFormat": "p50"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(watcher_run_storage_latency_seconds_bucket[6h])))", "legendFormat": "p95"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "refId": "n", "expr": "sum(rate(watcher_run_storage_latency_seconds_count[6h])) * 3600", "legendFormat": "assinaturas gravadas por hora"}
+          ]
+        }
+      ]
+    }
