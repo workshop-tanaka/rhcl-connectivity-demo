@@ -42,7 +42,8 @@ bash scripts/provision.sh                      # até gitops
 bash scripts/provision.sh identity             # ANTES do portal — ver abaixo
 bash rhdh/install.sh                           # o portal
 bash scripts/build-plugins.sh --publish        # Jaeger e Grafana, que não vêm prontos
-bash rhdh/setup-plugins.sh                     # com as flags e os integrity
+bash scripts/build-cl-ops.sh --publish         # o plugin próprio, daqui do repo
+bash rhdh/setup-plugins.sh                     # lê a versão de rhdh/cl-ops.env
 bash rhdh/setup-catalog.sh
 bash scripts/provision.sh cicd security        # Tekton e RHACS
 bash scripts/preflight.sh

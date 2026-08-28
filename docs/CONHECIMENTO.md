@@ -80,9 +80,16 @@ já está no pod e acrescente — e depois `oc rollout restart deploy/plugin-reg
 porque **não há gatilho de imagem**: sem o restart o pod segue servindo a
 imagem velha, e o sintoma parece "o build não pegou".
 
-Pela mesma razão, rode o `setup-plugins.sh` sempre com **todas** as flags
-(`WITH_KIALI WITH_QUAY WITH_KUADRANT WITH_CL_OPS WITH_JAEGER WITH_GRAFANA`):
-omitir uma remove o que ela havia ligado.
+**Isso já não vale para as flags** — corrigido em 2026-08-28. Cada `WITH_*` do
+`setup-plugins.sh` passou a ter como default **o que já está ligado na ConfigMap
+em vigor**, então omitir uma preserva; desligar exige `WITH_X=false` explícito.
+Versão e integrity dos pacotes do registry seguem a mesma herança.
+
+O que a herança **não** cobre é um cluster novo, onde não há ConfigMap de quem
+herdar. Para o plugin próprio da demo, quem responde é `rhdh/cl-ops.env`,
+versionado e gravado por `scripts/build-cl-ops.sh` — e o `setup-plugins.sh`
+confere se o `plugin-registry` de fato serve aquele `.tgz` antes de escrevê-lo na
+ConfigMap, porque integrity prova que o pacote é íntegro, não que ele existe.
 
 ### Namespaces que importam
 

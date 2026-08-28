@@ -1709,6 +1709,17 @@ _check() {
     _pod="$(oc get pods -n rhdh-rhcl --no-headers 2>/dev/null | grep plugin-registry | grep Running | awk '{print $1}' | head -1)"
     _pkgs="$(oc exec -n rhdh-rhcl "$_pod" -- ls /opt/app-root/src/ 2>/dev/null | grep -c '\.tgz$' || true)"
     _ok "pacotes servidos: ${_pkgs:-0}  (reconstruir: scripts/build-plugins.sh)"
+
+    # O plugin PROPRIO da demo tem uma pergunta a mais que os da comunidade: a
+    # versao que este repositorio constroi e a que o cluster serve podem
+    # divergir, e a divergencia nao aparece em lugar nenhum -- o portal sobe
+    # 2/2, responde 200, e a aba mostra a versao velha (ou nao existe).
+    local _clo_repo _clo_env
+    _clo_repo="$(python3 -c 'import json;print(json.load(open("plugins/connectivity-link-ops/package.json"))["version"])' 2>/dev/null || true)"
+    _clo_env="$(grep -E '^CL_OPS_VERSION=' rhdh/cl-ops.env 2>/dev/null | cut -d= -f2- || true)"
+    _c "connectivity-link-ops ${_clo_repo:-?}" \
+       "$([[ -n "$_clo_env" && "$_clo_env" == "$_clo_repo" ]] && echo sim)" \
+       "build-cl-ops.sh --publish  (cl-ops.env: ${_clo_env:-ausente})"
   fi
 
   printf '\n'
