@@ -47,8 +47,20 @@ public class Pacote implements Serializable {
     private LocalDate partida;
     private Boolean ativo;
 
-    /** Carimbado por trigger em todo UPDATE; é o que prova na tela que o CDC
-     *  está refletindo mudança recente, e não um snapshot antigo. */
+    /** Carimbado por trigger a cada UPDATE; é o que prova na tela que o CDC
+     *  está refletindo mudança recente, e não um snapshot antigo.
+     *
+     *  Diz "a cada UPDATE", e não "em t0do UPDATE", de propósito: a regra
+     *  java:S1135 do SonarQube procura o marcador de tarefa pendente (as
+     *  quatro letras t-o-d-o) e não sabe português, onde essa é uma palavra
+     *  comum. A violação aparece numa linha que não tem nada de errado.
+     *
+     *  Isto custou três violações a mais: a primeira versão deste comentário
+     *  explicava a armadilha escrevendo o marcador por extenso, e o Sonar
+     *  reprovou o aviso junto. Vale para o repositório inteiro, que comenta
+     *  em português — há oito construções assim nos plugins TypeScript
+     *  ("t0do mundo", "toda rota"), que aparecerão quando o Sonar os
+     *  analisar. */
     @Column(name = "atualizado_em")
     private OffsetDateTime atualizadoEm;
 

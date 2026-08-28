@@ -15,6 +15,7 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Map;
 
 /**
@@ -87,7 +88,12 @@ public class ReservaResource {
         r.setParceiro(parceiro == null || parceiro.isBlank() ? SEM_IDENTIDADE : parceiro);
         r.setStatus("pendente");
         r.setValor(pacote.getPreco());
-        r.setCriadaEm(OffsetDateTime.now());
+        // UTC explícito: a coluna é timestamptz e o seed grava com now() do
+        // Postgres, que é UTC. Deixar o fuso a cargo da JVM faria a hora da
+        // reserva depender do TZ do contêiner — e as duas fontes divergiriam
+        // no mesmo instante, o que é péssimo justamente numa tabela que o CDC
+        // publica.
+        r.setCriadaEm(OffsetDateTime.now(ZoneOffset.UTC));
         em.persist(r);
 
         pacote.setVagas(pacote.getVagas() - 1);

@@ -71,6 +71,13 @@
     <!-- Hot Rod: cliente do Data Grid. Vai DENTRO do WAR (escopo compile) —
          não é uma camada do servidor, e por isso não aparece no Galleon. -->
     <version.infinispan>15.0.11.Final</version.infinispan>
+
+    <!-- Declarado porque 'mvn sonar:sonar' NAO resolve sozinho: o prefixo
+         'sonar' vive no grupo org.sonarsource.scanner.maven, que nao esta
+         entre os pluginGroups padrao do Maven. Sem esta declaracao a task do
+         portao morre com "No plugin found for prefix 'sonar'" — erro que fala
+         de plugin e nao de configuracao, e manda procurar no lugar errado. -->
+    <version.sonar.plugin>5.7.0.6970</version.sonar.plugin>
   </properties>
 
   <!--
@@ -145,6 +152,12 @@
            'jaxrs-server' é a camada base (Jakarta REST + CDI + JPA);
            'postgresql-datasource' acrescenta driver, módulo e o datasource
            configurável por ambiente. -->
+      <plugin>
+        <groupId>org.sonarsource.scanner.maven</groupId>
+        <artifactId>sonar-maven-plugin</artifactId>
+        <version>${version.sonar.plugin}</version>
+      </plugin>
+
       <plugin>
         <groupId>org.jboss.eap.plugins</groupId>
         <artifactId>eap-maven-plugin</artifactId>

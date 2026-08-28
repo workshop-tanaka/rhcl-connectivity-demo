@@ -232,6 +232,28 @@ spec:
               # Sem ela o scanner envia a analise e sai com 0 -- o portao
               # existe no Sonar e nao tem efeito nenhum na pipeline. Foi assim
               # que a valida-policies acabou verde para sempre.
+              #
+              # COMO O 'Sonar way' SE COMPORTA AQUI, medido em 2026-08-28 em
+              # tres analises seguidas:
+              #
+              #   1a analise   PASSA SEM AVALIAR NADA. As quatro condicoes sao
+              #                de CODIGO NOVO, o periodo e PREVIOUS_VERSION, e
+              #                sem versao anterior nao ha o que comparar: o
+              #                project_status volta com a lista de condicoes
+              #                VAZIA. Um portao verde que nao olhou nada.
+              #   2a em diante avalia de verdade. Reprovou com new_violations=4
+              #                (limite 0) na primeira vez que houve linha de
+              #                base.
+              #
+              # Consequencia para o palco: o portao so morde a partir da
+              # segunda execucao. Se a demo precisa MOSTRAR uma reprovacao,
+              # rode o build duas vezes antes -- ou introduza a violacao na
+              # segunda. E se ele reprovar, o buildah nao roda e a imagem nao
+              # e assinada: o portao interrompe a cadeia, que e o ponto.
+              #
+              # A cobertura hoje e 8,2% e ainda assim passa, porque
+              # new_coverage so conta LINHA NOVA nao coberta. Nao confunda
+              # 'passou' com 'esta coberto'.
               mvn -B -ntp \
                   -s $(workspaces.settings.path)/settings.xml \
                   -Dmaven.repo.local=$(workspaces.cache-maven.path) \

@@ -32,8 +32,18 @@ public class SaudeResource {
     @PersistenceContext
     private EntityManager em;
 
+    private final CacheDePacotes cache;
+
+    // Mesma razao do PacoteResource: dependencia obrigatoria entra pelo
+    // construtor, para o compilador cobrar.
+    protected SaudeResource() {
+        this.cache = null;
+    }
+
     @Inject
-    private CacheDePacotes cache;
+    public SaudeResource(CacheDePacotes cache) {
+        this.cache = cache;
+    }
 
     @GET
     public Response estado() {
@@ -46,7 +56,7 @@ public class SaudeResource {
             banco = false;
         }
         corpo.put("banco", banco ? "ok" : "indisponivel");
-        corpo.put("cache", cache.ligado() ? "ok" : "degradado");
+        corpo.put("cache", cache != null && cache.ligado() ? "ok" : "degradado");
         corpo.put("estado", banco ? "pronto" : "nao-pronto");
         return Response.status(banco ? Response.Status.OK : Response.Status.SERVICE_UNAVAILABLE)
                 .entity(corpo).build();

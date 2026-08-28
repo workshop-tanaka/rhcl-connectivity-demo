@@ -47,8 +47,20 @@ public class PacoteResource {
     @PersistenceContext
     private EntityManager em;
 
+    private final CacheDePacotes cache;
+
+    // POR CONSTRUTOR, e nao no campo: campo injetado nao pode ser final, e uma
+    // dependencia obrigatoria que o compilador nao garante e a que falta em
+    // teste. O construtor sem argumentos existe porque o CDI precisa dele para
+    // instanciar o bean; e protegido para nao virar caminho de uso.
+    protected PacoteResource() {
+        this.cache = null;
+    }
+
     @Inject
-    private CacheDePacotes cache;
+    public PacoteResource(CacheDePacotes cache) {
+        this.cache = cache;
+    }
 
     @GET
     public Response lista(@HeaderParam("x-plan") String plano,
@@ -76,7 +88,7 @@ public class PacoteResource {
         // cena de replicação (derrubar um nó dos três e o número continuar
         // respondendo) sem precisar serializar entidade em Hot Rod.
         String chaveCache = "contagem:" + destino.toLowerCase();
-        String emCache = cache.busca(chaveCache);
+        String emCache = cache == null ? null : cache.busca(chaveCache);
 
         List<Pacote> achados = em.createQuery(
                         "SELECT p FROM Pacote p WHERE lower(p.destino) = :d AND p.ativo = true ORDER BY p.partida",
@@ -84,7 +96,7 @@ public class PacoteResource {
                 .setParameter("d", destino.toLowerCase())
                 .getResultList();
 
-        if (emCache == null) {
+        if (emCache == null && cache != null) {
             cache.guarda(chaveCache, String.valueOf(achados.size()));
         }
 
