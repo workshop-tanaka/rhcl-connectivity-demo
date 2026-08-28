@@ -200,7 +200,9 @@ if command -v oc >/dev/null; then
   _rendered="$(oc kustomize "$OVL_DIR" 2>&1)" \
     || _die "o overlay gerado nao renderiza:\n${_rendered}"
   _hosts="$(printf '%s' "$_rendered" | grep -A1 '^  hostnames:' | grep -o '[a-z0-9.-]*\.[a-z]\{2,\}' | sort -u)"
-  if printf '%s' "$_hosts" | grep -qx "$API_HOST"; then
+  # here-string, nao pipe: 'printf | grep -q' mata o printf com SIGPIPE quando
+  # a entrada e grande e o grep sai no primeiro casamento (ver preflight.sh).
+  if grep -qx "$API_HOST" <<< "$_hosts"; then
     _ok "render limpo, hostname da demo = ${API_HOST}"
   else
     _die "render limpo, mas o hostname saiu '${_hosts}' em vez de ${API_HOST}."

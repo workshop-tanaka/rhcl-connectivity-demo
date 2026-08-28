@@ -1285,7 +1285,15 @@ if [[ -n "$_cat_cm" ]]; then
       [[ -z "$_s" ]] && continue
       # so selector de uma palavra vira busca por tag; o resto e busca por titulo
       [[ "$_s" == *" "* ]] && continue
-      if ! printf '%s' "$_dash" | grep -qE "\"tags\"[[:space:]]*:[[:space:]]*\[[^]]*\"${_s}\""; then
+      # 'grep -qE ... <<< "$_dash"' e NAO 'printf | grep -q'. Medido em
+      # 2026-08-28: com os 84 KB de JSON dos dashboards, o grep -q casa logo no
+      # inicio e sai; o printf builtin, ainda escrevendo num pipe de 64 KB,
+      # morre de SIGPIPE e o bash 3.2 do macOS devolve 141 para a pipeline
+      # INTEIRA. Resultado: o teste dava 'nao casou' com a tag presente nove
+      # vezes no texto, e o preflight acusava cards vazios antes de cada demo.
+      # E corrida, entao reproduz de forma intermitente -- pior ainda. O
+      # here-string escreve num arquivo temporario e nao ha pipe para quebrar.
+      if ! grep -qE "\"tags\"[[:space:]]*:[[:space:]]*\[[^]]*\"${_s}\"" <<< "$_dash"; then
         _orfaos="${_orfaos}${_s} "
       fi
     done <<< "$_gsel"
