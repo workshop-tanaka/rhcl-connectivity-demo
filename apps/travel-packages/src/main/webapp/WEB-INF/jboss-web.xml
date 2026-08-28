@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ===========================================================================
+  Context root na RAIZ, e nao em /travel-packages.
+
+  Sem este arquivo o EAP deriva o contexto do nome do WAR e registra
+  '/travel-packages'. O efeito em cascata e o que custa tempo:
+
+    a sonda de readiness bate em /api/saude e recebe 404
+    o pod nunca fica Ready (1/2 Running, sem CrashLoop, sem restart)
+    o Service fica sem endpoint
+    e o Envoy responde 'no healthy upstream' com 503
+
+  Nenhuma dessas quatro mensagens fala em context root. A ultima e a que se
+  ve primeiro, e manda investigar malha ou Service.
+
+  A raiz tambem e o que a HTTPRoute assume: ela casa o prefixo /api e nao
+  reescreve caminho. Mudar aqui exige mudar la, e vice-versa.
+  ===========================================================================
+-->
+<jboss-web>
+  <context-root>/</context-root>
+</jboss-web>
