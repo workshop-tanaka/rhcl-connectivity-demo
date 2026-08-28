@@ -94,8 +94,12 @@ E há uma **quarta faixa**, [`samples/`](samples/): as amostras do Istio
 (`bookinfo`, `websockets`, `open-telemetry`, `grpc-echo`), aplicáveis mas
 **fora do render do overlay da demo**. Material de apoio entra e sai sem tocar
 no roteiro — pô-las em `base/` mudaria o que `oc apply -k overlays/rhcl-1.4`
-aplica no palco, que é exatamente a troca que não se faz. Cada uma defende um
-pedaço da tese, e o porquê de cada uma está em
+aplica no palco, que é exatamente a troca que não se faz.
+
+Elas rodam **sem RHCL**, com o gateway do *upstream*: foram construídas para o
+Istio, e a primeira coisa a fazer com elas é vê-las funcionando como Istio. A
+camada de policies de cada uma está pronta em `samples/<nome>/rhcl/`, fora do
+`kustomization.yaml`. O porquê de cada uma está em
 [docs/SAMPLES.md](docs/SAMPLES.md).
 
 ## Golden path
@@ -155,10 +159,11 @@ rhdh/                      Red Hat Developer Hub: catalogo + golden path
   templates/rhcl-api-subscription/  pede chave por pull request
   templates/rhcl-api-canary/        publica v2 e move peso, por pull request
 gitops/                    ApplicationSet que descobre os repos gerados (topic)
-samples/                   amostras do Istio sob RHCL e OSSM (material de apoio)
-  bookinfo/                duas HTTPRoute no mesmo host: UI publica, API sob plano
-  websockets/              o que a policy alcanca depois do Upgrade -- e o que nao
-  grpc-echo/               a MESMA AuthPolicy sobre gRPC, mais canario em gRPC
+samples/                   amostras do Istio sobre OSSM, SEM RHCL (material de apoio)
+  bookinfo/                canario de TRES versoes + quem-fala-com-quem por SPIFFE
+    rhcl/                  a camada de policies, pronta e FORA do kustomization
+  websockets/              o Upgrade atravessa o mesh sem configurar nada
+  grpc-echo/               canario sobre gRPC; sem entrada externa, como o upstream
   open-telemetry/          access log do mesh em OTLP; a unica sem rota
 docs/DEMO-PASSO-A-PASSO.md sequencia de execucao (o que rodar, e o que dizer)
 docs/RUNBOOK.md            roteiro de execucao + as 13 armadilhas

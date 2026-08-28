@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# A camada de RHCL do websockets -- NAO referenciada pelo kustomization da
+# amostra, de proposito.
+#
+# Ao contrario do bookinfo, aqui NAO ha conflito: a rota daqui vai para o
+# prod-web com hostname proprio, e o gateway da amostra continua servindo o
+# mesmo servico sem chave. Os dois caminhos coexistem -- e ter os dois lado a
+# lado e demonstracao melhor do que trocar um pelo outro.
+#
+# Render (a rota traz __DOMAIN__):
+#   D=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
+#   oc kustomize samples/websockets/rhcl | sed "s|__DOMAIN__|$D|g" | oc apply -f -
+# ===========================================================================
+
+resources:
+  - 20-httproute.yaml
+  - 21-authpolicy.yaml
+  - 22-ratelimitpolicy.yaml
+  - 23-identity-apikeys.yaml

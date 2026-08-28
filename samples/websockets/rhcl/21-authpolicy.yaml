@@ -39,7 +39,7 @@ spec:
   targetRef:
     group: gateway.networking.k8s.io
     kind: HTTPRoute
-    name: websockets
+    name: websockets-rhcl
   rules:
     authentication:
       api-key-authn:

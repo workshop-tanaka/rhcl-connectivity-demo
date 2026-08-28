@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# A camada de RHCL do bookinfo -- NAO referenciada pelo kustomization da
+# amostra, de proposito. Ler o README.md deste diretorio antes de aplicar: ha
+# um conflito de caminho com a HTTPRoute do upstream que precisa ser resolvido
+# a mao.
+#
+# Render (as rotas trazem __DOMAIN__):
+#   D=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
+#   oc kustomize samples/bookinfo/rhcl | sed "s|__DOMAIN__|$D|g" | oc apply -f -
+# ===========================================================================
+
+resources:
+  - 20-httproute-ui.yaml
+  - 21-httproute-api.yaml
+  - 22-authpolicy.yaml
+  - 23-planpolicy.yaml
+  - 24-ratelimitpolicy-ui.yaml
+  - 26-identity-apikeys.yaml

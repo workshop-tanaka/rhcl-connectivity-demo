@@ -1,88 +1,84 @@
 # websockets (tornado)
 
-A amostra do Istio para **HTTP/1.1 Upgrade**. Ela está aqui por um motivo que
-não é "mostrar que WebSocket funciona" — funciona, e não precisa de
-configuração nenhuma. Está aqui pelo que ela obriga a dizer sobre governança.
+A amostra do Istio para **HTTP/1.1 Upgrade**, sobre o OpenShift Service Mesh,
+como o upstream a construiu.
 
-## O argumento
+A camada de RHCL — que é onde esta amostra fica interessante — está pronta em
+[rhcl/](rhcl/), fora do `kustomization.yaml`.
 
-Abra a rota e veja a página conectar:
+## Ver funcionando
 
 ```bash
 D=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
-echo "https://websockets.$D/?APIKEY=ws-tempo-real-8a5f31"
+echo "https://websockets.$D/"
 # 'WebSocket status' na página fica verde: 'open'
 ```
 
-Sem chave, o upgrade nem acontece:
+**Não há configuração de upgrade em lugar nenhum** — nem na `HTTPRoute`, nem no
+`Gateway`, nem no `Route` do OpenShift. O README do upstream ainda avisa que "o
+suporte a upgrade de websockets em regras v1alpha3 só foi adicionado depois do
+Istio v0.8"; isso tem anos. Desde então o upgrade é o comportamento padrão do
+proxy para porta com nome `http`.
 
-```bash
-curl -sk -o /dev/null -w '%{http_code}\n' "https://websockets.$D/"   # 401
-```
+Vale dizer no palco porque a pergunta é sempre "e para WebSocket, precisa de
+outro gateway?". A resposta é o diretório inteiro: não.
 
-Agora o que interessa. **A `AuthPolicy` conferiu a credencial antes de existir
-canal. Depois do upgrade, ela não confere mais nada** — os frames não são
-requisições HTTP, não passam por policy, não incrementam `RateLimitPolicy`, não
-entram em `istio_requests_total`.
+## As duas linhas que evitam um bug caro
 
-Isso não é limitação do RHCL. É o que `Upgrade` significa. E é exatamente por
-isso que a amostra vale:
+O caminho tem três saltos — router do OpenShift → gateway do Istio → sidecar →
+tornado — e o upgrade tem de sobreviver aos três. Duas configurações existem só
+para isso, e **as duas produzem o mesmo sintoma quando faltam**: um WebSocket
+que abre e cai sozinho pouco depois, sem erro em log nenhum.
 
-> Governar uma conexão longa é uma **decisão de desenho** — quanto tempo ela
-> pode viver, quantas podem existir por consumidor, quantas tentativas de
-> abertura por minuto — e não um efeito colateral de ter posto um proxy no
-> caminho.
-
-Quem trata gateway como caixa de policy por requisição não tem onde colocar
-essa decisão. Aqui ela está em três arquivos, e cada um é uma alavanca:
-
-| Onde | Alavanca | Arquivo |
+| Onde | O quê | Arquivo |
 | --- | --- | --- |
-| Service Mesh | `idleTimeout`, `maxConnections`, `maxRequestsPerConnection: 0` | [11-mesh-destinationrule.yaml](11-mesh-destinationrule.yaml) |
-| Borda (RHCL) | credencial no handshake | [21-authpolicy.yaml](21-authpolicy.yaml) |
-| Borda (RHCL) | 5 **handshakes** por minuto — a unidade é a conexão, não a mensagem | [22-ratelimitpolicy.yaml](22-ratelimitpolicy.yaml) |
+| proxy do Istio | `maxRequestsPerConnection: 0` — impede o proxy de reciclar a conexão HTTP/1.1 depois de N requisições | [11-mesh-destinationrule.yaml](11-mesh-destinationrule.yaml) |
+| router do OpenShift | `haproxy.router.openshift.io/timeout: 1h` — o default derruba a conexão ociosa em ~30s | [21-route-openshift.yaml](21-route-openshift.yaml) |
 
-## A chave vai na query string, e não é preferência
+`idleTimeout` e `maxConnections` estão declarados no mesmo `DestinationRule`
+para que sejam **decisão**, e não default herdado que ninguém sabe qual é.
 
-A API de WebSocket do navegador (`new WebSocket(url)`) **não permite definir
-cabeçalho**. Chave em header funcionaria de um `curl` e falharia na tela — e a
-tela é o que se abre no palco.
+## O que a camada de RHCL acrescenta
 
-É o mesmo raciocínio do gRPC em
-[base/grpc/](../../base/grpc/bookings-grpc-policies.yaml), onde a credencial vai
-em *metadata*: nos dois casos **quem escolhe onde a credencial entra é o
-protocolo, não a policy**. A policy é a mesma.
+Sem ela, esta amostra mostra que o upgrade atravessa o mesh — o que é verdade e
+é pouco. Com [rhcl/](rhcl/), mostra o que interessa:
 
-## `maxRequestsPerConnection: 0` — a linha que evita um bug caro
+> A `AuthPolicy` confere a credencial **antes de existir canal**. Depois do
+> upgrade, os frames não são requisições HTTP: não passam por policy, não
+> incrementam `RateLimitPolicy`, não entram em `istio_requests_total`.
+>
+> Isso não é limitação do RHCL — é o que `Upgrade` significa. E é por isso que
+> governar uma conexão longa é uma **decisão de desenho**, e não um efeito
+> colateral de ter posto um proxy no caminho.
 
-Com o valor default, o proxy recicla a conexão HTTP/1.1 depois de N
-requisições. Numa conexão de upgrade isso a derruba no meio, e o sintoma é um
-WebSocket que "cai sozinho de vez em quando" — sem erro em log nenhum. A linha
-está declarada em [11-](11-mesh-destinationrule.yaml) para que o valor seja uma
-decisão, e não um default herdado que ninguém sabe qual é.
+As duas camadas **coexistem** em hostnames diferentes (`websockets.<d>` sem
+chave, `websockets-rhcl.<d>` com), e ter as duas lado a lado é demonstração
+melhor do que trocar uma pela outra.
 
 ## O que mudou em relação ao upstream
 
 | Upstream | Aqui | Por quê |
 | --- | --- | --- |
-| `Gateway` + `VirtualService` do Istio (`route.yaml`) | `HTTPRoute` no `prod-web` | a borda desta demo é Gateway API + RHCL |
-| `hosts: "*"` | hostname próprio (`websockets.<dominio>`) | `*` capturaria tráfego das outras rotas do mesmo Gateway |
+| `route.yaml`: `Gateway` do Istio + `VirtualService` | `Gateway` API + `HTTPRoute` | não existe `istio-ingressgateway` neste cluster — o `Gateway` do upstream ficaria aceito e sem endereço, e o `VirtualService` nunca receberia tráfego |
+| `hosts: "*"` | hostname no `Route`, e a rota sem `hostnames` | `*` capturaria tráfego de qualquer hostname que chegasse ao gateway |
+| sem publicação externa | `Route` do OpenShift, edge, com `timeout: 1h` | não há LoadBalancer num SNO |
 | sem `DestinationRule` | pool de conexão declarado | ver acima |
-| sem policy | `AuthPolicy` + `RateLimitPolicy` | é o que a amostra existe para discutir |
 | sem limites de recurso | `requests`/`limits` | o cluster da demo é SNO |
 
 ## O que ainda não foi executado num cluster
 
-Os manifests passam no `oc apply --dry-run=server` contra os CRDs deste
-cluster — ou seja, o **esquema** está certo. O que não foi medido é a subida.
+Os manifests passam no `oc apply --dry-run=server` — o **esquema** está certo.
+O que não foi medido:
 
-A imagem `docker.io/hiroakis/tornado-websocket-example` é upstream e antiga.
-Dois riscos conhecidos, **nenhum dos dois medido neste cluster**:
-
+- **WebSocket através do router do OpenShift.** O HAProxy trata `Upgrade` em
+  rota *edge* como túnel, e o WebSocket segue funcionando — isso é o
+  comportamento documentado do HAProxy, **não uma medição daqui**. Se a tela
+  ficar em `connecting`, o primeiro lugar a olhar é o log do router.
 - **Docker Hub anônimo.** Num cluster de workshop que já puxou muita imagem, o
   limite aparece como `ImagePullBackOff` — não como erro de manifest. Mesmo
   aviso que `platform-reference/cicd/` carrega para Nexus e SonarQube.
-- **UID aleatório.** A imagem não foi construída para a SCC `restricted-v2`. É
-  um app Python que não escreve no filesystem, então a expectativa é que rode.
-  Se recusar, o caminho é a cópia no Quay que a pipeline
-  `samples-supply-chain` já produz, reconstruída sobre uma base UBI.
+- **UID aleatório.** `docker.io/hiroakis/tornado-websocket-example` não foi
+  construída para a SCC `restricted-v2`. É um app Python que não escreve no
+  filesystem, então a expectativa é que rode. Se recusar, o caminho é a cópia
+  no Quay que a pipeline `samples-supply-chain` produz, reconstruída sobre uma
+  base UBI.

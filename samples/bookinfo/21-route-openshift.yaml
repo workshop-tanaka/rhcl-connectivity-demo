@@ -1,0 +1,45 @@
+# ===========================================================================
+# Como o gateway da amostra chega ao mundo, NESTE cluster.
+#
+# NAO HA LoadBalancer num SNO. O Service que a GatewayClass 'istio' cria
+# (bookinfo-gateway-istio) nasce como ClusterIP, e sem isto a amostra sobe
+# inteira e nao e alcancavel de fora -- o Gateway reporta Programmed=True, o
+# que se le como "esta publicado" e nao esta.
+#
+# EDGE, e nao passthrough. O prod-web da demo usa passthrough porque ELE
+# termina o TLS (tem o Secret api-tls). Aqui o listener e HTTP na 80, como o
+# upstream declara, entao quem termina e o router do OpenShift -- com o
+# certificado padrao dele, que neste cluster e real
+# (ingresscontroller default -> cert-manager-ingress-cert). Assim nao e preciso
+# copiar certificado para dentro do namespace da amostra nem conviver com a
+# renovacao divergindo de onde ele foi emitido.
+#
+# insecureEdgeTerminationPolicy: Redirect -- quem digitar http:// e levado para
+# https://, em vez de receber uma pagina que funciona sem TLS ao lado de uma
+# demo que fala de seguranca.
+#
+# __DOMAIN__ e substituido por 'scripts/provision.sh samples'.
+# ===========================================================================
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: bookinfo
+  namespace: bookinfo
+  labels:
+    app: bookinfo
+spec:
+  host: bookinfo.__DOMAIN__
+  to:
+    kind: Service
+    # O nome do Service NAO e escolha nossa: a GatewayClass 'istio' o cria como
+    # <nome-do-Gateway>-istio. Renomear o Gateway em 20- renomeia este destino,
+    # e o sintoma de esquecer e um Route apontando para servico inexistente --
+    # 503 do router, que parece problema da aplicacao.
+    name: bookinfo-gateway-istio
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

@@ -2,13 +2,37 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 # ===========================================================================
-# grpc-echo -- a mesma policy sobre gRPC, mais o canario que base/grpc/ nao tem.
+# grpc-echo -- canario sobre gRPC no Service Mesh, como o upstream o construiu.
+#
+# ESTA E A UNICA DAS QUATRO AMOSTRAS SEM ENTRADA EXTERNA, e nao e omissao: o
+# samples/grpc-echo do upstream tambem nao tem. Ele e uma carga de TESTE, e o
+# que esta amostra demonstra -- canario 80/20 sobre gRPC, com mTLS e a dimensao
+# grpc_status -- e leste-oeste. Um gateway aqui acrescentaria um pod num SNO
+# para provar algo que a amostra nao prova.
+#
+# Chegar nele, do proprio cluster:
+#
+#   oc run grpcurl -n grpc-echo --rm -it --restart=Never \
+#     --image=docker.io/fullstorydev/grpcurl:latest -- \
+#     -plaintext echo.grpc-echo.svc.cluster.local:7070 list
+#
+# ou, do laptop:  oc port-forward -n grpc-echo svc/echo 7070:7070
+#
+# O caminho EXTERNO de gRPC ja existe nesta demo, em base/grpc/ -- pelo
+# prod-web, com passthrough e ALPN. Ele e governado pelo RHCL, e e por isso que
+# nao se repete aqui.
+#
+# A CAMADA DE RHCL DESTA AMOSTRA esta em rhcl/, fora desta lista: e ela que
+# publica o GRPCRoute e prova que a MESMA AuthPolicy governa gRPC.
 #
 # Prefixo numerico: o ApplicationSet 'rhcl-samples' sincroniza
 # 'manifests/[0-9]*.yaml'. Renomear um arquivo para algo que nao comece com
 # digito o tira do Argo EM SILENCIO.
 #
-# NAO APLICAR COM 'oc apply -k' DIRETO: 20- traz __DOMAIN__.
+# Sem __DOMAIN__: sem entrada externa, nao ha hostname a substituir. E a unica
+# das quatro que 'oc apply -k' aplicaria direto sem estragar nada -- ainda
+# assim, use a etapa 'samples' do provision.sh, que aplica as quatro na ordem
+# certa.
 # ===========================================================================
 
 resources:
@@ -18,10 +42,6 @@ resources:
   - 11-mesh-destinationrule.yaml
   - 12-mesh-virtualservice.yaml
   - 13-mesh-telemetry.yaml
-  - 20-grpcroute.yaml
-  - 21-authpolicy.yaml
-  - 22-ratelimitpolicy.yaml
-  - 23-identity-apikeys.yaml
 
 # A copia assinada no Quay -- comentada de proposito; ver samples/README.md.
 #

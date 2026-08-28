@@ -24,11 +24,24 @@
 # -- e um portal que mente sobre o cluster e pior do que um portal incompleto.
 #
 # ---------------------------------------------------------------------------
+# NAO HA ENTIDADE DE POLICY DO KUADRANT AQUI, e a ausencia e a decisao de
+# 2026-08-28: as amostras sobem SEM RHCL. A camada de policies de cada uma
+# existe, pronta, em samples/<nome>/rhcl/, fora do kustomization -- e o catalogo
+# so descreve o que e aplicado. Descrever policy que ninguem aplicou daria
+# cards que o setup-catalog.sh descartaria de qualquer jeito, e um arquivo que
+# mente sobre o cluster ate alguem rodar o filtro.
+#
+# Quando a camada rhcl/ entrar, as entidades voltam -- elas estao no historico,
+# no commit que as tirou.
+#
+# ---------------------------------------------------------------------------
 # ROTULOS: vocabulario de docs/CATALOGO.md. Tres valores novos de
 # rhcl.demo/produto entraram por causa deste arquivo -- bookinfo, websockets e
-# grpc-echo --, e o scripts/valida-catalogo.sh foi atualizado junto. A amostra
-# open-telemetry NAO leva 'produto': ela nao publica rota e nao tem chave, e
-# inventar um produto para ela seria dizer que ela vende algo.
+# grpc-echo --, e o scripts/valida-catalogo.sh foi atualizado junto. Eles ficam
+# mesmo sem as policies aplicadas: o produto existe, e o que esta pendente e a
+# governanca dele. A amostra open-telemetry NAO leva 'produto': ela nao publica
+# rota e nao tem chave, e inventar um produto para ela seria dizer que ela vende
+# algo.
 #
 # ${GITLAB_HOST}, ${DEMO_REPO_URL}, ${CONSOLE_HOST} e ${DEVSPACES_HOST} sao
 # substituidos pelo rhdh/setup-catalog.sh com valores lidos do cluster.
@@ -66,9 +79,11 @@ metadata:
   name: sample-bookinfo
   title: Amostra — bookinfo
   description: >-
-    A mesma aplicacao com duas fronteiras, decididas por rota: a UI e publica e
-    so limitada, /api/v1 exige chave e tem plano. Tres versoes vivas de
-    'reviews' dao ao Service Mesh o canario que a travel-agency nao tem.
+    A amostra canonica do Istio sobre o Service Mesh, com o gateway do upstream.
+    Tres versoes vivas de 'reviews' -- canario 90/10 com a v2 declarada em zero
+    --, mais quem-fala-com-quem por identidade SPIFFE. A camada de RHCL, que
+    acrescenta as duas fronteiras por rota, esta em samples/bookinfo/rhcl/ e nao
+    e aplicada.
   annotations:
     # Ancorado no Namespace, como os demais Systems deste catalogo: num cluster
     # sem a etapa 'samples' do provision.sh, o System inteiro sai sozinho.
@@ -93,10 +108,11 @@ metadata:
   name: sample-websockets
   title: Amostra — websockets
   description: >-
-    HTTP/1.1 Upgrade. A AuthPolicy confere a credencial no handshake e nao ve
-    os frames depois dele -- e por isso governar conexao longa e decisao de
-    desenho (idleTimeout, maxConnections, teto de handshakes) e nao efeito
-    colateral de ter posto um proxy no caminho.
+    HTTP/1.1 Upgrade sobre o Service Mesh, sem configuracao nenhuma para ligar:
+    o upgrade e o padrao do proxy para porta com nome 'http'. Duas linhas
+    impedem a conexao de cair -- maxRequestsPerConnection no proxy e o timeout
+    no Route. A camada de RHCL, que e onde a amostra fica interessante, esta em
+    samples/websockets/rhcl/ e nao e aplicada.
   annotations:
     rhcl.demo/cluster-object: namespace//websockets
   labels:
@@ -118,9 +134,10 @@ metadata:
   name: sample-grpc-echo
   title: Amostra — grpc-echo
   description: >-
-    A MESMA AuthPolicy sobre gRPC: mudam o targetRef (GRPCRoute) e o lugar da
-    credencial (metadata, porque gRPC nao tem query string). Mais o canario
-    sobre gRPC, que base/grpc/ nao tem.
+    Canario 80/20 sobre gRPC, com mTLS e a dimensao grpc_status que o status
+    HTTP esconde. UNICA das quatro SEM ENTRADA EXTERNA -- o upstream tambem nao
+    tem, e o que ela demonstra e leste-oeste. A camada de RHCL, que publica o
+    GRPCRoute, esta em samples/grpc-echo/rhcl/ e nao e aplicada.
   annotations:
     rhcl.demo/cluster-object: namespace//grpc-echo
   labels:
@@ -233,10 +250,7 @@ spec:
   dependsOn:
     - component:default/bookinfo-details
     - component:default/bookinfo-reviews
-    - resource:default/bookinfo-ui-route
-    - resource:default/bookinfo-api-route
-    - resource:default/bookinfo-api-authpolicy
-    - resource:default/bookinfo-plans
+    - resource:default/bookinfo-gateway
 
 ---
 apiVersion: backstage.io/v1alpha1
@@ -391,9 +405,7 @@ spec:
   owner: group:default/platform-team
   system: sample-websockets
   dependsOn:
-    - resource:default/websockets-route
-    - resource:default/websockets-authpolicy
-    - resource:default/websockets-ratelimit
+    - resource:default/websockets-gateway
     - resource:default/websockets-pool
 
 ---
@@ -433,8 +445,6 @@ spec:
   owner: group:default/platform-team
   system: sample-grpc-echo
   dependsOn:
-    - resource:default/grpc-echo-route
-    - resource:default/grpc-echo-authpolicy
     - resource:default/grpc-echo-canary
 
 ---
@@ -472,24 +482,64 @@ spec:
     - resource:default/tempo
 ---
 # ---------------------------------------------------------------------------
-# AS DUAS ROTAS DO BOOKINFO -- e elas sao o argumento inteiro desta amostra.
+# COMO CADA AMOSTRA ENTRA -- o gateway do UPSTREAM, e nao o prod-web.
 #
-# Mesmo hostname, mesmo backend, fronteiras diferentes. A Gateway API casa pelo
-# prefixo mais longo, entao '/api/v1' vence '/' independentemente de qual rota
-# foi criada primeiro -- e por isso as duas podem ser arquivos separados sem
-# virar armadilha de ordem.
+# Duas decisoes conferidas no cluster em 2026-08-28:
+#
+#   1. a variante networking/ do upstream nao funciona aqui. Ela usa o Gateway
+#      do Istio com 'selector: istio: ingressgateway', e nao existe deployment
+#      com esse rotulo -- 'oc get deploy -A -l istio=ingressgateway' devolve
+#      nada. O OSSM 3 nao instala o ingressgateway classico; quem materializa
+#      um gateway e a GatewayClass 'istio'. O Gateway seria aceito, ficaria sem
+#      endereco, e a rota nunca receberia trafego. Sem erro em lugar nenhum.
+#
+#   2. gateway proprio, e nao o prod-web: ele carrega a AuthPolicy de escopo de
+#      gateway prod-web-deny-all, e rota anexada sem AuthPolicy propria e
+#      NEGADA. Uma amostra sem RHCL la responderia 401 em tudo, com a causa num
+#      objeto de outro namespace.
+#
+# O grpc-echo NAO tem entidade de gateway porque nao tem gateway: o upstream
+# dele tambem nao tem, e o que ele demonstra e leste-oeste.
 # ---------------------------------------------------------------------------
 apiVersion: backstage.io/v1alpha1
 kind: Resource
 metadata:
-  name: bookinfo-ui-route
-  title: HTTPRoute — bookinfo (UI)
+  name: bookinfo-gateway
+  title: Gateway — bookinfo (upstream)
   description: >-
-    A rota publica. Path prefix '/', sem AuthPolicy: quem entra e qualquer um, e
-    o que a governa e um limite de capacidade no hostname inteiro. 'Sem chave'
-    nao pode significar 'sem governanca'.
+    O Gateway do upstream, copiado de samples/bookinfo/gateway-api/ com o
+    namespace acrescentado: Gateway API, classe istio, HTTP na 80. Quem termina
+    TLS e o Route do OpenShift que o publica -- nao ha LoadBalancer num SNO, e
+    sem o Route a amostra sobe inteira e nao e alcancavel, com o Gateway
+    reportando Programmed=True.
   annotations:
-    rhcl.demo/cluster-object: httproute/bookinfo/bookinfo-ui
+    rhcl.demo/cluster-object: gateway/bookinfo/bookinfo-gateway
+    backstage.io/kubernetes-namespace: bookinfo
+    backstage.io/kubernetes-label-selector: app=bookinfo
+  labels:
+    rhcl.demo/camada: borda
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - gateway-api
+spec:
+  type: gateway
+  owner: group:default/platform-team
+  system: sample-bookinfo
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: bookinfo-httproute
+  title: HTTPRoute — bookinfo (upstream)
+  description: >-
+    A rota do upstream, com a lista de caminhos EXATA: /productpage, /static,
+    /login, /logout e /api/v1/products. Um PathPrefix '/' no lugar deles
+    esconderia que o bookinfo tem uma superficie declarada.
+  annotations:
+    rhcl.demo/cluster-object: httproute/bookinfo/bookinfo
     backstage.io/kubernetes-namespace: bookinfo
     backstage.io/kubernetes-label-selector: app=bookinfo
   labels:
@@ -504,130 +554,22 @@ spec:
   type: httproute
   owner: group:default/platform-team
   system: sample-bookinfo
-
+  dependsOn:
+    - resource:default/bookinfo-gateway
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Resource
 metadata:
-  name: bookinfo-api-route
-  title: HTTPRoute — bookinfo (API)
+  name: websockets-gateway
+  title: Gateway — websockets
   description: >-
-    A rota da API. Path prefix '/api/v1', e e sobre ela que valem a AuthPolicy e
-    o PlanPolicy. Os quatro caminhos que o bookinfo publica de verdade estao
-    descritos na API bookinfo-api.
+    Gateway API, classe istio, HTTP na 80 -- a forma equivalente ao route.yaml
+    do upstream, que nao funcionaria aqui. Publicado por um Route do OpenShift
+    com timeout de 1h: o default do router derruba a conexao ociosa em ~30s, e
+    o sintoma e um WebSocket que abre e cai sozinho -- o mesmo sintoma que o
+    maxRequestsPerConnection evita uma camada abaixo.
   annotations:
-    rhcl.demo/cluster-object: httproute/bookinfo/bookinfo-api
-    backstage.io/kubernetes-namespace: bookinfo
-    backstage.io/kubernetes-label-selector: app=bookinfo
-  labels:
-    rhcl.demo/camada: borda
-    rhcl.demo/origem: repo
-    rhcl.demo/produto: bookinfo
-  tags:
-    - rhcl
-    - sample
-    - gateway-api
-spec:
-  type: httproute
-  owner: group:default/platform-team
-  system: sample-bookinfo
-
----
-apiVersion: backstage.io/v1alpha1
-kind: Resource
-metadata:
-  name: bookinfo-api-authpolicy
-  title: AuthPolicy — bookinfo-api
-  description: >-
-    A MESMA AuthPolicy do travels, com dois campos diferentes: o targetRef e o
-    seletor, que exige devportal.kuadrant.io/apiproduct=bookinfo-api. E esse
-    segundo campo que da o isolamento -- a chave do travels nao abre o bookinfo.
-  annotations:
-    rhcl.demo/cluster-object: authpolicy/bookinfo/bookinfo-api-authpolicy
-    backstage.io/kubernetes-namespace: bookinfo
-    backstage.io/kubernetes-label-selector: app=bookinfo
-  labels:
-    rhcl.demo/camada: borda
-    rhcl.demo/escopo-policy: rota
-    rhcl.demo/origem: repo
-    rhcl.demo/produto: bookinfo
-  tags:
-    - rhcl
-    - sample
-    - kuadrant
-spec:
-  type: kuadrant-authpolicy
-  owner: group:default/platform-team
-  system: sample-bookinfo
-
----
-apiVersion: backstage.io/v1alpha1
-kind: Resource
-metadata:
-  name: bookinfo-plans
-  title: PlanPolicy — bookinfo
-  description: >-
-    Planos gold, silver e free sobre a rota da API, com limites baixos de
-    proposito: a cena e ver o 429 com dez curls na mao, e nao medir capacidade.
-    O catch-all 'unclassified' e o que separa fail-closed de fail-open.
-  annotations:
-    rhcl.demo/cluster-object: planpolicy/bookinfo/bookinfo-plans
-    backstage.io/kubernetes-namespace: bookinfo
-    backstage.io/kubernetes-label-selector: app=bookinfo
-  labels:
-    rhcl.demo/camada: borda
-    rhcl.demo/escopo-policy: rota
-    rhcl.demo/origem: repo
-    rhcl.demo/produto: bookinfo
-  tags:
-    - rhcl
-    - sample
-    - kuadrant
-spec:
-  type: kuadrant-planpolicy
-  owner: group:default/platform-team
-  system: sample-bookinfo
-
----
-apiVersion: backstage.io/v1alpha1
-kind: Resource
-metadata:
-  name: bookinfo-ui-ratelimit
-  title: RateLimitPolicy — bookinfo (UI)
-  description: >-
-    Protecao de capacidade da rota anonima, e nao cota comercial. Sem identidade
-    do outro lado, o limite so pode ser do hostname -- perder essa distincao e o
-    erro comum de quem le rate limit como cobranca.
-  annotations:
-    rhcl.demo/cluster-object: ratelimitpolicy/bookinfo/bookinfo-ui-ratelimit
-    backstage.io/kubernetes-namespace: bookinfo
-    backstage.io/kubernetes-label-selector: app=bookinfo
-  labels:
-    rhcl.demo/camada: borda
-    rhcl.demo/escopo-policy: rota
-    rhcl.demo/origem: repo
-    rhcl.demo/produto: bookinfo
-  tags:
-    - rhcl
-    - sample
-    - kuadrant
-spec:
-  type: kuadrant-ratelimitpolicy
-  owner: group:default/platform-team
-  system: sample-bookinfo
-
----
-apiVersion: backstage.io/v1alpha1
-kind: Resource
-metadata:
-  name: websockets-route
-  title: HTTPRoute — websockets
-  description: >-
-    A rota do WebSocket, e o que NAO esta escrito nela e o ponto: nao ha
-    configuracao de upgrade em lugar nenhum. Mesmo Gateway, mesmo listener
-    HTTPS/443 das demais rotas.
-  annotations:
-    rhcl.demo/cluster-object: httproute/websockets/websockets
+    rhcl.demo/cluster-object: gateway/websockets/websockets-gateway
     backstage.io/kubernetes-namespace: websockets
     backstage.io/kubernetes-label-selector: app=tornado
   labels:
@@ -639,150 +581,9 @@ metadata:
     - sample
     - gateway-api
 spec:
-  type: httproute
+  type: gateway
   owner: group:default/platform-team
   system: sample-websockets
-
----
-apiVersion: backstage.io/v1alpha1
-kind: Resource
-metadata:
-  name: websockets-authpolicy
-  title: AuthPolicy — websockets
-  description: >-
-    Confere a credencial na requisicao que carrega 'Upgrade: websocket'. Sem
-    chave o upgrade nao acontece e a conexao nunca chega a existir. Depois dele,
-    os frames nao sao requisicoes HTTP e esta policy nao os ve. A chave vai na
-    query string porque a API do navegador nao permite cabecalho.
-  annotations:
-    rhcl.demo/cluster-object: authpolicy/websockets/websockets-authpolicy
-    backstage.io/kubernetes-namespace: websockets
-    backstage.io/kubernetes-label-selector: app=tornado
-  labels:
-    rhcl.demo/camada: borda
-    rhcl.demo/escopo-policy: rota
-    rhcl.demo/origem: repo
-    rhcl.demo/produto: websockets
-  tags:
-    - rhcl
-    - sample
-    - kuadrant
-spec:
-  type: kuadrant-authpolicy
-  owner: group:default/platform-team
-  system: sample-websockets
-
----
-apiVersion: backstage.io/v1alpha1
-kind: Resource
-metadata:
-  name: websockets-ratelimit
-  title: RateLimitPolicy — websockets
-  description: >-
-    Conta HANDSHAKES, e nao mensagens: 5 por minuto e generoso para quem abre uma conexao e a mantem, e apertado para quem reconecta em laco. Ler este numero como '5 requisicoes por minuto' e o erro.
-  annotations:
-    rhcl.demo/cluster-object: ratelimitpolicy/websockets/websockets-ratelimit
-    backstage.io/kubernetes-namespace: websockets
-    backstage.io/kubernetes-label-selector: app=tornado
-  labels:
-    rhcl.demo/camada: borda
-    rhcl.demo/escopo-policy: rota
-    rhcl.demo/origem: repo
-    rhcl.demo/produto: websockets
-  tags:
-    - rhcl
-    - sample
-    - kuadrant
-spec:
-  type: kuadrant-ratelimitpolicy
-  owner: group:default/platform-team
-  system: sample-websockets
-
----
-apiVersion: backstage.io/v1alpha1
-kind: Resource
-metadata:
-  name: grpc-echo-route
-  title: GRPCRoute — grpc-echo
-  description: >-
-    gRPC no MESMO Gateway das rotas HTTP: o listener e HTTPS na 443 e negocia h2
-    por ALPN, entao nao ha porta nova nem Gateway novo. UMA regra, sem match por
-    metodo -- com duas, o Kuadrant ancora o limite so numa delas.
-  annotations:
-    rhcl.demo/cluster-object: grpcroute/grpc-echo/grpc-echo
-    backstage.io/kubernetes-namespace: grpc-echo
-    backstage.io/kubernetes-label-selector: app=echo
-  labels:
-    rhcl.demo/camada: borda
-    rhcl.demo/origem: repo
-    rhcl.demo/produto: grpc-echo
-  tags:
-    - rhcl
-    - sample
-    - gateway-api
-spec:
-  type: grpcroute
-  owner: group:default/platform-team
-  system: sample-grpc-echo
-
----
-apiVersion: backstage.io/v1alpha1
-kind: Resource
-metadata:
-  name: grpc-echo-authpolicy
-  title: AuthPolicy — grpc-echo
-  description: >-
-    Identica a do bookinfo em tudo menos dois campos, e os dois sao do
-    protocolo: targetRef kind GRPCRoute, e credencial em metadata (customHeader)
-    porque gRPC nao tem query string. A policy nao muda com o protocolo.
-  annotations:
-    rhcl.demo/cluster-object: authpolicy/grpc-echo/grpc-echo-authpolicy
-    backstage.io/kubernetes-namespace: grpc-echo
-    backstage.io/kubernetes-label-selector: app=echo
-  labels:
-    rhcl.demo/camada: borda
-    rhcl.demo/escopo-policy: rota
-    rhcl.demo/origem: repo
-    rhcl.demo/produto: grpc-echo
-  tags:
-    - rhcl
-    - sample
-    - kuadrant
-spec:
-  type: kuadrant-authpolicy
-  owner: group:default/platform-team
-  system: sample-grpc-echo
-
----
-apiVersion: backstage.io/v1alpha1
-kind: Resource
-metadata:
-  name: grpc-echo-ratelimit
-  title: RateLimitPolicy — grpc-echo (nao aplicada)
-  description: >-
-    DECLARADA E SEM EFEITO, e isso esta medido: a policy irma de base/grpc/, de
-    desenho identico, reporta Enforced=True com o limite correto no Limitador e
-    deixa passar oito chamadas num teto de cinco. No mesmo minuto a de HTTP
-    funciona. Fica declarada porque esta correta -- omiti-la ensinaria que gRPC
-    nao se limita, o que e falso.
-  annotations:
-    rhcl.demo/cluster-object: ratelimitpolicy/grpc-echo/grpc-echo-ratelimit
-    backstage.io/kubernetes-namespace: grpc-echo
-    backstage.io/kubernetes-label-selector: app=echo
-  labels:
-    rhcl.demo/camada: borda
-    rhcl.demo/escopo-policy: rota
-    rhcl.demo/origem: repo
-    rhcl.demo/produto: grpc-echo
-  tags:
-    - rhcl
-    - sample
-    - kuadrant
-spec:
-  type: kuadrant-ratelimitpolicy
-  owner: group:default/platform-team
-  system: sample-grpc-echo
-
 ---
 # ---------------------------------------------------------------------------
 # OS RECURSOS DO SERVICE MESH -- camada 'borda' NAO se aplica a eles.
@@ -1282,11 +1083,12 @@ metadata:
   name: bookinfo-api
   title: Bookinfo API
   description: >-
-    A API de produtos do bookinfo, publicada em /api/v1 e governada na borda
-    pela AuthPolicy bookinfo-api-authpolicy. O servico nao valida credencial por
-    conta propria, e o limite depende do plano da chave.
+    A API de produtos do bookinfo, servida em /api/v1/products pelo gateway da
+    propria amostra. SEM CREDENCIAL POR ENQUANTO: a AuthPolicy que a governaria
+    esta em samples/bookinfo/rhcl/ e nao e aplicada -- e este spec descreve o
+    que responde hoje, e nao o que se pretende.
   annotations:
-    rhcl.demo/cluster-object: httproute/bookinfo/bookinfo-api
+    rhcl.demo/cluster-object: httproute/bookinfo/bookinfo
   labels:
     rhcl.demo/camada: borda
     rhcl.demo/origem: repo
@@ -1305,20 +1107,16 @@ spec:
       title: Bookinfo API
       version: "1.0.0"
       description: >-
-        API de produtos da amostra bookinfo do Istio, exposta pelo Gateway
-        prod-web e governada pelo Red Hat Connectivity Link. A autenticacao e
-        por API key na query string, imposta na borda pela AuthPolicy -- o
-        productpage nao valida credencial por conta propria.
-    security:
-      - ApiKeyQuery: []
+        API de produtos da amostra bookinfo do Istio, servida pelo gateway da
+        propria amostra (bookinfo-gateway, Gateway API classe istio) e
+        publicada por um Route do OpenShift. Sem credencial: a camada de
+        policies vive em samples/bookinfo/rhcl/ e nao esta aplicada.
     paths:
       /api/v1/products:
         get:
           summary: Lista os produtos
           responses:
             "200": { description: OK }
-            "401": { description: API key ausente ou invalida (vem da AuthPolicy) }
-            "429": { description: "Limite do plano excedido: gold 20/10s, silver 5/10s, free 2/10s" }
       /api/v1/products/{id}:
         get:
           summary: Detalhes de um produto
@@ -1329,7 +1127,6 @@ spec:
               schema: { type: integer }
           responses:
             "200": { description: OK }
-            "401": { description: API key ausente ou invalida }
       /api/v1/products/{id}/reviews:
         get:
           summary: Resenhas de um produto
@@ -1343,7 +1140,6 @@ spec:
               schema: { type: integer }
           responses:
             "200": { description: OK }
-            "401": { description: API key ausente ou invalida }
       /api/v1/products/{id}/ratings:
         get:
           summary: Notas de um produto
@@ -1354,14 +1150,3 @@ spec:
               schema: { type: integer }
           responses:
             "200": { description: OK }
-            "401": { description: API key ausente ou invalida }
-    components:
-      securitySchemes:
-        ApiKeyQuery:
-          type: apiKey
-          in: query
-          name: APIKEY
-          description: >-
-            Chave do produto bookinfo-api. O tier vem do label
-            kuadrant.io/plan-id no Secret, e a chave de outro produto NAO abre
-            esta API -- o seletor da AuthPolicy exige o par completo.

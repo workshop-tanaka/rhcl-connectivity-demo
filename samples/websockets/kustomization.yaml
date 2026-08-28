@@ -2,13 +2,18 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 # ===========================================================================
-# websockets -- o que a governança alcança numa conexão longa, e o que não.
+# websockets -- HTTP/1.1 Upgrade sobre OSSM, como o upstream a construiu.
+#
+# A CAMADA DE RHCL NÃO ESTÁ AQUI. Ela existe, pronta, em rhcl/ -- é ela que
+# transforma esta amostra na discussão sobre o que a policy alcança numa
+# conexão longa. Sem ela, o que fica é a metade do Service Mesh: mTLS
+# negociado uma vez por conexão, e o pool que impede o proxy de reciclá-la.
 #
 # Prefixo numérico pelo mesmo motivo do bookinfo: o ApplicationSet
 # 'rhcl-samples' sincroniza 'manifests/[0-9]*.yaml'. Renomear um arquivo para
 # algo que não comece com dígito o tira do Argo EM SILÊNCIO.
 #
-# NÃO APLICAR COM 'oc apply -k' DIRETO: 20- traz __DOMAIN__.
+# NÃO APLICAR COM 'oc apply -k' DIRETO: o Route de 21- traz __DOMAIN__.
 # ===========================================================================
 
 resources:
@@ -17,10 +22,8 @@ resources:
   - 10-mesh-peerauthentication.yaml
   - 11-mesh-destinationrule.yaml
   - 12-mesh-telemetry.yaml
-  - 20-httproute.yaml
-  - 21-authpolicy.yaml
-  - 22-ratelimitpolicy.yaml
-  - 23-identity-apikeys.yaml
+  - 20-gateway.yaml
+  - 21-route-openshift.yaml
 
 # A cópia assinada no Quay -- comentada de propósito; ver samples/README.md.
 #

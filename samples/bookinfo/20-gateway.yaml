@@ -1,0 +1,101 @@
+# ===========================================================================
+# O GATEWAY DO UPSTREAM -- copiado de
+# samples/bookinfo/gateway-api/bookinfo-gateway.yaml, com o namespace
+# acrescentado e nada mais.
+#
+# ---------------------------------------------------------------------------
+# POR QUE A VARIANTE gateway-api/ E NAO A networking/
+#
+# O upstream traz as duas: networking/bookinfo-gateway.yaml usa o Gateway do
+# Istio com 'selector: istio: ingressgateway', e gateway-api/ usa a Gateway API.
+#
+# A primeira NAO FUNCIONA NESTE CLUSTER, e nao por preferencia: nao existe
+# deployment com o rotulo istio=ingressgateway aqui. Conferido em 2026-08-28:
+#
+#   oc get deploy -A -l istio=ingressgateway   -> No resources found
+#
+# O OSSM 3 nao instala o ingressgateway classico; quem materializa um gateway e
+# a GatewayClass 'istio', que cria o Deployment e o Service a partir do proprio
+# recurso Gateway. Aplicar a variante networking/ daria um Gateway aceito, sem
+# endereco, e um VirtualService que nunca recebe trafego -- sem erro em lugar
+# nenhum. E a variante gateway-api/ e tambem a que a documentacao do Istio usa
+# hoje.
+#
+# ---------------------------------------------------------------------------
+# GATEWAY PROPRIO, E NAO O prod-web
+#
+# O prod-web e o gateway da DEMO, e ele carrega uma AuthPolicy de escopo de
+# gateway (prod-web-deny-all). Toda rota anexada a ele que nao declare a sua
+# propria AuthPolicy e NEGADA -- foi por isso que o echo-api precisou de uma.
+#
+# Uma amostra "sem RHCL" pendurada no prod-web responderia 401 em tudo, e a
+# causa estaria num objeto de outro namespace. Gateway proprio resolve isso e,
+# de quebra, torna cada amostra removivel sozinha.
+#
+# O preco e um pod de gateway por amostra. Num SNO isso se sente, e e o motivo
+# de o grpc-echo NAO ter gateway: o upstream dele tambem nao tem, e o que ele
+# demonstra -- canario sobre gRPC -- e leste-oeste.
+#
+# ---------------------------------------------------------------------------
+# HTTP NA 80, e nao HTTPS: e o que o upstream declara. Quem termina TLS aqui e
+# o Route do OpenShift (21-), com o certificado padrao do router. Sem isso
+# seria preciso copiar um certificado para dentro deste namespace e conviver
+# com a renovacao divergindo.
+# ===========================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: bookinfo-gateway
+  namespace: bookinfo
+  labels:
+    app: bookinfo
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+# ---------------------------------------------------------------------------
+# A HTTPRoute do upstream, com a lista de caminhos EXATA. Nao e generalizacao
+# nossa: '/productpage', '/static', '/login', '/logout' e '/api/v1/products'
+# sao o que a aplicacao serve, e um PathPrefix '/' no lugar deles esconderia
+# que o bookinfo tem uma superficie declarada.
+#
+# Sem 'hostnames': o listener nao declara nenhum, entao a rota casa qualquer
+# Host. Quem decide o hostname externo e o Route do OpenShift em 21- -- e e
+# essa separacao que faz este arquivo continuar identico ao do upstream.
+# ---------------------------------------------------------------------------
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: bookinfo
+  namespace: bookinfo
+  labels:
+    app: bookinfo
+spec:
+  parentRefs:
+    - name: bookinfo-gateway
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /productpage
+        - path:
+            type: PathPrefix
+            value: /static
+        - path:
+            type: Exact
+            value: /login
+        - path:
+            type: Exact
+            value: /logout
+        - path:
+            type: PathPrefix
+            value: /api/v1/products
+      backendRefs:
+        - name: productpage
+          port: 9080

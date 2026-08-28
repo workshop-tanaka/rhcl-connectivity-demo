@@ -97,10 +97,12 @@ Etapas, na ordem em que dependem umas das outras:
     identity    unifica o login no Keycloak: personas, clients, e o GitLab
                 delegando. Exige o portal RHDH ja instalado
     samples     as quatro amostras do Istio (bookinfo, websockets,
-                open-telemetry, grpc-echo) com Service Mesh, borda do RHCL e a
-                cadeia de suprimento. POR ULTIMO na lista so para poder usar
-                tudo que veio antes -- ela mesma so exige 'mesh', 'platform' e
-                'gateway'. SAMPLES=<nome> roda uma so.
+                open-telemetry, grpc-echo) sobre o Service Mesh, com o gateway
+                do upstream e a cadeia de suprimento. SEM RHCL: a camada de
+                policies de cada uma fica em samples/<nome>/rhcl/, fora do
+                kustomization. Exige 'mesh' e 'platform'; esta por ultimo na
+                lista so para achar Tekton e Quay de pe. SAMPLES=<nome> roda
+                uma so.
 
 Sem argumento, roda todas. Cada uma e idempotente.
 
@@ -1863,9 +1865,18 @@ st_samples() {
     printf '        %s\n' "sem ele as amostras sobem FORA do mesh: nada de mTLS, canario nem grafo"
     return 0
   fi
-  if ! oc get gateway prod-web -n ingress-gateway >/dev/null 2>&1 && [[ $DRY_RUN -eq 0 ]]; then
-    _warn "Gateway prod-web ausente -- rode 'provision.sh gateway' antes"
-    printf '        %s\n' "as HTTPRoute/GRPCRoute das amostras ficariam sem parent e nao seriam aceitas"
+  # O prod-web NAO e pre-requisito destas amostras, e isso mudou em 2026-08-28:
+  # cada uma traz o gateway DO UPSTREAM, no proprio namespace, materializado
+  # pela GatewayClass 'istio'. Pendura-las no prod-web daria 401 em tudo -- ele
+  # carrega a AuthPolicy de escopo de gateway prod-web-deny-all, e rota sem
+  # AuthPolicy propria e negada. Quem precisa do prod-web e a camada
+  # samples/<nome>/rhcl/, que nao e aplicada aqui.
+  #
+  # A GatewayClass, essa sim, e obrigatoria: sem ela o Gateway fica pendente
+  # para sempre e sem mensagem util.
+  if ! oc get gatewayclass istio >/dev/null 2>&1 && [[ $DRY_RUN -eq 0 ]]; then
+    _warn "gatewayclass 'istio' ausente -- rode 'provision.sh mesh' antes"
+    printf '        %s\n' "sem ela o Gateway de cada amostra fica pendente para sempre, sem endereco"
     return 0
   fi
 
@@ -1981,11 +1992,15 @@ sys.stdout.write(run[0] if run else "")' \
   if [[ $DRY_RUN -eq 0 ]]; then
     printf '\n'
     _log "as amostras publicam em:"
-    [[ " ${alvos[*]} " == *" bookinfo "*   ]] && printf '        %s\n' "https://bookinfo.${DOMAIN}/                 (UI, sem chave)"
-    [[ " ${alvos[*]} " == *" bookinfo "*   ]] && printf '        %s\n' "https://bookinfo.${DOMAIN}/api/v1/products  (401 sem APIKEY)"
-    [[ " ${alvos[*]} " == *" websockets "* ]] && printf '        %s\n' "https://websockets.${DOMAIN}/?APIKEY=ws-tempo-real-8a5f31"
-    [[ " ${alvos[*]} " == *" grpc-echo "*  ]] && printf '        %s\n' "grpcurl -insecure -H 'apikey: grpc-echo-3f71b2' grpc-echo.${DOMAIN}:443 list"
+    [[ " ${alvos[*]} " == *" bookinfo "*   ]] && printf '        %s\n' "https://bookinfo.${DOMAIN}/productpage   (recarregue: 90% v1, 10% v3, nunca v2)"
+    [[ " ${alvos[*]} " == *" websockets "* ]] && printf '        %s\n' "https://websockets.${DOMAIN}/           ('WebSocket status' fica verde)"
+    [[ " ${alvos[*]} " == *" grpc-echo "*  ]] && printf '        %s\n' "oc port-forward -n grpc-echo svc/echo 7070:7070   (sem entrada externa, como o upstream)"
     [[ " ${alvos[*]} " == *" open-telemetry "* ]] && printf '        %s\n' "oc logs -n otel-sample deploy/otel-als-collector -f   (access log em OTLP)"
+    printf '\n'
+    _log "SEM RHCL. A camada de policies de cada amostra esta pronta e nao foi aplicada:"
+    printf '        %s\n' "oc kustomize samples/<nome>/rhcl | sed \"s|__DOMAIN__|${DOMAIN}|g\" | oc apply -f -"
+    printf '        %s\n' "leia samples/<nome>/rhcl/README.md antes -- so o bookinfo tem conflito a resolver"
+    printf '\n'
     printf '        %s\n' "o porque de cada uma: samples/README.md e docs/SAMPLES.md"
   fi
 }

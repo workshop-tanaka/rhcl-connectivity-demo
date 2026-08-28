@@ -2,7 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 # ===========================================================================
-# bookinfo -- a amostra do Istio sob RHCL e OSSM.
+# bookinfo -- a amostra do Istio sobre OSSM, como o upstream a construiu.
 #
 # A ORDEM DOS ARQUIVOS É A ORDEM DA EXPLICAÇÃO, e o prefixo numérico existe
 # para isso e para uma segunda razão prática: o ApplicationSet 'rhcl-samples'
@@ -13,9 +13,13 @@ kind: Kustomization
 #   00-       namespace, com a injeção do Service Mesh
 #   01-..04-  os quatro serviços, cada um com sua ServiceAccount
 #   1x-       Service Mesh: mTLS, subsets, canário, quem-fala-com-quem, métrica
-#   2x-       borda (RHCL): duas rotas, duas fronteiras, plano e telemetria
+#   2x-       entrada: o Gateway do upstream (Gateway API) e o Route que o publica
 #
-# NÃO APLICAR COM 'oc apply -k' DIRETO: as rotas trazem __DOMAIN__. Quem
+# A CAMADA DE RHCL NÃO ESTÁ AQUI. Ela existe, pronta, em rhcl/ -- fora desta
+# lista de propósito: esta amostra é do Istio e sobe sem Kuadrant nenhum. Ver
+# rhcl/README.md para o que ela acrescenta e o que é preciso remover antes.
+#
+# NÃO APLICAR COM 'oc apply -k' DIRETO: o Route de 21- traz __DOMAIN__. Quem
 # substitui é 'bash scripts/provision.sh samples'. Ver samples/README.md.
 # ===========================================================================
 
@@ -30,29 +34,8 @@ resources:
   - 12-mesh-virtualservice-reviews.yaml
   - 13-mesh-authorizationpolicy.yaml
   - 14-mesh-telemetry.yaml
-  - 20-httproute-ui.yaml
-  - 21-httproute-api.yaml
-  - 22-authpolicy.yaml
-  - 23-planpolicy.yaml
-  - 24-ratelimitpolicy-ui.yaml
-  # NAO HA 25-telemetrypolicy.yaml, e a ausencia e uma MEDICAO e nao um
-  # esquecimento. Uma TelemetryPolicy mirando a HTTPRoute bookinfo-api foi
-  # escrita e o servidor a recusou, em 2026-08-28 neste cluster:
-  #
-  #   The TelemetryPolicy "bookinfo-telemetry" is invalid: spec.targetRef:
-  #   Invalid value: "object": Invalid targetRef.kind. The only supported
-  #   value is 'Gateway'
-  #
-  # Ou seja: nesta release, TelemetryPolicy e policy de GATEWAY e ponto --
-  # diferente de AuthPolicy, RateLimitPolicy e PlanPolicy, que aceitam rota. E
-  # uma assimetria real do produto, e vale saber dela antes de prometer
-  # 'metrica por rota' a um cliente.
-  #
-  # Quem cobre a borda desta amostra e a prod-web-telemetry de
-  # base/policies-telemetry/, que vale para TODA rota anexada ao prod-web --
-  # inclusive estas duas. A dimensao por rota que se queria aqui sai da
-  # Telemetry do Istio (14-), que quebra por workload.
-  - 26-identity-apikeys.yaml
+  - 20-gateway.yaml
+  - 21-route-openshift.yaml
 
 # ---------------------------------------------------------------------------
 # A CÓPIA ASSINADA NO QUAY DO CLUSTER -- comentada de propósito.

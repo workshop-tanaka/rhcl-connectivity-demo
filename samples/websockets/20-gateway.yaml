@@ -1,0 +1,66 @@
+# ===========================================================================
+# O gateway da amostra de WebSocket -- Gateway API, como o bookinfo do upstream.
+#
+# ---------------------------------------------------------------------------
+# O route.yaml DO UPSTREAM NAO SERVE AQUI, e vale saber por que antes de
+# procura-lo.
+#
+# Ele declara um Gateway do Istio com 'selector: istio: ingressgateway' e um
+# VirtualService com 'hosts: "*"'. Duas coisas o impedem neste cluster:
+#
+#   1. nao existe deployment com o rotulo istio=ingressgateway. O OSSM 3 nao
+#      instala o ingressgateway classico -- quem materializa um gateway e a
+#      GatewayClass 'istio'. Conferido em 2026-08-28:
+#         oc get deploy -A -l istio=ingressgateway   -> No resources found
+#      O Gateway seria aceito, ficaria sem endereco, e o VirtualService nunca
+#      receberia trafego. Sem erro em lugar nenhum.
+#
+#   2. hosts: "*" capturaria trafego de qualquer hostname que chegasse aquele
+#      gateway -- aceitavel numa amostra isolada, ruim num cluster que ja tem
+#      outras coisas publicadas.
+#
+# A forma equivalente e a que o proprio upstream usa hoje no bookinfo:
+# samples/bookinfo/gateway-api/. E o que esta escrito abaixo.
+#
+# ---------------------------------------------------------------------------
+# E O UPGRADE? NAO HA NADA A CONFIGURAR, e esse e o ponto que vale dizer em voz
+# alta. O README do upstream ainda avisa que "o suporte a upgrade de websockets
+# em regras v1alpha3 so foi adicionado depois do Istio v0.8" -- isso tem anos.
+# Desde entao o upgrade e o comportamento padrao do proxy para porta com nome
+# 'http', e nao ha campo para ligar nem na HTTPRoute, nem no Gateway.
+# ===========================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: websockets-gateway
+  namespace: websockets
+  labels:
+    app: tornado
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: websockets
+  namespace: websockets
+  labels:
+    app: tornado
+spec:
+  parentRefs:
+    - name: websockets-gateway
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: tornado
+          port: 8888

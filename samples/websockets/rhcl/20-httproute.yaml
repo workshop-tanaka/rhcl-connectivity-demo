@@ -13,12 +13,22 @@
 # o que a policy consegue observar depois do upgrade -- e isso é uma
 # propriedade a declarar, não uma configuração a ligar (ver o README).
 #
-# __DOMAIN__ é substituído por 'scripts/provision.sh samples'.
+# HOSTNAME 'websockets-rhcl', e não 'websockets': este último é do Route do
+# OpenShift que publica o gateway da própria amostra (../21-route-openshift.yaml).
+# Os dois endereços coexistem de propósito -- um sem chave, outro com --, e a
+# comparação lado a lado é demonstração melhor do que trocar um pelo outro.
+#
+# __DOMAIN__ é substituído no render; ver rhcl/README.md.
 # ===========================================================================
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: websockets
+  # 'websockets-rhcl' e nao 'websockets': a amostra ja tem uma HTTPRoute com
+  # esse nome, no MESMO namespace, apontando para o seu proprio gateway
+  # (../20-gateway.yaml). Nome igual faria esta SUBSTITUIR aquela em vez de
+  # coexistir -- e o caminho sem chave desapareceria no momento em que a camada
+  # de RHCL entrasse, que e justamente a comparacao que se quer mostrar.
+  name: websockets-rhcl
   namespace: websockets
   labels:
     app: tornado
@@ -27,7 +37,7 @@ spec:
     - name: prod-web
       namespace: ingress-gateway
   hostnames:
-    - websockets.__DOMAIN__
+    - websockets-rhcl.__DOMAIN__
   rules:
     - matches:
         - path:

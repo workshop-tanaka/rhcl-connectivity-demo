@@ -611,7 +611,11 @@ Red Hat Connectivity Link e Red Hat OpenShift Service Mesh.
 - `00-`       namespace, com a injecao do Service Mesh
 - `0x-`       os workloads
 - `1x-`       Service Mesh: mTLS, subsets, roteamento, quem-fala-com-quem, telemetria
-- `2x-`       borda (RHCL): rota, AuthPolicy, limite, plano, chaves
+- `2x-`       entrada: o Gateway do upstream (Gateway API) e o Route que o publica
+
+SEM Connectivity Link. A camada de policies desta amostra vive em
+`samples/{nome}/rhcl/` no repositorio base -- fora do kustomization, e por isso
+fora tambem desta copia.
 
 ## Quem aplica isto
 

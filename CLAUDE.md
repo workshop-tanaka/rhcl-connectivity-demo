@@ -49,7 +49,7 @@ oc apply -k overlays/rhcl-1.4        # RHCL 1.4 / OCP 4.21 — release suportada
 bash scripts/preflight.sh            # verifica a cadeia inteira (~45s); 'core' = só o caminho de dados
 bash scripts/traffic.sh tiers        # os três planos lado a lado
 
-# amostras do Istio (material de apoio; NÃO usar 'oc apply -k' direto — há __DOMAIN__)
+# amostras do Istio, SEM RHCL (NÃO usar 'oc apply -k' direto — há __DOMAIN__)
 bash scripts/provision.sh samples            # as quatro
 SAMPLES=bookinfo bash scripts/provision.sh samples
 
@@ -113,12 +113,16 @@ do que ela **pressupõe**:
   repositórios que o golden path do RHDH gera. `selfHeal` fica desligado,
   porque vários movimentos do roteiro são edições ao vivo.
 - **`samples/`** — as amostras do Istio (`bookinfo`, `websockets`,
-  `open-telemetry`, `grpc-echo`). Aplicáveis, mas **fora do render do overlay
-  da demo**: material de apoio entra e sai sem tocar no roteiro. Pô-las em
-  `base/` mudaria o que `oc apply -k overlays/<...>` aplica no palco. Aplicadas
-  por `provision.sh samples` (que substitui o `__DOMAIN__` das rotas) e, depois
-  do seed, pelo Argo — o `ApplicationSet` `rhcl-samples` **aplica**, como o do
-  golden path, e ao contrário do `rhcl-travel`, que apenas observa. Ver
+  `open-telemetry`, `grpc-echo`), **sem RHCL**: cada uma sobe com o gateway do
+  *upstream* (Gateway API, classe `istio`) no próprio namespace, publicado por
+  `Route`. A camada de policies de cada uma fica em `samples/<nome>/rhcl/`,
+  **fora do `kustomization.yaml`** — não aplicar por engano.
+  Aplicáveis, mas fora do render do overlay da demo: material de apoio entra e
+  sai sem tocar no roteiro, e pô-las em `base/` mudaria o que
+  `oc apply -k overlays/<...>` aplica no palco. Aplicadas por
+  `provision.sh samples` (que substitui o `__DOMAIN__` dos `Route`) e, depois
+  do seed, pelo Argo. **Não pendurar rota de amostra no `prod-web`**: ele
+  carrega `prod-web-deny-all`, e rota sem `AuthPolicy` própria é negada. Ver
   [docs/SAMPLES.md](docs/SAMPLES.md).
 
 `scripts/capture.sh` só roteia arquivos automaticamente quando há

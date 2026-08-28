@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# A camada de RHCL do grpc-echo -- NAO referenciada pelo kustomization da
+# amostra, de proposito.
+#
+# Sem conflito com a amostra: ela nao publica nada externamente, entao esta
+# camada so acrescenta. Ler o README.md deste diretorio -- a RateLimitPolicy
+# esta declarada e SABIDAMENTE sem efeito em GRPCRoute, e isso esta medido.
+#
+# Render (a rota traz __DOMAIN__):
+#   D=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
+#   oc kustomize samples/grpc-echo/rhcl | sed "s|__DOMAIN__|$D|g" | oc apply -f -
+# ===========================================================================
+
+resources:
+  - 20-grpcroute.yaml
+  - 21-authpolicy.yaml
+  - 22-ratelimitpolicy.yaml
+  - 23-identity-apikeys.yaml

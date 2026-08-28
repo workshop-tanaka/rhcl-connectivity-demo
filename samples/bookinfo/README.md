@@ -1,60 +1,41 @@
 # bookinfo
 
-A amostra canônica do Istio, aqui para provar **uma coisa que a
-`travel-agency` desta demo não consegue provar**: que a fronteira de segurança
-é do *produto*, e não do endereço.
+A amostra canônica do Istio, sobre o OpenShift Service Mesh, **como o upstream
+a construiu** — sem Connectivity Link no caminho.
 
-## O argumento
+A camada de RHCL existe, pronta e explicada, em [rhcl/](rhcl/). Ela está fora
+do `kustomization.yaml` de propósito: a primeira coisa a fazer com uma amostra
+do Istio é vê-la funcionando como Istio.
 
-O `bookinfo` é uma aplicação com **tela e API no mesmo hostname**. Num gateway,
-isso é um impasse: ou o host pede credencial, ou não pede. Aqui são duas
-`HTTPRoute` apontando para o mesmo backend:
-
-| Rota | Caminho | Quem entra | Quanto passa |
-| --- | --- | --- | --- |
-| `bookinfo-ui` | `/` | qualquer um | 60/10s no hostname (proteção de capacidade) |
-| `bookinfo-api` | `/api/v1` | chave do produto `bookinfo-api` | por plano: gold 20/10s, silver 5/10s, free 2/10s |
-
-Ninguém dividiu a aplicação, mudou o código ou publicou um segundo endereço.
+## Ver funcionando
 
 ```bash
 D=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
-curl -sk -o /dev/null -w '%{http_code}\n' "https://bookinfo.$D/"                 # 200
-curl -sk -o /dev/null -w '%{http_code}\n' "https://bookinfo.$D/api/v1/products"  # 401
-curl -sk -o /dev/null -w '%{http_code}\n' \
-  "https://bookinfo.$D/api/v1/products?APIKEY=gold-bookinfo-9c2e14"              # 200
+echo "https://bookinfo.$D/productpage"     # abra e recarregue algumas vezes
 ```
 
-E o isolamento entre produtos, que é o mesmo argumento visto do outro lado — a
-chave do bookinfo **não** abre o travels:
+Recarregando, as estrelas mudam: **90% das vezes sem estrelas (v1), 10% com
+estrelas vermelhas (v3)** — e nunca pretas, porque a v2 está declarada,
+saudável, no grafo do Kiali, e com zero por cento do tráfego.
 
-```bash
-curl -sk -o /dev/null -w '%{http_code}\n' \
-  "https://api-travels.$D/?APIKEY=gold-bookinfo-9c2e14"                          # 401
-```
+> Quem decide isso é o `VirtualService`, não o deploy.
 
-## O que o Service Mesh acrescenta
+É essa frase que separa canário de troca de versão, e ela precisa de **três**
+versões para ser dita. A `travel-agency` desta demo tem duas.
 
-Três versões vivas de `reviews`, que é o que a `travel-agency` não tem (lá o
-canário é entre duas). Com três, dá para dizer a frase que separa canário de
-troca de versão:
-
-> **v2 está declarada, saudável, no grafo do Kiali, e com zero por cento do
-> tráfego — porque quem decide isso é o `VirtualService`, não o deploy.**
-
-O movimento ao vivo, e ele é o mesmo do Ato 7:
+O movimento ao vivo, que é o mesmo do Ato 7:
 
 ```bash
 oc patch virtualservice reviews -n bookinfo --type=json \
   -p '[{"op":"replace","path":"/spec/http/0/route/0/weight","value":50},
        {"op":"replace","path":"/spec/http/0/route/1/weight","value":50}]'
-# voltar:
-oc apply -f samples/bookinfo/12-mesh-virtualservice-reviews.yaml
+oc apply -f samples/bookinfo/12-mesh-virtualservice-reviews.yaml   # voltar
 ```
 
-E o par leste-oeste completo: `PeerAuthentication` STRICT + três
-`AuthorizationPolicy` por identidade SPIFFE. O teste que mostra que a regra é
-por **identidade**, e não por rede:
+## O par leste-oeste
+
+`PeerAuthentication` STRICT + três `AuthorizationPolicy` por identidade SPIFFE.
+O teste que mostra que a regra é por **identidade**, e não por rede:
 
 ```bash
 oc run curl-teste -n bookinfo --image=registry.access.redhat.com/ubi9/ubi-minimal \
@@ -63,48 +44,62 @@ oc run curl-teste -n bookinfo --image=registry.access.redhat.com/ubi9/ubi-minima
 # RBAC: access denied  -- mesmo namespace, mesma rede, ServiceAccount errada
 ```
 
+Hoje só o `productpage` chama `details` e `reviews`, e só `reviews` chama
+`ratings`. Isso é verdade por **acidente** — é o que o código faz. Com
+[13-mesh-authorizationpolicy.yaml](13-mesh-authorizationpolicy.yaml) passa a
+ser verdade por **declaração**.
+
+## Como ela entra: o gateway do upstream, publicado por Route
+
+[20-gateway.yaml](20-gateway.yaml) é
+`samples/bookinfo/gateway-api/bookinfo-gateway.yaml` do upstream, com o
+namespace acrescentado e nada mais: `Gateway` classe `istio`, HTTP na 80, e a
+`HTTPRoute` com a lista de caminhos exata.
+
+**A variante `networking/` do upstream não funcionaria aqui**, e é bom saber
+por quê antes de procurá-la: ela usa o `Gateway` do Istio com
+`selector: istio: ingressgateway`, e não existe deployment com esse rótulo
+neste cluster —
+
+```bash
+oc get deploy -A -l istio=ingressgateway    # No resources found
+```
+
+O OSSM 3 não instala o *ingressgateway* clássico; quem materializa um gateway é
+a `GatewayClass istio`, a partir do próprio recurso `Gateway`. A variante
+`networking/` daria um Gateway aceito, sem endereço, e um `VirtualService` que
+nunca recebe tráfego — sem erro em lugar nenhum.
+
+[21-route-openshift.yaml](21-route-openshift.yaml) publica esse gateway: **não
+há LoadBalancer num SNO**, e sem o `Route` a amostra sobe inteira e não é
+alcançável de fora, com o `Gateway` reportando `Programmed=True`.
+
+**Gateway próprio, e não o `prod-web`.** O `prod-web` carrega uma `AuthPolicy`
+de escopo de gateway (`prod-web-deny-all`): toda rota anexada a ele que não
+declare a sua própria é **negada**. Uma amostra sem RHCL pendurada lá
+responderia 401 em tudo, e a causa estaria num objeto de outro namespace.
+
 ## O que mudou em relação ao upstream
 
 | Upstream | Aqui | Por quê |
 | --- | --- | --- |
 | tudo em `bookinfo.yaml` | um arquivo por serviço, com prefixo numérico | o `ApplicationSet` sincroniza `manifests/[0-9]*.yaml`, e a ordem é a da explicação |
 | `securityContext.runAsUser: 1000` (variante `-psa`) | sem `runAsUser` | sob a SCC `restricted-v2` o UID sai da faixa do namespace; valor fixo fora dela faz o pod ser **recusado na admissão**, com mensagem sobre SCC |
-| `Gateway` + `VirtualService` do Istio para entrar | duas `HTTPRoute` no `prod-web` | a borda desta demo é Gateway API + RHCL; o `Gateway` do Istio criaria um segundo ponto de entrada sem policy |
+| `networking/bookinfo-gateway.yaml` | a variante `gateway-api/` | não há `istio-ingressgateway` neste cluster (acima) |
+| sem publicação externa | `Route` do OpenShift, edge | não há LoadBalancer num SNO |
 | `destination-rule-all-mtls.yaml` com `ISTIO_MUTUAL` | mTLS só na `PeerAuthentication` | duas origens para o mesmo fato fariam a resposta a "de onde vem o mTLS?" depender de qual arquivo se abriu primeiro |
+| sem `VirtualService` de `reviews` no default | 90/10 já aplicado | o canário é o que a amostra vem mostrar |
 | anotação `prometheus.io/scrape` | removida | aqui quem raspa é o user workload monitoring por `ServiceMonitor`; a anotação seria pista falsa |
 | sem limites de recurso | `requests`/`limits` em todos | o cluster da demo é SNO e roda ACS, Quay, GitLab e Tempo junto |
 
-## O que foi medido — e a assimetria que apareceu
-
-Uma `TelemetryPolicy` mirando a `HTTPRoute` `bookinfo-api` foi escrita para dar
-à borda uma dimensão por rota. **O servidor a recusou** (2026-08-28, neste
-cluster, `oc apply --dry-run=server`):
-
-```
-The TelemetryPolicy "bookinfo-telemetry" is invalid: spec.targetRef:
-Invalid value: "object": Invalid targetRef.kind. The only supported value is 'Gateway'
-```
-
-Nesta release, **`TelemetryPolicy` é policy de Gateway e ponto** — diferente de
-`AuthPolicy`, `RateLimitPolicy` e `PlanPolicy`, que aceitam rota. É uma
-assimetria real do produto, e vale saber dela antes de prometer "métrica por
-rota" a um cliente.
-
-Quem cobre a borda desta amostra é a `prod-web-telemetry` de
-[base/policies-telemetry/](../../base/policies-telemetry/), que vale para toda
-rota anexada ao `prod-web`. A dimensão por versão sai da `Telemetry` do Istio
-([14-](14-mesh-telemetry.yaml)).
-
 ## O que ainda não foi executado num cluster
 
-Estes manifests foram escritos a partir do upstream `istio/istio@master`
-(imagens `1.20.3`), validados por render do `kustomize` e por
-`oc apply --dry-run=server` contra os CRDs reais deste cluster — foi esse
-segundo passo que encontrou a recusa da `TelemetryPolicy` acima. **A subida de
-verdade não foi medida** — em particular:
+Os manifests passam no `oc apply --dry-run=server` contra os CRDs deste cluster
+— o **esquema** está certo. A **subida não foi medida**, e os dois riscos
+conhecidos são:
 
-- se as seis imagens do bookinfo sobem sob a SCC `restricted-v2` sem ajuste
-  além do que está em 01-..04-;
+- as seis imagens do bookinfo sob a SCC `restricted-v2`, sem ajuste além do que
+  está em 01-..04-;
 - se `registry.istio.io` responde a partir deste cluster sem espelho.
 
 Quando rodar, registre o resultado aqui e na §7 do

@@ -1,31 +1,24 @@
-# `samples/` — as amostras do Istio sob governança de RHCL e OSSM
+# `samples/` — as amostras do Istio, como o Istio as construiu
 
 Quatro amostras do [projeto Istio](https://github.com/istio/istio/tree/master/samples)
-— `bookinfo`, `websockets`, `open-telemetry` e `grpc-echo` — trazidas para
-dentro desta demo com **a estrutura inteira**: workload, Service Mesh (OSSM),
-borda (RHCL), GitOps, cadeia de suprimento e catálogo no RHDH.
+— `bookinfo`, `websockets`, `open-telemetry` e `grpc-echo` — rodando sobre o
+**OpenShift Service Mesh**, com o gateway e o roteamento do upstream.
 
-## Por que elas entram nesta demo
+**Sem Connectivity Link.** A camada de RHCL de cada amostra existe, escrita e
+explicada, em `samples/<nome>/rhcl/` — e está **fora** do `kustomization.yaml`
+de propósito. Elas foram construídas para o Istio, e a primeira coisa a fazer
+com elas é vê-las funcionando como Istio.
 
-O critério do repositório é um só (CLAUDE.md): **o RHCL é uma plataforma de
-API, não um gateway**. Uma amostra só entra se defender essa tese, e cada uma
-defende um pedaço diferente dela:
+## O que cada uma mostra
 
-| Amostra | O que ela prova que um gateway não provaria |
-| --- | --- |
-| `bookinfo` | a **mesma aplicação** com duas fronteiras diferentes, decididas por rota: a UI é pública e só limitada; a API `/api/v1` exige chave e tem plano. Fronteira é do produto, não do endereço |
-| `websockets` | a governança sobrevive ao **HTTP/1.1 Upgrade**: a conexão vira full-duplex e o que a policy contou foi o *handshake*, não os frames — e isso é uma propriedade a declarar, não um efeito colateral |
-| `open-telemetry` | **o log de acesso vira telemetria estruturada** pelo mesmo control plane que aplica policy. Observabilidade é camada da plataforma, não plugin do gateway |
-| `grpc-echo` | a **mesma AuthPolicy** governando gRPC: muda o `targetRef` (GRPCRoute) e o lugar da credencial (metadata, não query string). A policy não muda |
-
-`bookinfo` e `grpc-echo` também dão ao Service Mesh o que a `travel-agency`
-sozinha não dá: três versões vivas de um serviço (`reviews` v1/v2/v3) e um
-canário sobre gRPC.
+| Amostra | Sozinha (Istio) | Com a camada `rhcl/` |
+| --- | --- | --- |
+| `bookinfo` | **três versões vivas** de `reviews` — canário 90/10 com a v2 declarada em zero — e quem-fala-com-quem por identidade SPIFFE | a mesma aplicação com **duas fronteiras**: UI pública, `/api/v1` sob chave e plano |
+| `websockets` | o upgrade atravessa o mesh sem configuração nenhuma, e as duas linhas que impedem a conexão de cair | a policy confere o **handshake** e não vê os frames — governar conexão longa vira decisão de desenho |
+| `open-telemetry` | o **log de acesso** do mesh saindo em OTLP para um coletor próprio | — (não tem: é camada de plataforma) |
+| `grpc-echo` | canário **80/20 sobre gRPC**, mTLS, e a dimensão `grpc_status` que o status HTTP esconde | a **mesma** `AuthPolicy` das APIs HTTP, mudando só `targetRef` e o lugar da credencial |
 
 ## Onde isto mora, e por que não em `base/` nem em `platform-reference/`
-
-As três faixas de governança do repositório continuam valendo. Esta é uma
-quarta, e o critério dela é explícito:
 
 | Faixa | Aplicada por | O que é |
 | --- | --- | --- |
@@ -35,11 +28,42 @@ quarta, e o critério dela é explícito:
 | **`samples/`** | **`provision.sh samples`, e depois o Argo CD** | **material de apoio: entra e sai sem tocar no roteiro** |
 
 Uma amostra em `base/` mudaria o que `oc apply -k overlays/rhcl-1.4` aplica —
-ou seja, mudaria o que acontece no palco por causa de material de apoio. É
-exatamente a troca que não se faz. Em `platform-reference/` seria inaplicável
-por construção, e estas amostras precisam ser aplicadas.
+ou seja, mudaria o que acontece no palco por causa de material de apoio. Em
+`platform-reference/` seria inaplicável por construção, e estas precisam ser
+aplicadas.
 
-## Como aplicar
+## Como cada amostra entra
+
+Cada uma traz o **gateway do upstream** — `Gateway` da Gateway API, classe
+`istio`, HTTP na 80 — no seu próprio namespace, publicado por um `Route` do
+OpenShift.
+
+Duas decisões por trás disso, e as duas foram conferidas no cluster:
+
+**A variante `networking/` do upstream não funciona aqui.** Ela usa o `Gateway`
+do Istio com `selector: istio: ingressgateway`, e não existe deployment com
+esse rótulo:
+
+```bash
+oc get deploy -A -l istio=ingressgateway    # No resources found
+```
+
+O OSSM 3 não instala o *ingressgateway* clássico; quem materializa um gateway é
+a `GatewayClass istio`. A variante `networking/` daria um `Gateway` aceito, sem
+endereço, e um `VirtualService` que nunca recebe tráfego — sem erro em lugar
+nenhum. A variante `gateway-api/` é também a que a documentação do Istio usa
+hoje.
+
+**Gateway próprio, e não o `prod-web`.** O `prod-web` é o gateway da demo e
+carrega `prod-web-deny-all`, uma `AuthPolicy` de escopo de gateway: toda rota
+anexada a ele que não declare a sua própria é **negada**. Uma amostra sem RHCL
+pendurada lá responderia 401 em tudo, e a causa estaria num objeto de outro
+namespace.
+
+O preço é um pod de gateway por amostra. É por isso que o `grpc-echo` **não tem
+gateway**: o upstream dele também não tem, e o que ele demonstra é leste-oeste.
+
+## Aplicar
 
 ```bash
 bash scripts/provision.sh samples            # as quatro
@@ -47,14 +71,37 @@ SAMPLES=bookinfo bash scripts/provision.sh samples   # uma só
 bash scripts/provision.sh --dry-run samples  # imprime, nao muda nada
 ```
 
-**Não use `oc apply -k samples/<nome>` direto.** As rotas trazem `__DOMAIN__`
+**Não use `oc apply -k samples/<nome>` direto.** Os `Route` trazem `__DOMAIN__`
 onde vai o domínio de apps do cluster, pelo mesmo motivo que
 `gitops/*.template.yaml` e a `valida-policies` trazem: nenhum arquivo deste
 repositório carrega hostname de cluster embutido, e o cluster é efêmero. Quem
-substitui é a etapa `samples` do `provision.sh`, com o domínio lido do próprio
-cluster — ou o `gitlab-seed.sh`, quando semeia a cópia que o Argo aplica.
+substitui é a etapa `samples`, com o domínio lido do próprio cluster — ou o
+`gitlab-seed.sh`, quando semeia a cópia que o Argo aplica.
 
-## O ciclo completo de cada amostra
+### A ordem das amostras é fixa, e não é alfabética
+
+`samples/open-telemetry/10-telemetry-bookinfo.yaml` **substitui** a `Telemetry`
+de `samples/bookinfo/14-` (mesmo nome, mesmo namespace) para acrescentar o
+access log. É substituição porque **o Istio aplica uma `Telemetry` por nível**:
+duas de nível de namespace no mesmo namespace não são mescladas — uma delas não
+vale, e não há erro, evento nem status dizendo qual.
+
+Aplicar `bookinfo` **depois** de `open-telemetry` desfaz o access log em
+silêncio. Por isso `open-telemetry` é sempre a última.
+
+## A camada de RHCL, quando for a hora
+
+```bash
+D=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
+oc kustomize samples/<nome>/rhcl | sed "s|__DOMAIN__|$D|g" | oc apply -f -
+```
+
+O `README.md` de cada `rhcl/` diz o que a camada acrescenta e o que é preciso
+saber antes. Só o `bookinfo` tem conflito a resolver (uma linha); nas outras
+duas as camadas **coexistem** em hostnames diferentes, e ter as duas lado a
+lado é demonstração melhor do que trocar uma pela outra.
+
+## O ciclo completo
 
 ```
 samples/<nome>/          este repositório, com __DOMAIN__
@@ -66,7 +113,7 @@ samples/<nome>/          este repositório, com __DOMAIN__
                               ├─ ApplicationSet rhcl-samples ──► Argo CD ──► cluster
                               │
                               └─ pipeline samples-supply-chain
-                                    ├─ valida os manifests (kustomize + precedência)
+                                    ├─ valida os manifests (kustomize + hostname)
                                     ├─ SonarQube  — portão de qualidade sobre o YAML
                                     ├─ skopeo     — espelha a imagem upstream no Quay
                                     ├─ Tekton Chains + RHTAS — assina e registra no Rekor
@@ -74,19 +121,16 @@ samples/<nome>/          este repositório, com __DOMAIN__
                                     └─ Nexus      — publica o bundle renderizado
 ```
 
-E o catálogo do RHDH (`rhdh/catalog/samples.yaml`) descreve as quatro pontas:
-o serviço, as policies do RHCL, os recursos do Service Mesh, a pipeline, a
-`Application` do Argo e a imagem no Quay — cada entidade com
-`rhcl.demo/cluster-object`, então **num cluster sem as amostras aplicadas elas
-simplesmente não aparecem no portal**, em vez de virarem cards que não carregam.
+O `rhcl/` de cada amostra **não é semeado nem sincronizado**: o seed só leva os
+arquivos da raiz do diretório, e o `ApplicationSet` só sincroniza
+`manifests/[0-9]*.yaml`.
 
 ## As imagens continuam sendo as do upstream
 
 Cada `kustomization.yaml` traz um bloco `images:` **comentado** apontando para
 a cópia no Quay do cluster. É deliberado que ele nasça comentado: a amostra tem
 de subir num cluster onde a etapa `registry` ainda não rodou. A pipeline prova
-a procedência (espelho + assinatura + varredura); trocar a origem é uma linha,
-e é uma decisão de quem apresenta, não um pré-requisito.
+a procedência; trocar a origem é uma linha, e é decisão de quem apresenta.
 
 ## Onde ler o resto
 

@@ -1,0 +1,43 @@
+# ===========================================================================
+# Publica o gateway da amostra. Mesmo desenho do bookinfo -- e aqui ele tem uma
+# consequencia a mais.
+#
+# WEBSOCKET ATRAVESSA O ROUTER DO OPENSHIFT? Sim: o HAProxy trata 'Upgrade' em
+# rota edge como tunel, e o WebSocket segue funcionando. Isso vale a pena
+# registrar porque a duvida aparece -- e porque o caminho tem tres saltos
+# (router -> gateway do Istio -> sidecar -> tornado), e o upgrade tem de
+# sobreviver aos tres.
+#
+# NAO MEDIDO NESTE CLUSTER: o comportamento acima e o do HAProxy documentado,
+# nao uma medicao daqui. Se a tela ficar em 'connecting', o primeiro lugar a
+# olhar e o log do router, e nao a amostra.
+#
+# timeout de 1h: sem ele o router derruba a conexao ociosa no default (~30s), e
+# o sintoma e um WebSocket que abre e cai sozinho pouco depois -- exatamente o
+# mesmo sintoma que o maxRequestsPerConnection de 11- evita no proxy do Istio,
+# so que uma camada acima. Os dois precisam estar certos.
+#
+# __DOMAIN__ e substituido por 'scripts/provision.sh samples'.
+# ===========================================================================
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: websockets
+  namespace: websockets
+  labels:
+    app: tornado
+  annotations:
+    haproxy.router.openshift.io/timeout: 1h
+spec:
+  host: websockets.__DOMAIN__
+  to:
+    kind: Service
+    # <nome-do-Gateway>-istio: quem cria este Service e a GatewayClass.
+    name: websockets-gateway-istio
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
