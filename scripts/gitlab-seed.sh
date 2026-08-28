@@ -433,9 +433,22 @@ if app_id:
 # integracao GitHub fora do portal (decisao de 2026-08-25 -- ambiente de demo e
 # so GitLab), essa URL deixa de ser alcancavel, e sem ela nao ha Ato 6.
 #
-# ESPELHO SELETIVO, e nao o repo inteiro: aqui vai so o que o PORTAL serve. O
-# resto -- scripts/, platform-reference/, base/, e os documentos de engenharia
-# -- nao tem por que estar num portal que a plateia abre.
+# ESPELHO SELETIVO, e nao o repo inteiro: aqui vai so o que o PORTAL aponta. O
+# resto -- scripts/, base/, e os documentos de engenharia -- nao tem por que
+# estar num portal que a plateia abre.
+#
+# O CRITERIO E "ALGUEM CLICA E CHEGA AQUI", e nao "e servido por HTTP". Sao
+# coisas diferentes, e a distincao passou a importar em 2026-08-28:
+#
+#   lido por HTTP    mkdocs.yml + docs/ (TechDocs) e rhdh/templates/ (scaffolder)
+#   apenas apontado  platform-reference/workloads/ -- o lapis "edit code" do
+#                    Topology leva ao repositorio, e sem os manifestos aqui ele
+#                    abre um projeto que nao tem o arquivo que o no representa
+#
+# rhdh/catalog/ continua FORA, e nao por esquecimento: aquelas entidades
+# carregam hostnames do cluster e sao servidas pelo httpd interno
+# (rhdh/03-catalog-server.yaml explica o porque). Commita-las seria publicar
+# valores de um ambiente.
 #
 # RENDERIZACAO NO CAMINHO: os templates trazem __GITLAB_HOST__, substituido
 # aqui. E o ponto de substituicao que nao existia quando eles eram lidos do
@@ -457,7 +470,22 @@ ESPELHO = [
     "docs/PROVISIONING-1.4.md",
     "docs/CATALOGO.md",
 ]
-ESPELHO_DIRS = ["rhdh/templates"]   # os 3 templates e seus skeletons
+ESPELHO_DIRS = [
+    "rhdh/templates",              # os 3 templates e seus skeletons
+    # O destino do lapis "edit code" do Topology. As anotacoes vcs-uri/vcs-ref
+    # dos Deployments apontam para a RAIZ deste projeto (o decorator espera URL
+    # de repositorio, nao de arquivo) -- entao o que faz o clique valer a pena e
+    # o manifesto estar aqui dentro. Ver _vcs_topology() em scripts/provision.sh.
+    #
+    # OS DOIS DIRETORIOS, E NAO 'platform-reference/workloads' INTEIRO.
+    # workloads/travel-db/mysqldb.yaml traz um Secret com stringData em texto
+    # claro (rootpasswd), e ESTE PROJETO E PUBLICO -- criado com
+    # visibility: public, e a rota do GitLab esta num dominio publico de
+    # workshop. Sao exatamente os dois namespaces que _vcs_topology() anota,
+    # entao o travel-db nao perde nada: nenhum no do Topology aponta para la.
+    "platform-reference/workloads/travel-agency",
+    "platform-reference/workloads/echo-api",
+]
 
 def _coleta_espelho(raiz):
     itens = []
