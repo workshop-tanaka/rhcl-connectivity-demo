@@ -1,0 +1,35 @@
+# Entidades que o catalogo REFERENCIA mas nao DEFINE.
+#
+# Uma por linha, no formato <kind>:<namespace>/<nome>, minusculo.
+# '#' comeca comentario. Conferido por scripts/valida-catalogo.sh.
+#
+# POR QUE ESTA LISTA EXISTE: sem ela, "dependencia externa conhecida" e "erro
+# de digitacao" sao a mesma coisa aos olhos de quem le -- as duas aparecem como
+# uma referencia que nao resolve. Declarar a externa aqui deixa o validador
+# acusar so a segunda.
+#
+# CADA LINHA E UMA APOSTA SOBRE O CLUSTER. Se a entidade nao chegar a existir,
+# o portal mostra "entities not found" na pagina de quem a referencia -- e o
+# validador, por design, nao vai avisar. Entao: so entra aqui o que tem uma
+# razao escrita ao lado.
+
+# ---------------------------------------------------------------------------
+# api:default/travels-api
+#
+# Referenciada por travels (providesApis) e pelos tres parceiros
+# (consumesApis), em rhdh/catalog/travel-agency.yaml.
+#
+# Nasce do PROVIDER do plugin Kuadrant, que ingere os APIProduct do cluster
+# como entidades kind: API -- neste caso o APIProduct 'travels-api' do
+# namespace travel-agency (env/rhcl-1.4_ocp-4.21/devportal/apiproduct-travels.yaml).
+# Nao ha arquivo de catalogo que a defina, e nao deve haver: e a API como
+# PRODUTO, que so existe porque o cluster a publica. A mesma distincao esta
+# escrita no skeleton do golden path (rhdh/templates/rhcl-api-product/skeleton/
+# catalog-info.yaml), onde '<nome>-api' e a API como CODIGO e '<nome>' e a API
+# como produto.
+#
+# CONDICAO: vale enquanto o plugin Kuadrant estiver ligado no portal E o
+# APIProduct existir. Num cluster sem os dois, as quatro entidades acima ficam
+# com referencia pendurada -- e o filtro do setup-catalog.sh NAO limpa esta,
+# porque ele so remove refs a entidades que ele mesmo descartou.
+api:default/travels-api

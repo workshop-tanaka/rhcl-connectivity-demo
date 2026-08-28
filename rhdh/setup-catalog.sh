@@ -20,7 +20,12 @@ set -uo pipefail
 _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${_here}/lib.sh" || { echo "rhdh/lib.sh ausente" >&2; exit 1; }
 
-_need oc envsubst
+_need oc envsubst python3 yq
+# Mesma checagem do scripts/capture.sh: existe um 'yq' que e wrapper Python com
+# sintaxe de jq, incompativel com as expressoes daqui. Ele passaria no
+# 'command -v' e so falharia no meio da filtragem do catalogo.
+yq --version 2>&1 | grep -qi 'mikefarah' \
+  || _die "yq incompativel. Este script exige o yq v4 da mikefarah (nao o wrapper Python). No macOS: brew install yq"
 _need_cluster
 
 RHDH_NS="${RHDH_NS:-$(_discover_rhdh_ns)}"
@@ -148,11 +153,23 @@ else
 fi
 
 # Dev Spaces ausente: o link sairia como 'https:///#...' -- um destino que
-# carrega e nao vai a lugar nenhum, pior que a ausencia do botao. Apaga-se o
-# item inteiro (as tres linhas de url/title/icon) em vez de publica-lo quebrado.
-if [[ -z "$DEVSPACES_HOST" ]]; then
-  sed -i.bak '/^ *- url: https:\/\/\/#/,+2d' "$_rendered" && rm -f "${_rendered}.bak"
-  _warn "CheCluster nao encontrado (ou ainda nao Active) -- link do Dev Spaces omitido."
+# carrega e nao vai a lugar nenhum, pior que a ausencia do botao. O item sai do
+# catalogo junto com o resto da filtragem, na secao 2b.
+#
+# A REMOCAO E POR TITULO, e nao por forma de URL nem por contagem de linhas.
+# Era um 'sed /^ *- url: https:\/\/\/#/,+2d' ate 2026-08-28: apagava tres
+# linhas assumindo a ordem url/title/icon dentro do item. Com os campos em
+# outra ordem -- que o YAML permite e o Backstage aceita -- o sed cortava as
+# linhas erradas, ou nao cortava nada e publicava o link morto. O titulo e
+# authored aqui no repositorio e nao depende de nenhum host.
+#
+# A condicao inclui DEMO_REPO_URL: sem o espelho o link vira
+# 'https://<devspaces>/#', que abre o Dev Spaces sem repositorio nenhum -- o
+# mesmo destino morto por outro caminho.
+_drop_devspaces=nao
+if [[ -z "$DEVSPACES_HOST" || -z "$DEMO_REPO_URL" ]]; then
+  _drop_devspaces=sim
+  _warn "Dev Spaces indisponivel (CheCluster ausente ou ainda nao Active, ou sem espelho no GitLab) -- link omitido."
 else
   _log "Dev Spaces: ${DEVSPACES_HOST}"
 fi
@@ -167,8 +184,29 @@ fi
 # O vinculo e o spec.type: 'kuadrant-<kind>' + o nome da entidade batem com o
 # objeto no cluster. Entidades sem esse prefixo (Component, System, API...) nao
 # sao filtradas.
+#
+# QUEM PARSEIA O YAML E O yq, NAO REGEX DE LINHA (mudou em 2026-08-28).
+# A versao anterior decidia com tres expressoes sobre o texto cru:
+#
+#   ^\s*type:\s*kuadrant-(\S+)      casava 'type:' em QUALQUER profundidade --
+#                                   inclusive dentro de um bloco literal ou de
+#                                   um item de 'links'
+#   ^\s*name:\s*(\S+)               pegava o PRIMEIRO 'name:' do documento, que
+#                                   so por convencao e o metadata.name
+#   doc.split('\n---\n')            separava documentos por texto
+#
+# Nenhuma das tres falha com erro: elas descartam a entidade errada, ou mantem
+# uma que nao existe no cluster, e o portal passa a mentir sobre a plataforma
+# sem nada no log. O CI tambem nao pegaria -- validate.yml so roda 'yq true',
+# que confere sintaxe, nao semantica.
+#
+# Agora o yq extrai os fatos de cada documento em JSON (uma linha por
+# documento), o python decide sobre esses fatos com a stdlib, e o yq aplica a
+# decisao. O yq preserva comentarios no round-trip -- conferido neste catalogo:
+# 299 comentarios entram, 299 saem.
 _present="$(mktemp)"; _filtered="$(mktemp)"; _dropped="$(mktemp)"
-trap 'rm -f "$_rendered" "$_openapi" "$_present" "$_filtered" "$_dropped"' EXIT
+_fatos="$(mktemp)"; _expr="$(mktemp)"; _warn_refs="$(mktemp)"
+trap 'rm -f "$_rendered" "$_openapi" "$_present" "$_filtered" "$_dropped" "$_fatos" "$_expr" "$_warn_refs"' EXIT
 
 for _k in gateway dnspolicy tlspolicy authpolicy ratelimitpolicy planpolicy telemetrypolicy; do
   oc get "$_k" -A -o jsonpath="{range .items[*]}${_k}/{.metadata.name}{'\n'}{end}" 2>/dev/null
@@ -189,62 +227,95 @@ while IFS= read -r _obj; do
   if oc get "$_r" "$_nm" -n "$_ns" >/dev/null 2>&1; then
     printf 'obj/%s\n' "$_obj" >> "$_present"
   fi
-done < <(grep -oE 'rhcl\.demo/cluster-object: *\S+' "$_rendered" | awk '{print $2}' | sort -u)
+done < <(yq -N '.metadata.annotations."rhcl.demo/cluster-object" // ""' "$_rendered" \
+          | grep -v '^$' | sort -u)
 
-python3 - "$_rendered" "$_present" "$_dropped" > "$_filtered" <<'PY' || _die "falha ao filtrar o catalogo."
-import re, sys
-have = {l.strip() for l in open(sys.argv[2]) if l.strip()}
+# Os fatos de cada documento, um JSON por linha, na ordem que o decide abaixo le.
+yq -o=json -I=0 '[documentIndex, .kind, (.metadata.namespace // "default"), (.metadata.name // ""), (.spec.type // ""), (.metadata.annotations."rhcl.demo/cluster-object" // ""), (.spec.subcomponentOf // ""), (.spec.system // ""), (.spec.domain // ""), (.spec.owner // ""), (.spec.parent // "")]' \
+   "$_rendered" > "$_fatos" || _die "falha ao extrair os fatos do catalogo."
+
+python3 - "$_fatos" "$_present" "$_expr" "$_dropped" "$_warn_refs" "$_drop_devspaces" <<'PY' || _die "falha ao decidir o filtro do catalogo."
+# Decide o que sai e monta a expressao yq que aplica a decisao. Nao le YAML --
+# quem parseia e o yq; aqui so ha json da stdlib (PyYAML nao esta instalado no
+# python3 do macOS, e exigi-lo tornaria o script nao-executavel no laptop).
+import json, sys
+
+fatos_f, present_f, expr_f, dropped_f, warn_f, drop_devspaces = sys.argv[1:7]
+
+have = {l.strip() for l in open(present_f) if l.strip()}
+docs = [json.loads(l) for l in open(fatos_f) if l.strip()]
+
+ESCALARES = ['subcomponentOf', 'system', 'domain', 'owner', 'parent']
+
 kept, dropped = [], []
-for doc in open(sys.argv[1]).read().split('\n---\n'):
-    kind = re.search(r'^\s*type:\s*kuadrant-(\S+)', doc, re.M)
-    name = re.search(r'^\s*name:\s*(\S+)', doc, re.M)
-    obj  = re.search(r'^\s*rhcl\.demo/cluster-object:\s*(\S+)', doc, re.M)
+for d in docs:
+    _idx, _kind, _ns, name, styp, obj = d[:6]
     ausente = False
-    if kind and name and f"{kind.group(1)}/{name.group(1)}" not in have:
+    if styp.startswith('kuadrant-') and name:
+        if f"{styp[len('kuadrant-'):]}/{name}" not in have:
+            ausente = True
+    if obj and f"obj/{obj}" not in have:
         ausente = True
-    if obj and f"obj/{obj.group(1)}" not in have:
-        ausente = True
-    if ausente and name:
-        dropped.append(name.group(1))
-    else:
-        kept.append(doc)
+    (dropped if (ausente and name) else kept).append(d)
 
 # Descartar a entidade nao basta: quem apontava para ela continua apontando, e o
 # Backstage mostra na pagina do vizinho "entities not found: resource:default/X".
 # O erro aparece longe da causa -- na pagina do componente, e nao na policy que
-# nao existe -- entao a limpeza tem de acontecer aqui, junto do descarte, e nao
-# no arquivo de origem: la a relacao esta certa para um cluster 1.2.
-if dropped:
-    alvos = {f"resource:default/{n}" for n in dropped}
-    limpos = []
-    for doc in kept:
-        linhas, saida = doc.split('\n'), []
-        for l in linhas:
-            m = re.match(r'^(\s*)-\s*(\S+)\s*$', l)
-            if m and m.group(2) in alvos:
-                continue                       # referencia orfa: sai
-            saida.append(l)
-        # uma lista que ficou sem itens vira 'chave:' seguida de nao-item, o que
-        # o Backstage le como null e reclama; a chave sai junto.
-        final = []
-        for i, l in enumerate(saida):
-            m = re.match(r'^(\s*)(dependsOn|dependencyOf|providesApis|consumesApis|subcomponentOf):\s*$', l)
-            if m:
-                prox = saida[i+1] if i+1 < len(saida) else ''
-                if not re.match(rf'^{m.group(1)}\s+-\s', prox):
-                    continue                   # chave sem item: sai
-            final.append(l)
-        limpos.append('\n'.join(final))
-    kept = limpos
+# nao existe -- entao a limpeza acontece aqui, junto do descarte, e nao no
+# arquivo de origem: la a relacao esta certa para um cluster que tenha a policy.
+#
+# As GRAFIAS importam. O filtro antigo so conhecia 'resource:default/<nome>';
+# uma ref sem namespace ('resource:<nome>') ou um nome nu em providesApis
+# passava batido e virava exatamente o 'entities not found' que este bloco
+# existe para evitar.
+alvos = set()
+for d in dropped:
+    _, kind, ns, name = d[:4]
+    k = kind.lower()
+    alvos |= {f"{k}:{ns}/{name}", f"{k}:{name}", name}
 
-open(sys.argv[3], 'w').write(', '.join(dropped))
-print('\n---\n'.join(kept))
+expr = 'select(' + (' and '.join(f'documentIndex != {d[0]}' for d in dropped)
+                    if dropped else 'true') + ')'
+
+if alvos:
+    cond = ' or '.join(f'. == "{a}"' for a in sorted(alvos))
+    for campo in ['dependsOn', 'dependencyOf', 'providesApis', 'consumesApis']:
+        expr += f' | del(.spec.{campo}[]? | select({cond}))'
+        # lista que esvaziou vira 'chave:' com null, e o Backstage reclama
+        expr += f' | del(.spec.{campo} | select(. != null and length == 0))'
+
+if drop_devspaces == 'sim':
+    expr += ' | del(.metadata.links[]? | select(.title == "Abrir no Dev Spaces"))'
+    expr += ' | del(.metadata.links | select(. != null and length == 0))'
+
+open(expr_f, 'w').write(expr)
+open(dropped_f, 'w').write(', '.join(d[3] for d in dropped))
+
+# Referencia ESCALAR a uma entidade descartada NAO e removida: apagar
+# spec.system, spec.owner ou spec.domain deixaria a entidade invalida, e nao
+# apenas com um vizinho a menos. Avisa-se, para quem opera decidir.
+avisos = []
+for d in kept:
+    for campo, valor in zip(ESCALARES, d[6:11]):
+        if valor and valor in alvos:
+            avisos.append(f"{d[1].lower()}:{d[2]}/{d[3]} .spec.{campo} -> {valor}")
+open(warn_f, 'w').write('\n'.join(avisos))
 PY
+
+yq "$(cat "$_expr")" "$_rendered" > "$_filtered" \
+  || _die "falha ao aplicar o filtro do catalogo."
 
 if [[ -s "$_dropped" ]]; then
   _warn "fora do catalogo, nao existem neste cluster: $(cat "$_dropped")"
 else
   _ok "todas as entidades do catalogo existem no cluster."
+fi
+
+# Ref escalar pendurada quebra a entidade INTEIRA, e nao so o vizinho -- por
+# isso aparece como aviso alto, e nao e corrigida em silencio.
+if [[ -s "$_warn_refs" ]]; then
+  _warn "referencia escalar apontando para entidade descartada -- corrija em rhdh/catalog/:" \
+        "$(tr '\n' ' ' < "$_warn_refs")"
 fi
 cat "$_filtered" > "$_rendered"
 
@@ -258,7 +329,9 @@ _log "publicando as entidades..."
 # depois do rhdh/sync-survey.sh), e montar a lista de flags condicionalmente
 # esbarra em array vazio sob 'set -u' no bash 3.2 que o macOS ainda traz.
 _cmdir="$(mktemp -d)"
-trap 'rm -f "$_rendered" "$_openapi" "$_present" "$_filtered" "$_dropped"; rm -rf "$_cmdir"' EXIT
+# Este trap SUBSTITUI o da secao 2b -- 'trap ... EXIT' nao acumula. Os temporarios
+# da filtragem precisam continuar listados aqui, senao vazam a cada execucao.
+trap 'rm -f "$_rendered" "$_openapi" "$_present" "$_filtered" "$_dropped" "$_fatos" "$_expr" "$_warn_refs"; rm -rf "$_cmdir"' EXIT
 # envsubst, e nao cp: o spec declara servers[0].url, e um placeholder ali vira
 # "Try it out" apontando para outro cluster assim que o Swagger UI aparecer.
 # Era cp ate 2026-08-27, e passava despercebido porque nada renderizava o spec.

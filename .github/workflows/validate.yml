@@ -47,6 +47,24 @@ jobs:
           done
           exit $fail
 
+  catalogo:
+    name: Catalogo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      # O job 'YAML' acima confere SINTAXE -- e uma referencia para uma entidade
+      # inexistente e sintaxe valida. Ela nao falha na ingestao: o Backstage
+      # aceita a entidade e mostra 'entities not found' na pagina do VIZINHO,
+      # longe da causa. Este job resolve as referencias de verdade.
+      - name: Referencias entre entidades resolvem
+        run: bash scripts/valida-catalogo.sh
+
   scripts:
     name: Scripts
     runs-on: ubuntu-latest
