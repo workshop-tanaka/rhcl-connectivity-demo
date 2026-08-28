@@ -622,8 +622,30 @@ fi
 # GitLab sozinho falha igual. O que muda e so quem hospeda o chunk.
 #
 # internal_mutateStyles e export de @backstage/core-components recente; o
-# 7.0.1 espera uma versao que este RHDH nao entrega. Nao ha outra tag: as
-# demais miram Backstage 1.45.3 ou anterior.
+# 7.0.1 espera uma versao que este RHDH nao entrega.
+#
+# ---------------------------------------------------------------------------
+# CONSTRUIR DAQUI NAO RESOLVE -- apurado em 2026-08-28, e vale registrar para
+# ninguem tentar de novo.
+#
+# A regra deste repo (cabecalho de scripts/build-plugins.sh) e que a versao
+# certa sai do backstage.json do WORKSPACE, e nao do range publicado no npm.
+# Aplicada ao repositorio do plugin (github.com/immobiliare/backstage-plugin-gitlab):
+#
+#   v7.0.1  (tag mais recente)  backstage.json: 1.48.3
+#   v7.0.0 e os tres alphas                     1.48.3
+#   v6.13.0                                     1.42.5
+#   main                                        1.48.3
+#
+# NENHUMA versao mira 1.49.x, que e o que este RHDH embute. O 7.0.3 existe no
+# npm mas nao tem tag no git, e o main continua em 1.48.3. O build
+# bs_1.49.4__7.0.1 da Red Hat e uma REEXPORTACAO de um plugin de 1.48.3 contra
+# 1.49.4 -- dai o internal_mutateStyles nao existir no host.
+#
+# Ou seja: nao ha o que construir. So resta o upstream avancar para 1.49.x, ou
+# o RHDH recuar. Ate la, o caminho e deep-link para o GitLab a partir do
+# catalogo, como ja se faz com o console do Kuadrant.
+# ---------------------------------------------------------------------------
 #
 # O que sobrevive disso: as anotacoes gitlab.com/* ficam no catalogo (inertes e
 # corretas), e o scripts/gitlab-simulate.sh continua valendo -- as MRs e issues
