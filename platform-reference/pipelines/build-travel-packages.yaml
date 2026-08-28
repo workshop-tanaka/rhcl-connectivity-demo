@@ -107,11 +107,29 @@ spec:
       description: Secret com o token do SonarQube
     - name: quay
       description: Secret dockerconfigjson do Quay
+    - name: redhat
+      description: >-
+        Secret dockerconfigjson do registry.redhat.io. O buildah NAO herda o
+        pull secret global do cluster: quem o usa e o kubelet, para puxar a
+        imagem do POD. Dentro do container, o buildah comeca sem credencial
+        nenhuma, e a falha e literal -- "Please login to the Red Hat Registry
+        using your Customer Portal credentials" no FROM da imagem base.
 
   results:
-    - name: digest
-      description: digest da imagem publicada -- e o que o Chains assina
-      value: $(tasks.constroi-imagem.results.digest)
+    # OS NOMES SAO CONVENCAO DO CHAINS, e nao escolha nossa. Ele descobre o que
+    # assinar varrendo os results da TaskRun atras de IMAGE_URL e IMAGE_DIGEST.
+    # Com o result chamado 'digest', o build passava, a anotacao
+    # chains.tekton.dev/signed virava 'true', e mesmo assim NADA chegava ao
+    # registry nem ao Rekor -- a unica pista era uma linha info no log do
+    # controller: "No image subject to attest ... Skipping upload to registry".
+    # Assinatura de proveniencia do PipelineRun existia; de IMAGEM, nao.
+    # Medido em 2026-08-28.
+    - name: IMAGE_URL
+      description: referencia completa da imagem publicada
+      value: $(tasks.constroi-imagem.results.IMAGE_URL)
+    - name: IMAGE_DIGEST
+      description: digest da imagem -- e o que o Chains assina
+      value: $(tasks.constroi-imagem.results.IMAGE_DIGEST)
 
   tasks:
     # -----------------------------------------------------------------------
@@ -275,6 +293,8 @@ spec:
           workspace: fonte
         - name: quay
           workspace: quay
+        - name: redhat
+          workspace: redhat
       taskSpec:
         params:
           - name: imagem
@@ -284,8 +304,11 @@ spec:
         workspaces:
           - name: fonte
           - name: quay
+          - name: redhat
         results:
-          - name: digest
+          - name: IMAGE_URL
+            description: referencia completa da imagem publicada
+          - name: IMAGE_DIGEST
             description: digest da imagem publicada
         steps:
           - name: buildah
@@ -308,9 +331,14 @@ spec:
               # /dev/fuse, que a SCC nao concede. vfs e mais lento e sempre
               # funciona -- a troca certa para uma imagem que se constroi
               # uma vez por demo.
+              # DOIS authfile, e nao um: o FROM puxa de registry.redhat.io e o
+              # push vai para o Quay. Sao credenciais diferentes, de donos
+              # diferentes, e juntar as duas num secret so economizaria um
+              # workspace ao custo de nao se saber qual expirou.
               buildah --storage-driver=vfs bud \
                       --format=oci \
                       --tls-verify=true \
+                      --authfile "$(workspaces.redhat.path)/.dockerconfigjson" \
                       -f ./Dockerfile -t "$DESTINO" .
 
               buildah --storage-driver=vfs push \
@@ -319,9 +347,10 @@ spec:
                       --tls-verify=true \
                       "$DESTINO" "docker://$DESTINO"
 
-              tr -d '\n' < /tmp/digest > $(results.digest.path)
+              tr -d '\n' < /tmp/digest > $(results.IMAGE_DIGEST.path)
+              printf '%s' "$DESTINO" > $(results.IMAGE_URL.path)
               echo "publicado $DESTINO"
-              echo "digest: $(cat $(results.digest.path))"
+              echo "digest: $(cat $(results.IMAGE_DIGEST.path))"
 ---
 # ===========================================================================
 # Modelo de execucao. generateName porque cada disparo e um objeto novo:
@@ -374,3 +403,6 @@ spec:
     - name: quay
       secret:
         secretName: quay-push
+    - name: redhat
+      secret:
+        secretName: redhat-pull

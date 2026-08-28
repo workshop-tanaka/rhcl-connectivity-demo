@@ -1388,6 +1388,30 @@ json.dump(d, sys.stdout)' \
     fi
   done
 
+  # ----- 2b. credencial de PULL da Red Hat ---------------------------------
+  # O buildah nao herda o pull secret global: quem o usa e o kubelet, para
+  # puxar a imagem do POD. Dentro do container o buildah comeca sem nada, e o
+  # FROM da imagem base do EAP falha com "Please login to the Red Hat
+  # Registry" -- mensagem correta que, no meio de um log de build, se le como
+  # problema do Dockerfile.
+  #
+  # Copiado, e nao referenciado: workspace de Secret so le do proprio
+  # namespace. Sempre recriado, para acompanhar uma eventual rotacao do
+  # pull secret do cluster.
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "copiar o pull secret do cluster para travel-packages/redhat-pull"
+  elif oc get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' 2>/dev/null | base64 -d > /tmp/_rh_auth.json 2>/dev/null \
+       && [[ -s /tmp/_rh_auth.json ]]; then
+    oc delete secret redhat-pull -n travel-packages --ignore-not-found >/dev/null 2>&1
+    oc create secret generic redhat-pull -n travel-packages \
+      --from-file=.dockerconfigjson=/tmp/_rh_auth.json >/dev/null 2>&1 \
+      && _ok "secret redhat-pull criado (pull de registry.redhat.io no buildah)" \
+      || _warn "falha ao criar redhat-pull"
+    rm -f /tmp/_rh_auth.json
+  else
+    _warn "nao consegui ler o pull secret do cluster -- o FROM da imagem base vai falhar"
+  fi
+
   # ----- 3. token do SonarQube ---------------------------------------------
   # NAO da para emitir sozinho: o Sonar nasce admin/admin e forca troca no
   # primeiro acesso, entao qualquer automacao aqui dependeria de uma senha que
@@ -1410,6 +1434,16 @@ json.dump(d, sys.stdout)' \
     _warn "SONAR_TOKEN nao definido -- a task 'portao-de-qualidade' vai falhar"
     printf '        %s\n' "abra https://\$(oc get route sonarqube -n cicd -o jsonpath={.spec.host}), troque a senha e gere um token"
   fi
+
+  # ----- 3b. o Chains precisa da credencial na ServiceAccount ---------------
+  # O workspace 'quay' serve ao BUILDAH, dentro do pod. O Tekton Chains roda
+  # FORA dele, no controller, e descobre com o que autenticar pelos secrets
+  # montados na ServiceAccount da TaskRun. Sem este link ele assina, marca
+  # chains.tekton.dev/signed=true, e nao consegue subir a assinatura -- um
+  # 'true' que nao corresponde a nada no registry.
+  _run oc secrets link pipeline quay-push -n travel-packages >/dev/null 2>&1 \
+    && _ok "quay-push vinculado a ServiceAccount pipeline (para o Chains)" \
+    || _warn "nao consegui vincular quay-push a SA pipeline"
 
   # ----- 4. cache do Maven, que NAO e efemero ------------------------------
   # E ele que faz o segundo build levar um minuto em vez de oito. Perder este
