@@ -24,6 +24,7 @@
 #
 # Uso:
 #   bash scripts/setup-identity.sh realm     # só o Keycloak
+#   bash scripts/setup-identity.sh gitlab    # federa o GitLab (arriscado)
 #   bash scripts/setup-identity.sh --status  # o que está ligado onde
 set -euo pipefail
 
@@ -104,6 +105,89 @@ _ok "segredos preservados em ${KC_NS}/${_SEC}"
 
 export GITLAB_HOST PORTAL_HOST KC_OCP_SECRET KC_ADMIN_PASSWORD \
        KC_GITLAB_SECRET KC_RHDH_SECRET KC_PERSONA_PASSWORD
+
+# ----- GitLab: OmniAuth OIDC ---------------------------------------------------
+if [[ "$_ETAPA" == "gitlab" ]]; then
+  _GL_NS="${GL_NS:-gitlab-system}"
+  _CR="$(oc get gitlab -n "$_GL_NS" --no-headers 2>/dev/null | awk '{print $1}' | head -1)"
+  [[ -n "$_CR" ]] || _die "CR do GitLab não encontrado em $_GL_NS"
+
+  _log "provider OIDC como Secret (o chart lê o provider de um Secret, não do CR)"
+  _prov="$(mktemp)"
+  cat > "$_prov" <<PROVIDER
+name: openid_connect
+label: Red Hat SSO
+args:
+  name: openid_connect
+  scope:
+    - openid
+    - profile
+    - email
+  response_type: code
+  issuer: https://${KC_HOST}/realms/sso
+  discovery: true
+  client_auth_method: query
+  uid_field: preferred_username
+  send_scope_to_token_endpoint: 'false'
+  pkce: true
+  client_options:
+    identifier: gitlab
+    secret: ${KC_GITLAB_SECRET}
+    redirect_uri: https://${GITLAB_HOST}/users/auth/openid_connect/callback
+PROVIDER
+  oc create secret generic gitlab-oidc-provider -n "$_GL_NS" --from-file=provider="$_prov" \
+    --dry-run=client -o yaml | oc apply -f - >/dev/null || _die "falha ao criar o Secret do provider"
+  rm -f "$_prov"
+  _ok "Secret gitlab-oidc-provider aplicado"
+
+  # QUALQUER alteração no CR força subir a versão do chart: o operador recusa
+  # patch enquanto a versão corrente estiver fora da lista suportada. Em
+  # 2026-08-28 o CR estava em 10.3.0 e o operador só aceitava 10.3.1, 10.2.5 ou
+  # 10.1.7 -- ou seja, ligar OmniAuth arrasta um upgrade junto. Não é opcional.
+  _ver_atual="$(oc get gitlab "$_CR" -n "$_GL_NS" -o jsonpath='{.spec.chart.version}' 2>/dev/null)"
+  _ver_alvo="${GL_CHART_VERSION:-$_ver_atual}"
+  _log "chart: ${_ver_atual} -> ${_ver_alvo}"
+
+  # autoSignInWithProvider fica DE FORA de propósito: ele redireciona todo
+  # acesso ao login direto para o Keycloak e some com o formulário local -- que
+  # é a única rede de segurança para a conta root se algo aqui sair errado.
+  oc patch gitlab "$_CR" -n "$_GL_NS" --type merge -p "$(V="$_ver_alvo" python3 -c '
+import json,os
+print(json.dumps({"spec":{"chart":{"version":os.environ["V"],"values":{"global":{"appConfig":{"omniauth":{
+  "enabled": True,
+  "allowSingleSignOn": ["openid_connect"],
+  "autoLinkUser": ["openid_connect"],
+  "blockAutoCreatedUsers": False,
+  "providers": [{"secret":"gitlab-oidc-provider","key":"provider"}]}}}}}}}))')" >/dev/null \
+    || _die "falha ao aplicar o OmniAuth no CR do GitLab"
+  _ok "OmniAuth habilitado no CR"
+
+  # O operador ATUALIZA a ConfigMap e NÃO rola quem a consome -- fica
+  # reconciliando em laço com o webservice na configuração antiga. E o upgrade
+  # do chart dispara migrações, que pausam o deployment: tentar reiniciar antes
+  # devolve "can't restart paused deployment".
+  _log "aguardando as migrações do upgrade..."
+  _n=0
+  while [[ $_n -lt 90 ]]; do
+    _p="$(oc get jobs -n "$_GL_NS" --no-headers 2>/dev/null | grep migrations | awk '$2!="Complete" && $2!="1/1"' | wc -l | tr -d ' ')"
+    [[ "$_p" == "0" ]] && break
+    _n=$((_n + 1))
+  done
+
+  _log "reiniciando o webservice para carregar o OmniAuth"
+  oc rollout restart deploy/gitlab-webservice-default -n "$_GL_NS" >/dev/null 2>&1 || true
+  oc rollout status deploy/gitlab-webservice-default -n "$_GL_NS" --timeout=600s >/dev/null 2>&1 || \
+    _warn "o webservice demorou mais que o esperado -- confira os pods"
+
+  if curl -sk --max-time 20 "https://${GITLAB_HOST}/users/sign_in" 2>/dev/null | grep -qi openid_connect; then
+    _ok "a tela de login do GitLab já oferece o Red Hat SSO"
+  else
+    _warn "o login ainda não mostra o provedor -- o webservice pode não ter recarregado"
+  fi
+  printf '\n'
+  _log "teste ANTES de seguir: entre no GitLab como root (formulário local) e como uma persona (Red Hat SSO)"
+  exit 0
+fi
 
 # ----- realm -------------------------------------------------------------------
 _log "aplicando o realm com as quatro personas e os clients gitlab/rhdh"
