@@ -1,0 +1,589 @@
+# ===========================================================================
+# samples-supply-chain — a cadeia de suprimento aplicada a um MANIFESTO.
+#
+# ---------------------------------------------------------------------------
+# POR QUE ESTA PIPELINE NÃO COMPILA NADA, E POR QUE ISSO É O PONTO
+#
+# A build-travel-packages compila código: Maven, portão do Sonar, buildah,
+# assinatura. Uma amostra do Istio não tem código nosso para compilar — o
+# `bookinfo` é Python, Ruby, Node e Java do upstream, e vendorizar seis
+# aplicações para ter o que compilar seria trocar o problema certo por um
+# muito maior.
+#
+# Então esta pipeline governa o que a amostra REALMENTE é neste repositório:
+# um conjunto de manifestos e um conjunto de imagens de terceiro. E é aí que
+# está o argumento — porque essas são exatamente as duas coisas que a maioria
+# das organizações põe em produção **sem** cadeia de suprimento nenhuma:
+#
+#   manifesto   entra por 'kubectl apply' de alguém, sem análise e sem gate
+#   imagem      vem do docker.io/registry alheio, sem varredura e sem assinatura
+#
+# Aqui as duas passam pela mesma cadeia do artefato compilado:
+#
+#   valida        os manifestos renderizam, e o hostname obedece à regra do
+#                 wildcard (§5.6 do CONHECIMENTO)
+#   SonarQube     portão de qualidade sobre o YAML — o Sonar analisa
+#                 Kubernetes/Docker, não só linguagem
+#   skopeo        a imagem de terceiro é ESPELHADA no Quay do cluster
+#   Tekton Chains a cópia é assinada e registrada no Rekor (RHTAS) — sem que
+#                 esta pipeline peça: o TektonConfig já está configurado por
+#                 scripts/setup-supply-chain.sh
+#   ACS roxctl    a cópia publicada é varrida contra as policies de build
+#   Nexus         o bundle renderizado é publicado como artefato versionado
+#
+# O resultado tem um nome que vale dizer no palco: **procedência de um
+# manifesto**. Não é 'confiamos no upstream do Istio'; é 'esta é a cópia que
+# entrou, assinada por nós, varrida por nós, e o Rekor registra quando'.
+#
+# ---------------------------------------------------------------------------
+# TEMPLATE: __NS__ e __SAMPLE__ são substituídos por 'scripts/provision.sh
+# samples', uma vez por amostra. A Pipeline vive no namespace DA AMOSTRA, e não
+# num namespace de CI comum, porque o plugin Tekton do RHDH enxerga pelo
+# seletor da entidade dentro do namespace dela — com a Pipeline em 'cicd', a
+# aba CI de cada amostra abriria vazia.
+#
+# ---------------------------------------------------------------------------
+# TUDO EM taskSpec INLINE, sem ClusterTask e sem Tekton Hub — mesma decisão da
+# build-travel-packages: as ClusterTask foram removidas no OpenShift Pipelines
+# recente, e depender de resolver task remota falha num cluster sem saída para
+# a internet, com uma mensagem sobre resolver e não sobre build.
+#
+# ---------------------------------------------------------------------------
+# NADA AQUI FOI EXECUTADO NUM CLUSTER. A pipeline foi escrita a partir da
+# build-travel-packages (que roda) e da documentação de roxctl e do Nexus.
+# Os dois pontos de risco conhecidos estão marcados com 'NÃO MEDIDO' no corpo
+# das tasks, e ambos usam onError/|| para não derrubar a cadeia inteira.
+# ===========================================================================
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: samples-supply-chain
+  namespace: __NS__
+  labels:
+    # O mesmo par das outras pipelines deste repositório, pelo mesmo motivo: o
+    # plugin Tekton do portal enxerga pelo SELETOR da entidade, não pela
+    # anotação. Sem 'app', a aba CI do componente abre e lista vazio.
+    app: __SAMPLE__
+    backstage.io/kubernetes-id: __SAMPLE__
+spec:
+  params:
+    - name: repo
+      type: string
+      description: projeto da amostra no GitLab do cluster (rhcl/samples/<nome>)
+    - name: revisao
+      type: string
+      default: main
+    - name: imagem-origem
+      type: string
+      description: >-
+        imagem de terceiro a espelhar, COM tag. Uma por execução: as amostras
+        com várias imagens (bookinfo tem seis) disparam a pipeline uma vez por
+        imagem, e é assim de propósito -- um result IMAGE_DIGEST por TaskRun é
+        o que o Chains sabe assinar.
+    - name: imagem-destino
+      type: string
+      description: destino no Quay do cluster, sem tag
+    - name: tag
+      type: string
+      default: espelho
+    - name: sonar-host
+      type: string
+      default: http://sonarqube.cicd.svc:9000
+    - name: sonar-projeto
+      type: string
+      description: chave do projeto no SonarQube
+    - name: nexus-host
+      type: string
+      default: http://nexus.cicd.svc:8081
+    - name: acs-host
+      type: string
+      default: central.stackrox.svc:443
+
+  workspaces:
+    - name: fonte
+      description: manifests clonados e o bundle renderizado
+    - name: sonar
+      description: Secret com o token do SonarQube
+    - name: quay
+      description: Secret dockerconfigjson do Quay do cluster
+    - name: acs
+      description: Secret com o token de API do ACS Central
+    - name: nexus
+      description: Secret com usuario/senha do Nexus
+
+  results:
+    # OS NOMES SÃO CONVENÇÃO DO CHAINS, e não escolha nossa: ele descobre o que
+    # assinar varrendo os results da TaskRun atrás de IMAGE_URL e IMAGE_DIGEST.
+    # Com o result chamado 'digest', a anotação chains.tekton.dev/signed vira
+    # 'true' e NADA chega ao registry nem ao Rekor -- a única pista é uma linha
+    # info no log do controller ("No image subject to attest ... Skipping
+    # upload to registry"). Medido em 2026-08-28 na build-travel-packages.
+    - name: IMAGE_URL
+      description: referencia completa da copia publicada
+      value: $(tasks.espelha-imagem.results.IMAGE_URL)
+    - name: IMAGE_DIGEST
+      description: digest da copia -- e o que o Chains assina
+      value: $(tasks.espelha-imagem.results.IMAGE_DIGEST)
+
+  tasks:
+    # -----------------------------------------------------------------------
+    - name: clona
+      params:
+        - name: repo
+          value: $(params.repo)
+        - name: revisao
+          value: $(params.revisao)
+      workspaces:
+        - name: fonte
+          workspace: fonte
+      taskSpec:
+        params:
+          - name: repo
+            type: string
+          - name: revisao
+            type: string
+        workspaces:
+          - name: fonte
+        results:
+          - name: commit
+            description: SHA do que foi validado e publicado
+        steps:
+          - name: git-clone
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            workingDir: $(workspaces.fonte.path)
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+              microdnf install -y git >/dev/null
+
+              # O GitLab do cluster serve com o wildcard do próprio cluster,
+              # que a imagem base não conhece. -c http.sslVerify=false é
+              # lab-grade e deliberado, como na build-travel-packages: a
+              # alternativa seria montar a CA do cluster em toda task, para um
+              # SCM que vive dentro dele.
+              rm -rf ./* .git 2>/dev/null || true
+              git -c http.sslVerify=false clone --depth 1 \
+                  --branch "$(params.revisao)" "$(params.repo)" .
+
+              git rev-parse HEAD | tr -d '\n' > $(results.commit.path)
+              echo "clonado $(params.repo) @ $(cat $(results.commit.path))"
+
+    # -----------------------------------------------------------------------
+    # O EQUIVALENTE DO 'mvn verify' PARA UM MANIFESTO.
+    #
+    # Duas conferências, e as duas correspondem a falhas que já custaram tempo
+    # neste projeto:
+    #
+    #   render          um kustomization que não renderiza chega ao Argo como
+    #                   'ComparisonError', longe da causa;
+    #   __DOMAIN__      o placeholder que sobreviver ao seed vira hostname
+    #                   literal no cluster -- a rota sobe, o DNS não resolve, e
+    #                   o sintoma é 'não abre' sem erro em lugar nenhum;
+    #   um rótulo       o wildcard do cluster cobre UM nível sob .apps. Um
+    #                   hostname com dois pontos a mais para de resolver
+    #                   (§5.6 do CONHECIMENTO), e é a mesma verificação que a
+    #                   valida-policies faz para a camada de demo.
+    - name: valida-manifests
+      runAfter: [clona]
+      workspaces:
+        - name: fonte
+          workspace: fonte
+      taskSpec:
+        workspaces:
+          - name: fonte
+        steps:
+          - name: kustomize-build
+            image: registry.redhat.io/openshift4/ose-cli:latest
+            workingDir: $(workspaces.fonte.path)
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+              [[ -f manifests/kustomization.yaml ]] \
+                || { echo "manifests/kustomization.yaml ausente"; exit 1; }
+              oc kustomize manifests > /tmp/bundle.yaml
+              cp /tmp/bundle.yaml "$(workspaces.fonte.path)/bundle.yaml"
+              echo "render ok: $(grep -c '^kind:' bundle.yaml) recurso(s)"
+          - name: hostname-e-placeholder
+            image: registry.access.redhat.com/ubi9/python-311:latest
+            workingDir: $(workspaces.fonte.path)
+            script: |
+              #!/usr/bin/env python3
+              import re, sys
+              texto = open("bundle.yaml").read()
+              falhas = []
+
+              if "__DOMAIN__" in texto:
+                  falhas.append(
+                      "__DOMAIN__ sobreviveu ao render: a rota subiria com um "
+                      "hostname literal que o DNS nao resolve, sem erro nenhum")
+
+              # Um rotulo sob .apps: 'bookinfo.apps.<cluster>...' e nao
+              # 'ui.bookinfo.apps...'. O wildcard do cluster cobre um nivel so.
+              for h in re.findall(r'^\s*-\s+([a-z0-9.-]+\.apps\.[a-z0-9.-]+)\s*$',
+                                  texto, re.M):
+                  antes = h.split(".apps.")[0]
+                  if "." in antes:
+                      falhas.append(
+                          f"hostname com mais de um rotulo sob .apps: {h} "
+                          "-- o wildcard do cluster cobre um nivel so")
+
+              for f in falhas:
+                  print("FALHA", f)
+              sys.exit(1 if falhas else 0)
+
+    # -----------------------------------------------------------------------
+    # O PORTÃO DE QUALIDADE — sobre YAML, e não sobre código.
+    #
+    # O SonarQube analisa Kubernetes e Dockerfile, não só linguagem de
+    # programação: recurso sem limite declarado, container privilegiado,
+    # capability não descartada, segredo em texto claro. É exatamente a classe
+    # de defeito que passa despercebida num 'kubectl apply'.
+    #
+    # -Dsonar.qualitygate.wait=true É A LINHA INTEIRA DESTA TASK. Sem ela o
+    # scanner envia a análise e sai com 0 -- o portão existe no Sonar e não tem
+    # efeito nenhum na pipeline. Foi assim que a valida-policies acabou verde
+    # para sempre.
+    #
+    # COMO O 'Sonar way' SE COMPORTA: a primeira análise PASSA SEM AVALIAR NADA
+    # (as condições são de código novo, e sem versão anterior não há o que
+    # comparar). Ele só morde a partir da segunda execução. Medido em
+    # 2026-08-28 na build-travel-packages, e vale igual aqui.
+    #
+    # NÃO MEDIDO: a imagem sonar-scanner-cli vem do docker.io sem autenticação.
+    # Num cluster que já puxou muita imagem, o limite anônimo aparece como
+    # falha de pull da task, e não como erro de análise.
+    - name: portao-de-qualidade
+      runAfter: [valida-manifests]
+      params:
+        - name: sonar-host
+          value: $(params.sonar-host)
+        - name: sonar-projeto
+          value: $(params.sonar-projeto)
+      workspaces:
+        - name: fonte
+          workspace: fonte
+        - name: sonar
+          workspace: sonar
+      taskSpec:
+        params:
+          - name: sonar-host
+            type: string
+          - name: sonar-projeto
+            type: string
+        workspaces:
+          - name: fonte
+          - name: sonar
+        steps:
+          - name: sonar-scanner
+            image: docker.io/sonarsource/sonar-scanner-cli:latest
+            workingDir: $(workspaces.fonte.path)
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+              # bundle.yaml FICA DE FORA da análise: ele é gerado, e um achado
+              # nele apontaria para uma linha que não existe em arquivo nenhum
+              # do repositório. Analisa-se a fonte.
+              sonar-scanner \
+                -Dsonar.host.url="$(params.sonar-host)" \
+                -Dsonar.token="$(cat $(workspaces.sonar.path)/token)" \
+                -Dsonar.projectKey="$(params.sonar-projeto)" \
+                -Dsonar.sources=manifests \
+                -Dsonar.exclusions=bundle.yaml \
+                -Dsonar.qualitygate.wait=true
+
+    # -----------------------------------------------------------------------
+    # O ESPELHO — e é aqui que a imagem de terceiro vira artefato nosso.
+    #
+    # skopeo copy, e não buildah bud: não há Dockerfile e não há o que
+    # construir. O que se quer é a MESMA imagem, byte a byte, num registry que
+    # a organização controla -- e é a cópia que o Chains assina e o ACS varre.
+    #
+    # --all copia o índice multiarquitetura inteiro. Sem ele, o skopeo copia só
+    # a arquitetura do nó que rodou a task, e a imagem publicada deixa de
+    # funcionar em cluster misto -- silenciosamente, porque o pull escolhe a
+    # arquitetura e só falha em quem não é amd64.
+    #
+    # --dest-tls-verify=true: o Quay do cluster serve com o wildcard do próprio
+    # cluster, e a imagem do skopeo confia na CA do cluster porque o
+    # ose-cli/skopeo do RHEL9 carrega o bundle do sistema. Se falhar por CA,
+    # o conserto é montar /etc/pki/ca-trust -- e NÃO desligar a verificação,
+    # que aqui é justamente o que se está demonstrando.
+    - name: espelha-imagem
+      runAfter: [portao-de-qualidade]
+      params:
+        - name: imagem-origem
+          value: $(params.imagem-origem)
+        - name: imagem-destino
+          value: $(params.imagem-destino)
+        - name: tag
+          value: $(params.tag)
+      workspaces:
+        - name: quay
+          workspace: quay
+      taskSpec:
+        params:
+          - name: imagem-origem
+            type: string
+          - name: imagem-destino
+            type: string
+          - name: tag
+            type: string
+        workspaces:
+          - name: quay
+        results:
+          - name: IMAGE_URL
+            description: referencia completa da copia publicada
+          - name: IMAGE_DIGEST
+            description: digest da copia publicada
+        steps:
+          - name: skopeo-copy
+            image: registry.redhat.io/rhel9/skopeo:latest
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+              DESTINO="$(params.imagem-destino):$(params.tag)"
+
+              skopeo copy --all \
+                --dest-authfile "$(workspaces.quay.path)/.dockerconfigjson" \
+                --src-tls-verify=true --dest-tls-verify=true \
+                "docker://$(params.imagem-origem)" \
+                "docker://${DESTINO}"
+
+              # O digest sai de uma CONSULTA ao destino, e não do que o copy
+              # imprimiu: com --all o que foi publicado é um índice, e é o
+              # digest DELE que o Chains precisa assinar e o ACS varrer.
+              DIGEST="$(skopeo inspect --no-tags \
+                --authfile "$(workspaces.quay.path)/.dockerconfigjson" \
+                "docker://${DESTINO}" | grep -o '"Digest": *"[^"]*"' \
+                | head -1 | cut -d'"' -f4)"
+
+              [[ -n "$DIGEST" ]] || { echo "nao consegui ler o digest do destino"; exit 1; }
+
+              printf '%s' "$DESTINO" > $(results.IMAGE_URL.path)
+              printf '%s' "$DIGEST"  > $(results.IMAGE_DIGEST.path)
+              echo "espelhado ${DESTINO}"
+              echo "digest: ${DIGEST}"
+
+    # -----------------------------------------------------------------------
+    # A VARREDURA — ACS sobre a cópia que acabou de ser publicada.
+    #
+    # 'roxctl image check' aplica as policies de BUILD do Central e sai com
+    # código diferente de zero quando alguma reprova. É o que transforma a
+    # postura do ACS em portão, em vez de painel.
+    #
+    # --force ignora o cache do Central: sem ele, uma imagem já vista devolve o
+    # resultado antigo, e a varredura de uma cópia recém-publicada leria o
+    # estado de antes.
+    #
+    # onError: continue É DELIBERADO E TEM PRAZO. Hoje o Central deste ambiente
+    # nasce com as policies de fábrica, várias delas em 'inform' -- e uma
+    # amostra do upstream do Istio reprova em coisas que não estão sob nosso
+    # controle (imagem base antiga, pacote com CVE conhecido). Derrubar a
+    # cadeia por isso ensinaria a desligar o ACS, que é o oposto do que a demo
+    # defende. O achado FICA VISÍVEL no log da task e na tela do ACS.
+    #
+    # Para transformar em portão de verdade -- que é o que se faria em
+    # produção --, remova o 'onError' e ajuste as policies do Central.
+    #
+    # NÃO MEDIDO neste cluster.
+    - name: varredura-acs
+      runAfter: [espelha-imagem]
+      params:
+        - name: imagem
+          value: $(tasks.espelha-imagem.results.IMAGE_URL)
+        - name: acs-host
+          value: $(params.acs-host)
+      workspaces:
+        - name: acs
+          workspace: acs
+      taskSpec:
+        params:
+          - name: imagem
+            type: string
+          - name: acs-host
+            type: string
+        workspaces:
+          - name: acs
+        steps:
+          - name: roxctl
+            image: registry.redhat.io/advanced-cluster-security/rhacs-roxctl-rhel8:latest
+            onError: continue
+            env:
+              - name: ROX_API_TOKEN
+                valueFrom:
+                  secretKeyRef:
+                    name: acs-api-token
+                    key: token
+                    optional: true
+            script: |
+              #!/bin/bash
+              set -uo pipefail
+              # O token vem do Secret pela env; o workspace é o caminho
+              # alternativo, para quem preferir montar o arquivo.
+              if [[ -z "${ROX_API_TOKEN:-}" && -f "$(workspaces.acs.path)/token" ]]; then
+                ROX_API_TOKEN="$(cat "$(workspaces.acs.path)/token")"
+                export ROX_API_TOKEN
+              fi
+              if [[ -z "${ROX_API_TOKEN:-}" ]]; then
+                echo "sem token do ACS -- varredura pulada."
+                echo "gere um em Platform Configuration > Integrations > API Token"
+                echo "e grave como Secret 'acs-api-token' (chave 'token') neste namespace."
+                exit 0
+              fi
+
+              echo "== varredura de vulnerabilidade =="
+              roxctl image scan --insecure-skip-tls-verify \
+                -e "$(params.acs-host)" --image "$(params.imagem)" \
+                --output table --severity IMPORTANT,CRITICAL || true
+
+              echo
+              echo "== policies de build =="
+              # ESTE é o que reprova. Ver o comentário do 'onError' acima.
+              roxctl image check --insecure-skip-tls-verify \
+                -e "$(params.acs-host)" --image "$(params.imagem)" \
+                --output table
+
+    # -----------------------------------------------------------------------
+    # O BUNDLE NO NEXUS — o manifesto vira artefato versionado.
+    #
+    # POR QUE ISTO FECHA O ARGUMENTO: até aqui a cadeia cobriu a IMAGEM. O que
+    # entra no cluster, porém, é o MANIFESTO -- e ele normalmente não tem
+    # versão, nem hash, nem lugar de onde ser buscado. Publicar o bundle
+    # renderizado num repositório raw dá ao manifesto o mesmo tratamento: um
+    # endereço estável, com o SHA do commit no nome.
+    #
+    # REPOSITÓRIO RAW, E NÃO MAVEN, e a distinção importa neste ambiente: o
+    # mirror Maven do Nexus deste cluster está DESLIGADO por decisão -- com
+    # acesso anônimo ligado e autenticado como admin, qualquer artefato
+    # responde 403, e o log traz classes com.sonatype.nexus.clm (recursos Pro
+    # gated por licença). Ver o cabeçalho de
+    # platform-reference/pipelines/build-travel-packages.yaml. Um repositório
+    # raw hosted é criado e escrito pela API de administração, que funciona --
+    # mas ISSO NÃO FOI MEDIDO.
+    #
+    # onError: continue pelo mesmo motivo: se o Nexus deste ambiente recusar,
+    # a cadeia já provou o que precisava provar na imagem, e derrubar tudo por
+    # causa do último elo seria trocar o argumento por um erro de licença.
+    - name: publica-no-nexus
+      runAfter: [varredura-acs]
+      params:
+        - name: nexus-host
+          value: $(params.nexus-host)
+        - name: sample
+          value: __SAMPLE__
+        - name: commit
+          value: $(tasks.clona.results.commit)
+      workspaces:
+        - name: fonte
+          workspace: fonte
+        - name: nexus
+          workspace: nexus
+      taskSpec:
+        params:
+          - name: nexus-host
+            type: string
+          - name: sample
+            type: string
+          - name: commit
+            type: string
+        workspaces:
+          - name: fonte
+          - name: nexus
+        steps:
+          - name: curl-upload
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            workingDir: $(workspaces.fonte.path)
+            onError: continue
+            script: |
+              #!/bin/bash
+              set -uo pipefail
+              microdnf install -y curl >/dev/null
+
+              USER="$(cat "$(workspaces.nexus.path)/username" 2>/dev/null || echo admin)"
+              PASS="$(cat "$(workspaces.nexus.path)/password" 2>/dev/null || true)"
+              if [[ -z "$PASS" ]]; then
+                echo "sem credencial do Nexus -- publicacao pulada."
+                echo "grave o Secret 'nexus-admin' (username/password) neste namespace."
+                exit 0
+              fi
+
+              BASE="$(params.nexus-host)"
+              REPO="rhcl-samples"
+
+              # Cria o repositorio raw se ainda nao existir. 400 com
+              # 'already exists' e sucesso para este fim.
+              curl -s -o /dev/null -w 'criar repo: %{http_code}\n' \
+                -u "${USER}:${PASS}" -H 'Content-Type: application/json' \
+                -X POST "${BASE}/service/rest/v1/repositories/raw/hosted" \
+                -d "{\"name\":\"${REPO}\",\"online\":true,
+                     \"storage\":{\"blobStoreName\":\"default\",
+                                  \"strictContentTypeValidation\":false,
+                                  \"writePolicy\":\"ALLOW\"}}"
+
+              CURTO="$(printf '%s' "$(params.commit)" | cut -c1-12)"
+              ALVO="${BASE}/repository/${REPO}/$(params.sample)/$(params.sample)-${CURTO}.yaml"
+
+              curl -sf -u "${USER}:${PASS}" --upload-file bundle.yaml "$ALVO" \
+                && echo "publicado ${ALVO}" \
+                || { echo "Nexus recusou a publicacao -- ver o cabecalho desta task"; exit 0; }
+---
+# ===========================================================================
+# Modelo de execução. generateName porque cada disparo é um objeto novo.
+#
+# NÃO É APLICADO por 'oc apply': o comando recusa generateName ("cannot use
+# generate name with apply") e ABORTA O ARQUIVO INTEIRO -- a Pipeline não é
+# criada, e o aviso fala de generateName, não de pipeline ausente. Quem filtra
+# este documento na hora de aplicar é o _aplica_pipeline do provision.sh, e
+# quem o dispara é 'DISPARA_BUILD=1 bash scripts/provision.sh samples'.
+#
+# Uma execução POR IMAGEM: o Chains assina um IMAGE_DIGEST por TaskRun, então
+# o bookinfo, que tem seis imagens, dispara seis vezes. Parece desperdício e
+# não é -- seis assinaturas é o que seis imagens exigem.
+#
+# O workspace 'fonte' morre com o PipelineRun: aqui não há cache de build a
+# preservar, ao contrário do cache-maven da build-travel-packages.
+# ===========================================================================
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: samples-supply-chain-
+  namespace: __NS__
+  labels:
+    app: __SAMPLE__
+    backstage.io/kubernetes-id: __SAMPLE__
+spec:
+  pipelineRef:
+    name: samples-supply-chain
+  taskRunTemplate:
+    serviceAccountName: pipeline
+  params:
+    - name: repo
+      value: https://gitlab.__DOMAIN__/rhcl/samples/__SAMPLE__.git
+    - name: imagem-origem
+      value: __IMAGEM_ORIGEM__
+    - name: imagem-destino
+      value: __IMAGEM_DESTINO__
+    - name: sonar-projeto
+      value: rhcl-sample-__SAMPLE__
+  workspaces:
+    - name: fonte
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 1Gi
+    - name: sonar
+      secret:
+        secretName: sonarqube-token
+    - name: quay
+      secret:
+        secretName: quay-push
+    - name: acs
+      secret:
+        secretName: acs-api-token
+        optional: true
+    - name: nexus
+      secret:
+        secretName: nexus-admin
+        optional: true

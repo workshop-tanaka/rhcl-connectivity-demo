@@ -51,7 +51,7 @@ PR="${_here}/platform-reference"
 TIMEOUT="${TIMEOUT:-600}"
 DRY_RUN=0
 
-STAGES_ALL=(operators gitlab mesh platform gateway devportal demo pacotes consoles tracing dashboards gitops cicd registry entrega security identity)
+STAGES_ALL=(operators gitlab mesh platform gateway devportal demo pacotes consoles tracing dashboards gitops cicd registry entrega security identity samples)
 
 _usage() {
   cat <<EOF
@@ -96,6 +96,11 @@ Etapas, na ordem em que dependem umas das outras:
                 LENTA -- o Central sobe banco e scanner
     identity    unifica o login no Keycloak: personas, clients, e o GitLab
                 delegando. Exige o portal RHDH ja instalado
+    samples     as quatro amostras do Istio (bookinfo, websockets,
+                open-telemetry, grpc-echo) com Service Mesh, borda do RHCL e a
+                cadeia de suprimento. POR ULTIMO na lista so para poder usar
+                tudo que veio antes -- ela mesma so exige 'mesh', 'platform' e
+                'gateway'. SAMPLES=<nome> roda uma so.
 
 Sem argumento, roda todas. Cada uma e idempotente.
 
@@ -994,10 +999,15 @@ EOF
   # verdinho com zero Applications -- a falha silenciosa que o cabecalho do
   # seed descreve --, entao aqui ele so entra se o arquivo existir.
   local tpl_travel="${_here}/gitops/applicationset-travel.template.yaml"
+  # O terceiro, pelo mesmo criterio: rhcl/samples/ so existe depois do seed.
+  # Ele e o UNICO dos tres que aplica de verdade (automated ligado) -- ver o
+  # cabecalho do proprio arquivo.
+  local tpl_samples="${_here}/gitops/applicationset-samples.template.yaml"
 
   if [[ $DRY_RUN -eq 1 ]]; then
     _cmd "aplicar ApplicationSet rhcl-golden-path (api ${glapi}, grupo rhcl/apis)"
     [[ -f "$tpl_travel" ]] && _cmd "aplicar ApplicationSet rhcl-travel (grupo rhcl/travel)"
+    [[ -f "$tpl_samples" ]] && _cmd "aplicar ApplicationSet rhcl-samples (grupo rhcl/samples)"
   else
     sed "s|__GITLAB_API__|${glapi}|" "$tpl" | oc apply -f - >/dev/null \
       && _ok "ApplicationSet rhcl-golden-path aplicado (grupo rhcl/apis em ${glhost})" \
@@ -1006,6 +1016,11 @@ EOF
       sed "s|__GITLAB_API__|${glapi}|" "$tpl_travel" | oc apply -f - >/dev/null \
         && _ok "ApplicationSet rhcl-travel aplicado (grupo rhcl/travel em ${glhost})" \
         || _warn "falha ao aplicar o ApplicationSet do time travel"
+    fi
+    if [[ -f "$tpl_samples" ]]; then
+      sed "s|__GITLAB_API__|${glapi}|" "$tpl_samples" | oc apply -f - >/dev/null \
+        && _ok "ApplicationSet rhcl-samples aplicado (grupo rhcl/samples em ${glhost})" \
+        || _warn "falha ao aplicar o ApplicationSet das amostras"
     fi
   fi
 
@@ -1702,6 +1717,279 @@ _check() {
   fi
   return 0
 }
+
+# ===========================================================================
+# 13. samples — as quatro amostras do Istio sob RHCL e OSSM
+# ===========================================================================
+# Entrou depois das demais e fica POR ULTIMO na lista por conveniencia, nao por
+# dependencia: assim uma execucao completa ja encontra Tekton, Quay e ACS de pe
+# e monta a cadeia de suprimento junto. A amostra em si so precisa de 'mesh',
+# 'platform' e 'gateway'.
+#
+# ---------------------------------------------------------------------------
+# A ORDEM DAS AMOSTRAS NAO E ALFABETICA, e isso e uma armadilha real.
+#
+# samples/open-telemetry/10-telemetry-bookinfo.yaml SUBSTITUI a Telemetry de
+# samples/bookinfo/14- (mesmo nome, mesmo namespace) para acrescentar o access
+# log. E substituicao, e nao adicao, porque o Istio aplica UMA Telemetry por
+# nivel: duas de nivel de namespace no mesmo namespace nao sao mescladas -- uma
+# delas nao vale, e nao ha erro, evento nem status dizendo qual.
+#
+# Consequencia: aplicar 'bookinfo' DEPOIS de 'open-telemetry' desfaz o access
+# log EM SILENCIO. Por isso a ordem e fixa aqui, e open-telemetry e sempre a
+# ultima -- inclusive quando o operador pede uma amostra so.
+SAMPLES_ORDEM=(bookinfo websockets grpc-echo open-telemetry)
+
+# As imagens de terceiro que a cadeia de suprimento espelha no Quay. Uma
+# execucao da pipeline POR IMAGEM: o Chains assina um IMAGE_DIGEST por TaskRun.
+# A lista mora aqui, e nao nos manifests, porque quem a le e o disparo do
+# build; os manifests continuam apontando para o upstream (ver o bloco 'images'
+# comentado em cada kustomization.yaml).
+#
+# DUAS COLUNAS -- origem e o nome no Quay --, e a segunda existe porque o
+# basename NAO SERVE: 'registry.istio.io/testing/app' viraria um repositorio
+# chamado 'app' no Quay da organizacao, que daqui a um mes ninguem sabe do que
+# e. Os nomes daqui sao os mesmos que os blocos 'images' comentados em cada
+# samples/*/kustomization.yaml citam -- se mudarem aqui, mudam la.
+_samples_imagens() {
+  case "$1" in
+    bookinfo)
+      printf '%s\n' \
+        "registry.istio.io/release/examples-bookinfo-details-v1:1.20.3 examples-bookinfo-details-v1" \
+        "registry.istio.io/release/examples-bookinfo-ratings-v1:1.20.3 examples-bookinfo-ratings-v1" \
+        "registry.istio.io/release/examples-bookinfo-reviews-v1:1.20.3 examples-bookinfo-reviews-v1" \
+        "registry.istio.io/release/examples-bookinfo-reviews-v2:1.20.3 examples-bookinfo-reviews-v2" \
+        "registry.istio.io/release/examples-bookinfo-reviews-v3:1.20.3 examples-bookinfo-reviews-v3" \
+        "registry.istio.io/release/examples-bookinfo-productpage-v1:1.20.3 examples-bookinfo-productpage-v1" ;;
+    websockets)
+      printf '%s\n' "docker.io/hiroakis/tornado-websocket-example:latest tornado-websocket-example" ;;
+    grpc-echo)
+      printf '%s\n' "registry.istio.io/testing/app:latest istio-testing-app" ;;
+    # open-telemetry nao tem imagem propria: quem escolhe a do coletor e o
+    # OpenTelemetry Operator, a partir da versao dele. Espelhar uma imagem que
+    # o operador vai ignorar seria assinar o que nao roda.
+    *) : ;;
+  esac
+}
+
+_samples_ns() { # nome da amostra -> namespace
+  case "$1" in
+    open-telemetry) printf 'otel-sample' ;;
+    *)              printf '%s' "$1" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# _als_provider — declara o extensionProvider do access log SEM APAGAR os que
+# ja existem.
+#
+# A etapa 'mesh' faz um merge patch com a lista inteira e, com razao, se RECUSA
+# a mexer quando ja ha providers diferentes ("acrescente a mao para nao apagar
+# os existentes"). Aqui a lista precisa crescer, entao o patch e montado a
+# partir do que esta no CR: le, acrescenta se faltar, e reescreve.
+#
+# Sem esse cuidado o custo seria alto e silencioso: um merge patch com apenas o
+# provider de ALS apagaria 'otel-tracing', e o Ato 5 pararia de emitir span --
+# sem erro, porque uma Telemetry apontando para provider inexistente so registra
+# uma linha no istiod.
+_als_provider() {
+  local atual novo
+  if ! oc get istio default >/dev/null 2>&1; then
+    _warn "CR Istio ausente -- o access log da amostra open-telemetry nao sera declarado"
+    return 0
+  fi
+  atual="$(oc get istio default -o jsonpath='{.spec.values.meshConfig.extensionProviders}' 2>/dev/null)"
+  if [[ "$atual" == *otel-als-sample* ]]; then
+    _ok "extensionProvider otel-als-sample ja declarado"
+    return 0
+  fi
+  novo="$(python3 -c '
+import json, sys
+atual = sys.argv[1].strip()
+lista = json.loads(atual) if atual and atual != "null" else []
+lista.append({"name": "otel-als-sample",
+              "opentelemetry": {"service": "otel-als-collector.otel-sample.svc.cluster.local",
+                                "port": 4317}})
+print(json.dumps({"spec": {"values": {"meshConfig": {"extensionProviders": lista}}}}))
+' "$atual")" || { _warn "nao consegui montar o patch do extensionProvider"; return 0; }
+
+  _run oc patch istio default --type=merge -p "$novo" >/dev/null \
+    && _ok "extensionProvider otel-als-sample declarado (os anteriores foram preservados)" \
+    || _warn "falha ao declarar o extensionProvider otel-als-sample"
+}
+
+# ---------------------------------------------------------------------------
+# _samples_segredos — leva para o namespace da amostra o que a pipeline monta
+# como workspace.
+#
+# COPIA, e nao referencia: workspace de Secret so le do PROPRIO namespace do
+# PipelineRun, entao RoleBinding nao resolve. Mesmo padrao do redhat-pull da
+# etapa 'entrega'.
+#
+# Ausencia nao e erro: cada workspace correspondente e optional, e a task
+# imprime o que falta e sai com zero. Uma amostra sem Quay continua subindo --
+# o que ela perde e a cadeia de suprimento, nao a demonstracao de Service Mesh.
+_samples_segredos() {
+  local ns="$1" origem s
+  for s in quay-push sonarqube-token nexus-admin acs-api-token; do
+    oc get secret "$s" -n "$ns" >/dev/null 2>&1 && continue
+    origem=""
+    for cand in travel-packages cicd stackrox; do
+      oc get secret "$s" -n "$cand" >/dev/null 2>&1 && { origem="$cand"; break; }
+    done
+    [[ -n "$origem" ]] || continue
+    if [[ $DRY_RUN -eq 1 ]]; then
+      _cmd "copiar secret ${s} de ${origem} para ${ns}"
+      continue
+    fi
+    oc get secret "$s" -n "$origem" -o json 2>/dev/null \
+      | python3 -c 'import sys, json
+d = json.load(sys.stdin)
+d["metadata"] = {"name": d["metadata"]["name"], "namespace": sys.argv[1]}
+d.pop("status", None)
+json.dump(d, sys.stdout)' "$ns" \
+      | oc apply -f - >/dev/null 2>&1 \
+      && _ok "secret ${s} copiado de ${origem} para ${ns}" \
+      || _warn "falha ao copiar ${s} para ${ns}"
+  done
+}
+
+st_samples() {
+  _sec "samples (amostras do Istio)"
+
+  # ----- pre-requisitos, e cada um falha de um jeito diferente -------------
+  if ! _has_crd istios.sailoperator.io; then
+    _warn "Service Mesh ausente -- rode 'provision.sh mesh' antes"
+    printf '        %s\n' "sem ele as amostras sobem FORA do mesh: nada de mTLS, canario nem grafo"
+    return 0
+  fi
+  if ! oc get gateway prod-web -n ingress-gateway >/dev/null 2>&1 && [[ $DRY_RUN -eq 0 ]]; then
+    _warn "Gateway prod-web ausente -- rode 'provision.sh gateway' antes"
+    printf '        %s\n' "as HTTPRoute/GRPCRoute das amostras ficariam sem parent e nao seriam aceitas"
+    return 0
+  fi
+
+  # ----- quais amostras -----------------------------------------------------
+  # SAMPLES=<nome> [<nome>...] roda so as pedidas, MAS na ordem fixa acima --
+  # respeitar a ordem em que o operador digitou reintroduziria a armadilha da
+  # Telemetry.
+  local -a alvos=()
+  if [[ -n "${SAMPLES:-}" ]]; then
+    local s
+    for s in "${SAMPLES_ORDEM[@]}"; do
+      [[ " ${SAMPLES} " == *" $s "* ]] && alvos+=("$s")
+    done
+    [[ ${#alvos[@]} -gt 0 ]] || _die "SAMPLES='${SAMPLES}' nao casa com nenhuma amostra.
+      Validas, na ordem de aplicacao: ${SAMPLES_ORDEM[*]}"
+  else
+    alvos=("${SAMPLES_ORDEM[@]}")
+  fi
+  _log "amostras: ${alvos[*]}"
+
+  # O provider do access log entra ANTES dos manifests: a Telemetry que o
+  # referencia e aplicada junto com a amostra open-telemetry, e um provider que
+  # so aparece depois deixa o istiod registrando 'provider not found' no
+  # intervalo.
+  [[ " ${alvos[*]} " == *" open-telemetry "* ]] && _als_provider
+
+  # ----- 1. os manifests ----------------------------------------------------
+  # RENDER E DEPOIS APPLY, e o sed e sobre o RENDER e nao sobre os arquivos: os
+  # manifests do repositorio continuam com __DOMAIN__, que e o que faz o
+  # proximo cluster funcionar sem editar arquivo nenhum.
+  local nome dir
+  for nome in "${alvos[@]}"; do
+    dir="${_here}/samples/${nome}"
+    [[ -d "$dir" ]] || { _warn "ausente no repo: samples/${nome}"; continue; }
+    if [[ $DRY_RUN -eq 1 ]]; then
+      _cmd "oc kustomize samples/${nome} | sed s/__DOMAIN__/${DOMAIN}/ | oc apply -f -"
+      continue
+    fi
+    if ! oc kustomize "$dir" 2>/dev/null | sed "s|__DOMAIN__|${DOMAIN}|g" | oc apply -f - >/dev/null; then
+      _warn "falha ao aplicar samples/${nome}"
+      continue
+    fi
+    _ok "samples/${nome} aplicada"
+  done
+
+  # ----- 2. a cadeia de suprimento ------------------------------------------
+  if ! _has_crd pipelineruns.tekton.dev; then
+    _warn "Tekton ausente -- as amostras subiram, mas sem cadeia de suprimento"
+    printf '        %s\n' "rode 'provision.sh cicd registry entrega' e repita esta etapa"
+  else
+    for nome in "${alvos[@]}"; do
+      # open-telemetry nao entra: a imagem do coletor e escolhida pelo
+      # OpenTelemetry Operator, e espelhar o que o operador vai ignorar seria
+      # assinar o que nao roda.
+      [[ "$nome" == "open-telemetry" ]] && continue
+      local ns; ns="$(_samples_ns "$nome")"
+      _samples_segredos "$ns"
+      if [[ $DRY_RUN -eq 1 ]]; then
+        _cmd "sed __NS__/__SAMPLE__ | oc apply -f platform-reference/pipelines/samples-supply-chain.yaml  (${nome})"
+        continue
+      fi
+      sed -e "s|__NS__|${ns}|g" -e "s|__SAMPLE__|${nome}|g" -e "s|__DOMAIN__|${DOMAIN}|g" \
+        "${_here}/platform-reference/pipelines/samples-supply-chain.yaml" \
+        | _aplica_pipeline \
+        && _ok "pipeline samples-supply-chain aplicada em ${ns}" \
+        || _warn "falha ao aplicar a pipeline em ${ns}"
+    done
+    printf '        %s\n' "disparar o espelho assinado: DISPARA_BUILD=1 bash scripts/provision.sh samples"
+  fi
+
+  # ----- 3. disparo opcional do espelho -------------------------------------
+  # SEPARADO DO APPLY, e de proposito: aplicar a pipeline e barato e
+  # idempotente; DISPARAR sao seis PipelineRun so para o bookinfo, cada um
+  # puxando e empurrando uma imagem. Numa reexecucao de rotina isso seria
+  # desperdicio, e no meio de uma demo seria ruido.
+  if [[ "${DISPARA_BUILD:-0}" -eq 1 ]]; then
+    local qhost qorg
+    qhost="${QUAY_HOST:-$(oc get quayregistry registry -n quay -o jsonpath='{.status.registryEndpoint}' 2>/dev/null | sed 's|https://||')}"
+    qorg="${QUAY_ORG:-rhcl}"
+    if [[ -z "$qhost" ]]; then
+      _warn "sem registry de destino -- rode 'provision.sh registry' antes de DISPARA_BUILD=1"
+    else
+      for nome in "${alvos[@]}"; do
+        local ns2; ns2="$(_samples_ns "$nome")"
+        while read -r img nome_quay; do
+          [[ -z "$img" ]] && continue
+          local destino
+          destino="${qhost}/${qorg}/${nome_quay}"
+          if [[ $DRY_RUN -eq 1 ]]; then
+            _cmd "PipelineRun samples-supply-chain (${nome}): ${img} -> ${destino}"
+            continue
+          fi
+          # O recorte inverso do _aplica_pipeline: aqui so o PipelineRun, e com
+          # 'oc create' porque generateName nao passa por apply.
+          python3 -c 'import sys
+docs = sys.stdin.read().split(chr(10) + "---" + chr(10))
+run = [d for d in docs if any(l.strip() == "kind: PipelineRun" for l in d.splitlines())]
+sys.stdout.write(run[0] if run else "")' \
+            < <(sed -e "s|__NS__|${ns2}|g" -e "s|__SAMPLE__|${nome}|g" \
+                    -e "s|__DOMAIN__|${DOMAIN}|g" \
+                    -e "s|__IMAGEM_ORIGEM__|${img}|g" \
+                    -e "s|__IMAGEM_DESTINO__|${destino}|g" \
+                    "${_here}/platform-reference/pipelines/samples-supply-chain.yaml") \
+            | oc create -f - >/dev/null 2>&1 \
+            && _ok "disparado: ${nome} ${img}" \
+            || _warn "falha ao disparar ${nome} ${img}"
+        done < <(_samples_imagens "$nome")
+      done
+    fi
+  fi
+
+  # ----- 4. o que conferir --------------------------------------------------
+  if [[ $DRY_RUN -eq 0 ]]; then
+    printf '\n'
+    _log "as amostras publicam em:"
+    [[ " ${alvos[*]} " == *" bookinfo "*   ]] && printf '        %s\n' "https://bookinfo.${DOMAIN}/                 (UI, sem chave)"
+    [[ " ${alvos[*]} " == *" bookinfo "*   ]] && printf '        %s\n' "https://bookinfo.${DOMAIN}/api/v1/products  (401 sem APIKEY)"
+    [[ " ${alvos[*]} " == *" websockets "* ]] && printf '        %s\n' "https://websockets.${DOMAIN}/?APIKEY=ws-tempo-real-8a5f31"
+    [[ " ${alvos[*]} " == *" grpc-echo "*  ]] && printf '        %s\n' "grpcurl -insecure -H 'apikey: grpc-echo-3f71b2' grpc-echo.${DOMAIN}:443 list"
+    [[ " ${alvos[*]} " == *" open-telemetry "* ]] && printf '        %s\n' "oc logs -n otel-sample deploy/otel-als-collector -f   (access log em OTLP)"
+    printf '        %s\n' "o porque de cada uma: samples/README.md e docs/SAMPLES.md"
+  fi
+}
+
 
 if [[ "${CHECK:-0}" -eq 1 ]]; then _check; exit 0; fi
 

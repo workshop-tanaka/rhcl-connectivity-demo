@@ -109,8 +109,43 @@ spec:
     - name: DATAGRID_CACHE
       value: pacotes
 
-    # O servidor provisionado escreve em standalone/data; com UID aleatorio do
-    # SCC restricted-v2, o java.io.tmpdir do sistema nem sempre e gravavel.
+    # -------------------------------------------------------------------
+    # SERVER_PUBLIC_BIND_ADDRESS=0.0.0.0 E OBRIGATORIO NA MALHA, e a ausencia
+    # dele produz o conjunto de sintomas mais enganoso que este servico deu.
+    #
+    # A imagem do EAP liga no IP DO POD por padrao:
+    #
+    #   WFLYUT0006: Undertow HTTP listener default listening on 10.234.1.76:8080
+    #
+    # O Envoy do sidecar entrega o trafego de ENTRADA em 127.0.0.1:8080, onde
+    # nao ha ninguem escutando. O resultado, em cascata:
+    #
+    #   a sonda de readiness (reescrita pelo Istio) falha
+    #   o pod fica 1/2 Running para sempre, sem CrashLoop
+    #   o Service fica sem endpoint
+    #   e quem chama recebe do Envoy:
+    #     upstream connect error ... remote connection failure
+    #
+    # Nada disso menciona bind address, e o log do EAP diz 'started' sem erro
+    # nenhum -- o servidor esta perfeito, so inalcancavel. De dentro do pod,
+    # 127.0.0.1:8080 RECUSA conexao e o IP do pod responde 200. Medido em
+    # 2026-08-28.
+    #
+    # E O NOME DA VARIAVEL IMPORTA: -Djboss.bind.address em JAVA_OPTS_APPEND
+    # NAO funciona. O launcher da imagem monta a linha de comando com
+    #
+    #   PUBLIC_IP_ADDRESS=${SERVER_PUBLIC_BIND_ADDRESS:-$(hostname -i)}
+    #   SERVER_ARGS="... -b ${PUBLIC_IP_ADDRESS} ..."
+    #
+    # e o '-b' da linha de comando vence a propriedade de sistema. Conferido em
+    # /opt/jboss/container/wildfly/run/run, dentro da imagem.
+    #
+    # java.io.tmpdir: o servidor escreve em standalone/data e, com UID
+    # aleatorio do SCC restricted-v2, o tmpdir do sistema nem sempre e
+    # gravavel.
+    # -------------------------------------------------------------------
+    - name: SERVER_PUBLIC_BIND_ADDRESS
+      value: "0.0.0.0"
     - name: JAVA_OPTS_APPEND
       value: "-Djava.io.tmpdir=/tmp -Djava.net.preferIPv4Stack=true"
 
@@ -124,6 +159,22 @@ spec:
   # arrasta bastante servidor junto). Por isso apontamos para o recurso JAX-RS
   # /api/saude, que custa vinte linhas em vez de uma camada inteira.
   # ------------------------------------------------------------------------
+  # AS TRES SONDAS, e a startupProbe e a que faltava. Definir readiness e
+  # liveness sem ela deixa a do OPERADOR valendo, e a dele faz curl num
+  # endpoint de health que a camada 'jaxrs-server' nao entrega -- 404. O
+  # kubelet entao reporta "failed startup probe, will be restarted", mata o
+  # container antes de qualquer outra sonda rodar, e o ciclo vira
+  # CrashLoopBackOff com o servidor subindo limpo toda vez. Medido em
+  # 2026-08-28, depois de corrigir o bind e ainda assim ficar em 1/2.
+  #
+  # failureThreshold 30 x 10s = 5 minutos de tolerancia no arranque: o EAP sobe
+  # em ~10s, mas o primeiro pull da imagem de 546MB nao.
+  startupProbe:
+    httpGet:
+      path: /api/saude
+      port: 8080
+    periodSeconds: 10
+    failureThreshold: 30
   readinessProbe:
     httpGet:
       path: /api/saude
@@ -188,3 +239,41 @@ spec:
         # que e o par de sintomas mais enganoso do Gateway API.
         - name: travel-packages-loadbalancer
           port: 8080
+---
+# ===========================================================================
+# A Route passthrough que PUBLICA este hostname.
+#
+# SEM ELA A HTTPROUTE NAO ADIANTA. O Gateway prod-web nao tem LoadBalancer
+# neste cluster; quem o expoe sao Routes passthrough do OpenShift, UMA POR
+# HOSTNAME (ja existem api-travels, echo-travels e grpc-travels). Um hostname
+# novo sem Route recebe 503 do ROUTER -- pagina HTML do OpenShift, e nao a
+# resposta do Envoy -- que se le como servico fora do ar, quando o servico
+# esta perfeito e a HTTPRoute Accepted=True.
+#
+# passthrough, e nao edge: o TLS termina no Gateway, que e quem detem o
+# certificado e aplica as policies do RHCL. Terminar aqui tiraria a borda do
+# caminho -- e a borda e o assunto da demo.
+# ===========================================================================
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: travel-packages-gateway
+  namespace: ingress-gateway
+  labels:
+    app: travel-packages
+spec:
+  host: __PKG_HOST__
+  port:
+    # 443 NUMERICO, e nao o nome 'https'. As portas do Service prod-web-istio
+    # sao nomeadas pelo controlador do Gateway API, e 'https' nao esta entre
+    # elas -- com o nome errado a Route e ADMITIDA, o router nao encontra o
+    # alvo, e o cliente recebe um reset no handshake TLS
+    # (SSL_ERROR_SYSCALL), sem status HTTP nenhum. As Routes que ja
+    # funcionavam neste cluster usam 443; esta faltou copiar.
+    targetPort: 443
+  tls:
+    termination: passthrough
+  to:
+    kind: Service
+    name: prod-web-istio
+    weight: 100
