@@ -1,6 +1,7 @@
 package com.redhat.travel.api;
 
 import com.redhat.travel.cache.CacheDePacotes;
+import jakarta.enterprise.context.RequestScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -27,6 +28,7 @@ import java.util.Map;
  */
 @Path("/saude")
 @Produces(MediaType.APPLICATION_JSON)
+@RequestScoped
 public class SaudeResource {
 
     @PersistenceContext
@@ -34,8 +36,8 @@ public class SaudeResource {
 
     private final CacheDePacotes cache;
 
-    // Mesma razao do PacoteResource: dependencia obrigatoria entra pelo
-    // construtor, para o compilador cobrar.
+    // Mesma razao do PacoteResource, incluindo o @RequestScoped na classe --
+    // sem ele o RESTEasy nao acha construtor e o deploy falha.
     protected SaudeResource() {
         this.cache = null;
     }

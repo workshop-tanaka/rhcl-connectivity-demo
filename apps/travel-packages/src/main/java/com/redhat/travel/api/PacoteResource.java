@@ -3,6 +3,7 @@ package com.redhat.travel.api;
 import com.redhat.travel.cache.CacheDePacotes;
 import com.redhat.travel.dominio.Escada;
 import com.redhat.travel.dominio.Pacote;
+import jakarta.enterprise.context.RequestScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -42,6 +43,7 @@ import java.util.List;
  */
 @Path("/pacotes")
 @Produces(MediaType.APPLICATION_JSON)
+@RequestScoped
 public class PacoteResource {
 
     @PersistenceContext
@@ -51,8 +53,20 @@ public class PacoteResource {
 
     // POR CONSTRUTOR, e nao no campo: campo injetado nao pode ser final, e uma
     // dependencia obrigatoria que o compilador nao garante e a que falta em
-    // teste. O construtor sem argumentos existe porque o CDI precisa dele para
-    // instanciar o bean; e protegido para nao virar caminho de uso.
+    // teste.
+    //
+    // @RequestScoped NA CLASSE NAO E DECORACAO -- sem ela o deploy FALHA:
+    //
+    //   RESTEASY003190: Could not find constructor for class ...PacoteResource
+    //
+    // Com bean-discovery-mode=annotated (o padrao no Jakarta EE 10), @Inject
+    // sozinho NAO define um bean. Sem escopo, a classe nao e bean CDI, o
+    // RESTEasy tenta instancia-la por conta propria e exige construtor publico
+    // sem argumentos -- que a injecao por construtor nao tem. O servidor sobe
+    // "with errors" e o pod fica 1/2 para sempre. Medido em 2026-08-28.
+    //
+    // O construtor sem argumentos continua existindo porque escopo normal
+    // exige bean proxiavel; protegido, para nao virar caminho de uso.
     protected PacoteResource() {
         this.cache = null;
     }
