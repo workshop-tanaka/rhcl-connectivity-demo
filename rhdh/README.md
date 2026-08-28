@@ -639,6 +639,59 @@ nunca teve pipeline.
 `rhdh/setup-catalog.sh`. Sem isso os plugins carregam, as abas não aparecem, e
 a rota `/gitlab` cai silenciosamente na página padrão. Aconteceu em 2026-08-28.
 
+### Na fila: Tech Insights, e o scorecard que ele destravaria
+
+Avaliado em 2026-08-28. **Não implantado**, e o motivo é um buraco de versão no
+meio do produto.
+
+| Parte | Build oficial Red Hat |
+| --- | --- |
+| frontend `1.2.0` | **`bs_1.49.4__1.2.0`** — pronto |
+| backend | **nenhum build `bs_*`** |
+
+E o backend não tem versão que mire a nossa linha. O `backstage.json` de cada
+workspace diz:
+
+```
+2.5.2 → Backstage 1.47.2    (dois minors atrás)
+2.6.0 → Backstage 1.50.2    (à frente)
+2.7.0 → Backstage 1.51.0    (à frente)
+```
+
+Aqui roda **1.49.4**. Não existe versão para ele — só as vizinhas, e estar *à
+frente* é a direção que quebra mais, porque o pacote espera API que o host não
+tem. Foi o que já apareceu com o `@axis-backstage/plugin-readme`.
+
+**Frontend sem backend não serve.** É o backend que coleta os fatos, guarda em
+tabela própria e avalia as regras; sem ele a aba abre vazia — o modo de falhar
+que este arquivo repete desde a janela de traces.
+
+**O caso de uso que valeria a pena.** Não a checagem genérica de catálogo (tem
+dono? tem docs?), que todo mundo demonstra e ninguém usa. Um scorecard só,
+sobre **governança de API**, com quatro fatos que este ambiente já produz:
+
+- há AuthPolicy alcançando a rota do componente?
+- há limite por plano, ou só o teto do Gateway?
+- há TelemetryPolicy rotulando as métricas?
+- há spec OpenAPI publicado no devportal?
+
+Isso responde a pergunta que um gestor de plataforma faz e nenhum console
+responde: *quantas das minhas APIs estão realmente governadas* — com o nome de
+quem não está. Conversa com o Ato 6 em vez de competir: o portal deixa de só
+mostrar policy e passa a cobrar policy.
+
+**Por que mesmo assim não agora.** O custo não é o plugin, é o backend:
+construir da fonte escolhendo entre uma versão atrás e uma à frente, escrever
+os coletores de fatos (que são código, não configuração) e manter isso a cada
+upgrade do RHDH.
+
+E há caminho mais barato para a mesma pergunta: o `EntityConnectivityCard`
+deste repo já lê as policies e dá o veredito por entidade. Um agregado em cima
+dele responderia o "quantas" sem introduzir um subsistema.
+
+**Quando reavaliar:** quando aparecer build `bs_*` do backend no overlay. O
+frontend já está lá, o que sugere que é questão de tempo.
+
 ### Avaliados e descartados — 2026-08-27
 
 Sete candidatos medidos. O criterio que mais separou nao foi funcionalidade:
