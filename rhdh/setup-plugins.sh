@@ -1250,6 +1250,55 @@ if oc get secret rhdh-gitlab-secret -n "$RHDH_NS" >/dev/null 2>&1; then
       - package: ./dynamic-plugins/dist/backstage-plugin-scaffolder-backend-module-gitlab-dynamic
         disabled: false"
   _log "camada GitLab detectada -- modulo de scaffolder incluido."
+
+  # ----- descoberta de catalogo a partir do GitLab -------------------------
+  # ESTES DOIS VEM NA IMAGEM DO RHDH e sao suportados -- diferente do plugin
+  # de frontend do immobiliarelabs, que NAO TEM VERSAO para o Backstage 1.49.x
+  # (a apuracao esta no bloco WITH_GITLAB, acima). Sao a forma que FUNCIONA
+  # hoje de o portal enxergar o GitLab:
+  #
+  #   catalog-backend-module-gitlab      descobre projetos e os registra
+  #
+  # O -org (grupos e usuarios do GitLab) foi LIGADO E DESLIGADO em 2026-08-28:
+  # ele reimporta as quatro personas que rhdh/catalog/ ja define, e o catalogo
+  # passa a registrar conflito a cada refresh --
+  #
+  #   Source GitlabOrgDiscoveryEntityProvider:orgProvider detected conflicting
+  #   entityRef user:default/plat-eng already referenced by url:... and now
+  #   also GitlabOrgDiscoveryEntityProvider:orgProvider
+  #
+  # As entidades estaticas sao melhores para esta demo: carregam os papeis do
+  # Ato 6 (quem pede nao e quem aprova), que o GitLab nao tem como expressar.
+  # Duas fontes disputando o mesmo entityRef so produz ruido no log.
+  #
+  # O provider varre o grupo raiz 'rhcl', onde o gitlab-seed.sh cria apis/,
+  # travel/ e policies/. Projeto com catalog-info.yaml na raiz entra sozinho --
+  # e por isso o golden path continua sem passo de registro.
+  #
+  # O CAMPO 'host' PRECISA CASAR EXATAMENTE com o host de integrations.gitlab.
+  # Se nao casar, o provider sobe e nao encontra credencial, e o log diz apenas
+  # que nao achou projeto -- que se le como grupo vazio.
+  _gl_host="${GITLAB_HOST:-$(oc get route -n gitlab-system \
+    -o jsonpath='{range .items[?(@.spec.to.name=="gitlab-webservice-default")]}{.spec.host}{end}' 2>/dev/null)}"
+  if [[ -n "$_gl_host" ]]; then
+    _plugins="${_plugins}
+      - package: ./dynamic-plugins/dist/backstage-plugin-catalog-backend-module-gitlab-dynamic
+        disabled: false
+        pluginConfig:
+          catalog:
+            providers:
+              gitlab:
+                rhcl:
+                  host: ${_gl_host}
+                  group: rhcl
+                  orgEnabled: false
+                  schedule:
+                    frequency: {minutes: 30}
+                    timeout: {minutes: 3}"
+    _log "descoberta de catalogo do GitLab incluida (grupo rhcl em ${_gl_host})"
+  else
+    _warn "nao achei a rota do GitLab -- descoberta de catalogo fica de fora"
+  fi
 fi
 
 # VALIDA ANTES DE APLICAR. O pod NAO le este ConfigMap: le um DERIVADO, que o

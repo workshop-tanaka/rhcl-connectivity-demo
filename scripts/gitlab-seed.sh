@@ -353,6 +353,21 @@ def arvore_remota(pid):
         pagina += 1
     return rem
 
+def renderiza(raw: bytes) -> bytes:
+    """Substitui os placeholders de ambiente antes de commitar.
+
+    Hostname embutido em arquivo versionado e proibido neste repo -- o cluster
+    e efemero. O catalog-info.yaml do servico traz __DOMAIN__ e
+    __GITLAB_HOST__ nos links, e e aqui que eles viram endereco real. Mesmo
+    mecanismo que o espelho ja usa para os templates.
+    """
+    if b"__DOMAIN__" not in raw and b"__GITLAB_HOST__" not in raw:
+        return raw
+    dominio = HOST.split(".", 1)[1] if "." in HOST else HOST
+    return (raw.replace(b"__GITLAB_HOST__", HOST.encode())
+               .replace(b"__DOMAIN__", dominio.encode()))
+
+
 def semeia(pid, caminho_proj, desejado, mensagem, remover=()):
     """Reconcilia o projeto com 'desejado'. Idempotente por hash."""
     if pid == -1:      # dry-run: o projeto nem existe ainda
@@ -362,7 +377,7 @@ def semeia(pid, caminho_proj, desejado, mensagem, remover=()):
     acoes, iguais = [], 0
     for rel, full in desejado:
         with open(full, "rb") as fh:
-            raw = fh.read()
+            raw = renderiza(fh.read())
         if rem.get(rel) == git_blob_sha(raw):
             iguais += 1
             continue
