@@ -109,6 +109,40 @@ spec:
         # application-controller precisa de permissão fora do namespace da
         # amostra -- a etapa 'gitops' do provision.sh já a concede.
         namespace: '{{ .repository }}'
+      # ---------------------------------------------------------------------
+      # DEFAULTS DA API NAO SAO DRIFT -- medido em 2026-08-28.
+      #
+      # A HTTPRoute do bookinfo nasceu OutOfSync e ficou. O manifest e o do
+      # upstream, que declara 'parentRefs: [{name: bookinfo-gateway}]' e
+      # 'backendRefs: [{name: productpage, port: 9080}]'; o servidor preenche
+      # group, kind e weight ao admitir o objeto. O Argo compara e acusa
+      # diferenca em campos que ninguem escreveu e ninguem vai reconciliar.
+      #
+      # Escrever os defaults no manifest resolveria e custaria caro: 20-gateway
+      # deixaria de ser identico ao do upstream, que e a coisa que ele existe
+      # para ser. Entao a excecao mora aqui, como a do rhcl-travel para as
+      # anotacoes de vcs.
+      #
+      # UM Application permanentemente OutOfSync e pior na tela do que uma
+      # diferenca declarada: ele treina quem apresenta a ignorar a coluna.
+      # ---------------------------------------------------------------------
+      ignoreDifferences:
+        - group: gateway.networking.k8s.io
+          kind: HTTPRoute
+          jqPathExpressions:
+            - '.spec.parentRefs[].group'
+            - '.spec.parentRefs[].kind'
+            - '.spec.rules[].backendRefs[].group'
+            - '.spec.rules[].backendRefs[].kind'
+            - '.spec.rules[].backendRefs[].weight'
+        - group: gateway.networking.k8s.io
+          kind: GRPCRoute
+          jqPathExpressions:
+            - '.spec.parentRefs[].group'
+            - '.spec.parentRefs[].kind'
+            - '.spec.rules[].backendRefs[].group'
+            - '.spec.rules[].backendRefs[].kind'
+            - '.spec.rules[].backendRefs[].weight'
       syncPolicy:
         automated:
           prune: false

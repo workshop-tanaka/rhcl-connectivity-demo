@@ -38,3 +38,31 @@ spec:
     - providers:
         - name: otel-tracing
       randomSamplingPercentage: 100.00
+  # ---------------------------------------------------------------------------
+  # O ACCESS LOG MORA AQUI, e nao na amostra open-telemetry -- e a correcao de
+  # um defeito que so o GitOps expos, em 2026-08-28.
+  #
+  # A versao anterior punha este bloco num arquivo da amostra open-telemetry,
+  # com o MESMO nome e namespace, para "substituir" esta Telemetry. Funciona
+  # aplicando a mao, na ordem certa. Sob Argo CD, nao: as duas Applications
+  # passam a DISPUTAR o mesmo objeto. O sample-bookinfo sincronizou primeiro e
+  # apagou o accessLogging -- medido, com o coletor recebendo zero depois de ter
+  # recebido 30 LogRecord minutos antes.
+  #
+  # Um objeto, um dono. A dependencia entre as amostras passa a ser declarada em
+  # vez de encenada: o provider 'otel-als-sample' e um extensionProvider do
+  # meshConfig, e quem o declara e a etapa 'samples' do provision.sh -- sempre,
+  # independente de quais amostras foram pedidas, justamente para que esta
+  # Telemetry nunca aponte para um nome que nao existe.
+  #
+  # SEM O COLETOR DE PE (amostra open-telemetry nao aplicada), o provider existe
+  # e o destino nao: o access log nao chega a lugar nenhum. As metricas e o
+  # trace desta mesma Telemetry continuam valendo. NAO MEDIDO neste estado.
+  # ---------------------------------------------------------------------------
+  accessLogging:
+    - providers:
+        - name: otel-als-sample
+      # Explicito porque access log e a configuracao que mais frequentemente se
+      # quer desligar depressa no meio de uma investigacao, e ter o campo
+      # escrito e a diferenca entre 'oc patch' e 'oc edit procurando onde por'.
+      disabled: false

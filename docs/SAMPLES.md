@@ -66,17 +66,16 @@ pelo mesmo motivo que `gitops/*.template.yaml` e a `valida-policies` trazem:
 nenhum arquivo deste repositório carrega hostname de cluster embutido, e o
 cluster é efêmero.
 
-### A ordem das amostras é fixa, e não é alfabética
+### A ordem é fixa, e o motivo mudou
 
-`samples/open-telemetry/10-telemetry-bookinfo.yaml` **substitui** a `Telemetry`
-de `samples/bookinfo/14-` (mesmo nome, mesmo namespace) para acrescentar o
-access log. É substituição porque **o Istio aplica uma `Telemetry` por nível**:
-duas de nível de namespace no mesmo namespace não são mescladas — uma delas não
-vale, e não há erro, evento nem status dizendo qual.
+`open-telemetry` vem **primeiro**. Ela entrega o coletor, e o `bookinfo` começa a
+emitir access log assim que sobe; subir o destino antes da origem evita alguns
+segundos de log jogado fora.
 
-Aplicar `bookinfo` **depois** de `open-telemetry` desfaz o access log em
-silêncio. Por isso `open-telemetry` é sempre a última, inclusive quando se pede
-uma amostra só.
+Até 2026-08-28 a ordem era o contrário e por outra razão — a amostra
+`open-telemetry` *substituía* a `Telemetry` do `bookinfo`. Aquilo funcionava à
+mão e quebrou sob Argo CD (§8.8). Hoje há um dono só, e a ordem deixou de ser
+questão de correção.
 
 ---
 
@@ -374,7 +373,66 @@ Tempo é backend de **trace**. Não é o token nem o tenant — a mesma credenci
 funciona para trace no coletor vizinho. O access log da amostra vive enquanto o
 pod viver; persistir exigiria Loki, que este cluster não tem.
 
-### 8.8 O `extensionProvider` do ALS não pode substituir a lista
+### 8.8 Dois `Application` não podem possuir o mesmo objeto
+
+A amostra `open-telemetry` trazia uma `Telemetry` que **substituía** a de
+`samples/bookinfo/14-` (mesmo nome, mesmo namespace) para acrescentar o access
+log. Aplicando à mão, na ordem certa, funciona.
+
+**Sob Argo CD, não.** As duas `Applications` passam a disputar o mesmo objeto:
+`sample-bookinfo` sincronizou e apagou o `accessLogging`. Medido em 2026-08-28 —
+o coletor recebia zero depois de ter recebido 30 `LogRecord` minutos antes.
+
+Agora há **um dono só**: o bloco vive em `samples/bookinfo/14-`, e a amostra
+`open-telemetry` entrega apenas o coletor. A dependência entre as duas passou a
+ser declarada em vez de encenada — o provider é registrado pela etapa `samples`
+do `provision.sh`, **sempre**, mesmo quando só o `bookinfo` é pedido.
+
+### 8.9 O seed precisa PODAR, ou o Argo aplica o que o repo já não tem
+
+Corolário do anterior. Ao tirar `10-telemetry-bookinfo.yaml` do repositório, o
+arquivo **continuou no projeto do GitLab** — o seed só criava e atualizava — e o
+`ApplicationSet` seguiu aplicando um manifesto que o repositório base já não
+tinha. Um recurso que ninguém mais declara e que o Argo reconcilia sozinho é
+pior do que um arquivo esquecido: **ele volta**.
+
+`semeia()` ganhou `podar="manifests/"`, usado só em `rhcl/samples/`, que é
+artefato gerado. Em `rhcl/travel/`, que pode receber commit de gente, apagar por
+diferença seria destrutivo.
+
+### 8.10 Defaults da API não são drift
+
+A `HTTPRoute` do `bookinfo` nasceu `OutOfSync` e ficou. O manifest é o do
+upstream — `parentRefs: [{name: ...}]`, `backendRefs: [{name: ..., port: ...}]` —
+e o servidor preenche `group`, `kind` e `weight` ao admitir o objeto.
+
+Escrever os defaults no manifest resolveria e custaria caro: `20-gateway.yaml`
+deixaria de ser idêntico ao do upstream, que é a coisa que ele existe para ser.
+A exceção mora no `ApplicationSet`, como a do `rhcl-travel` para as anotações de
+vcs. Um `Application` permanentemente `OutOfSync` é pior na tela do que uma
+diferença declarada: ele treina quem apresenta a ignorar a coluna.
+
+### 8.11 `spec.podLabels` não existe no CRD do coletor — e é podado em silêncio
+
+O `OpenTelemetryCollector` v1beta1 não declara `podLabels`. O schema estrutural
+o **poda**: `oc apply` passa, `--dry-run=server` passa, o CR fica válido, e o pod
+nasce sem o rótulo. O `sidecar.istio.io/inject: "false"` que este repositório
+dizia ser "cinto e suspensórios" era **inerte** — o pod só não tinha sidecar
+porque o namespace não tem o rótulo de injeção.
+
+**Quem denunciou foi o Argo CD**, não a leitura do manifest: campo fora do
+schema quebra o diff estruturado, e a `Application` ficava em `Unknown`, sem
+sincronizar, para sempre:
+
+```
+ComparisonError: failed to calculate diff: error building typed value
+from config resource: .spec.podLabels: field not declared in schema
+```
+
+O campo certo é `podAnnotations` — o Istio honra a anotação tanto quanto o
+rótulo.
+
+### 8.12 O `extensionProvider` do ALS não pode substituir a lista
 
 Um merge patch em `meshConfig.extensionProviders` com apenas o provider novo
 apagaria o `otel-tracing`, e o Ato 5 pararia de emitir span — sem erro, porque
@@ -417,8 +475,9 @@ manifests.
   falta o aceite, e aceitar é ato de licenciamento de quem opera o ambiente), e
   as **policies de build do ACS** reprovam imagens upstream por coisas fora do
   nosso controle. As duas tasks usam `onError: continue`: avisam, não derrubam.
-- **GitOps** — `gitlab-seed.sh`, `provision.sh gitops` e `rhdh/setup-catalog.sh`
-  ainda não rodaram.
+- ~~**GitOps**~~ — feito. As três `Applications` (`sample-bookinfo`,
+  `sample-grpc-echo`, `sample-open-telemetry`) estão **Synced/Healthy**, e foi a
+  reconciliação do Argo que expôs as §8.8 a §8.11.
 
 Ao rodar o que falta, registre o resultado aqui e na §7 do
 [CONHECIMENTO](CONHECIMENTO.md) se algum ruído for benigno.

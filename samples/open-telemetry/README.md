@@ -37,22 +37,25 @@ A linha aparece no primeiro terminal no momento do `curl`, com método, caminho,
 código, duração, workload de origem e de destino — e vai também para o Tempo, no
 tenant `dev`, onde sobrevive ao pod.
 
-## As duas armadilhas que este diretório documenta
+## Esta amostra entrega o coletor — e só
 
-**1. O Istio aplica UMA `Telemetry` por nível.** Duas de nível de namespace no
-mesmo namespace não são mescladas: uma delas simplesmente não vale, e não há
-erro, evento nem condição de status dizendo qual. O sintoma é uma dimensão que
-"sumiu" ou um access log que nunca aparece — num arquivo que ninguém suspeita,
-porque foi aceito sem reclamar.
+O `accessLogging` que a consome vive em
+[samples/bookinfo/14-mesh-telemetry.yaml](../bookinfo/14-mesh-telemetry.yaml), e
+não aqui. **Um objeto, um dono**, e isso é a correção de um defeito que só o
+Argo CD expôs.
 
-Por isso [10-telemetry-bookinfo.yaml](10-telemetry-bookinfo.yaml) **substitui**
-`samples/bookinfo/14-mesh-telemetry.yaml` (mesmo nome, mesmo namespace) em vez
-de acrescentar um segundo recurso.
+Até 2026-08-28 este diretório trazia um `10-telemetry-bookinfo.yaml` que
+*substituía* a `Telemetry` do `bookinfo` — mesmo nome, mesmo namespace —, porque
+o Istio aplica **uma `Telemetry` por nível** e duas de nível de namespace não
+são mescladas. Aplicando à mão, na ordem certa, funciona. Sob GitOps, as duas
+`Applications` passam a disputar o objeto: o `sample-bookinfo` sincronizou e
+apagou o `accessLogging`, com o coletor recebendo zero depois de ter recebido 30
+`LogRecord` minutos antes.
 
-**2. Consequência de ordem, e ela é real.** Aplicar `samples/bookinfo` *depois*
-desta amostra faz o `14-` de lá voltar a valer e o access log some — em
-silêncio. `scripts/provision.sh samples` aplica `open-telemetry` **por último,
-sempre**, e não em ordem alfabética.
+A dependência entre as duas amostras passou a ser **declarada** em vez de
+encenada: o provider `otel-als-sample` é registrado pela etapa `samples` do
+`provision.sh`, sempre — mesmo quando só o `bookinfo` é pedido —, justamente
+para que aquela `Telemetry` nunca aponte para um nome que não existe.
 
 ## O `extensionProvider`
 
@@ -76,7 +79,7 @@ as métricas e o trace da mesma `Telemetry` continuam valendo.
 | `ConfigMap` + `Service` + `Deployment` escritos à mão | CR `OpenTelemetryCollector` | o OpenTelemetry Operator já está instalado; o CR faz a amostra parecer com o resto do cluster |
 | exporta para `zipkin.istio-system` | só `debug` | não há Zipkin aqui, e o Tempo recusa OTLP de logs (medido, acima). `debug` é o que se abre no palco |
 | pipeline de `traces` | pipeline de `logs` | trace já existe neste cluster; access log não |
-| `sidecar.istio.io/inject: "false"` no pod | também no namespace (sem `istio-injection`) | se alguém rotular o namespace por engano, o pod continua de fora |
+| `sidecar.istio.io/inject: "false"` no pod | `podAnnotations` **e** namespace sem `istio-injection` | `spec.podLabels` **não existe no CRD** e é podado em silêncio — o "cinto e suspensórios" era inerte, e foi o Argo CD que denunciou (§8.11 do docs/SAMPLES.md) |
 
 
 ## Medido no cluster — 2026-08-28

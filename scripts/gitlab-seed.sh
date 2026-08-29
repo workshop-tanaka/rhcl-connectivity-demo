@@ -368,12 +368,28 @@ def renderiza(raw: bytes) -> bytes:
                .replace(b"__DOMAIN__", dominio.encode()))
 
 
-def semeia(pid, caminho_proj, desejado, mensagem, remover=()):
-    """Reconcilia o projeto com 'desejado'. Idempotente por hash."""
+def semeia(pid, caminho_proj, desejado, mensagem, remover=(), podar=None):
+    """Reconcilia o projeto com 'desejado'. Idempotente por hash.
+
+    'podar' e um PREFIXO: todo blob remoto sob ele que nao esteja em 'desejado'
+    e apagado. Existe por uma falha medida em 2026-08-28 -- ao tirar
+    10-telemetry-bookinfo.yaml da amostra open-telemetry, o arquivo continuou no
+    projeto do GitLab, e o ApplicationSet seguiu APLICANDO um manifesto que o
+    repositorio base ja nao tem. Um recurso que ninguem mais declara e que o
+    Argo reconcilia sozinho e pior do que um arquivo esquecido: ele volta.
+
+    So se usa onde o projeto e ARTEFATO gerado -- rhcl/samples/, cujo README diz
+    que a fonte e o repositorio base. Em rhcl/travel/, que pode receber commit
+    de gente, apagar por diferenca seria destrutivo.
+    """
     if pid == -1:      # dry-run: o projeto nem existe ainda
         print(f"    $ commitar {len(desejado)} arquivo(s) em {caminho_proj}")
         return
     rem = arvore_remota(pid)
+    if podar:
+        quer = {rel for rel, _f in desejado}
+        remover = list(remover) + [r for r in rem
+                                   if r.startswith(podar) and r not in quer]
     acoes, iguais = [], 0
     for rel, full in desejado:
         with open(full, "rb") as fh:
@@ -732,7 +748,8 @@ if samples_id:
 
         print(f"  [*] {len(_desejado)} arquivo(s) em samples/{_sm}")
         semeia(_pid, _path, _desejado,
-               f"Amostra {_sm} renderizada para este cluster (fonte: samples/{_sm})")
+               f"Amostra {_sm} renderizada para este cluster (fonte: samples/{_sm})",
+               podar="manifests/")
 
 # ----- 4. o espelho do repo, para o portal nao depender do GitHub -----------
 # POR QUE ISTO EXISTE: o RHDH lia os templates de uma URL do github.com. Com a

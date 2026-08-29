@@ -1740,18 +1740,23 @@ _check() {
 # 'platform' e 'gateway'.
 #
 # ---------------------------------------------------------------------------
-# A ORDEM DAS AMOSTRAS NAO E ALFABETICA, e isso e uma armadilha real.
+# A ORDEM E FIXA, e o motivo MUDOU em 2026-08-28 -- vale ler, porque a versao
+# anterior deste comentario descrevia uma armadilha que nao existe mais.
 #
-# samples/open-telemetry/10-telemetry-bookinfo.yaml SUBSTITUI a Telemetry de
-# samples/bookinfo/14- (mesmo nome, mesmo namespace) para acrescentar o access
-# log. E substituicao, e nao adicao, porque o Istio aplica UMA Telemetry por
-# nivel: duas de nivel de namespace no mesmo namespace nao sao mescladas -- uma
-# delas nao vale, e nao ha erro, evento nem status dizendo qual.
+# ERA: samples/open-telemetry trazia uma Telemetry que SUBSTITUIA a de
+# samples/bookinfo/14- (mesmo nome, mesmo namespace), porque o Istio aplica UMA
+# Telemetry por nivel. Aplicar 'bookinfo' depois desfazia o access log em
+# silencio, e por isso open-telemetry tinha de ser sempre a ultima.
 #
-# Consequencia: aplicar 'bookinfo' DEPOIS de 'open-telemetry' desfaz o access
-# log EM SILENCIO. Por isso a ordem e fixa aqui, e open-telemetry e sempre a
-# ultima -- inclusive quando o operador pede uma amostra so.
-SAMPLES_ORDEM=(bookinfo websockets grpc-echo open-telemetry)
+# Aquilo funcionava a mao e QUEBROU SOB ARGO CD: duas Applications disputando o
+# mesmo objeto, e o sample-bookinfo apagou o accessLogging. Agora ha um dono so
+# -- o bloco vive em samples/bookinfo/14- --, e a ordem deixou de ser questao de
+# correcao.
+#
+# Ela FICA fixa por outra razao, mais fraca e ainda assim boa: open-telemetry
+# entrega o COLETOR, e o bookinfo comeca a emitir access log assim que sobe.
+# Subir o destino antes da origem evita alguns segundos de log jogado fora.
+SAMPLES_ORDEM=(open-telemetry bookinfo websockets grpc-echo)
 
 # ---------------------------------------------------------------------------
 # O QUE ENTRA POR PADRAO -- e o websockets NAO entra, por decisao de 2026-08-28.
@@ -1772,7 +1777,7 @@ SAMPLES_ORDEM=(bookinfo websockets grpc-echo open-telemetry)
 # As outras tres puxam de registry.istio.io e nao tem esse par de riscos.
 # Adiar a que depende do que nao controlamos e mais barato do que descobrir no
 # palco -- e o preco de adiar e nenhum: ela nao sustenta ato nenhum.
-SAMPLES_PADRAO=(bookinfo grpc-echo open-telemetry)
+SAMPLES_PADRAO=(open-telemetry bookinfo grpc-echo)
 
 # As imagens de terceiro que a cadeia de suprimento espelha no Quay. Uma
 # execucao da pipeline POR IMAGEM: o Chains assina um IMAGE_DIGEST por TaskRun.
@@ -1981,11 +1986,15 @@ st_samples() {
     done
   fi
 
-  # O provider do access log entra ANTES dos manifests: a Telemetry que o
-  # referencia e aplicada junto com a amostra open-telemetry, e um provider que
-  # so aparece depois deixa o istiod registrando 'provider not found' no
-  # intervalo.
-  [[ " ${alvos[*]} " == *" open-telemetry "* ]] && _als_provider
+  # O provider do access log entra ANTES dos manifests, e AGORA SEMPRE -- nao so
+  # quando a amostra open-telemetry foi pedida.
+  #
+  # A Telemetry que o referencia mora em samples/bookinfo/14-, entao aplicar o
+  # bookinfo sozinho, com a guarda antiga, deixava uma Telemetry apontando para
+  # um provider que nao existe. Declarar o provider e barato e idempotente; o
+  # que pode faltar e o coletor do outro lado, e isso e degradacao (o access log
+  # nao chega a lugar nenhum) e nao erro.
+  _als_provider
 
   # ----- 1. os manifests ----------------------------------------------------
   # RENDER E DEPOIS APPLY, e o sed e sobre o RENDER e nao sobre os arquivos: os

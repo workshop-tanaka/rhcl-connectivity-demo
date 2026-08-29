@@ -95,16 +95,16 @@ repositório carrega hostname de cluster embutido, e o cluster é efêmero. Quem
 substitui é a etapa `samples`, com o domínio lido do próprio cluster — ou o
 `gitlab-seed.sh`, quando semeia a cópia que o Argo aplica.
 
-### A ordem das amostras é fixa, e não é alfabética
+### A ordem é fixa, e o motivo mudou
 
-`samples/open-telemetry/10-telemetry-bookinfo.yaml` **substitui** a `Telemetry`
-de `samples/bookinfo/14-` (mesmo nome, mesmo namespace) para acrescentar o
-access log. É substituição porque **o Istio aplica uma `Telemetry` por nível**:
-duas de nível de namespace no mesmo namespace não são mescladas — uma delas não
-vale, e não há erro, evento nem status dizendo qual.
+`open-telemetry` vem **primeiro**: ela entrega o coletor, e o `bookinfo` começa a
+emitir access log assim que sobe.
 
-Aplicar `bookinfo` **depois** de `open-telemetry` desfaz o access log em
-silêncio. Por isso `open-telemetry` é sempre a última.
+Até 2026-08-28 era o contrário — a amostra `open-telemetry` *substituía* a
+`Telemetry` do `bookinfo` para acrescentar o access log. Funcionava à mão e
+quebrou sob Argo CD: duas `Applications` disputando o mesmo objeto, e o
+`sample-bookinfo` apagou o `accessLogging`. Hoje há **um dono só** (o bloco vive
+em `samples/bookinfo/14-`) e a ordem deixou de ser questão de correção.
 
 ## A camada de RHCL, quando for a hora
 

@@ -61,11 +61,35 @@ metadata:
 spec:
   mode: deployment
   replicas: 1
-  podLabels:
-    # Cinto e suspensorio: o namespace ja nao tem injecao (00-), e este rotulo
-    # mantem o pod de fora se alguem rotular o namespace por engano.
+  # ---------------------------------------------------------------------------
+  # podAnnotations, E NAO podLabels -- MEDIDO EM 2026-08-28.
+  #
+  # A versao anterior usava 'spec.podLabels'. O campo NAO EXISTE no CRD
+  # opentelemetrycollectors.opentelemetry.io/v1beta1: o schema estrutural o
+  # PODA em silencio. O 'oc apply' passa, o '--dry-run=server' passa, o CR fica
+  # valido -- e o pod nasce sem o rotulo. Conferido nos dois lados:
+  #
+  #   oc get opentelemetrycollector otel-als -n otel-sample -o jsonpath='{.spec.podLabels}'
+  #   -> vazio
+  #   oc get pods -n otel-sample -o jsonpath='{.items[0].metadata.labels}'
+  #   -> sem sidecar.istio.io/inject
+  #
+  # Ou seja: o "cinto e suspensorio" que este bloco dizia ser era INERTE. O pod
+  # so nao tinha sidecar porque o namespace (00-) nao tem o rotulo de injecao.
+  #
+  # E O ARGO CD FOI QUEM DENUNCIOU, nao a leitura do manifest: um campo fora do
+  # schema quebra o diff estruturado --
+  #
+  #   ComparisonError: failed to calculate diff: error building typed value
+  #   from config resource: .spec.podLabels: field not declared in schema
+  #
+  # A Application ficava em Unknown, sem sincronizar, para sempre.
+  #
+  # O Istio honra a ANOTACAO tanto quanto o rotulo, e podAnnotations existe no
+  # schema. A defesa em profundidade passa a ser real.
+  # ---------------------------------------------------------------------------
+  podAnnotations:
     sidecar.istio.io/inject: "false"
-    app: otel-als
   resources:
     requests:
       cpu: 50m

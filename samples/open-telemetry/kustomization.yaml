@@ -4,11 +4,16 @@ kind: Kustomization
 # ===========================================================================
 # open-telemetry -- o log de acesso do mesh como telemetria estruturada.
 #
-# ORDEM DE APLICACAO IMPORTA NESTA AMOSTRA, e e a unica das quatro em que
-# importa: 10- substitui a Telemetry do bookinfo (mesmo nome), porque o Istio
-# nao mescla duas Telemetry de nivel de namespace. Aplicar 'samples/bookinfo'
-# depois desta desfaz o access log EM SILENCIO. O provision.sh aplica esta
-# amostra por ultimo, sempre.
+# ELA NAO POSSUI MAIS A Telemetry DO BOOKINFO. Ate 2026-08-28 esta amostra
+# trazia um 10-telemetry-bookinfo.yaml que SUBSTITUIA a Telemetry de
+# samples/bookinfo/14- (mesmo nome, mesmo namespace) para acrescentar o access
+# log. Funciona aplicando a mao, na ordem certa; sob Argo CD, nao -- as duas
+# Applications passam a disputar o mesmo objeto, e o sample-bookinfo apagou o
+# accessLogging. Medido.
+#
+# Agora esta amostra entrega o COLETOR, e quem declara o consumo e o bookinfo.
+# Um objeto, um dono. O provider 'otel-als-sample' e declarado pela etapa
+# 'samples' do provision.sh.
 #
 # Sem __DOMAIN__: esta amostra nao publica rota. Ela e camada de plataforma --
 # o que ela mostra e que observabilidade e decisao do control plane, e nao
@@ -18,7 +23,6 @@ kind: Kustomization
 resources:
   - 00-namespace.yaml
   - 01-collector.yaml
-  - 10-telemetry-bookinfo.yaml
 
 # Sem bloco 'images': o coletor e gerenciado pelo OpenTelemetry Operator, que
 # escolhe a imagem a partir da versao do operador. Fixar imagem aqui brigaria
