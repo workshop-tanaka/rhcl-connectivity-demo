@@ -99,8 +99,9 @@ jobs:
           # rodam sozinhos, sem source de nada. A duplicacao e o preco dessa
           # garantia, e este job e quem a torna segura.
           #
-          # Nao guardamos _log/_ok/_warn/_die: eles VARIAM de proposito (o _warn do
-          # preflight conta avisos e aceita uma dica; os outros nao). Guardar
+          # Nao guardamos _log/_ok/_warn/_die: eles VARIAM de proposito (so o _warn
+          # do preflight conta avisos; ele e o do lib.sh aceitam uma dica como
+          # segundo argumento, os demais colam tudo numa linha). Guardar
           # cosmetico produz alarme falso, e alarme falso ensina a ignorar o job.
           GUARDADAS = [
               # _overlay decide o overlay pelo CSV -- ou seja, o regime de

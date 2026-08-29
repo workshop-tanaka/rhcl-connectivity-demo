@@ -25,14 +25,27 @@
 
 # ----- saida ---------------------------------------------------------------
 if [[ -t 1 ]]; then
-  _RED=$'\033[0;31m'; _GRN=$'\033[0;32m'; _YEL=$'\033[0;33m'; _BLU=$'\033[0;34m'; _RST=$'\033[0m'
+  _RED=$'\033[0;31m'; _GRN=$'\033[0;32m'; _YEL=$'\033[0;33m'; _BLU=$'\033[0;34m'
+  _DIM=$'\033[2m'; _RST=$'\033[0m'
 else
-  _RED=""; _GRN=""; _YEL=""; _BLU=""; _RST=""
+  _RED=""; _GRN=""; _YEL=""; _BLU=""; _DIM=""; _RST=""
 fi
 
 _log()  { printf '%s[*]%s %s\n' "$_BLU" "$_RST" "$*"; }
 _ok()   { printf '%s[OK]%s %s\n' "$_GRN" "$_RST" "$*"; }
-_warn() { printf '%s[!]%s %s\n' "$_YEL" "$_RST" "$*" >&2; }
+# _warn aceita uma DICA como segundo argumento -- a acao que resolve o aviso.
+# Doze chamadas em rhdh/*.sh ja a passavam desde sempre; a versao anterior usava
+# "$*" e colava as duas numa linha so, entao a dica saia grudada no fim da frase
+# e, em setup-plugins.sh:1605, sem nem uma pontuacao separando -- o aviso lia
+# como uma sentenca truncada. A forma abaixo e a mesma de scripts/preflight.sh,
+# que e a implementacao de referencia.
+# O 'return 0' e obrigatorio: sem ele o '[[ ]] &&' seria o ultimo comando e a
+# funcao devolveria 1 quando nao ha dica, quebrando quem escreve '_warn ... &&'.
+_warn() {
+  printf '%s[!]%s %s\n' "$_YEL" "$_RST" "$1" >&2
+  [[ -n "${2:-}" ]] && printf '    %s-> %s%s\n' "$_DIM" "$2" "$_RST" >&2
+  return 0
+}
 _die()  { printf '%s[X]%s %s\n' "$_RED" "$_RST" "$*" >&2; exit 1; }
 
 # ----- pre-requisitos ------------------------------------------------------
