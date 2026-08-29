@@ -347,6 +347,42 @@ Service Mesh, que não é o mesmo do Ato 2):
 curl -sk -H "user: theonlyuser" "https://<host>/travels/Rome?APIKEY=<gold>"
 ```
 
+### 5.10 `Enforced=False` é quase sempre o reconciler passando
+
+Mudar **uma** policy derruba `Enforced=True` de **toda a família de rate limit
+do cluster** — as duas `PlanPolicy`, as `RateLimitPolicy` que elas derivam, e a
+do Gateway — e o controller devolve o `True` segundos depois.
+
+Medido em **2026-08-28**, apagando `bookings-grpc-ratelimit` e restaurando em
+seguida. Um `oc delete` e um `oc apply` produziram **onze** transições, das quais
+**uma** era o evento de verdade:
+
+```
+21:40:46  RateLimitPolicy foi removida em travel-agency/bookings-grpc-ratelimit  ← real
+21:40:46  RateLimitPolicy deixou de valer em echo-api/echo-plans                 ← reconciler
+21:40:46  RateLimitPolicy deixou de valer em travel-agency/travels-plans         ← reconciler
+21:40:46  RateLimitPolicy deixou de valer em ingress-gateway/…-rlp-lowlimits     ← reconciler
+21:40:46  PlanPolicy deixou de valer em echo-api/echo-plans                      ← reconciler
+21:40:46  PlanPolicy deixou de valer em travel-agency/travels-plans              ← reconciler
+21:41:02  … mais cinco iguais, no apply de volta
+```
+
+**A consequência para quem depura:** um `Enforced=False` lido logo depois de
+qualquer mexida em policy não prova nada. Antes de investigar, esperar e olhar
+de novo — se voltou sozinho, não havia o que investigar.
+
+```bash
+# a leitura que vale e a segunda, uns 15s depois da mexida
+oc get ratelimitpolicy,planpolicy -A \
+  -o custom-columns='KIND:.kind,NS:.metadata.namespace,NOME:.metadata.name,ENFORCED:.status.conditions[?(@.type=="Enforced")].status'
+```
+
+**A consequência para quem escreve código que observa policy:** a transição é
+real, mas não é durável, e tratá-la como fato final produz cinco falsos para cada
+verdadeiro. Foi o que aconteceu com a sineta do plugin de Connectivity Link, e
+por isso ela só avisa depois que a queda **persiste** por 15 s — ver
+[`plugins/connectivity-link-ops-backend/README.md`](../plugins/connectivity-link-ops-backend/README.md).
+
 ---
 
 ## 6. Estrutura do repositório
