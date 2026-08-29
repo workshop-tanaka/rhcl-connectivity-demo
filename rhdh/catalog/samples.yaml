@@ -792,10 +792,11 @@ metadata:
   name: otel-als-telemetry
   title: Telemetry — access log em OTLP
   description: >-
-    Liga o access log do namespace bookinfo ao coletor da amostra. SUBSTITUI a
-    Telemetry que o bookinfo ja tinha, e nao acrescenta uma segunda: o Istio
-    aplica UMA por nivel, e duas de nivel de namespace nao sao mescladas -- uma
-    delas nao vale, e nada diz qual.
+    Liga o access log do namespace bookinfo ao coletor desta amostra. O bloco
+    accessLogging vive na Telemetry DO BOOKINFO, e nao numa segunda: o Istio
+    aplica UMA Telemetry por nivel, e sob Argo CD duas Applications donas do
+    mesmo objeto se apagam mutuamente -- medido em 2026-08-28. Um objeto, um
+    dono; a dependencia entre as amostras e declarada pelo provider.
   annotations:
     rhcl.demo/cluster-object: telemetry/bookinfo/bookinfo-dimensoes
     backstage.io/kubernetes-namespace: bookinfo
