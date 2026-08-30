@@ -113,11 +113,14 @@ data:
             signIn:
               resolvers:
                 - resolver: preferredUsernameMatchingUserEntityName
-        gitlab:
-          production:
-            clientId: ${GITLAB_OAUTH_CLIENT_ID}
-            clientSecret: ${GITLAB_OAUTH_CLIENT_SECRET}
-            audience: https://${GITLAB_HOST}
+        # O provider 'gitlab' NAO mora aqui -- e isso e ordem, nao omissao.
+        # Ele vive no app-config-rhdh-gitlab, criado pelo rhdh/setup-gitlab.sh
+        # junto com a OAuth application e os secrets que o alimentam. Declarar
+        # o provider aqui, antes de existir credencial, derruba o boot num
+        # cluster virgem: o plugin 'auth' morre com 'Missing required config
+        # value', o readiness fica em 503 para sempre, e o install.sh nunca
+        # fica verde (medido em 2026-08-30 no cluster-k96tq). A regra que fica:
+        # a camada que fabrica a credencial e dona do provider.
     signInPage: oidc
 
     # 'locations' NAO e definido aqui de proposito: quem define e o

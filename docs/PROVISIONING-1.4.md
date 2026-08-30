@@ -41,7 +41,7 @@ bash scripts/new-env.sh
 bash scripts/provision.sh                      # até gitops
 bash scripts/provision.sh identity             # ANTES do portal — ver abaixo
 bash rhdh/install.sh                           # o portal
-bash rhdh/setup-plugins.sh                     # 1ª passada: CRIA o plugin-registry
+bash rhdh/setup-gitlab.sh                      # camada GitLab + 1ª passada de plugins (CRIA o plugin-registry)
 bash scripts/build-plugins.sh --publish        # Jaeger e Grafana, que não vêm prontos
 bash scripts/build-cl-ops.sh --publish         # o plugin próprio, daqui do repo
 bash rhdh/setup-plugins.sh                     # 2ª passada: agora com os três
@@ -58,6 +58,20 @@ dependia de memória: SonarQube com admin/admin, Nexus sem leitura anônima e a
 aba Security sem token eram o estado natural de um cluster novo, e nada
 avisava. O EULA do Nexus continua manual de propósito
 (`NEXUS_EULA_ACCEPT=true`): aceitar licença é decisão de quem opera.
+
+**Por que o `setup-gitlab.sh` vem logo depois do portal — e antes de
+qualquer `setup-plugins.sh`.** Duas razões, ambas medidas no cluster-k96tq
+(2026-08-30). Primeira: o provider de auth `gitlab` vive no
+`app-config-rhdh-gitlab`, que é o `setup-gitlab.sh` quem cria — a camada que
+fabrica a credencial é dona do provider (ele já morou no app-config base, e lá
+derrubava o boot do cluster virgem com `Missing required config value`).
+Segunda: o `setup-plugins.sh` referencia o secret `rhdh-gitlab-oauth` de forma
+INCONDICIONAL no `extraEnvs` — rodá-lo antes do `setup-gitlab.sh` deixa o
+deployment apontando para um secret que não existe. A "1ª passada" acontece
+dentro do próprio `setup-gitlab.sh`, que delega ao `setup-plugins.sh` ao
+final; a linha acima portanto também cria o plugin-registry. Antes desta
+correção o `setup-gitlab.sh` não constava da sequência — ninguém o chamava, e
+só o preflight cobrava, no fim, com "sem integração GitLab".
 
 **Por que o `setup-plugins.sh` roda duas vezes.** Ele é quem cria o
 `plugin-registry` (`05-plugin-registry.yaml`), e os dois scripts de build

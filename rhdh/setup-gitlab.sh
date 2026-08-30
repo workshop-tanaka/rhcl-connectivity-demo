@@ -180,6 +180,20 @@ data:
           token: ${GITLAB_TOKEN}
           baseUrl: https://${GITLAB_HOST}
           apiBaseUrl: https://${GITLAB_HOST}/api/v4
+    # O provider de auth vem JUNTO com a credencial que o alimenta -- ele
+    # morava no app-config base, e la derrubava o boot do cluster virgem
+    # (install.sh roda antes de existir a OAuth application; o plugin 'auth'
+    # morre com 'Missing required config value'). Mapas de providers se
+    # mesclam entre app-configs, entao o oidc do base e este gitlab convivem.
+    # GITLAB_OAUTH_* fica fora da whitelist do envsubst e passa intacto: quem
+    # resolve e o Backstage em runtime, do secret rhdh-gitlab-oauth.
+    auth:
+      providers:
+        gitlab:
+          production:
+            clientId: ${GITLAB_OAUTH_CLIENT_ID}
+            clientSecret: ${GITLAB_OAUTH_CLIENT_SECRET}
+            audience: https://${GITLAB_HOST}
 EOF
 _ok "app-config-rhdh-gitlab aplicado"
 
