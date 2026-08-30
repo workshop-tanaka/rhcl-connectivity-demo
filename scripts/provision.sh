@@ -1640,8 +1640,28 @@ st_security() {
       return 0
     fi
     b="$(mktemp)"
+    # A API do Central nao devolve o conteudo de bundle existente, recusa nome
+    # duplicado, e REVOGAR NAO LIBERA O NOME -- ele fica reservado no datastore
+    # para sempre ('init bundle or CRS already exists' depois do revoke,
+    # medido em 2026-08-30 no cluster-flqzh). Tentativa anterior que criou o
+    # bundle e morreu antes de aplicar os Secrets deixava impasse permanente.
+    # Entao: o nome leva sufixo unico por emissao -- a idempotencia real e
+    # pelos Secrets (o check acima), o nome e cosmetico -- e o homonimo velho
+    # e revogado por higiene, sem depender disso.
+    local _bid _bnome
+    _bid="$(curl -sk -u "admin:${pw}" "https://${r}/v1/cluster-init/init-bundles" 2>/dev/null \
+      | python3 -c 'import sys,json
+for b in json.load(sys.stdin).get("items",[]):
+    if b.get("name","").startswith("rhcl-demo"): print(b["id"]); break' 2>/dev/null)"
+    if [[ -n "$_bid" ]]; then
+      _log "bundle rhcl-demo* existe sem os Secrets -- revogando o orfao"
+      curl -sk -u "admin:${pw}" -X PATCH -H 'Content-Type: application/json' \
+        -d "{\"ids\":[\"${_bid}\"],\"confirmImpactedClustersIds\":[]}" \
+        "https://${r}/v1/cluster-init/init-bundles/revoke" >/dev/null 2>&1 || true
+    fi
+    _bnome="rhcl-demo-$(date +%s)"
     curl -sk -u "admin:${pw}" -X POST -H 'Content-Type: application/json' \
-      -d '{"name":"rhcl-demo"}' "https://${r}/v1/cluster-init/init-bundles" 2>/dev/null \
+      -d "{\"name\":\"${_bnome}\"}" "https://${r}/v1/cluster-init/init-bundles" 2>/dev/null \
       | python3 -c 'import sys,json,base64,os
 d=json.load(sys.stdin)
 k=d.get("kubectlBundle")
