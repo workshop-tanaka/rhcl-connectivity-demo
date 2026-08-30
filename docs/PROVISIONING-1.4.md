@@ -342,6 +342,42 @@ A rota do `echo-api` mora em `platform-reference/gateway/httproute-echo-api.yaml
 
 ---
 
+## 5b. Amostras do Istio — o que muda para um gateway que não é o `prod-web`
+
+Opcional, e fora do roteiro: as quatro amostras de [`samples/`](../samples/)
+sobem com **o gateway do upstream**, um por amostra, no próprio namespace.
+Detalhe e medições em [SAMPLES.md](SAMPLES.md); aqui fica só o que quebra no
+provisionamento.
+
+```bash
+bash scripts/provision.sh samples          # bookinfo, grpc-echo, open-telemetry
+```
+
+**Três coisas que só aparecem aqui, e as três já custaram tempo:**
+
+1. **A anotação `networking.istio.io/service-type: ClusterIP` vale para *todo*
+   `Gateway`, não só para o `prod-web` da §5.** Sem ela o `Service` nasce
+   `LoadBalancer`, o `EXTERNAL-IP` fica `<pending>` para sempre e o `Gateway`
+   reporta `Programmed=False` — **enquanto responde 200**. Quem confere por
+   `oc get gateway` lê "não publicou" sobre algo publicado.
+
+2. **Não pendure rota de amostra no `prod-web`.** Ele carrega
+   `prod-web-deny-all`, de escopo de gateway: rota anexada sem `AuthPolicy`
+   própria é **negada**. Uma amostra sem RHCL lá responderia 401 em tudo, com a
+   causa num objeto de outro namespace.
+
+3. **O `Gateway` do Istio (`selector: istio: ingressgateway`) não funciona neste
+   cluster.** O OSSM 3 não instala o *ingressgateway* clássico —
+   `oc get deploy -A -l istio=ingressgateway` devolve nada. Vale para os
+   manifests `networking/` do upstream; use os `gateway-api/`.
+
+A etapa também declara o `extensionProvider` `otel-als-sample` no CR `Istio`,
+**acrescentando** à lista em vez de substituí-la — um merge patch com apenas o
+provider novo apagaria o `otel-tracing`, e o Ato 5 pararia de emitir span sem
+erro nenhum.
+
+---
+
 ## 6. Camada de demo
 
 ```bash

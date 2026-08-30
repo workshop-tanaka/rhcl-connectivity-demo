@@ -49,7 +49,15 @@ metadata:
   namespace: bookinfo
   annotations:
     # ---------------------------------------------------------------------
-    # ClusterIP, E NAO O DEFAULT -- MEDIDO NESTE CLUSTER EM 2026-08-28.
+    # ClusterIP, E NAO O DEFAULT.
+    #
+    # A ANOTACAO JA ERA CONHECIDA: a §5 do docs/PROVISIONING-1.4.md a usa no
+    # Gateway prod-web, pela mesma razao -- nao ha LoadBalancer neste sandbox.
+    # Ela nao e detalhe daquele gateway; e propriedade do ambiente, e vale para
+    # todo Gateway criado aqui.
+    #
+    # O QUE ESTE COMENTARIO ACRESCENTA e o sintoma de esquece-la, medido em
+    # 2026-08-28 -- e ele nao parece um defeito:
     #
     # A GatewayClass 'istio' cria o Service do gateway como LoadBalancer por
     # padrao. Este ambiente nao tem LoadBalancer, entao o EXTERNAL-IP fica

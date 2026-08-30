@@ -111,10 +111,13 @@ riscos que estavam em aberto **não se materializaram**:
 
 E o canário, em 20 chamadas: **19 v1, 1 v3, nenhuma v2**.
 
-### O defeito que a subida expôs: `Programmed=False` numa amostra que funciona
+### O sintoma que a subida expôs: `Programmed=False` numa amostra que funciona
 
-A `GatewayClass istio` cria o `Service` do gateway como **LoadBalancer** por
-padrão. Este ambiente não tem LoadBalancer, então o `EXTERNAL-IP` fica
+A correção já era conhecida — `networking.istio.io/service-type: ClusterIP` está
+na §5 do [PROVISIONING-1.4](../../docs/PROVISIONING-1.4.md), no `prod-web`, pela
+mesma razão. O que faltava registrado era o **sintoma** de esquecê-la.
+
+Sem a anotação, a `GatewayClass istio` cria o `Service` como **LoadBalancer**. Este ambiente não tem LoadBalancer, então o `EXTERNAL-IP` fica
 `<pending>` para sempre e o `Gateway` reporta:
 
 ```

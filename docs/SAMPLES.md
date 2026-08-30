@@ -287,9 +287,14 @@ endereço** — o que se lê como "aplicado" e não está. Vale para
 
 ### 8.2 `Programmed=False` num gateway que funciona
 
-A `GatewayClass istio` cria o `Service` do gateway como **LoadBalancer** por
-padrão. Este ambiente não tem LoadBalancer — `EXTERNAL-IP` fica `<pending>`
-para sempre, e o `Gateway` reporta:
+**A correção já era conhecida** — `networking.istio.io/service-type: ClusterIP`
+está na [§5 do PROVISIONING-1.4](PROVISIONING-1.4.md), no `Gateway` `prod-web`,
+com a mesma razão: não há LoadBalancer neste sandbox. Esta seção não a descobre;
+ela registra o **sintoma** de esquecê-la, que aquele documento não descreve — e
+que custou tempo aqui porque não parece um defeito.
+
+Sem a anotação, a `GatewayClass istio` cria o `Service` como **LoadBalancer**, o
+`EXTERNAL-IP` fica `<pending>` para sempre, e o `Gateway` reporta:
 
 ```
 Programmed=False  AddressNotAssigned: ... address pending for hostname
@@ -298,16 +303,12 @@ Programmed=False  AddressNotAssigned: ... address pending for hostname
 
 **E a amostra funciona assim** (medido em 2026-08-28): o *listener* fica
 `Programmed=True`, o `Route` alcança os endpoints, e o `/productpage` responde
-200. Quem conferir por `oc get gateway` lê "não publicou" sobre algo publicado.
+200 — com o `Gateway` dizendo `Programmed=False`. Quem conferir o estado por
+`oc get gateway` lê "não publicou" sobre algo publicado, e vai investigar o lado
+errado.
 
-A correção é uma anotação no `Gateway`, já nos manifests:
-
-```yaml
-networking.istio.io/service-type: ClusterIP
-```
-
-É a mesma família de problema que faz o `prod-web` ser publicado por `Route`
-passthrough.
+**A lição para um gateway novo:** a anotação não é detalhe do `prod-web`, é
+propriedade deste tipo de ambiente. Todo `Gateway` criado aqui precisa dela.
 
 ### 8.3 `TelemetryPolicy` só aceita `Gateway`
 
@@ -459,7 +460,23 @@ não fixar `runAsUser`, `registry.istio.io` responde daqui, e o patch do
 Em troca, a subida expôs as §8.2, §8.6 e §8.7 — todas já corrigidas nos
 manifests.
 
-### Falta
+### O que validar no próximo cluster
+
+O ambiente onde tudo isto foi medido foi desligado. A lista abaixo é o que
+**não** foi exercitado e deve ser, porque cada item é uma afirmação deste
+documento que ainda não tem medição por trás.
+
+| O que | Por que importa |
+| --- | --- |
+| `bash scripts/provision.sh` **sem argumentos** | a etapa `samples` nunca rodou dentro de uma execução completa — só isolada, com `SAMPLES=`. Ela é a última da lista; o que se quer ver é que nada antes dela a atrapalha |
+| `samples/<nome>/rhcl/` | as três camadas de RHCL **nunca foram aplicadas**. É onde o `bookinfo` ganha as duas fronteiras e o `grpc-echo` prova a `AuthPolicy` sobre gRPC |
+| `SAMPLES=websockets` | adiada, e por riscos que só o cluster resolve: `docker.io` anônimo, SCC `restricted-v2`, e WebSocket através do router (comportamento documentado do HAProxy, **não medido**) |
+| `DISPARA_BUILD=1` | nenhuma `PipelineRun` executou. Precisa do `acs-api-token`; e dois elos já se sabe que não fecham (Nexus/EULA, policies do ACS) |
+| `bookinfo` **sem** `open-telemetry` | o provider é declarado sempre, mas o coletor não existe. Espera-se degradação (log sem destino) e não erro — **não medido** |
+| `gitlab-seed.sh` num grupo **vazio** | o `podar="manifests/"` só foi exercitado em projeto que já existia |
+| o portal | as 21 entidades das amostras **são servidas**, mas não confirmei que renderizam — a API do catálogo exige token de usuário. Abrir e filtrar pela tag `sample` |
+
+### Falta, e é conhecido
 
 - **`websockets`** — ver acima.
 - **`websockets`** — adiada por decisão (§1). Riscos abertos: `docker.io`

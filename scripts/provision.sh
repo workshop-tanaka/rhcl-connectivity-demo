@@ -51,7 +51,7 @@ PR="${_here}/platform-reference"
 TIMEOUT="${TIMEOUT:-600}"
 DRY_RUN=0
 
-STAGES_ALL=(operators gitlab mesh platform gateway devportal demo pacotes consoles tracing dashboards gitops cicd registry entrega security identity samples credenciais)
+STAGES_ALL=(operators gitlab mesh platform gateway devportal demo pacotes consoles tracing dashboards gitops cicd registry entrega security identity credenciais samples)
 
 _usage() {
   cat <<EOF
@@ -100,9 +100,11 @@ Etapas, na ordem em que dependem umas das outras:
                 upstream e a cadeia de suprimento. Por padrao: bookinfo,
                 grpc-echo e open-telemetry -- o WEBSOCKETS FICA ADIADO (traga-o
                 com SAMPLES=websockets). SEM RHCL: a camada de policies de cada
-                uma fica em samples/<nome>/rhcl/, fora do kustomization. Exige
-                'mesh' e 'platform'; esta por ultimo na lista so para achar
-                Tekton e Quay de pe.
+                uma fica em samples/<nome>/rhcl/, fora do kustomization.
+                Aplicavel sozinha com 'mesh' e 'platform'; e a ULTIMA da lista
+                porque copia os tokens que a 'credenciais' emite -- invertida, a
+                copia nao acha nada e a pipeline da amostra nasce sem portao de
+                qualidade, sem varredura e sem publicacao, em silencio.
 
     credenciais os tokens das ferramentas de CI/CD e o secret que cada um
                 alimenta: SonarQube (senha do admin e token de analise), Nexus
@@ -1714,6 +1716,10 @@ _check() {
   _c "robot de push do Quay"   "$(oc get secret quay-robot -n quay >/dev/null 2>&1 && echo sim)"     "provision.sh registry"
   _c "servico travel-packages" "$(oc get wildflyserver travel-packages -n travel-packages >/dev/null 2>&1 && echo sim)" "provision.sh entrega"
   _c "pipeline de build"       "$(oc get pipeline build-travel-packages -n travel-packages >/dev/null 2>&1 && echo sim)" "provision.sh entrega"
+  # Ancorado no GATEWAY e nao no namespace: o namespace existir so diz que o
+  # apply passou. O gateway existir diz que a GatewayClass o materializou, que e
+  # o que de fato pode faltar num cluster novo.
+  _c "amostras do Istio"       "$(oc get gateway bookinfo-gateway -n bookinfo >/dev/null 2>&1 && echo sim)" "provision.sh samples"
   _c "RHACS"                   "$(_has_crd centrals.platform.stackrox.io && echo sim)"         "provision.sh security"
 
   printf '\n'
@@ -1815,10 +1821,18 @@ _check() {
 # ===========================================================================
 # 13. samples — as quatro amostras do Istio sob RHCL e OSSM
 # ===========================================================================
-# Entrou depois das demais e fica POR ULTIMO na lista por conveniencia, nao por
-# dependencia: assim uma execucao completa ja encontra Tekton, Quay e ACS de pe
-# e monta a cadeia de suprimento junto. A amostra em si so precisa de 'mesh',
-# 'platform' e 'gateway'.
+# FICA POR ULTIMO NA LISTA, E AGORA POR DEPENDENCIA REAL -- mudou em 2026-08-30.
+#
+# Ela era a ultima "por conveniencia": assim uma execucao completa ja encontrava
+# Tekton, Quay e ACS de pe. Quando a etapa 'credenciais' entrou, ela ficou DEPOIS
+# de samples, e isso e um defeito: _samples_segredos copia sonarqube-token,
+# nexus-admin e acs-api-token de travel-packages/cicd/stackrox, e a 'credenciais'
+# e quem os emite. Na ordem invertida a copia nao acha nada -- e nao acusa, por
+# design -- e a pipeline da amostra nasce sem portao de qualidade, sem varredura
+# e sem publicacao. Num cluster novo, em silencio.
+#
+# A amostra em si continua so precisando de 'mesh', 'platform' e a GatewayClass;
+# quem exige a ordem e a cadeia de suprimento dela.
 #
 # ---------------------------------------------------------------------------
 # A ORDEM E FIXA, e o motivo MUDOU em 2026-08-28 -- vale ler, porque a versao

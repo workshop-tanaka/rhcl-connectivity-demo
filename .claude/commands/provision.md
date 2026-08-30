@@ -49,6 +49,7 @@ Para cada etapa:
    | `tracing` | span do gateway chegando no Tempo |
    | `dashboards` | o `rhcl-negocio-planos` com série quebrada por `plan` |
    | `gitops` | o ApplicationSet aplicado — sem `GITHUB_TOKEN` ele **não** sobe |
+   | `samples` | `oc get gateway -n bookinfo` com `Programmed=True` (se vier `False`, falta a anotação `service-type: ClusterIP`) e `/productpage` respondendo **200** |
 
    Bateu: uma linha do que aquilo destrava, e pare.
    Não bateu: **diagnostique antes de sugerir.** Vá às armadilhas do
