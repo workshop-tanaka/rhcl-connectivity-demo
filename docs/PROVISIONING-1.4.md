@@ -46,8 +46,17 @@ bash scripts/build-cl-ops.sh --publish         # o plugin próprio, daqui do rep
 bash rhdh/setup-plugins.sh                     # lê a versão de rhdh/cl-ops.env
 bash rhdh/setup-catalog.sh
 bash scripts/provision.sh cicd security        # Tekton e RHACS
+bash scripts/provision.sh credenciais          # tokens de SonarQube, Nexus e ACS — DEPOIS do portal
 bash scripts/preflight.sh
 ```
+
+**Por que `credenciais` vem por último.** Os secrets que ela escreve vão no
+namespace do portal — sem ele, não há onde escrever. E as ferramentas que ela
+credencia sobem em `cicd` e `security`. É a etapa que fecha o ciclo que antes
+dependia de memória: SonarQube com admin/admin, Nexus sem leitura anônima e a
+aba Security sem token eram o estado natural de um cluster novo, e nada
+avisava. O EULA do Nexus continua manual de propósito
+(`NEXUS_EULA_ACCEPT=true`): aceitar licença é decisão de quem opera.
 
 **Por que `identity` vem antes do portal.** O `install.sh` precisa do segredo do
 client `rhdh`, que é a etapa `identity` quem cria. O caminho inverso não existe:

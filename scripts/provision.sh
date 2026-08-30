@@ -51,7 +51,7 @@ PR="${_here}/platform-reference"
 TIMEOUT="${TIMEOUT:-600}"
 DRY_RUN=0
 
-STAGES_ALL=(operators gitlab mesh platform gateway devportal demo pacotes consoles tracing dashboards gitops cicd registry entrega security identity samples)
+STAGES_ALL=(operators gitlab mesh platform gateway devportal demo pacotes consoles tracing dashboards gitops cicd registry entrega security identity samples credenciais)
 
 _usage() {
   cat <<EOF
@@ -103,6 +103,12 @@ Etapas, na ordem em que dependem umas das outras:
                 uma fica em samples/<nome>/rhcl/, fora do kustomization. Exige
                 'mesh' e 'platform'; esta por ultimo na lista so para achar
                 Tekton e Quay de pe.
+
+    credenciais os tokens das ferramentas de CI/CD e o secret que cada um
+                alimenta: SonarQube (senha do admin e token de analise), Nexus
+                (leitura anonima e EULA) e ACS (token Analyst). E a ULTIMA de
+                proposito -- exige 'cicd', 'security' e o portal RHDH ja
+                instalado, porque e no namespace dele que os secrets vao.
 
 Sem argumento, roda todas. Cada uma e idempotente.
 
@@ -1635,6 +1641,39 @@ st_identity() {
 
 
 # ===========================================================================
+# 16. credenciais (tokens das ferramentas de CI/CD)
+# ===========================================================================
+# POR QUE E UMA ETAPA SEPARADA, e a ultima: a 'cicd' SOBE Nexus e SonarQube, a
+# 'security' sobe o Central, e nenhuma das duas emite credencial. Ate
+# 2026-08-30 quem emitia era uma pessoa, uma vez, no cluster onde se lembrou --
+# e o repositorio nao sabia disso. Num ambiente novo o resultado nao era erro:
+# era o card do SonarQube vazio, a aba Security vazia, e uma pipeline cujo
+# portao de qualidade falhava por falta de token.
+#
+# Depende do portal RHDH ja instalado, porque e no namespace DELE que os
+# secrets vao. Se o portal ainda nao existe, o script avisa e pula so essa
+# parte -- rode a etapa de novo depois do rhdh/install.sh.
+st_credenciais() {
+  _sec "credenciais (tokens de SonarQube, Nexus e ACS)"
+
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "bash scripts/setup-cicd.sh"
+    return 0
+  fi
+
+  bash "${_here}/scripts/setup-cicd.sh" || _warn "setup-cicd.sh terminou com falha"
+
+  # O EULA do Nexus NAO e aceito por esta etapa: e ato de licenciamento de quem
+  # opera o ambiente. Sem ele o Nexus le e recusa escrita, e a decisao fica
+  # visivel aqui em vez de virar um 403 misterioso no build.
+  if [[ "${NEXUS_EULA_ACCEPT:-false}" != "true" ]]; then
+    _log "Nexus sem EULA: leitura funciona, escrita nao. Para aceitar:"
+    _log "  NEXUS_EULA_ACCEPT=true bash scripts/setup-cicd.sh nexus"
+  fi
+}
+
+
+# ===========================================================================
 # ===========================================================================
 # --check: diagnostico, nao instalacao
 # ===========================================================================
@@ -1697,6 +1736,48 @@ _check() {
     printf '\n'
     _warn "cluster sem portal e sem identidade: rode 'provision.sh identity' ANTES do rhdh/install.sh"
     printf '        %s\n' "o install.sh exige o segredo do client 'rhdh', que a etapa identity cria"
+  fi
+
+  printf '\n'
+  _sec "credenciais das ferramentas"
+
+  # NENHUMA delas quebra o portal ao faltar -- e esse e o problema. A aba abre,
+  # nao da erro, e mostra vazio; no palco isso se le como integracao quebrada.
+  # Por isso aparecem aqui e nao so no preflight: o --check e onde se descobre
+  # o que falta ANTES de montar o roteiro em cima.
+  local _rhdh_ns _eula _nexus_host
+  _rhdh_ns="$(oc get backstage -A -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || true)"
+  if [[ -n "$_rhdh_ns" ]]; then
+    _c "token de automacao do portal" \
+       "$(oc get secret rhdh-automation-secret -n "$_rhdh_ns" >/dev/null 2>&1 && echo sim)" \
+       "bash rhdh/install.sh"
+    _c "credencial do SonarQube" \
+       "$(oc get secret rhdh-sonarqube-secret -n "$_rhdh_ns" >/dev/null 2>&1 && echo sim)" \
+       "provision.sh credenciais"
+    _c "credencial do Nexus" \
+       "$(oc get secret rhdh-nexus-secret -n "$_rhdh_ns" >/dev/null 2>&1 && echo sim)" \
+       "provision.sh credenciais"
+    _c "credencial do ACS" \
+       "$(oc get secret rhdh-acs-secret -n "$_rhdh_ns" >/dev/null 2>&1 && echo sim)" \
+       "provision.sh credenciais"
+  fi
+  _c "token do SonarQube na pipeline" \
+     "$(oc get secret sonarqube-token -n travel-packages >/dev/null 2>&1 && echo sim)" \
+     "provision.sh credenciais"
+
+  # O EULA nao entra no contador de faltantes: e decisao de licenciamento de
+  # quem opera, e nao um passo esquecido do provisionamento.
+  _nexus_host="$(oc get route -n cicd --no-headers 2>/dev/null | awk '$1=="nexus"{print $2}' | head -1)"
+  if [[ -n "$_nexus_host" ]]; then
+    _eula="$(curl -sk -u "admin:${NEXUS_ADMIN_PASS:-admin123}" \
+               "https://${_nexus_host}/service/rest/v1/system/eula" 2>/dev/null \
+             | grep -c '"accepted":true' || true)"
+    if [[ "${_eula:-0}" -gt 0 ]]; then
+      _ok "EULA do Nexus aceito (escrita liberada)"
+    else
+      _warn "EULA do Nexus nao aceito -- ele le, mas recusa toda escrita com 403"
+      printf '        %s\n' "NEXUS_EULA_ACCEPT=true bash scripts/setup-cicd.sh nexus"
+    fi
   fi
 
   printf '\n'
@@ -2127,4 +2208,5 @@ cat <<EOF
     bash rhdh/setup-catalog.sh
     GITHUB_TOKEN=ghp_xxx bash rhdh/setup-github.sh <org> <repo>
     GITHUB_TOKEN=ghp_xxx bash scripts/provision.sh gitops   # descoberta automatica dos repos gerados
+    bash scripts/provision.sh credenciais                   # tokens de SonarQube, Nexus e ACS -- so depois do portal
 EOF

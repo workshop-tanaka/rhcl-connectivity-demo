@@ -87,6 +87,28 @@ else
   _ok "rhdh-backend-secret criado."
 fi
 
+# ----- 3b. token de automacao ----------------------------------------------
+# NASCE AQUI porque o setup-plugins.sh o poe em extraEnvs SEM CONDICAO: se o
+# secret nao existir, o CR referencia um Secret ausente e o deployment nao
+# sobe. Ate 2026-08-30 nenhum script o criava -- ele so existia nos clusters
+# onde alguem o fez a mao, e um ambiente novo quebrava no primeiro rollout com
+# o pod em 1/2 e TODOS os plugins falhando em 'core.auth', mensagem que nao
+# aponta para o secret que falta.
+#
+# E o token do externalAccess 'static' (02-instance.template.yaml): e com ele
+# que scripts falam com a API do portal sem entrar como pessoa. Preservado se
+# ja existir, pelo mesmo motivo do backend secret -- regerar invalidaria quem
+# ja o tem.
+if oc get secret rhdh-automation-secret -n "$RHDH_NS" >/dev/null 2>&1; then
+  _log "rhdh-automation-secret ja existe -- preservado."
+else
+  _log "gerando rhdh-automation-secret..."
+  oc create secret generic rhdh-automation-secret -n "$RHDH_NS" \
+    --from-literal=AUTOMATION_TOKEN="$(openssl rand -hex 32)" >/dev/null \
+    || _die "falha ao criar rhdh-automation-secret."
+  _ok "rhdh-automation-secret criado."
+fi
+
 # ----- 4. instancia --------------------------------------------------------
 # envsubst recebe a lista explicita de variaveis: sem ela, o ${BACKEND_SECRET}
 # do app-config (que o Backstage resolve em runtime) seria expandido para vazio.

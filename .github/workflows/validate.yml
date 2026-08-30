@@ -115,7 +115,7 @@ jobs:
               # namespace alheio) e ninguem viu, porque a diferenca so aparece em
               # cluster novo. Consolidado em rhdh/lib.sh; o preflight mantem copia
               # por ser self-contained.
-              ("_discover_rhdh_ns", ["scripts/preflight.sh", "rhdh/lib.sh"]),
+              ("_discover_rhdh_ns", ["scripts/preflight.sh", "rhdh/lib.sh", "scripts/setup-cicd.sh"]),
           ]
 
           def corpo(path, fn):
