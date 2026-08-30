@@ -336,5 +336,17 @@ _quer acs       && _acs
 
 _status
 printf '\n'
-_log "os secrets so chegam ao portal no proximo 'bash rhdh/install.sh' ou rollout:"
-printf '    %s\n' "oc rollout restart deploy/backstage-developer-hub -n ${RHDH_NS:-<ns>}"
+
+# Os secrets recem-criados NAO chegam ao portal sozinhos: e o setup-plugins.sh
+# quem os poe no extraEnvs e escreve o pluginConfig que os referencia. Antes
+# esta linha era so uma instrucao impressa -- e num cluster virgem, onde a
+# 'credenciais' roda por ultimo (depois da 2a passada de plugins), o portal
+# ficava DERRUBADO: o plugin do ACS entra com acsUrl: ${ACS_API_URL}, o env
+# nunca chega, e o schema do app reprova o boot inteiro ('Config must have
+# required property acsUrl', medido em 2026-08-30 no cluster-flqzh). A mesma
+# delegacao que o setup-gitlab.sh ja faz.
+if [[ -n "$RHDH_NS" ]]; then
+  _log "religando os plugins ao que acabou de ser emitido (setup-plugins.sh)..."
+  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/rhdh/setup-plugins.sh" \
+    || _warn "setup-plugins falhou -- rode-o a mao para o portal enxergar os secrets"
+fi
