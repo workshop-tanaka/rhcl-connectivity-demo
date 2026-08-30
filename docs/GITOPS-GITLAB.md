@@ -247,6 +247,13 @@ e a Route, e deixa o chart convergir enquanto as outras etapas rodam. A etapa
 > que qualquer componente montado hoje. No provisionamento de 2026-08-24, três
 > etapas estouraram um limite de 10 minutos de shell com componentes bem
 > menores. Esta etapa precisa de log em arquivo desde a primeira execução.
+>
+> Medido de novo em 2026-08-30, num SNO recém-nascido (cache de imagem frio):
+> o webservice estourou os 600s default da etapa. Não é falha — a etapa avisa
+> e devolve o controle ao operator, que segue montando sozinho; reexecutar a
+> etapa depois do webservice subir fecha só o que faltou (o PAT), com
+> `✓ ja existe` em todo o resto. Para não tropeçar, `TIMEOUT=1200` na primeira
+> execução em cluster virgem.
 
 ### Onde ele cabe (medido em 2026-08-24)
 
@@ -288,6 +295,14 @@ Object Storage: connection nao pode ser vazio              artifacts, lfs, uploa
 E nao ha saida pela versao: `gitlab-operator-kubernetes.v3.3.0` e o unico no
 catalogo (nos dois canais) e traz apenas charts 10.x — `10.1.6`, `10.2.4`,
 `10.3.0`. O chart 9.x, que empacotava as dependencias, nao esta disponivel.
+
+Cinco dias depois (2026-08-30, cluster-k96tq), o catalogo ja entregava o
+operator `v3.3.1`, que **tirou o 10.3.0 da lista** — aceitava so `10.3.1`,
+`10.2.5` e `10.1.7`. O pin do manifesto envelhece na velocidade do canal do
+operator, e a lista aceita nao e publicada em lugar consultavel: vive na
+imagem e so aparece no texto da recusa do webhook. Por isso o `provision.sh`
+passou a negociar (tenta o pin; se a recusa listar versoes, reaplica com a
+mais nova) e o pin virou "ultima verificada", nao garantia.
 
 Entao o GitLab aqui **nao e um componente, sao quatro**:
 
