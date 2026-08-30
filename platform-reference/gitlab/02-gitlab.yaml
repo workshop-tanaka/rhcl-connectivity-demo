@@ -5,7 +5,13 @@ metadata:
   namespace: gitlab-system
 spec:
   chart:
-    version: "10.3.0"
+    # A versao e a ULTIMA VERIFICADA, nao uma garantia: a lista que o operator
+    # aceita vive na imagem dele e muda a cada release -- cluster novo puxa
+    # operator mais novo, que recusa a versao do cluster anterior (medido em
+    # 2026-08-30: pin 10.3.0 recusado, operator v3.3.1 so aceitava 10.3.1,
+    # 10.2.5 ou 10.1.7). O provision.sh negocia: se o webhook recusar, ele
+    # reaplica com a mais nova da lista da propria recusa.
+    version: "10.3.1"
     values:
       global:
         edition: ce

@@ -502,9 +502,28 @@ st_gitlab() {
   if [[ $DRY_RUN -eq 1 ]]; then
     _cmd "aplicar GitLab com domain=${DOMAIN}"
   else
-    sed "s|__APPS_DOMAIN__|${DOMAIN}|" "$tpl" | oc apply -f - >/dev/null \
-      && _ok "GitLab aplicado (domain ${DOMAIN})" \
-      || _warn "falha ao aplicar o GitLab"
+    # O pin do chart envelhece com o operator: a lista aceita vive na imagem
+    # dele e so aparece na recusa do webhook (em 2026-08-30, pin 10.3.0 contra
+    # operator que aceitava 10.3.1/10.2.5/10.1.7 -- e a etapa "terminava" com
+    # aviso e sem GitLab nenhum). A negociacao: tenta o pin; se a recusa
+    # listar versoes, reaplica com a mais nova -- a lista vem em ordem
+    # decrescente -- e diz o que fez.
+    local _erro_gl _ver_gl
+    if _erro_gl="$(sed "s|__APPS_DOMAIN__|${DOMAIN}|" "$tpl" | oc apply -f - 2>&1 >/dev/null)"; then
+      _ok "GitLab aplicado (domain ${DOMAIN})"
+    else
+      _ver_gl="$(printf '%s' "$_erro_gl" | grep -oE 'use one of the following: [0-9., ]+' \
+                  | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+      if [[ -n "$_ver_gl" ]]; then
+        _warn "chart do manifesto recusado pelo operator; aceitas incluem ${_ver_gl} -- reaplicando com ela"
+        sed -e "s|__APPS_DOMAIN__|${DOMAIN}|" -e "s|version: \"[0-9.]*\"|version: \"${_ver_gl}\"|" "$tpl" \
+          | oc apply -f - >/dev/null \
+          && _ok "GitLab aplicado (domain ${DOMAIN}, chart ${_ver_gl})" \
+          || _warn "falha ao aplicar o GitLab mesmo com chart ${_ver_gl}"
+      else
+        _warn "falha ao aplicar o GitLab: $(printf '%s' "$_erro_gl" | head -1)"
+      fi
+    fi
     _log "o Job de migrations monta o schema inteiro — varios minutos"
     _rollout gitlab-webservice-default gitlab-system || {
       _warn "webservice nao ficou pronto; veja: oc logs -n gitlab-system deploy/gitlab-controller-manager --tail=5"
