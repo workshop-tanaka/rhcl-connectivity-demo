@@ -48,6 +48,18 @@ oc whoami >/dev/null 2>&1 || _die "não autenticado no cluster (oc login)"
 # que sobra e um exit 1 mudo. Vale para as tres descobertas.
 GITLAB_HOST="${GITLAB_HOST:-$(oc get cm app-config-rhdh-gitlab -n "$RHDH_NS" \
   -o jsonpath='{.data}' 2>/dev/null | grep -oE 'host: [a-z0-9.-]+' | awk '{print $2}' | head -1 || true)}"
+# Num cluster VIRGEM a ConfigMap acima nao existe: ela nasce com o portal, e
+# esta etapa roda ANTES dele. E o mesmo impasse ja resolvido para o
+# PORTAL_HOST logo abaixo -- so que aqui ficou esquecido (medido em
+# 2026-08-30: 'host do GitLab nao encontrado' na primeira montagem). A
+# verdade primaria e a rota do proprio GitLab, criada pela etapa 'gitlab';
+# a ConfigMap continua vencendo quando existe, porque e o host que o portal
+# ja esta configurado para usar.
+if [[ -z "$GITLAB_HOST" ]]; then
+  GITLAB_HOST="$(oc get route -n gitlab-system \
+    -o jsonpath='{range .items[?(@.spec.to.name=="gitlab-webservice-default")]}{.spec.host}{"\n"}{end}' 2>/dev/null \
+    | head -1 || true)"
+fi
 # O host do portal NAO pode exigir que o portal exista: num cluster novo o
 # install.sh precisa do segredo que ESTA etapa cria, e esta etapa precisaria da
 # rota que aquele cria. Era um impasse -- nenhum dos dois podia ser o primeiro.
@@ -185,11 +197,24 @@ print(json.dumps({"spec":{"chart":{"version":os.environ["V"],"values":{"global":
   # do chart dispara migrações, que pausam o deployment: tentar reiniciar antes
   # devolve "can't restart paused deployment".
   _log "aguardando as migrações do upgrade..."
+  # DUAS esperas, e com sleep de verdade. Medido em 2026-08-30 no cluster
+  # novo: o laco antigo (90 iteracoes SEM sleep, segundos no total) olhava
+  # antes de o operator criar o job novo de migracao -- contagem zero, o
+  # script seguia, reiniciava o webservice com a ConfigMap VELHA, e o botao
+  # do Keycloak nunca aparecia, com '✓' no fim. Primeiro espera-se o job
+  # novo NASCER (ate 2 min; patch que nao gera job tambem e um fim valido);
+  # so entao espera-se a fila esvaziar (ate 15 min).
+  _n=0
+  while [[ $_n -lt 12 ]]; do
+    _p="$(oc get jobs -n "$_GL_NS" --no-headers 2>/dev/null | grep migrations | awk '$2!="Complete" && $2!="1/1"' | wc -l | tr -d ' ')"
+    [[ "$_p" != "0" ]] && break
+    _n=$((_n + 1)); sleep 10
+  done
   _n=0
   while [[ $_n -lt 90 ]]; do
     _p="$(oc get jobs -n "$_GL_NS" --no-headers 2>/dev/null | grep migrations | awk '$2!="Complete" && $2!="1/1"' | wc -l | tr -d ' ')"
     [[ "$_p" == "0" ]] && break
-    _n=$((_n + 1))
+    _n=$((_n + 1)); sleep 10
   done
 
   _log "reiniciando o webservice para carregar o OmniAuth"
