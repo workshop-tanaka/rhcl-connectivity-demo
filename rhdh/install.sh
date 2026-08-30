@@ -38,7 +38,13 @@ if [[ -z "${RHDH_HOST:-}" ]]; then
   else
     _apps_domain="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
     [[ -n "$_apps_domain" ]] || _die "nao consegui descobrir o dominio de apps; defina RHDH_HOST."
-    RHDH_HOST="rhdh.${_apps_domain}"
+    # 'rhcl-portal', e nao 'rhdh': e o host que o setup-identity.sh assume no
+    # MESMO caso (portal ainda inexistente) ao criar o redirect_uri do client,
+    # e o host registrado do cluster anterior. Com os dois defaults iguais, o
+    # login nasce alinhado sem precisar reexecutar a identity depois daqui
+    # (defaults divergentes medidos em 2026-08-30: rhdh.<apps> aqui,
+    # rhcl-portal.<apps> la).
+    RHDH_HOST="rhcl-portal.${_apps_domain}"
   fi
 fi
 export RHDH_HOST

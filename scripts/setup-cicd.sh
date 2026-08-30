@@ -65,12 +65,12 @@ _discover_rhdh_ns() {
   for ns in $(oc get backstage -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | sort -u); do
     oc get secret rhdh-backend-secret -n "$ns" >/dev/null 2>&1 && { printf '%s' "$ns"; return; }
   done
-  # Ainda nao ha instancia nossa: se 'rhdh' ja e de outro, nao dispute o
-  # namespace com ele -- adotar o CR alheio reconfigura o portal do cluster.
-  if [[ -n "$(oc get backstage -n rhdh --no-headers 2>/dev/null)" ]]; then
-    printf 'rhdh-rhcl'; return
-  fi
-  printf 'rhdh'
+  # Ainda nao ha instancia nossa: o padrao da demo e rhdh-rhcl -- o namespace
+  # que RUNBOOK, setup-identity e a etapa credenciais assumem. O fallback era
+  # 'rhdh', e em cluster virgem isso instalava o portal fora do padrao (mordeu
+  # em 2026-08-30 no k96tq; ja tinha mordido antes no cxr7d). Se 'rhdh' for de
+  # outro dono, tanto faz: nunca disputamos aquele namespace.
+  printf 'rhdh-rhcl'
 }
 RHDH_NS="${RHDH_NS:-$(_discover_rhdh_ns)}"
 
