@@ -14,6 +14,22 @@
 # resumo: os quatro plugins de risco carregaram, INCLUSIVE os do Kiali ainda
 # fixados em bs_1.49.4, e o golden path rodou ponta a ponta -- projeto criado no
 # GitLab, 10 tipos de recurso no cluster, Argo Synced/Healthy e 401 de fora.
+#
+# Conferido de novo em 2026-08-30 (cluster-flqzh, OCP 4.22.10): fast-1.10 AINDA
+# e a minor mais nova, e por isso este arquivo nao mudou. O indice
+# redhat-operator-index:v4.22 nao publica fast-1.11 -- os canais vao de fast-1.1
+# a fast-1.10 --, e o canal 'fast', que e o default, resolve para o MESMO CSV
+# que o pin: rhdh-operator.v1.10.3. Subir o pin hoje nao levaria a lugar nenhum,
+# e trocar o pin por 'fast' so trocaria uma versao conhecida por um alvo movel.
+#
+# O 4.22 tambem nao esta fora de faixa: o CSV nao declara
+# com.redhat.openshift.versions e pede minKubeVersion 1.25.0. O sinal mais forte
+# e a propria presenca do pacote no indice do 4.22.
+#
+# Como refazer esta conferencia, que e o unico jeito honesto (o catalogo muda
+# sem avisar, e este numero envelhece):
+#   oc get packagemanifest rhdh -n openshift-marketplace \
+#     -o jsonpath='{.status.defaultChannel}{"\n"}{range .status.channels[*]}{.name}{" "}{.currentCSV}{"\n"}{end}'
 # ===========================================================================
 apiVersion: v1
 kind: Namespace
