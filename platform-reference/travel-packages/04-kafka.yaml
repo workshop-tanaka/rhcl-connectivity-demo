@@ -93,6 +93,20 @@ subjects:
     name: cdc-connect
     namespace: travel-streams
 ---
+# A ImageStream do build do connect: o Strimzi constroi a imagem do Debezium
+# PARA DENTRO dela (build.output.type: imagestream) mas NAO a cria -- sem ela
+# o KafkaConnect fica NotReady com "there is no image stream with name
+# cdc-connect" e nenhum pod de connect nasce (medido em 2026-08-30 no
+# cluster-flqzh; no cxr7d ela existia de uma criacao manual perdida no tempo).
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: cdc-connect
+  namespace: travel-streams
+spec:
+  lookupPolicy:
+    local: true
+---
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaConnect
 metadata:
