@@ -612,6 +612,29 @@ st_mesh() {
 st_platform() {
   _sec "plataforma"
   _apply platform-reference/kuadrant-system/kuadrant.yaml
+
+  # Em cluster VIRGEM o operator do Kuadrant nasce na etapa 'operators', antes
+  # do Istio da 'mesh' -- e a deteccao de provider acontece UMA vez, no boot.
+  # Sem a cura, o CR fica Ready=False com MissingDependency e as policies da
+  # 'demo' sao aceitas mas nunca enforced: a borda devolve 200 SEM CHAVE, em
+  # silencio (medido em 2026-08-30 no cluster-k96tq). A propria condicao manda
+  # reiniciar o pod -- e tem de ser DELETE: 'rollout restart' anota o template,
+  # o OLM reverte a anotacao, e o rollout "conclui" sem trocar pod nenhum.
+  if [[ $DRY_RUN -eq 0 ]]; then
+    local _krz="" _tkz=0
+    while [[ $_tkz -lt 60 ]]; do
+      _krz="$(oc get kuadrant kuadrant -n kuadrant-system \
+        -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)"
+      [[ -n "$_krz" ]] && break
+      _tkz=$((_tkz + 5)); sleep 5
+    done
+    if [[ "$_krz" == "MissingDependency" ]] && _has_crd wasmplugins.extensions.istio.io; then
+      _warn "operator do Kuadrant nasceu antes do Istio (deteccao so no boot) -- trocando o pod para redetectar"
+      oc get pods -n kuadrant-system -o name 2>/dev/null \
+        | grep kuadrant-operator-controller-manager \
+        | xargs -r oc delete -n kuadrant-system --wait=false >/dev/null 2>&1 || true
+    fi
+  fi
   _wait_cond kuadrant/kuadrant kuadrant-system Ready
 
   # A ordem importa: o label de injecao tem de existir ANTES dos Deployments,
