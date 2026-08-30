@@ -43,7 +43,7 @@ Para cada etapa:
    | `operators` | os CSVs em `Succeeded` — `oc get csv -A \| grep -E 'rhcl\|servicemesh'` |
    | `mesh` | `oc get istio,istiocni -A` com `Healthy`, e a `gatewayClassName` existindo |
    | `platform` | pods de `travel-agency` **2/2** — se vier 1/1, o sidecar não entrou |
-   | `gateway` | `oc get gateway -A` com `Programmed=True`, e `/travels` devolvendo **401** |
+   | `gateway` | `oc get gateway -A` com `Programmed=True`. Em cluster VIRGEM, `/travels` da **404** — rota e policy chegam na `demo`, e o **401** e o veredito de la; 401 aqui so em cluster que ja teve a demo |
    | `demo` | `oc get planpolicy,authpolicy -A` em `Accepted+Enforced` |
    | `consoles` | as abas aparecem no console; o Kiali lê o Thanos |
    | `tracing` | span do gateway chegando no Tempo |
