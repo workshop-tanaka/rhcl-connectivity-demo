@@ -154,23 +154,15 @@ spec:
       host: ${RHDH_HOST}
   database:
     enableLocalDb: true
-  # ----- flavour Lightspeed: fora, explicitamente -----
+  # ----- flavours: nenhum, explicitamente -----
   # O build do rhdh-operator 1.10.3 no catalogo do OCP 4.22 traz "flavours" e
-  # liga o de Lightspeed POR DEFAULT (rhdh-flavour-lightspeed-config,
-  # enabledByDefault: true): todo CR ganha o sidecar lightspeed-core e o init
-  # init-rag-data -- que morre com exit 137 (sem memoria) e prende o pod em
-  # Init:Error para sempre. Medido em 2026-08-30 no cluster-k96tq; o catalogo
-  # do 4.21 nao fazia isso com o MESMO 1.10.3. A demo nao usa o flavour, e o
-  # patch remove os dois containers do deployment rendido. O '$patch' passa
-  # ileso pelo envsubst porque o install.sh usa whitelist de variaveis.
-  deployment:
-    patch:
-      spec:
-        template:
-          spec:
-            containers:
-              - name: lightspeed-core
-                $patch: delete
-            initContainers:
-              - name: init-rag-data
-                $patch: delete
+  # liga o de Lightspeed POR DEFAULT (enabledByDefault: true): todo CR ganha o
+  # sidecar lightspeed-core e o init init-rag-data -- que morre com exit 137
+  # (sem memoria) e prende o pod em Init:Error para sempre. Medido em
+  # 2026-08-30 no cluster-k96tq; o catalogo do 4.21 nao fazia isso com o MESMO
+  # 1.10.3. A lista VAZIA e o opt-out desenhado (docs do proprio CRD): nil
+  # aplica os default, [] desliga todos. Nao remover containers um a um via
+  # deployment.patch: o flavour tambem monta ConfigMaps Nos containers dele, e
+  # a validacao do operator morre com 'container lightspeed-core not found'
+  # antes de criar o deployment (tambem medido).
+  flavours: []
