@@ -222,11 +222,15 @@ if [[ $_esp_ok -eq 0 ]]; then
   _tpl_urls=""
 else
   _tpl_urls=""
-  for _t in rhcl-api-product rhcl-api-subscription rhcl-api-canary; do
+  # A LISTA E LITERAL, e e ela quem decide o que aparece no Create. Um template
+  # novo em rhdh/templates/ e espelhado pelo seed e mesmo assim NAO e registrado
+  # se nao entrar aqui -- e a falha e muda: o Create simplesmente nao o mostra.
+  _tpls="rhcl-adotar-amostra rhcl-api-product rhcl-api-subscription rhcl-api-canary"
+  for _t in ${_tpls}; do
     _tpl_urls="${_tpl_urls} https://${GITLAB_HOST}/${_ESP}/-/blob/main/rhdh/templates/${_t}/template.yaml"
     _log "software template: ${_t}"
   done
-  _ok "3 templates apontando para o GitLab"
+  _ok "$(printf '%s\n' ${_tpls} | wc -l | tr -d ' ') templates apontando para o GitLab"
 fi
 
 _log "habilitando o catalogo (delegado ao setup-catalog.sh)..."

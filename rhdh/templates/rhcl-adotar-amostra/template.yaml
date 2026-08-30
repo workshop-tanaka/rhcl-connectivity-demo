@@ -98,7 +98,9 @@ spec:
           type: string
           ui:field: RepoUrlPicker
           ui:options:
-            allowedHosts: []
+            # __GITLAB_HOST__ e substituido na semeadura. Lista vazia deixa o
+            # campo Host sem opcao e o formulario nao anda.
+            allowedHosts: [__GITLAB_HOST__]
             # O SUBGRUPO NÃO É SUGESTÃO: o ApplicationSet 'rhcl-samples'
             # descobre por group=rhcl/samples com includeSubgroups=false.
             # Publicar em outro lugar gera um projeto que nada observa.
@@ -144,9 +146,12 @@ spec:
         # a assimetria de papéis (parceiro x plataforma) significar algo.
         token: ${{ secrets.USER_OAUTH_TOKEN }}
         defaultBranch: main
-        description: >-
-          ${{ parameters.origem }} adotado como ${{ parameters.name }} —
-          aplicado pelo ApplicationSet rhcl-samples.
+        # 'description' NAO e input desta acao: passar solto derruba a task com
+        # InputError sobre propriedade adicional. Vai em settings.
+        settings:
+          description: >-
+            ${{ parameters.origem }} adotado como ${{ parameters.name }} —
+            aplicado pelo ApplicationSet rhcl-samples.
 
     - id: register
       name: Registrar no catálogo
