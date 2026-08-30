@@ -138,7 +138,32 @@ _ok "cluster registrado como '${K8S_CLUSTER_NAME}'."
 # Agora quem nao diz nada preserva. Desligar exige dizer WITH_X=false, que e
 # uma decisao explicita -- e a unica leitura sem ambiguidade de um comando que
 # reescreve estado compartilhado.
-_cm_atual="$(oc get cm dynamic-plugins-rhdh -n "$RHDH_NS" -o jsonpath='{.data}' 2>/dev/null || true)"
+# LER FALHOU E LER "VAZIO" SAO COISAS DIFERENTES, e ate 2026-08-30 nao eram.
+#
+# A leitura era `2>/dev/null || true`: qualquer erro -- API fora do ar, token
+# expirado, namespace errado, throttling -- devolvia string vazia, toda flag
+# caia para false, e este script REESCREVE a lista inteira. O resultado e o
+# portal perdendo todos os plugins que nao vieram na linha de comando.
+#
+# Aconteceu em 2026-08-30: uma execucao imprimiu
+#   flags: kiali=false quay=false ... jaeger=false grafana=false
+# num cluster onde os nove estavam ligados, e removeu os nove. A ConfigMap foi
+# restaurada de backup; o que nao havia era como o script perceber sozinho.
+#
+# NotFound e resposta legitima -- e o cluster novo, onde nada esta ligado
+# mesmo. Qualquer outro erro e opacidade, e ai a unica acao segura e parar:
+# preservar exige enxergar, e este script nao pode preservar o que nao viu.
+_cm_saida="$(oc get cm dynamic-plugins-rhdh -n "$RHDH_NS" -o jsonpath='{.data}' 2>&1)"; _cm_rc=$?
+if [[ $_cm_rc -eq 0 ]]; then
+  _cm_atual="$_cm_saida"
+elif printf '%s' "$_cm_saida" | grep -qi 'not found'; then
+  _cm_atual=""   # cluster novo: nao existe mesmo
+else
+  _die "nao consegui ler a ConfigMap dynamic-plugins-rhdh em ${RHDH_NS}: ${_cm_saida}
+  Parando de proposito. Sem ela toda flag WITH_* cairia para 'false', e este
+  script reescreve a lista inteira -- o portal perderia todos os plugins que
+  voce nao passou na linha de comando. Conserte o acesso e rode de novo."
+fi
 _ja_ligado() { # padrao -> "true" se ja consta na ConfigMap em vigor
   if [[ -n "$_cm_atual" ]] && printf '%s' "$_cm_atual" | grep -qi -- "$1"; then
     printf 'true'
@@ -1562,6 +1587,18 @@ if oc get configmap app-config-rhdh-gitlab -n "$RHDH_NS" >/dev/null 2>&1; then
   _cms="${_cms},{\"name\":\"app-config-rhdh-gitlab\"}"
   case ",${_secrets}," in *"\"rhdh-gitlab-secret\""*) : ;; *) _secrets="${_secrets},{\"name\":\"rhdh-gitlab-secret\"}" ;; esac
 fi
+# Os tres secrets das ferramentas de CI/CD (etapa 'credenciais') tambem entram
+# quando existem. NUNCA foram fiados por codigo: no cluster velho alguem os
+# pos no CR a mao uma vez e o install.sh os preservava dali em diante -- o
+# virgem revelou o buraco da pior forma, com o plugin do ACS entrando com
+# acsUrl: ${ACS_API_URL}, o env nunca chegando, e o schema do app reprovando o
+# boot INTEIRO (medido em 2026-08-30 no cluster-flqzh). Condicionais como o do
+# GitLab: plugin configurado sem secret e warn, nao queda.
+for _s in rhdh-acs-secret rhdh-sonarqube-secret rhdh-nexus-secret; do
+  if oc get secret "$_s" -n "$RHDH_NS" >/dev/null 2>&1; then
+    case ",${_secrets}," in *"\"${_s}\""*) : ;; *) _secrets="${_secrets},{\"name\":\"${_s}\"}" ;; esac
+  fi
+done
 
 # creator-service como sidecar, e nao como Deployment proprio: o plugin monta a
 # URL do servico como 'http://<baseUrl>:<port>/' -- http puro, sem CA e sem
