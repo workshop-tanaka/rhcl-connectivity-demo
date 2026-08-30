@@ -32,6 +32,12 @@ export const WATCHED_KINDS: WatchedKind[] = [
   { key: 'dnspolicies', label: 'DNSPolicy', kind: 'DNSPolicy', group: 'kuadrant.io', version: 'v1', plural: 'dnspolicies', isPolicy: true },
   { key: 'tlspolicies', label: 'TLSPolicy', kind: 'TLSPolicy', group: 'kuadrant.io', version: 'v1', plural: 'tlspolicies', isPolicy: true },
   { key: 'planpolicies', label: 'PlanPolicy', kind: 'PlanPolicy', group: 'extensions.kuadrant.io', version: 'v1alpha1', plural: 'planpolicies', isPolicy: true },
+  // TelemetryPolicy vive em extensions.kuadrant.io, e NAO em kuadrant.io -- a
+  // primeira medicao perguntou pelo grupo errado ('can-i list
+  // telemetrypolicies.kuadrant.io' -> no) e este kind ficou de fora por uma
+  // permissao que sempre existiu. O rhdh/04-kubernetes-rbac.yaml a concede
+  // desde antes deste plugin.
+  { key: 'telemetrypolicies', label: 'TelemetryPolicy', kind: 'TelemetryPolicy', group: 'extensions.kuadrant.io', version: 'v1alpha1', plural: 'telemetrypolicies', isPolicy: true },
 ];
 
 /** O que a sineta recebe quando uma policy piora de verdade. */

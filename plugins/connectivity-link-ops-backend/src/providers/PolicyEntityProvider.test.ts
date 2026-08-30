@@ -1,4 +1,4 @@
-import { PolicyEntityProvider, PolicyKind, alvoDe } from './PolicyEntityProvider';
+import { PolicyEntityProvider, PolicyKind, POLICY_KINDS, alvoDe } from './PolicyEntityProvider';
 
 const KINDS: PolicyKind[] = [
   { kind: 'AuthPolicy', tipo: 'kuadrant-authpolicy', group: 'kuadrant.io', version: 'v1', plural: 'authpolicies' },
@@ -224,6 +224,26 @@ describe('PolicyEntityProvider', () => {
     await p.sincronizar();
     const a = emitidas[emitidas.length - 1].entities[0].entity.metadata.annotations;
     expect(a['connectivity-link.rhcl/target']).toBeUndefined();
+  });
+
+  it('cada kind declara o GRUPO da CRD que existe de verdade', () => {
+    // Este teste nasce de um erro concreto: a TelemetryPolicy ficou de fora do
+    // provider porque a medicao perguntou por telemetrypolicies.kuadrant.io,
+    // que nao existe. A CRD e telemetrypolicies.EXTENSIONS.kuadrant.io, e a
+    // permissao sempre esteve concedida.
+    //
+    // Conferir contra o cluster daria um teste que so roda com cluster; o que
+    // da para fixar aqui e o pareamento kind -> grupo, que e onde o erro morou.
+    const grupo = Object.fromEntries(POLICY_KINDS.map(k => [k.kind, k.group]));
+    expect(grupo).toEqual({
+      AuthPolicy: 'kuadrant.io',
+      RateLimitPolicy: 'kuadrant.io',
+      TokenRateLimitPolicy: 'kuadrant.io',
+      DNSPolicy: 'kuadrant.io',
+      TLSPolicy: 'kuadrant.io',
+      PlanPolicy: 'extensions.kuadrant.io',
+      TelemetryPolicy: 'extensions.kuadrant.io',
+    });
   });
 
   it('alvoDe aceita as duas formas de targetRef que as CRDs usam', () => {

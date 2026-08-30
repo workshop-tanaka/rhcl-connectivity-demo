@@ -17,15 +17,18 @@ export type PolicyKind = {
 };
 
 /**
- * TelemetryPolicy NÃO está aqui, e a ausência é medida, não esquecimento:
+ * TelemetryPolicy entrou aqui depois, e o motivo de ter ficado de fora merece
+ * ficar escrito: a medição que a excluiu perguntou pelo GRUPO ERRADO.
  *
- *   oc auth can-i list telemetrypolicies.kuadrant.io \
- *     --as=system:serviceaccount:<ns>:rhdh-kubernetes   ->  no
+ *   oc auth can-i list telemetrypolicies.kuadrant.io             ->  no
+ *   oc auth can-i list telemetrypolicies.extensions.kuadrant.io  ->  yes
  *
- * O ClusterRole que este plugin traz não a concede, e conceder por conta
- * própria seria alargar leitura sem que ninguém tenha pedido. A consequência é
- * honesta e vale registrar: `prod-web-telemetry` continua no portal porque
- * alguém a descreveu à mão, e uma TelemetryPolicy nova não apareceria sozinha.
+ * A CRD é `telemetrypolicies.extensions.kuadrant.io`, ao lado de PlanPolicy, e
+ * o `rhdh/04-kubernetes-rbac.yaml` já a concedia desde antes deste plugin
+ * existir. O `no` era verdadeiro sobre um recurso que não existe.
+ *
+ * Uma medição responde exatamente o que foi perguntado -- e a pergunta é parte
+ * do que se está medindo.
  */
 export const POLICY_KINDS: PolicyKind[] = [
   { kind: 'AuthPolicy', tipo: 'kuadrant-authpolicy', group: 'kuadrant.io', version: 'v1', plural: 'authpolicies' },
@@ -34,6 +37,7 @@ export const POLICY_KINDS: PolicyKind[] = [
   { kind: 'DNSPolicy', tipo: 'kuadrant-dnspolicy', group: 'kuadrant.io', version: 'v1', plural: 'dnspolicies' },
   { kind: 'TLSPolicy', tipo: 'kuadrant-tlspolicy', group: 'kuadrant.io', version: 'v1', plural: 'tlspolicies' },
   { kind: 'PlanPolicy', tipo: 'kuadrant-planpolicy', group: 'extensions.kuadrant.io', version: 'v1alpha1', plural: 'planpolicies' },
+  { kind: 'TelemetryPolicy', tipo: 'kuadrant-telemetrypolicy', group: 'extensions.kuadrant.io', version: 'v1alpha1', plural: 'telemetrypolicies' },
 ];
 
 /** O primeiro targetRef, aceitando as duas formas que as CRDs usam. */
