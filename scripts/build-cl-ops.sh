@@ -213,24 +213,17 @@ _dentro_fe="$(tar -xzOf "$_tgz_fe" package/dist-scalprum/plugin-manifest.json | 
   "o plugin-manifest DENTRO do tgz do frontend diz ${_dentro_fe}, esperado ${_ver}. Costuma ser dist-scalprum aninhado: o export-dynamic faz 'rm -rf' antes do 'cp -r' justamente por isso."
 _ok "versao conferida dentro dos dois pacotes: ${_ver}"
 
-# ----- o registro que sobrevive ao cluster ----------------------------------
 _int_be="$(_integrity "$_tgz_be")"
 _int_fe="$(_integrity "$_tgz_fe")"
-cat > "$_env" <<EOF
-# Gerado por scripts/build-cl-ops.sh -- nao editar a mao.
-#
-# O setup-plugins.sh herda versao e integrity da ConfigMap em vigor, o que
-# resolve o cluster que ja existe. Num cluster NOVO nao ha de quem herdar, e e
-# este arquivo que responde. Versionado de proposito: o cluster e efemero, o
-# repositorio nao.
-CL_OPS_VERSION=${_ver}
-CL_OPS_FRONTEND_INTEGRITY=${_int_fe}
-CL_OPS_BACKEND_INTEGRITY=${_int_be}
-EOF
-_ok "rhdh/cl-ops.env gravado (${_ver})"
+
 
 if [[ "$_MODO" != "publish" ]]; then
-  printf '\n  %s[OK]%s construido. Para publicar:  bash scripts/build-cl-ops.sh --publish\n\n' "$_GRN" "$_RST"
+  # O rhdh/cl-ops.env NAO e gravado aqui, e a recusa e o ponto: ele significa
+  # "estes pacotes estao publicados e sendo servidos", nao "estes pacotes foram
+  # construidos uma vez nesta maquina". Gravar antes de publicar ja produziu um
+  # arquivo descrevendo pacote que nao existia -- e um cluster novo confia nele.
+  _log "construido, NAO publicado -- rhdh/cl-ops.env so e gravado quando os pacotes existirem no registry"
+  printf '\n  %s[OK]%s pronto. Para publicar:  bash scripts/build-cl-ops.sh --publish\n\n' "$_GRN" "$_RST"
   exit 0
 fi
 
@@ -247,5 +240,23 @@ _servidos="$(bash "${_raiz}/scripts/registry-publish.sh" --list 2>/dev/null | gr
 [[ "${_servidos:-0}" -ge 2 ]] || _die \
   "publiquei mas o registry serve ${_servidos:-0} de 2 pacotes ${_ver}. NAO aplique a ConfigMap assim: o init container falha com 404 e o pod entra em Init:CrashLoopBackOff."
 _ok "o plugin-registry serve os dois pacotes ${_ver}"
+
+# ----- o registro que sobrevive ao cluster ----------------------------------
+# SO AGORA, depois de confirmado que o registry serve os dois pacotes. Gravado
+# antes, o arquivo descreveria pacote inexistente quando a publicacao falhasse
+# -- e e nele que um cluster novo confia para saber o que instalar.
+cat > "$_env" <<EOF
+# Gerado por scripts/build-cl-ops.sh -- nao editar a mao.
+#
+# O setup-plugins.sh herda versao e integrity da ConfigMap em vigor, o que
+# resolve o cluster que ja existe. Num cluster NOVO nao ha de quem herdar, e e
+# este arquivo que responde. Versionado de proposito: o cluster e efemero, o
+# repositorio nao.
+CL_OPS_VERSION=${_ver}
+CL_OPS_FRONTEND_INTEGRITY=${_int_fe}
+CL_OPS_BACKEND_INTEGRITY=${_int_be}
+EOF
+_ok "rhdh/cl-ops.env gravado (${_ver})"
+
 
 printf '\n  %s[OK]%s publicado. Agora:  WITH_CL_OPS=true bash rhdh/setup-plugins.sh\n\n' "$_GRN" "$_RST"
