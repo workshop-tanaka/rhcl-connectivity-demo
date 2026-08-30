@@ -36,6 +36,17 @@ seção 5 (armadilhas) não.
 > `docs/PROVISIONING-1.4.md` e o custo medido de cada etapa sai de
 > `scripts/consumo.sh` (baseline na §2.1 abaixo). Se o cxr7d voltar a ligar,
 > tudo abaixo volta a valer; num cluster novo, esta tabela inteira envelheceu.
+>
+> **2026-08-30, mais tarde: a primeira validação (cluster-k96tq, SNO 32 vCPU /
+> 128 Gi / OCP 4.22) foi ABANDONADA no passo do portal por DISCO LOCAL.** O nó
+> veio com 100 GB de raiz; com o stack até o portal (sem ACS, Quay, Nexus e
+> Sonar), /var estava em 87 GB e o kubelet entrou em DiskPressure, despejando
+> pods em laço — inclusive gitaly e o próprio portal. A lição de sizing que a
+> §2.1 não tinha: **imagem de container mora no disco local mesmo com PVC em
+> storage externo**, e essa dimensão pede **≥ 300 GB de disco raiz** num SNO
+> com o stack completo. A validação rendeu 12 correções de reprodutibilidade
+> (commits de 2026-08-30) antes de parar; o processo até `gitops` + `identity`
+> fechou verde de ponta a ponta.
 
 | Item | Valor em 2026-08-24 |
 | --- | --- |
