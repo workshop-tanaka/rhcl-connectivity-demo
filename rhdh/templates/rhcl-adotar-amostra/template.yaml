@@ -1,0 +1,178 @@
+# ===========================================================================
+# 0. Adotar uma aplicação — a porta de entrada do laboratório
+#
+# POR QUE ESTE TEMPLATE EXISTE. Os outros três criam um serviço NOVO. Este
+# adota um que já existe — que é o caso mais comum numa plataforma real, e é
+# como o workshop começa: a aplicação do laboratório entra pelo portal, não por
+# um script de laptop.
+#
+# O QUE ELE NÃO FAZ, e é o ponto: não aplica nada no cluster. Ele publica um
+# projeto em rhcl/samples/<nome>, e o ApplicationSet `rhcl-samples` o descobre.
+# Não há passo de deploy — e é isso que o módulo 1.1 do workshop demonstra.
+#
+# ---------------------------------------------------------------------------
+# DE ONDE VÊM OS MANIFESTOS, e por que não do skeleton.
+#
+# Vendorizar a amostra aqui criaria uma segunda cópia do bookinfo, divergindo
+# da primeira no primeiro ajuste — exatamente o que o job anti-drift existe
+# para impedir. Então o `fetch:plain` os busca do espelho no GitLab do próprio
+# cluster, resolvido no momento do scaffold.
+#
+# A ÚNICA EXCEÇÃO é `21-route-openshift.yaml`, que carrega `__DOMAIN__`: o Argo
+# não substitui placeholder, e o scaffolder não roda sed. Esse arquivo vem do
+# skeleton, já com o domínio do cluster — e é por isso que o `provision.sh
+# samples` precisa existir no caminho do laptop, mas não aqui.
+# ===========================================================================
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: rhcl-adotar-amostra
+  title: 0. Adotar uma aplicação — do portal ao cluster, sem passo de deploy
+  description: >-
+    Traz a aplicação do laboratório para a plataforma: cria o projeto em
+    rhcl/samples, registra no catálogo, e deixa o Argo aplicar. Use como
+    primeiro movimento do workshop.
+  tags: [workshop, gitops, service-mesh, bookinfo]
+spec:
+  type: service
+  owner: group:default/platform-team
+
+  parameters:
+    - title: Identidade
+      required: [name, owner]
+      properties:
+        name:
+          title: Nome
+          type: string
+          description: >-
+            Vira o projeto no GitLab e o namespace no cluster. Minúsculas,
+            começando por letra.
+          pattern: '^[a-z][a-z0-9-]{2,20}$'
+          ui:autofocus: true
+        owner:
+          title: Dono
+          type: string
+          description: A quem o componente pertence no catálogo.
+          ui:field: EntityPicker
+          ui:options:
+            catalogFilter:
+              kind: [Group]
+            defaultKind: Group
+
+    - title: Onde ela sobe
+      required: [appsDomain]
+      properties:
+        appsDomain:
+          title: Domínio de apps do cluster
+          type: string
+          description: >-
+            Sem 'https://' e sem barra. É daqui que sai o hostname da Route — e
+            o cluster é efêmero, então confira em vez de reaproveitar.
+          # Um rótulo só sob .apps: mais de um não cabe no wildcard do cluster.
+          pattern: '^apps\.[a-z0-9-]+\.[a-z0-9.-]+$'
+        origem:
+          title: De onde copiar os manifestos
+          type: string
+          default: bookinfo
+          enum: [bookinfo, grpc-echo, open-telemetry]
+          description: >-
+            A amostra a adotar. O espelho no GitLab é a fonte; nada é copiado
+            para dentro deste template.
+
+    - title: Camada de Connectivity Link
+      properties:
+        comRhcl:
+          title: Já subir com as policies de API
+          type: boolean
+          default: false
+          description: >-
+            Deixe DESLIGADO no workshop. A amostra sobe como Istio puro, e pôr
+            a plataforma na frente é o movimento da trilha 3 — com o antes e o
+            depois visíveis. Ligado aqui, o módulo 3.1 perde o contraste.
+
+    - title: Repositório
+      required: [repoUrl]
+      properties:
+        repoUrl:
+          title: Destino no GitLab
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts: []
+            # O SUBGRUPO NÃO É SUGESTÃO: o ApplicationSet 'rhcl-samples'
+            # descobre por group=rhcl/samples com includeSubgroups=false.
+            # Publicar em outro lugar gera um projeto que nada observa.
+            allowedOwners: ['rhcl/samples']
+            requestUserCredentials:
+              secretsKey: USER_OAUTH_TOKEN
+              additionalScopes:
+                gitlab: [api, write_repository]
+
+  steps:
+    - id: manifests
+      name: Trazer os manifestos do espelho
+      action: fetch:plain
+      input:
+        # O espelho no GitLab do próprio cluster, e não o GitHub: aqui o token
+        # já existe, e o repositório da plataforma é privado.
+        url: https://gitlab.${{ parameters.appsDomain }}/rhcl/samples/${{ parameters.origem }}/-/tree/main/manifests
+        targetPath: manifests
+
+    - id: fetch
+      name: Gerar o projeto
+      action: fetch:template
+      input:
+        url: ./skeleton
+        # Sobrescreve o 21-route-openshift.yaml que veio do espelho, agora com
+        # o domínio resolvido.
+        replace: true
+        values:
+          name: ${{ parameters.name }}
+          owner: ${{ parameters.owner }}
+          appsDomain: ${{ parameters.appsDomain }}
+          origem: ${{ parameters.origem }}
+          comRhcl: ${{ parameters.comRhcl }}
+          hostname: ${{ parameters.name }}.${{ parameters.appsDomain }}
+          gitlabHost: gitlab.${{ parameters.appsDomain }}
+
+    - id: publish
+      name: Publicar no GitLab
+      action: publish:gitlab
+      input:
+        repoUrl: ${{ parameters.repoUrl }}
+        # Em nome de quem está logado: é o que preserva a autoria e o que faz
+        # a assimetria de papéis (parceiro x plataforma) significar algo.
+        token: ${{ secrets.USER_OAUTH_TOKEN }}
+        defaultBranch: main
+        description: >-
+          ${{ parameters.origem }} adotado como ${{ parameters.name }} —
+          aplicado pelo ApplicationSet rhcl-samples.
+
+    - id: register
+      name: Registrar no catálogo
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+  output:
+    links:
+      - title: Repositório
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: Componente no catálogo
+        icon: catalog
+        entityRef: ${{ steps.register.output.entityRef }}
+    text:
+      - title: Não há passo de deploy
+        content: |
+          O `ApplicationSet` **rhcl-samples** descobre este projeto pelo
+          subgrupo e cria uma `Application` sozinho. Ele varre a cada
+          **3 minutos** — então esperar não é sinal de falha.
+
+          Acompanhe:
+
+              oc get application -n openshift-gitops | grep ${{ parameters.name }}
+              oc get pods -n ${{ parameters.name }}
+
+          Os pods sobem **2/2**: o segundo contêiner é o sidecar, injetado
+          porque o namespace pede injeção. Ninguém o declarou.

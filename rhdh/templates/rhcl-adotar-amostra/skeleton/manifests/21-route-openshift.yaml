@@ -1,0 +1,27 @@
+# O UNICO ARQUIVO QUE O SKELETON SOBRESCREVE.
+#
+# Os outros vem do espelho no GitLab, intactos. Este carrega __DOMAIN__ no
+# original -- e nem o Argo substitui placeholder, nem o scaffolder roda sed.
+# Entao ele nasce aqui, com o dominio ja resolvido pelo formulario.
+#
+# POR QUE EXISTE UMA ROUTE: nao ha LoadBalancer neste ambiente. A GatewayClass
+# istio cria o Service do gateway como LoadBalancer, o EXTERNAL-IP fica pendente
+# para sempre, e sem esta Route a amostra sobe inteira e fica inalcancavel.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ${{ values.name }}
+  namespace: ${{ values.name }}
+  labels:
+    app: ${{ values.origem }}
+spec:
+  host: ${{ values.name }}.${{ values.appsDomain }}
+  to:
+    kind: Service
+    name: ${{ values.origem }}-gateway-istio
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

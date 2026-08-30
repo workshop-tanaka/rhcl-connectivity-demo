@@ -82,16 +82,28 @@ Entity domain:default/travel ... is not of an allowed kind for that location
 
 O default do Backstage não inclui `Domain`, `Group`, `User` nem `Template`. A lista em `02-instance.template.yaml` já cobre os nove kinds usados aqui — ao adicionar um kind novo, inclua-o lá também.
 
-## Golden path — os três software templates
+## Golden path — os software templates
 
-`templates/` traz um golden path em três etapas, e não um formulário único. Cada
-um é uma `Template` registrada como location própria:
+`templates/` traz um golden path em etapas, e não um formulário único. Cada um é
+uma `Template` registrada como location própria:
 
 | | O que faz | Como entrega |
 | --- | --- | --- |
+| **0. `rhcl-adotar-amostra`** | adota uma aplicação que **já existe**: publica os manifestos em `rhcl/samples/<nome>` e deixa o `ApplicationSet` descobrir. Não aplica nada no cluster | cria o projeto no GitLab |
 | **1. `rhcl-api-product`** | o projeto inteiro: namespace já no Service Mesh, workload com ServiceAccount própria, HTTPRoute no `prod-web`, `AuthPolicy`, `PlanPolicy`, `APIProduct` do developer portal, `PeerAuthentication`, `AuthorizationPolicy` e o par `DestinationRule`/`VirtualService` pronto para canary | cria o repositório no GitHub |
 | **2. `rhcl-api-subscription`** | um consumidor pede acesso: gera o `APIKey` do developer portal em `consumers/` | *pull request* no repo da API |
 | **3. `rhcl-api-canary`** | sobe a v2 ao lado da v1 e desloca uma fração do tráfego pelo `VirtualService` | *pull request* no repo da API |
+
+O **0** é a porta de entrada do workshop, e existe por um motivo diferente dos
+outros três: eles criam serviço novo, ele adota um que já existe — que é o caso
+mais comum numa plataforma real. Os manifestos vêm do espelho no GitLab, não de
+uma cópia no `skeleton/`: vendorizá-los criaria a segunda cópia que o job
+anti-drift existe para impedir. A única exceção é `21-route-openshift.yaml`, que
+carrega `__DOMAIN__` — nem o Argo substitui placeholder, nem o scaffolder roda
+`sed`.
+
+Para registrá-lo no portal, acrescente a URL dele ao
+`TEMPLATE_LOCATION_URLS` do `setup-catalog.sh`.
 
 O ponto da demo continua sendo o mesmo, agora com os três escopos juntos: **a
 policy nasce com o serviço** — de borda *e* de Service Mesh —, e mudar exposição ou

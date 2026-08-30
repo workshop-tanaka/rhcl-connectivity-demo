@@ -1,0 +1,27 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{ values.name }}
+  description: >-
+    ${{ values.origem }} adotado pela plataforma. Aplicado pelo ApplicationSet
+    rhcl-samples -- nao ha passo de deploy.
+  annotations:
+    # O portal le os objetos deste namespace pela aba Kubernetes.
+    backstage.io/kubernetes-id: ${{ values.name }}
+    backstage.io/kubernetes-namespace: ${{ values.name }}
+    gitlab.com/project-slug: rhcl/samples/${{ values.name }}
+    # O lapis do Topology no console abre ESTE projeto, e nao a raiz do
+    # espelho: e o clique que faz o grafo significar alguma coisa.
+    app.openshift.io/vcs-uri: https://${{ values.gitlabHost }}/rhcl/samples/${{ values.name }}
+  tags:
+    - workshop
+    - service-mesh
+    - ${{ values.origem }}
+  links:
+    - title: A aplicacao
+      url: https://${{ values.name }}.${{ values.appsDomain }}/productpage
+spec:
+  type: service
+  lifecycle: experimental
+  owner: ${{ values.owner }}
+  system: travel
