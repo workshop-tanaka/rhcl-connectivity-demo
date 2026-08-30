@@ -37,6 +37,19 @@ seção 5 (armadilhas) não.
 > `scripts/consumo.sh` (baseline na §2.1 abaixo). Se o cxr7d voltar a ligar,
 > tudo abaixo volta a valer; num cluster novo, esta tabela inteira envelheceu.
 >
+> **2026-08-31: a validação FECHOU no cluster-flqzh** — 3 control-planes
+> (16 vCPU/64 Gi) + 2 workers (16 vCPU/32 Gi), OCP 4.22.10, ODF externo. O
+> repositório reproduziu a demo inteira num cluster virgem: todas as etapas,
+> portal com os 3 plugins construídos, `credenciais` com EULA aceito, e
+> `preflight.sh` em `[OK] demo pronta.` com 62 checks. Custo final medido:
+> 50,6c de CPU-request / 127,6 Gi de memória-request / 922 Gi de PVC — numa
+> capacidade de 80c/256 Gi. Hostnames: `api-travels.apps.cluster-flqzh...`,
+> portal em `rhcl-portal.apps.cluster-flqzh...`. A rodada rendeu mais 8
+> correções de reprodutibilidade (commits de 2026-08-30/31), incluindo três
+> que o cxr7d mascarava havia meses: o init bundle do ACS que nunca emitiu
+> por um `B=` na posição errada, os secrets de CI/CD sem fiação em código, e
+> o plugin-registry sem dono.
+>
 > **2026-08-30, mais tarde: a primeira validação (cluster-k96tq, SNO 32 vCPU /
 > 128 Gi / OCP 4.22) foi ABANDONADA no passo do portal por DISCO LOCAL.** O nó
 > veio com 100 GB de raiz; com o stack até o portal (sem ACS, Quay, Nexus e
