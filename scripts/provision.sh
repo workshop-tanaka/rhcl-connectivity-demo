@@ -2259,10 +2259,13 @@ cat <<EOF
 
   Ato 6 (RHDH + golden path), uma vez por cluster:
 
+    bash scripts/provision.sh gitops      # sem token externo: o PAT do GitLab vem da etapa 'gitlab'
     bash rhdh/install.sh
     bash rhdh/setup-plugins.sh
     bash rhdh/setup-catalog.sh
-    GITHUB_TOKEN=ghp_xxx bash rhdh/setup-github.sh <org> <repo>
-    GITHUB_TOKEN=ghp_xxx bash scripts/provision.sh gitops   # descoberta automatica dos repos gerados
-    bash scripts/provision.sh credenciais                   # tokens de SonarQube, Nexus e ACS -- so depois do portal
+    bash scripts/provision.sh credenciais # tokens de SonarQube, Nexus e ACS -- so depois do portal
+
+  A ordem completa (identity ANTES do portal, builds de plugin, samples por
+  ultimo) esta em docs/PROVISIONING-1.4.md -- este lembrete e o resumo, nao a
+  fonte. O caminho GitHub (setup-github.sh) saiu da demo em 2026-08-25.
 EOF

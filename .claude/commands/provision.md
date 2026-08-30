@@ -48,7 +48,7 @@ Para cada etapa:
    | `consoles` | as abas aparecem no console; o Kiali lê o Thanos |
    | `tracing` | span do gateway chegando no Tempo |
    | `dashboards` | o `rhcl-negocio-planos` com série quebrada por `plan` |
-   | `gitops` | o ApplicationSet aplicado — sem `GITHUB_TOKEN` ele **não** sobe |
+   | `gitops` | os 3 ApplicationSets aplicados. Sem token externo: o PAT do GitLab e fabricado pela etapa `gitlab` (`golden-path-gitlab-token`); se faltar, a etapa manda rodar `gitlab` antes |
    | `samples` | `oc get gateway -n bookinfo` com `Programmed=True` (se vier `False`, falta a anotação `service-type: ClusterIP`) e `/productpage` respondendo **200** |
 
    Bateu: uma linha do que aquilo destrava, e pare.
@@ -72,9 +72,9 @@ lista o que já foi julgado inofensivo — não reinvestigue.
 2. **Confirme o domínio e os hostnames** — `bash scripts/new-env.sh --print`
    mostra sem escrever nada. Hostnames de **um rótulo** sob `.apps`
    (`api-travels.apps...`, nunca `api.travels.apps...`) — §5.6.
-3. **Peça `GITHUB_ORG` e `GITHUB_TOKEN` agora**, não na hora da `gitops`. Num
-   cluster virgem não existe `rhdh-github-secret` para reaproveitar, e sem eles
-   o Ato 6 fica sem golden path — o que só se descobre no ensaio.
+3. **Nenhum token externo é necessário** desde a migração do golden path para
+   o GitLab do cluster (2026-08-25): o PAT é fabricado pela etapa `gitlab`. Se
+   algum texto pedir `GITHUB_TOKEN`, é fóssil da era GitHub — corrija-o.
 4. **Rode `--dry-run` primeiro** se for a primeira vez neste cluster:
    `bash scripts/provision.sh --dry-run` imprime tudo sem tocar em nada.
 
