@@ -37,7 +37,33 @@ _raiz="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 _be="${_raiz}/plugins/connectivity-link-ops-backend"
 _fe="${_raiz}/plugins/connectivity-link-ops"
 _env="${_raiz}/rhdh/cl-ops.env"
-RHDH_NS="${RHDH_NS:-rhdh-rhcl}"
+# O NAMESPACE E DESCOBERTO PELO PROPRIO REGISTRY, e nao chutado.
+#
+# Num cluster virgem o rhdh/install.sh escolhe o namespace 'rhdh'; nesta demo
+# ele e 'rhdh-rhcl'. Um default fixo procuraria o registry no lugar errado e
+# morreria com "pod do plugin-registry nao encontrado" -- mensagem que manda
+# investigar o registry quando o errado e o endereco.
+#
+# O criterio e CR 'backstage' + deployment 'plugin-registry' NO MESMO namespace.
+#
+# Procurar so pelo deployment nao serve: o openshift-devspaces tem um
+# plugin-registry proprio, com esse nome exato. A primeira versao desta funcao
+# procurava assim e elegeu o namespace do Dev Spaces -- publicaria os pacotes da
+# demo no registry de outro produto, e o erro so apareceria no portal, vazio.
+#
+# Nao repete o _discover_rhdh_ns do rhdh/lib.sh de proposito: a pergunta aqui e
+# "onde esta o registry que serve o portal", nao "onde esta o portal", e uma
+# quarta copia daquela funcao entraria no job anti-drift, que hoje guarda tres.
+_descobrir_ns() {
+  local ns
+  for ns in $(oc get backstage -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | sort -u); do
+    oc get deploy plugin-registry -n "$ns" >/dev/null 2>&1 && { printf '%s' "$ns"; return; }
+  done
+}
+RHDH_NS="${RHDH_NS:-$(_descobrir_ns)}"
+# O registry-publish.sh tem o mesmo default fixo. Exportar aqui faz com que ele
+# publique onde este script encontrou, em vez de onde ele adivinharia.
+export RHDH_NS
 
 _MODO=build
 case "${1:-}" in
@@ -46,6 +72,18 @@ case "${1:-}" in
   '')        ;;
   *)         _die "opcao desconhecida: $1 (use --publish ou --check)" ;;
 esac
+
+# Antes de construir: no modo publish, saber ONDE publicar e pre-requisito. Um
+# build de um minuto que termina em "nao achei o registry" gasta o tempo de quem
+# esta provisionando para dizer algo que ja se sabia no primeiro segundo.
+if [[ "$_MODO" == "publish" ]]; then
+# Sem namespace nao ha onde publicar, e o registry-publish.sh morreria com
+# "pod do plugin-registry nao encontrado em " -- com o namespace vazio na
+# mensagem, que manda procurar um pod em lugar nenhum. Num cluster novo este e
+# o PRIMEIRO erro que aparece, entao ele tem de dizer o passo que falta.
+[[ -n "$RHDH_NS" ]] || _die \
+  "nao achei o plugin-registry: nenhum namespace tem CR backstage E deployment plugin-registry. Ele e criado pela PRIMEIRA passada do setup-plugins.sh -- rode 'bash rhdh/setup-plugins.sh' e volte aqui (ver docs/PROVISIONING-1.4.md)."
+fi
 
 # ----- node: o erro do engine check nao cita a versao ------------------------
 # O `node` do PATH desta maquina e v16 e o backstage-cli morre em
@@ -101,7 +139,15 @@ if [[ "$_MODO" == "check" ]]; then
     _warn "rhdh/cl-ops.env nao existe -- um cluster novo nao saberia que versao instalar" \
           "rode: bash scripts/build-cl-ops.sh --publish"
   fi
-  if oc get pods -n "$RHDH_NS" >/dev/null 2>&1; then
+  if ! oc get ns >/dev/null 2>&1; then
+    _log "sem cluster alcancavel -- conferi so o repositorio"
+  elif [[ -z "$RHDH_NS" ]]; then
+    # Cluster de pe, mas sem registry: e o estado normal de um cluster novo
+    # ANTES da primeira passada do setup-plugins.sh, que e quem o cria.
+    _warn "nenhum namespace tem CR backstage E deployment plugin-registry -- o registry ainda nao existe" \
+          "bash rhdh/setup-plugins.sh   (a 1a passada cria o registry)"
+  elif oc get pods -n "$RHDH_NS" >/dev/null 2>&1; then
+    _log "portal em ${RHDH_NS}"
     _servidos="$(bash "${_raiz}/scripts/registry-publish.sh" --list 2>/dev/null | grep -c "connectivity-link-ops.*${_ver}\.tgz" || true)"
     [[ "${_servidos:-0}" -ge 2 ]] \
       && _ok "plugin-registry serve os dois pacotes ${_ver}" \
@@ -189,7 +235,7 @@ if [[ "$_MODO" != "publish" ]]; then
 fi
 
 # ----- publicar --------------------------------------------------------------
-_log "publicando no plugin-registry..."
+_log "publicando no plugin-registry (${RHDH_NS})..."
 bash "${_raiz}/scripts/registry-publish.sh" "$_tgz_fe" "$_tgz_be" >/dev/null \
   || _die "registry-publish.sh falhou -- rode-o a mao para ver a saida"
 

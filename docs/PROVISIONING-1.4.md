@@ -41,9 +41,10 @@ bash scripts/new-env.sh
 bash scripts/provision.sh                      # até gitops
 bash scripts/provision.sh identity             # ANTES do portal — ver abaixo
 bash rhdh/install.sh                           # o portal
+bash rhdh/setup-plugins.sh                     # 1ª passada: CRIA o plugin-registry
 bash scripts/build-plugins.sh --publish        # Jaeger e Grafana, que não vêm prontos
 bash scripts/build-cl-ops.sh --publish         # o plugin próprio, daqui do repo
-bash rhdh/setup-plugins.sh                     # lê a versão de rhdh/cl-ops.env
+bash rhdh/setup-plugins.sh                     # 2ª passada: agora com os três
 bash rhdh/setup-catalog.sh
 bash scripts/provision.sh cicd security        # Tekton e RHACS
 bash scripts/provision.sh credenciais          # tokens de SonarQube, Nexus e ACS — DEPOIS do portal
@@ -57,6 +58,19 @@ dependia de memória: SonarQube com admin/admin, Nexus sem leitura anônima e a
 aba Security sem token eram o estado natural de um cluster novo, e nada
 avisava. O EULA do Nexus continua manual de propósito
 (`NEXUS_EULA_ACCEPT=true`): aceitar licença é decisão de quem opera.
+
+**Por que o `setup-plugins.sh` roda duas vezes.** Ele é quem cria o
+`plugin-registry` (`05-plugin-registry.yaml`), e os dois scripts de build
+publicam *nele*. Numa ordem só, o `build-plugins.sh --publish` morre com
+`pod do plugin-registry não encontrado` — a mensagem culpa o registry quando o
+que falta é o passo que o cria.
+
+A primeira passada não é desperdício: ela sobe o registry **vazio** e deixa
+Jaeger, Grafana e Connectivity Link de fora, cada um com um aviso dizendo qual
+comando os traz. A segunda os encontra publicados e os inclui. É o mesmo motivo
+pelo qual `integrity` ausente desliga em vez de abortar — pedir na ConfigMap um
+`.tgz` que ninguém publicou dá `Init:CrashLoopBackOff`, e o erro do init
+container fala de hash, não de pacote faltando.
 
 **Por que `identity` vem antes do portal.** O `install.sh` precisa do segredo do
 client `rhdh`, que é a etapa `identity` quem cria. O caminho inverso não existe:
