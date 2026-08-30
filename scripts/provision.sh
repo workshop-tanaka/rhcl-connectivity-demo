@@ -1662,10 +1662,10 @@ for b in json.load(sys.stdin).get("items",[]):
     _bnome="rhcl-demo-$(date +%s)"
     curl -sk -u "admin:${pw}" -X POST -H 'Content-Type: application/json' \
       -d "{\"name\":\"${_bnome}\"}" "https://${r}/v1/cluster-init/init-bundles" 2>/dev/null \
-      | python3 -c 'import sys,json,base64,os
+      | B="$b" python3 -c 'import sys,json,base64,os
 d=json.load(sys.stdin)
 k=d.get("kubectlBundle")
-open(os.environ["B"],"wb").write(base64.b64decode(k)) if k else sys.exit(1)' B="$b" 2>/dev/null \
+open(os.environ["B"],"wb").write(base64.b64decode(k)) if k else sys.exit(1)' 2>/dev/null \
       && oc apply -f "$b" -n stackrox >/dev/null 2>&1 \
       && _ok "init bundle emitido e aplicado" \
       || _warn "falha ao emitir o init bundle -- ver o cabecalho de acs-secured-cluster.yaml"
