@@ -38,4 +38,8 @@ spec:
   name: rhdh
   source: redhat-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: rhdh-operator.v1.9.4
+  # SEM startingCSV, de proposito: o pin e o CANAL (minor), e a versao dentro
+  # dele e consequencia. No bump para fast-1.10 (2026-08-26) um startingCSV
+  # v1.9.4 ficou esquecido aqui -- em cluster ja instalado nao doi (o campo so
+  # age na primeira instalacao), mas num cluster virgem o OLM trava com
+  # 'constraints not satisfiable' (medido em 2026-08-30, cluster-k96tq).
