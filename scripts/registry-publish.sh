@@ -46,7 +46,31 @@ _pod() {
 }
 
 _P="$(_pod)"
-[[ -n "$_P" ]] || _die "pod do plugin-registry não encontrado em $RHDH_NS"
+
+# BOOTSTRAP em cluster virgem: o registry nao existe ate a primeira publicacao
+# -- o BuildConfig e a ImageStream nascem imperativos (dependem de diretorio
+# local, ver o cabecalho do rhdh/05-plugin-registry.yaml) e NINGUEM os criava:
+# o doc atribuia a criacao ao setup-plugins.sh, que so a cita em comentario.
+# Medido em 2026-08-30 no cluster-flqzh: pod ausente, publish morria aqui, e a
+# unica saida era refazer a mao o caminho documentado. Agora o proprio publish
+# o percorre: new-build binario, primeiro build com os pacotes passados, e o
+# deploy do 05. Exige ao menos um .tgz -- registry vazio nao serve nada.
+if [[ -z "$_P" ]]; then
+  [[ ${#_ADD[@]} -gt 0 ]] || _die "plugin-registry nao existe em $RHDH_NS e nada foi passado para publicar -- rode com os .tgz iniciais"
+  _log "plugin-registry ausente -- bootstrap com ${#_ADD[@]} pacote(s)"
+  _BOOT="$(mktemp -d)"
+  cp "${_ADD[@]}" "$_BOOT"/ || _die "falha ao copiar os pacotes para o build"
+  oc new-build httpd --name=plugin-registry --binary -n "$RHDH_NS" >/dev/null 2>&1 || true
+  oc start-build plugin-registry --from-dir="$_BOOT" --wait -n "$RHDH_NS" >/dev/null \
+    || { rm -rf "$_BOOT"; _die "o primeiro build do plugin-registry falhou"; }
+  rm -rf "$_BOOT"
+  RHDH_NS="$RHDH_NS" envsubst '${RHDH_NS}' < "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/rhdh/05-plugin-registry.yaml" \
+    | oc apply -f - >/dev/null || _die "falha ao aplicar o rhdh/05-plugin-registry.yaml"
+  oc rollout status deploy/plugin-registry -n "$RHDH_NS" --timeout=180s >/dev/null 2>&1 \
+    || _die "o plugin-registry nao ficou disponivel"
+  _ok "plugin-registry criado e servindo os pacotes iniciais"
+  exit 0
+fi
 
 if [[ "$_SO_LISTAR" == "true" ]]; then
   _log "servido agora por $_P"

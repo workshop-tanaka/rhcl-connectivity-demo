@@ -41,7 +41,7 @@ bash scripts/new-env.sh
 bash scripts/provision.sh                      # até gitops
 bash scripts/provision.sh identity             # ANTES do portal — ver abaixo
 bash rhdh/install.sh                           # o portal
-bash rhdh/setup-gitlab.sh                      # camada GitLab + 1ª passada de plugins (CRIA o plugin-registry)
+bash rhdh/setup-gitlab.sh                      # camada GitLab + 1ª passada de plugins
 bash scripts/build-plugins.sh --publish        # Jaeger e Grafana, que não vêm prontos
 bash scripts/build-cl-ops.sh --publish         # o plugin próprio, daqui do repo
 bash rhdh/setup-plugins.sh                     # 2ª passada: agora com os três
@@ -73,11 +73,12 @@ final; a linha acima portanto também cria o plugin-registry. Antes desta
 correção o `setup-gitlab.sh` não constava da sequência — ninguém o chamava, e
 só o preflight cobrava, no fim, com "sem integração GitLab".
 
-**Por que o `setup-plugins.sh` roda duas vezes.** Ele é quem cria o
-`plugin-registry` (`05-plugin-registry.yaml`), e os dois scripts de build
-publicam *nele*. Numa ordem só, o `build-plugins.sh --publish` morre com
-`pod do plugin-registry não encontrado` — a mensagem culpa o registry quando o
-que falta é o passo que o cria.
+**Por que o `setup-plugins.sh` roda duas vezes.** A primeira passada liga o
+que já existe e avisa o que falta; quem CRIA o `plugin-registry` é o primeiro
+`registry-publish.sh` com pacotes (os dois `build-*.sh --publish` passam por
+ele) — o bootstrap vive lá desde 2026-08-30, porque antes ninguém criava o
+registry e o publish morria com `pod do plugin-registry não encontrado` num
+cluster virgem, atribuindo a culpa ao lugar errado.
 
 A primeira passada não é desperdício: ela sobe o registry **vazio** e deixa
 Jaeger, Grafana e Connectivity Link de fora, cada um com um aviso dizendo qual
