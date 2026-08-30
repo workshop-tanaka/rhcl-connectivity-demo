@@ -31,6 +31,12 @@ sem acentuação em comentários de script.
 Cluster de workshop, com prazo de validade. Tudo nesta seção envelhece; a
 seção 5 (armadilhas) não.
 
+> **2026-08-30: o cluster-cxr7d foi DESLIGADO, não destruído.** O ambiente
+> seguinte valida o processo de reprovisionamento do zero — a ordem está em
+> `docs/PROVISIONING-1.4.md` e o custo medido de cada etapa sai de
+> `scripts/consumo.sh` (baseline na §2.1 abaixo). Se o cxr7d voltar a ligar,
+> tudo abaixo volta a valer; num cluster novo, esta tabela inteira envelheceu.
+
 | Item | Valor em 2026-08-24 |
 | --- | --- |
 | Cluster | `cluster-cxr7d.dyn.redhatworkshops.io` |
@@ -56,6 +62,39 @@ Comando único para reconfirmar tudo:
 ```bash
 oc get clusterversion; oc get csv -A | grep -E 'rhcl|servicemesh'; oc get nodes
 ```
+
+### 2.1 Custo medido por etapa (baseline de 2026-08-30, cluster-cxr7d)
+
+Medido com `bash scripts/consumo.sh` com a demo completa no ar. Uso é o
+consumo real; **requests é o que satura primeiro** — neste cluster a parede
+foi request de CPU nos masters (95% reservado com 29% de uso). Rodar o mesmo
+script no ambiente novo depois de cada etapa e comparar linha a linha.
+
+| etapa | uso mem | req mem | req cpu | pvc |
+| --- | --- | --- | --- | --- |
+| operators (+Keycloak) | 2,8 Gi | 3,7 Gi | 1,5 c | 50 Gi |
+| gitlab | 5,1 Gi | 1,7 Gi | 2,2 c | 70 Gi |
+| mesh | 1,1 Gi | 2,6 Gi | 1,0 c | — |
+| platform + gateway | 1,6 Gi | 1,2 Gi | 0,9 c | — |
+| pacotes | 5,9 Gi | 8,9 Gi | 3,5 c | 58 Gi |
+| tracing + dashboards + consoles | 1,3 Gi | 0,6 Gi | 0,4 c | 5 Gi |
+| gitops | 2,1 Gi | 2,4 Gi | 1,9 c | — |
+| cicd | 5,6 Gi | 4,8 Gi | 1,4 c | 31 Gi |
+| registry (Quay) | 4,8 Gi | 5,0 Gi | 1,5 c | 50 Gi |
+| **security (ACS)** | **6,1 Gi** | **20,0 Gi** | **9,2 c** | **300 Gi** |
+| samples | 2,4 Gi | 2,2 Gi | 1,1 c | — |
+| portal (RHDH) | 1,9 Gi | 1,1 Gi | 0,6 c | 3 Gi |
+| extras (AAP, Dev Spaces, TAS) | 6,3 Gi | 5,8 Gi | 1,8 c | 38 Gi |
+| **demo total (sem OCP)** | **~47 Gi** | **~60 Gi** | **~27 c** | **~605 Gi** |
+| plataforma OCP (3× control-plane) | 77,5 Gi | 68,3 Gi | 21,8 c | 350 Gi |
+
+Três achados que estimativa nenhuma tinha visto: o **ACS reserva o triplo do
+que usa** (20 Gi/9,2 c para 6,1 Gi/1,3 c) — instalar por último e candidato a
+sizing reduzido no CR do Central; o **Tempo não declara request nenhum** —
+primeiro a sofrer eviction em nó apertado, e a aba Traces morre sem aviso; e
+um SNO de 16 vCPU **não agenda o stack completo** por request de CPU, mesmo
+sobrando memória. SNO recomendado: **32 vCPU / 128 Gi / 1 TB NVMe** (mínimo
+pleno 24/96; LVMS default + ODF em modo MCG standalone antes da `registry`).
 
 ### Onde o portal parou — 2026-08-27, fim do dia
 
