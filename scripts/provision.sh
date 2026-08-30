@@ -1212,6 +1212,11 @@ st_cicd() {
       _warn "Pipelines nao ficou pronto -- a aba CI do portal fica sem conteudo"
       return 0
     }
+    # O CSV Succeeded NAO significa CRD servivel: na primeira instalacao ha uma
+    # janela em que o apply da valida-policies morre no vazio e o aviso culpa a
+    # pipeline (medido em 2026-08-30 no cluster-flqzh; a reexecucao passava).
+    _wait_crd pipelines.tekton.dev
+    _wait_crd pipelineruns.tekton.dev
   fi
 
   # A valida-policies passou a clonar de verdade o repo de policies no GitLab
