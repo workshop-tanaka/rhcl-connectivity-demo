@@ -1292,7 +1292,12 @@ st_registry() {
     }
   fi
 
-  _apply platform-reference/cicd/quay.yaml || return 0
+  # Em platform-reference/registry/, e nao em cicd/: o QuayRegistry depende da
+  # CRD que SO esta etapa instala, e a cicd aplica o diretorio dela inteiro --
+  # num cluster virgem o arquivo no lugar errado morria com 'no matches for
+  # kind QuayRegistry' e derrubava o apply do diretorio junto (medido em
+  # 2026-08-30 no cluster-flqzh; no cluster velho a CRD sempre existia).
+  _apply platform-reference/registry/quay.yaml || return 0
   [[ $DRY_RUN -eq 1 ]] && { _cmd "aguardar o QuayRegistry, criar superusuario, org e robot"; return 0; }
 
   _log "aguardando o Quay (sobe banco, cache e bucket -- leva minutos)..."
