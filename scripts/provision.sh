@@ -1219,6 +1219,17 @@ st_cicd() {
     _wait_crd pipelineruns.tekton.dev
   fi
 
+  # O Pipelines do OCP 4.22 muda o coschedule default para 'workspaces': task
+  # que monta DOIS PVCs (fonte + cache-maven, o desenho da build-travel-
+  # packages) morre com '[User error] more than one PersistentVolumeClaim is
+  # bound' antes de executar qualquer passo. 'pipelineruns' coagenda por
+  # PipelineRun e aceita os dois (medido em 2026-08-30 no cluster-flqzh; no
+  # cxr7d o default antigo nunca cobrou).
+  _run oc patch tektonconfig config --type=merge \
+    -p '{"spec":{"pipeline":{"coschedule":"pipelineruns"}}}' >/dev/null 2>&1 \
+    && _ok "TektonConfig coschedule=pipelineruns (task com dois PVCs)" \
+    || _warn "nao consegui ajustar o coschedule do TektonConfig"
+
   # A valida-policies passou a clonar de verdade o repo de policies no GitLab
   # do cluster, entao o host deixa de ser literal e vira __DOMAIN__. sed antes
   # do apply, como o SecuredCluster do setup-supply-chain.sh ja faz.
