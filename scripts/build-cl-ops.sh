@@ -252,6 +252,16 @@ cat > "$_env" <<EOF
 # resolve o cluster que ja existe. Num cluster NOVO nao ha de quem herdar, e e
 # este arquivo que responde. Versionado de proposito: o cluster e efemero, o
 # repositorio nao.
+#
+# ESPERE ESTE ARQUIVO APARECER MODIFICADO DEPOIS DE UM --publish, e commite: o
+# BACKEND reproduz byte a byte (tres packs e um rebuild completo do mesmo fonte
+# deram o mesmo sha512), mas o FRONTEND nao -- o bundle do Scalprum carrega algo
+# que muda a cada build. Medido em 2026-08-31.
+#
+# A consequencia pratica, para nao ser confundida com defeito: a integrity do
+# frontend e o registro de UM build publicado, e nao um checksum que outra
+# pessoa possa rederivar do fonte. Reverter a mudanca para "limpar o diff"
+# deixaria o arquivo apontando para um pacote que o registry nao serve mais.
 CL_OPS_VERSION=${_ver}
 CL_OPS_FRONTEND_INTEGRITY=${_int_fe}
 CL_OPS_BACKEND_INTEGRITY=${_int_be}
