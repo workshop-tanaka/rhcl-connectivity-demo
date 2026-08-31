@@ -1,0 +1,80 @@
+# ===========================================================================
+# O PAPEL DE CADA PERSONA NO CLUSTER.
+#
+# As personas nascem no realm do Keycloak (setup-identity.sh) e entram no
+# OpenShift porque o RHBK e o provedor de identidade do cluster. Mas nascer e
+# poder sao coisas diferentes: sem RoleBinding, 'oc login -u plat-eng' funciona
+# e devolve "You don't have any projects".
+#
+# ESTE ARQUIVO EXISTE PARA QUE ISSO SEJA REPRODUZIVEL. Ate 2026-08-31 os papeis
+# foram concedidos a mao, com 'oc adm policy', e viviam so no cluster -- o
+# repositorio nao conseguia reconstruir o ambiente.
+#
+# ---------------------------------------------------------------------------
+# POR QUE plat-eng E cluster-admin
+#
+# Ela e a persona com que o workshop e feito: escreve policy de borda e de
+# Service Mesh, reinicia o Limitador em kuadrant-system, cria PipelineRun,
+# aplica overlay. Recortar isso daria um perfil que precisa de ajuste a cada
+# modulo novo e que, somado, chega perto de admin de qualquer jeito.
+#
+# O que MITIGA: e um usuario NOMEADO, com senha, num cluster efemero de uma
+# pessoa so. Diferente de dar cluster-admin a uma ServiceAccount cujo terminal
+# esta atras de uma URL sem autenticacao.
+#
+# ---------------------------------------------------------------------------
+# POR QUE OS PARCEIROS SAO 'view'
+#
+# Eles sao consumidores: abrem merge request, olham o produto, nao configuram o
+# cluster. E a assimetria e o conteudo do modulo 1.6 -- cada modulo do workshop
+# imprime 'oc auth can-i --as=plat-eng' e '--as=acme-trips' lado a lado, e
+# espera 'yes' e 'no'. Sem estes bindings o guia promete o que o cluster nao
+# entrega.
+#
+# A mesma assimetria existe no GitLab, com outro vocabulario: Maintainer contra
+# Developer.
+#
+# COMO APLICAR, hoje:
+#
+#   oc apply -f platform-reference/identity/personas-rbac.yaml
+#
+# A ligacao na etapa 'identity' do provision.sh ficou PENDENTE de proposito:
+# em 2026-08-31 aquele arquivo tinha trabalho nao commitado de outra sessao, e
+# um commit --only teria levado junto o que nao e meu. Uma linha resolve, com a
+# arvore limpa -- e este cabecalho existe para que ela nao se perca.
+# ===========================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: persona-plat-eng
+  labels:
+    app.kubernetes.io/part-of: rhcl-identity
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: User
+    name: plat-eng
+    apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: persona-parceiros
+  labels:
+    app.kubernetes.io/part-of: rhcl-identity
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: User
+    name: globex-travel
+    apiGroup: rbac.authorization.k8s.io
+  - kind: User
+    name: initech-voyages
+    apiGroup: rbac.authorization.k8s.io
+  - kind: User
+    name: acme-trips
+    apiGroup: rbac.authorization.k8s.io
