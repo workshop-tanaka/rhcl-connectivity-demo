@@ -1,0 +1,192 @@
+# ===========================================================================
+# App com cadeia de suprimento — o que a plataforma entrega de fábrica
+#
+# Os outros templates criam serviço, produto de API ou canário. Este cria o que
+# uma organização precisa antes de qualquer um deles: uma aplicação cuja imagem
+# tem PROCEDÊNCIA — construída, analisada, publicada num registry próprio,
+# varrida e assinada, com o Rekor registrando quando.
+#
+# ---------------------------------------------------------------------------
+# O QUE ELE NÃO FAZ, e é o ponto: não aplica nada no cluster. Publica um
+# repositório, e o ApplicationSet do golden path o descobre. Não há passo de
+# deploy — e é por isso que o Deployment fica em ImagePullBackOff até o
+# primeiro build. Entregar e liberar são decisões separadas.
+#
+# ---------------------------------------------------------------------------
+# A PARTE QUE NÃO É DECLARATIVA, e que é a razão de este template existir.
+#
+# Uma pipeline com cadeia depende de três coisas que não cabem em YAML de
+# aplicação: quatro Secrets que moram em OUTROS namespaces (workspace de Secret
+# só lê do próprio, e RoleBinding não resolve), o 'secrets link' na
+# ServiceAccount (é por ele que o Tekton Chains autentica, porque roda fora do
+# pod) e a SCC privileged (o buildah precisa de SETFCAP).
+#
+# Sem elas o build falha apontando o lugar errado: uma mensagem sobre o
+# Dockerfile quando o problema é SETFCAP, ou 'signed=true' sem nada no registry
+# quando falta o link. O Job de bootstrap em manifests/05 resolve as três, uma
+# vez, e diz o que falta em vez de morrer em silêncio.
+# ===========================================================================
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: rhcl-app-com-cadeia
+  title: 4. App com cadeia de suprimento — build assinado, varrido e por GitOps
+  description: >-
+    Cria uma aplicação cuja imagem nasce com procedência: pipeline com portão de
+    qualidade, publicação no Quay, varredura do ACS e assinatura registrada no
+    Rekor. Entregue por GitOps, sem passo de deploy.
+  tags: [cadeia-de-suprimento, tekton, gitops, quay, acs]
+spec:
+  type: service
+  owner: group:default/platform-team
+
+  parameters:
+    - title: Identidade do serviço
+      required: [name, description, owner]
+      properties:
+        name:
+          title: Nome
+          type: string
+          description: Vira o repositório, o namespace e a tag da imagem.
+          pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+          maxLength: 40
+          ui:autofocus: true
+        description:
+          title: Descrição
+          type: string
+          ui:widget: textarea
+        owner:
+          title: Dono
+          type: string
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: [Group, User]
+          default: group:default/platform-team
+
+    - title: Onde ela roda
+      required: [appsDomain]
+      properties:
+        appsDomain:
+          title: Domínio de apps do cluster
+          type: string
+          description: >-
+            Sem 'https://' e sem barra. Um rótulo só sob .apps — mais de um não
+            cabe no wildcard, e o sintoma é uma rota que não resolve.
+          # SEM DEFAULT de propósito: um default fixo sobrevive à troca de
+          # cluster e gera hostname errado com Argo verde. Campo vazio trava o
+          # formulário, que é falha visível.
+          pattern: '^apps\.[a-z0-9.-]+$'
+        namespace:
+          title: Namespace
+          type: string
+          description: Vazio = o nome do serviço.
+          pattern: '^$|^[a-z]([-a-z0-9]*[a-z0-9])?$'
+        replicas:
+          title: Réplicas
+          type: integer
+          default: 1
+          minimum: 1
+          maximum: 3
+
+    - title: Registry
+      required: [quayOrg]
+      properties:
+        quayOrg:
+          title: Organização no Quay
+          type: string
+          default: rhcl
+          description: >-
+            A imagem vai para <quay>/<org>/<nome>. O robot de push precisa ter
+            permissão nesse repositório — veja o README do projeto gerado.
+
+    - title: Repositório
+      required: [repoUrl]
+      properties:
+        repoUrl:
+          title: Destino no GitLab
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts: [__GITLAB_HOST__]
+            # O ApplicationSet do golden path descobre por group=rhcl/apis com
+            # includeSubgroups=false. Publicar fora daqui gera um projeto que
+            # nada observa -- publish verde, catálogo verde, zero Application.
+            allowedOwners: ['rhcl/apis']
+            requestUserCredentials:
+              secretsKey: USER_OAUTH_TOKEN
+              additionalScopes:
+                gitlab: [api]
+
+  steps:
+    - id: fetch
+      name: Gerar o projeto
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          appsDomain: ${{ parameters.appsDomain }}
+          replicas: ${{ parameters.replicas }}
+          # Derivados UMA vez aqui; o skeleton nunca repete a regra.
+          namespace: ${{ parameters.namespace or parameters.name }}
+          hostname: ${{ parameters.name }}.${{ parameters.appsDomain }}
+          gitlabHost: gitlab.${{ parameters.appsDomain }}
+          repoSlug: ${{ (parameters.repoUrl | parseRepoUrl).owner }}/${{ (parameters.repoUrl | parseRepoUrl).repo }}
+          # O host do Quay segue o padrão do cluster, como o do GitLab: um
+          # campo a menos no formulário, e sem host fixo que sobreviva à troca
+          # de ambiente.
+          imagem: quay-quay.${{ parameters.appsDomain }}/${{ parameters.quayOrg }}/${{ parameters.name }}
+
+    - id: publish
+      name: Publicar no GitLab
+      action: publish:gitlab
+      input:
+        repoUrl: ${{ parameters.repoUrl }}
+        # Em nome de quem está logado: é o que preserva a autoria.
+        token: ${{ secrets.USER_OAUTH_TOKEN }}
+        defaultBranch: main
+        repoVisibility: public
+        topics: [rhcl-golden-path, cadeia-de-suprimento]
+        settings:
+          description: ${{ parameters.description }}
+
+    - id: register
+      name: Registrar no catálogo
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+  output:
+    links:
+      - title: Repositório
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: Componente
+        icon: catalog
+        entityRef: ${{ steps.register.output.entityRef }}
+    text:
+      - title: O que acontece agora
+        content: |
+          O `ApplicationSet` descobre o projeto e aplica — **não há passo de
+          deploy**. Ele varre a cada 3 minutos.
+
+          O `Deployment` fica em `ImagePullBackOff` até o primeiro build, e
+          **isso é esperado**: o Git foi aplicado; a imagem ainda não existe.
+
+          Para construir:
+
+              oc create -f pipeline/run.yaml
+
+      - title: Antes do primeiro build
+        content: |
+          O robot do Quay recebe permissão **por repositório**. Um produto novo
+          precisa que alguém conceda `write` ao `${{ parameters.quayOrg }}+tekton`
+          no repositório `${{ parameters.name }}` — senão o push falha por
+          permissão, e a mensagem fala de autenticação.
+
+          E o `acs-api-token` não é criado por nenhuma etapa: é emitido à mão na
+          UI do ACS, com papel *Analyst*. Sem ele a varredura é pulada, com
+          aviso.

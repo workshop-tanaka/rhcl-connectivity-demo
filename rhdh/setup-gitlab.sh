@@ -225,7 +225,7 @@ else
   # A LISTA E LITERAL, e e ela quem decide o que aparece no Create. Um template
   # novo em rhdh/templates/ e espelhado pelo seed e mesmo assim NAO e registrado
   # se nao entrar aqui -- e a falha e muda: o Create simplesmente nao o mostra.
-  _tpls="rhcl-adotar-amostra rhcl-api-product rhcl-api-subscription rhcl-api-canary"
+  _tpls="rhcl-adotar-amostra rhcl-api-product rhcl-api-subscription rhcl-api-canary rhcl-app-com-cadeia"
   for _t in ${_tpls}; do
     _tpl_urls="${_tpl_urls} https://${GITLAB_HOST}/${_ESP}/-/blob/main/rhdh/templates/${_t}/template.yaml"
     _log "software template: ${_t}"

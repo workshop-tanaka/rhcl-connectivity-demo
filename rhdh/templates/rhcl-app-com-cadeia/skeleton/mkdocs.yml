@@ -1,0 +1,7 @@
+# Sem este arquivo a aba Docs do portal quebra -- e, sem a anotacao
+# techdocs-ref, ela some sem erro nenhum.
+site_name: ${{ values.name }}
+nav:
+  - Inicio: index.md
+plugins:
+  - techdocs-core

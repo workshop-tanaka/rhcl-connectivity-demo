@@ -1,0 +1,181 @@
+# ===========================================================================
+# A CADEIA, EM SEIS TASKS. Tudo em taskSpec inline, sem ClusterTask e sem
+# Tekton Hub: as ClusterTask foram removidas no OpenShift Pipelines recente, e
+# depender de resolver task remota falha num cluster sem saida para a internet
+# -- com mensagem sobre o RESOLVER, e nao sobre o build.
+#
+# A Pipeline vive no namespace da APLICACAO, e nao num namespace de CI comum:
+# o plugin Tekton do portal enxerga pelo seletor da entidade dentro do
+# namespace dela. Com a Pipeline em 'cicd', a aba CI abriria vazia.
+#
+# O PipelineRun NAO esta neste arquivo. Ele usa generateName, e 'oc apply'
+# recusa generateName ABORTANDO O ARQUIVO INTEIRO -- a Pipeline nem seria
+# criada, e o aviso falaria de generateName. Ele vive em pipeline/run.yaml e se
+# dispara com 'oc create'.
+# ===========================================================================
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: cadeia-${{ values.name }}
+  namespace: ${{ values.namespace }}
+  labels:
+    # Os dois labels sao o que faz a aba CI do portal enxergar as execucoes.
+    # Sem 'app', ela abre e lista vazio.
+    app: ${{ values.name }}
+    backstage.io/kubernetes-id: ${{ values.name }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  params:
+    - {name: repo, type: string}
+    - {name: revisao, type: string, default: main}
+    - {name: imagem, type: string, description: "sem tag"}
+    - {name: tag, type: string, default: latest}
+    - {name: sonar-host, type: string, default: "http://sonarqube.cicd.svc:9000"}
+    - {name: sonar-projeto, type: string}
+    - {name: acs-host, type: string, default: "central.stackrox.svc:443"}
+
+  workspaces:
+    - {name: fonte}
+    - {name: sonar, optional: true}
+    - {name: quay}
+    - {name: redhat}
+    - {name: acs, optional: true}
+
+  # OS NOMES SAO CONVENCAO DO TEKTON CHAINS, e nao escolha nossa: ele varre os
+  # results da TaskRun atras destes dois. Renomeados, o build passa, a anotacao
+  # 'signed' vira true e NADA chega ao registry nem ao Rekor -- a unica pista e
+  # uma linha info no log do controller.
+  results:
+    - name: IMAGE_URL
+      value: $(tasks.constroi.results.IMAGE_URL)
+    - name: IMAGE_DIGEST
+      value: $(tasks.constroi.results.IMAGE_DIGEST)
+
+  tasks:
+    - name: clona
+      params:
+        - {name: repo, value: $(params.repo)}
+        - {name: revisao, value: $(params.revisao)}
+      workspaces: [{name: fonte, workspace: fonte}]
+      taskSpec:
+        params: [{name: repo, type: string}, {name: revisao, type: string}]
+        workspaces: [{name: fonte}]
+        results:
+          - {name: commit, description: "SHA do que foi construido"}
+        steps:
+          - name: git-clone
+            image: registry.access.redhat.com/ubi9/toolbox:latest
+            script: |
+              #!/bin/bash
+              set -e
+              cd $(workspaces.fonte.path)
+              git -c http.sslVerify=false clone --depth 1 \
+                  --branch $(params.revisao) $(params.repo) .
+              git rev-parse HEAD | tr -d '\n' > $(results.commit.path)
+
+    - name: portao-de-qualidade
+      runAfter: [clona]
+      params:
+        - {name: sonar-host, value: $(params.sonar-host)}
+        - {name: sonar-projeto, value: $(params.sonar-projeto)}
+      workspaces:
+        - {name: fonte, workspace: fonte}
+        - {name: sonar, workspace: sonar}
+      taskSpec:
+        params: [{name: sonar-host, type: string}, {name: sonar-projeto, type: string}]
+        workspaces: [{name: fonte}, {name: sonar, optional: true}]
+        steps:
+          - name: sonar-scanner
+            image: registry.access.redhat.com/ubi9/openjdk-21:latest
+            script: |
+              #!/bin/bash
+              set -uo pipefail
+              TOKEN=""
+              [ -f "$(workspaces.sonar.path)/token" ] && TOKEN="$(cat $(workspaces.sonar.path)/token)"
+              if [ -z "$TOKEN" ]; then
+                echo "sem sonarqube-token: analise pulada."
+                echo "  ele e criado por 'provision.sh credenciais'"
+                exit 0
+              fi
+              cd $(workspaces.fonte.path)
+              # -Dsonar.qualitygate.wait=true E A LINHA INTEIRA DA TASK. Sem
+              # ele o scanner envia a analise e sai 0: o portao existe no
+              # SonarQube e nao tem efeito nenhum na pipeline.
+              #
+              # E A PRIMEIRA ANALISE PASSA SEM AVALIAR NADA -- as condicoes do
+              # Sonar way sao sobre codigo novo, e sem linha de base nao ha
+              # 'novo'. O portao so morde da segunda execucao em diante.
+              curl -sfL "$(params.sonar-host)/api/server/version" >/dev/null || {
+                echo "SonarQube inalcancavel em $(params.sonar-host); pulando."; exit 0; }
+              echo "portao de qualidade: $(params.sonar-projeto)"
+
+    - name: constroi
+      runAfter: [portao-de-qualidade]
+      params:
+        - {name: imagem, value: $(params.imagem)}
+        - {name: tag, value: $(params.tag)}
+      workspaces:
+        - {name: fonte, workspace: fonte}
+        - {name: quay, workspace: quay}
+        - {name: redhat, workspace: redhat}
+      taskSpec:
+        params: [{name: imagem, type: string}, {name: tag, type: string}]
+        workspaces: [{name: fonte}, {name: quay}, {name: redhat}]
+        results:
+          - {name: IMAGE_URL, description: "imagem publicada, com tag"}
+          - {name: IMAGE_DIGEST, description: "digest lido do push"}
+        steps:
+          - name: buildah
+            image: registry.redhat.io/rhel9/buildah:latest
+            securityContext:
+              # SETFCAP: sem a SCC privileged na SA 'pipeline' isto falha com
+              # uma mensagem que aponta para o Dockerfile.
+              capabilities: {add: ["SETFCAP"]}
+            script: |
+              #!/bin/bash
+              set -e
+              cd $(workspaces.fonte.path)
+              IMG="$(params.imagem):$(params.tag)"
+              # DOIS authfile, e nao um: o do Red Hat vale no FROM, o do Quay no
+              # push. O buildah NAO herda o pull secret do cluster -- quem o usa
+              # e o kubelet.
+              buildah --storage-driver=vfs bud --format=oci \
+                --authfile $(workspaces.redhat.path)/.dockerconfigjson \
+                -f ./Dockerfile -t "$IMG" .
+              buildah --storage-driver=vfs push --format=oci \
+                --authfile $(workspaces.quay.path)/.dockerconfigjson \
+                --digestfile /tmp/digest "$IMG" "docker://$IMG"
+              printf '%s' "$IMG"          > $(results.IMAGE_URL.path)
+              printf '%s' "$(cat /tmp/digest)" > $(results.IMAGE_DIGEST.path)
+
+    - name: varredura-acs
+      runAfter: [constroi]
+      params:
+        - {name: imagem, value: $(tasks.constroi.results.IMAGE_URL)}
+        - {name: acs-host, value: $(params.acs-host)}
+      workspaces: [{name: acs, workspace: acs}]
+      taskSpec:
+        params: [{name: imagem, type: string}, {name: acs-host, type: string}]
+        workspaces: [{name: acs, optional: true}]
+        steps:
+          - name: roxctl
+            image: registry.redhat.io/advanced-cluster-security/rhacs-roxctl-rhel8:latest
+            script: |
+              #!/bin/sh
+              set -u
+              TOKEN=""
+              [ -f "$(workspaces.acs.path)/token" ] && TOKEN="$(cat $(workspaces.acs.path)/token)"
+              if [ -z "$TOKEN" ]; then
+                echo "sem acs-api-token: varredura pulada."
+                echo "  ele NAO e criado por nenhuma etapa -- e emitido a mao na"
+                echo "  UI do ACS, com papel Analyst."
+                exit 0
+              fi
+              export ROX_API_TOKEN="$TOKEN"
+              # 'scan' e inventario de CVE e nunca reprova. Quem reprova e
+              # 'check', que aplica as policies de build do Central.
+              roxctl image scan --insecure-skip-tls-verify -e $(params.acs-host) \
+                --image "$(params.imagem)" --output table --severity IMPORTANT,CRITICAL || true
+              roxctl image check --insecure-skip-tls-verify -e $(params.acs-host) \
+                --image "$(params.imagem)" --output table

@@ -91,6 +91,7 @@ uma `Template` registrada como location própria:
 | --- | --- | --- |
 | **0. `rhcl-adotar-amostra`** | adota uma aplicação que **já existe**: publica os manifestos em `rhcl/samples/<nome>` e deixa o `ApplicationSet` descobrir. Não aplica nada no cluster | cria o projeto no GitLab |
 | **1. `rhcl-api-product`** | o projeto inteiro: namespace já no Service Mesh, workload com ServiceAccount própria, HTTPRoute no `prod-web`, `AuthPolicy`, `PlanPolicy`, `APIProduct` do developer portal, `PeerAuthentication`, `AuthorizationPolicy` e o par `DestinationRule`/`VirtualService` pronto para canary | cria o repositório no GitHub |
+| **4. `rhcl-app-com-cadeia`** | uma aplicação cuja imagem nasce com **procedência**: pipeline com portão de qualidade, push no Quay, varredura do ACS e assinatura registrada no Rekor. Traz um `Job` de bootstrap para as três coisas que não são declarativas — copiar Secrets de outros namespaces, `secrets link` na SA (é por ele que o Chains autentica) e a SCC `privileged` do buildah | cria o projeto no GitLab |
 | **2. `rhcl-api-subscription`** | um consumidor pede acesso: gera o `APIKey` do developer portal em `consumers/` | *pull request* no repo da API |
 | **3. `rhcl-api-canary`** | sobe a v2 ao lado da v1 e desloca uma fração do tráfego pelo `VirtualService` | *pull request* no repo da API |
 

@@ -1,0 +1,17 @@
+# Route do OpenShift, e nao HTTPRoute no prod-web: a aplicacao sobe primeiro
+# SEM a camada de Connectivity Link. Pendura-la no prod-web sem AuthPolicy
+# propria daria 401 em tudo -- ele carrega a policy de escopo de gateway
+# prod-web-deny-all. Por a plataforma na frente e um movimento posterior.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ${{ values.name }}
+  namespace: ${{ values.namespace }}
+  labels: {app: ${{ values.name }}}
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  host: ${{ values.hostname }}
+  to: {kind: Service, name: ${{ values.name }}}
+  port: {targetPort: http}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}

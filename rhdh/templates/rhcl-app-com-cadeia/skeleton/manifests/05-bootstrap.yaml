@@ -1,0 +1,108 @@
+# ===========================================================================
+# O QUE ESTE JOB FAZ, E POR QUE ELE PRECISA EXISTIR
+#
+# A pipeline nao funciona so com YAML: ela depende de quatro Secrets que moram
+# em OUTROS namespaces, do 'secrets link' na ServiceAccount e da SCC privileged.
+# Nada disso e declarativo no repositorio da aplicacao -- e sem isso o build
+# falha com mensagens que apontam para o lugar errado (o Dockerfile, quando o
+# problema e SETFCAP; 'signed=true' sem nada no registry, quando o problema e o
+# secrets link).
+#
+# Roda uma vez, na primeira sincronizacao, e e idempotente.
+# ===========================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cadeia-bootstrap
+  namespace: ${{ values.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+# O ClusterRole e da PLATAFORMA (platform-reference/pipelines/cadeia-bootstrap-rbac.yaml).
+# Este repositorio so o referencia -- aplicacao nao define o proprio privilegio.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cadeia-bootstrap-${{ values.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cadeia-bootstrap
+subjects:
+  - kind: ServiceAccount
+    name: cadeia-bootstrap
+    namespace: ${{ values.namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cadeia-bootstrap
+  namespace: ${{ values.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      serviceAccountName: cadeia-bootstrap
+      restartPolicy: Never
+      containers:
+        - name: bootstrap
+          image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+          command: [/bin/bash, -c]
+          args:
+            - |
+              set -uo pipefail
+              NS=${{ values.namespace }}
+
+              # 1. COPIAR os quatro Secrets. Workspace de Secret so le do
+              #    proprio namespace, e RoleBinding nao resolve.
+              for s in quay-push sonarqube-token nexus-admin acs-api-token; do
+                if oc get secret "$s" -n "$NS" >/dev/null 2>&1; then
+                  echo "[ok] $s ja existe"; continue
+                fi
+                origem=""
+                for cand in travel-packages cicd stackrox quay; do
+                  oc get secret "$s" -n "$cand" >/dev/null 2>&1 && { origem="$cand"; break; }
+                done
+                if [ -z "$origem" ]; then
+                  # NAO E ERRO FATAL, e a mensagem diz por que: acs-api-token e
+                  # emitido a mao na UI do ACS -- nenhuma etapa o cria.
+                  echo "[!] $s nao existe em lugar nenhum. A pipeline roda sem ele:"
+                  echo "    quay-push       -> provision.sh registry entrega"
+                  echo "    sonarqube-token -> provision.sh credenciais"
+                  echo "    nexus-admin     -> provision.sh credenciais"
+                  echo "    acs-api-token   -> emitido A MAO na UI do ACS (Analyst)"
+                  continue
+                fi
+                oc get secret "$s" -n "$origem" -o json \
+                  | python3 -c 'import sys,json
+d=json.load(sys.stdin)
+d["metadata"]={"name":d["metadata"]["name"],"namespace":sys.argv[1]}
+d.pop("status",None)
+json.dump(d,sys.stdout)' "$NS" | oc apply -f - >/dev/null \
+                  && echo "[ok] $s copiado de $origem" || echo "[!] falhou copiar $s"
+              done
+
+              # 2. O CHAINS AUTENTICA PELA SERVICEACCOUNT, nao pelo workspace:
+              #    sem este link ele assina e nao sobe nada ao registry, e a
+              #    anotacao 'signed' vira true mesmo assim.
+              oc get sa pipeline -n "$NS" >/dev/null 2>&1 || oc create sa pipeline -n "$NS" >/dev/null
+              oc get secret quay-push -n "$NS" >/dev/null 2>&1 \
+                && oc secrets link pipeline quay-push -n "$NS" >/dev/null 2>&1 \
+                && oc secrets link pipeline quay-push --for=pull -n "$NS" >/dev/null 2>&1 \
+                && echo "[ok] quay-push ligado a SA pipeline"
+
+              # 3. O buildah precisa de SETFCAP. Sem a SCC ele falha com uma
+              #    mensagem sobre o Dockerfile.
+              oc adm policy add-scc-to-user privileged -z pipeline -n "$NS" >/dev/null 2>&1 \
+                && echo "[ok] SCC privileged na SA pipeline"
+
+              echo "[pronto] bootstrap da cadeia concluido em $NS"
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}

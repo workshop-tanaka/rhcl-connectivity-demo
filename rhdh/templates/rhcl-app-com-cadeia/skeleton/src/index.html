@@ -1,0 +1,14 @@
+<!doctype html>
+<title>${{ values.name }}</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:40rem;margin:4rem auto;padding:0 1rem;line-height:1.6}
+  code{background:#f2f4f7;padding:.1em .35em;border-radius:3px}
+</style>
+<h1>${{ values.name }}</h1>
+<p>${{ values.description }}</p>
+<p>
+  Esta imagem foi construída, analisada, assinada e varrida antes de chegar
+  aqui. A procedência não é uma promessa do time que escreveu a página — é
+  registro no log de transparência.
+</p>
+<p><code>cosign verify --key cosign.pub &lt;imagem&gt;@&lt;digest&gt;</code></p>

@@ -1,0 +1,20 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{ values.name }}
+  description: ${{ values.description }}
+  annotations:
+    backstage.io/kubernetes-id: ${{ values.name }}
+    backstage.io/kubernetes-namespace: ${{ values.namespace }}
+    backstage.io/techdocs-ref: dir:.
+    gitlab.com/project-slug: ${{ values.repoSlug }}
+    app.openshift.io/vcs-uri: https://${{ values.gitlabHost }}/${{ values.repoSlug }}
+  tags: [cadeia-de-suprimento, tekton, gitops]
+  links:
+    - title: A aplicacao
+      url: https://${{ values.hostname }}
+spec:
+  type: service
+  lifecycle: experimental
+  owner: ${{ values.owner }}
+  system: travel

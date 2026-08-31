@@ -1247,6 +1247,20 @@ st_cicd() {
       || _warn "falha ao aplicar a valida-policies"
   fi
 
+  # ----- o privilegio que um repositorio gerado referencia -------------------
+  #
+  # Um repo criado pelo template 'rhcl-app-com-cadeia' traz um Job de bootstrap
+  # que copia Secrets de outros namespaces, liga o quay-push a SA e concede a
+  # SCC. Ele nao define o proprio privilegio: referencia este ClusterRole, que e
+  # da plataforma. Sem ele, o Job morre em Forbidden na primeira sincronizacao.
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "oc apply -f platform-reference/pipelines/cadeia-bootstrap-rbac.yaml"
+  else
+    oc apply -f "${_here}/platform-reference/pipelines/cadeia-bootstrap-rbac.yaml" >/dev/null 2>&1 \
+      && _ok "ClusterRole cadeia-bootstrap (usado pelos repos do template de cadeia)" \
+      || _warn "falha ao aplicar o ClusterRole cadeia-bootstrap"
+  fi
+
   # ----- Nexus e SonarQube -------------------------------------------------
   # Sem operador, de proposito: o unico do SonarQube e community em canal alpha
   # (selo de nao suportado no OperatorHub, na frente do cliente), e o Nexus nem

@@ -1,0 +1,51 @@
+# ===========================================================================
+# cadeia-bootstrap — o privilegio que um repositorio gerado PRECISA, definido
+# uma vez pela plataforma em vez de cada repositorio carregar o seu.
+#
+# O PROBLEMA. Uma pipeline com cadeia de suprimento nao funciona so com YAML no
+# repositorio: ela precisa de quatro Secrets que moram em OUTROS namespaces,
+# do 'secrets link' na ServiceAccount (e por ele que o Tekton Chains autentica,
+# porque roda fora do pod) e da SCC privileged (o buildah precisa de SETFCAP).
+# Nada disso e declarativo no repo da aplicacao.
+#
+# A ALTERNATIVA QUE NAO SEGUIMOS: cada repositorio gerado trazer seu proprio
+# ClusterRole. Funciona, e faz cada aplicacao definir o proprio privilegio --
+# que e o oposto do que uma plataforma faz. Aqui o ClusterRole e da plataforma,
+# e o repositorio gerado so o REFERENCIA.
+#
+# Aplicado por: provision.sh cicd
+# ===========================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cadeia-bootstrap
+rules:
+  # ler os quatro Secrets nos namespaces de origem -- workspace de Secret so le
+  # do proprio namespace, e RoleBinding nao resolve: e preciso COPIAR
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list]
+  # e escrever a copia no namespace da aplicacao
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, update, patch]
+  # 'oc secrets link pipeline quay-push' -- o Chains autentica pelos secrets da
+  # ServiceAccount da TaskRun, nao pelo workspace do pod
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [get, list, update, patch]
+  # o buildah exige SETFCAP; sem a SCC ele falha com mensagem sobre o Dockerfile
+  - apiGroups: [security.openshift.io]
+    resources: [securitycontextconstraints]
+    resourceNames: [privileged]
+    verbs: [use]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    verbs: [get, create, update, patch]
+  # descobrir o endpoint do Quay para montar o nome da imagem sem host fixo
+  - apiGroups: [route.openshift.io]
+    resources: [routes]
+    verbs: [get, list]
+  - apiGroups: [quay.redhat.com]
+    resources: [quayregistries]
+    verbs: [get, list]

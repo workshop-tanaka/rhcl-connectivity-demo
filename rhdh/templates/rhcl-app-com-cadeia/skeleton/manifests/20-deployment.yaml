@@ -1,0 +1,46 @@
+# ATE O PRIMEIRO BUILD, ESTE DEPLOYMENT FICA EM ImagePullBackOff -- e isso e
+# esperado, nao defeito. O GitOps aplicou o que estava no Git; a imagem so
+# existe depois que a pipeline roda. E a demonstracao mais direta de que
+# entregar e liberar sao coisas diferentes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ values.name }}
+  namespace: ${{ values.namespace }}
+  labels:
+    app: ${{ values.name }}
+    app.kubernetes.io/name: ${{ values.name }}
+    # O lapis "edit code" do Topology abre o repositorio deste componente.
+    app.openshift.io/vcs-uri: https://${{ values.gitlabHost }}/${{ values.repoSlug }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  replicas: ${{ values.replicas }}
+  selector:
+    matchLabels: {app: ${{ values.name }}}
+  template:
+    metadata:
+      labels:
+        app: ${{ values.name }}
+        version: v1
+    spec:
+      serviceAccountName: ${{ values.name }}
+      containers:
+        - name: app
+          image: ${{ values.imagem }}:latest
+          ports: [{containerPort: 8080}]
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          readinessProbe:
+            httpGet: {path: /, port: 8080}
+          livenessProbe:
+            httpGet: {path: /, port: 8080}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ values.name }}
+  namespace: ${{ values.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"

@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${{ values.namespace }}
+  labels:
+    # Label de NAMESPACE, e nao annotation de pod: annotation nao injeta, e o
+    # sintoma e um pod 1/1 que parece saudavel e nao tem mTLS, metrica nem trace.
+    istio-injection: enabled
+    app.kubernetes.io/part-of: rhcl-golden-path

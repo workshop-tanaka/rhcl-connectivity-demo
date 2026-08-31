@@ -1,0 +1,35 @@
+# FORA DE manifests/ DE PROPOSITO, e por dois motivos.
+#
+# 1. 'generateName' faz o 'oc apply' recusar o arquivo INTEIRO -- a Pipeline
+#    nem seria criada, e o aviso falaria de generateName. Dispare com create:
+#
+#      oc create -f pipeline/run.yaml
+#
+# 2. O ApplicationSet sincroniza 'manifests/[0-9]*.yaml'. Um PipelineRun ali
+#    dentro seria recriado a cada sync -- um build por reconciliacao.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: cadeia-${{ values.name }}-
+  namespace: ${{ values.namespace }}
+  labels:
+    app: ${{ values.name }}
+    backstage.io/kubernetes-id: ${{ values.name }}
+spec:
+  pipelineRef: {name: cadeia-${{ values.name }}}
+  params:
+    - {name: repo, value: "https://${{ values.gitlabHost }}/${{ values.repoSlug }}.git"}
+    - {name: revisao, value: main}
+    - {name: imagem, value: "${{ values.imagem }}"}
+    - {name: tag, value: latest}
+    - {name: sonar-projeto, value: "${{ values.name }}"}
+  workspaces:
+    - name: fonte
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources: {requests: {storage: 1Gi}}
+    - {name: sonar,  secret: {secretName: sonarqube-token, optional: true}}
+    - {name: quay,   secret: {secretName: quay-push}}
+    - {name: redhat, secret: {secretName: redhat-pull}}
+    - {name: acs,    secret: {secretName: acs-api-token, optional: true}}
