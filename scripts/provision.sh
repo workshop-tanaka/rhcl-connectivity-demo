@@ -1831,7 +1831,7 @@ st_identity() {
 
   bash "${_here}/scripts/setup-identity.sh" realm  || _warn "a etapa 'realm' falhou"
   bash "${_here}/scripts/setup-identity.sh" gitlab || _warn "a etapa 'gitlab' falhou"
-  _ok "login unificado -- o ACS segue com autenticacao local, e e o proximo a federar"
+  _ok "login unificado COMPLETO -- portal, OpenShift, Argo, GitLab, Dev Spaces, echo (OIDC), Sonar (SAML) e ACS (OIDC); admins locais ficam de break-glass"
 }
 
 

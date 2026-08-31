@@ -122,12 +122,14 @@ KC_ADMIN_PASSWORD="${KC_ADMIN_PASSWORD:-$(oc get keycloakrealmimport sso -n "$KC
 
 KC_GITLAB_SECRET="$(_le KC_GITLAB_SECRET || true)"; [[ -n "$KC_GITLAB_SECRET" ]] || KC_GITLAB_SECRET="$(_gera)"
 KC_RHDH_SECRET="$(_le KC_RHDH_SECRET || true)";     [[ -n "$KC_RHDH_SECRET"   ]] || KC_RHDH_SECRET="$(_gera)"
+KC_ACS_SECRET="$(_le KC_ACS_SECRET || true)";       [[ -n "$KC_ACS_SECRET"    ]] || KC_ACS_SECRET="$(_gera)"
 # a mesma senha que as personas já usam no GitLab, para não haver duas verdades
 KC_PERSONA_PASSWORD="${KC_PERSONA_PASSWORD:-redhat123}"
 
 oc create secret generic "$_SEC" -n "$KC_NS" \
   --from-literal=KC_GITLAB_SECRET="$KC_GITLAB_SECRET" \
   --from-literal=KC_RHDH_SECRET="$KC_RHDH_SECRET" \
+  --from-literal=KC_ACS_SECRET="$KC_ACS_SECRET" \
   --from-literal=KC_ADMIN_PASSWORD="$KC_ADMIN_PASSWORD" \
   --dry-run=client -o yaml | oc apply -f - >/dev/null \
   || _die "falha ao guardar os segredos de identidade"
@@ -341,6 +343,128 @@ if [[ -z "$_cid" ]]; then
 else
   _api -X PUT "https://${KC_HOST}/admin/realms/sso/clients/${_cid}" -d "$_corpo" >/dev/null && _ok "client reconciliado: echo-api"
 fi
+# ===========================================================================
+# SonarQube — SAML (2026-08-31). O CE tem SAML nativo; OIDC exigiria plugin
+# de comunidade. Duas pontas: o client SAML no realm (com mappers de login,
+# nome e email) e as settings do Sonar via API, com o certificado de
+# assinatura do proprio realm. O admin local continua existindo (break-glass,
+# como o root do GitLab).
+# ===========================================================================
+_SQ_HOST="$(oc get route -n cicd --no-headers 2>/dev/null | awk '{print $2}' | grep '^sonarqube' | head -1)"
+_SQ_TOKEN="$(oc get secret rhdh-sonarqube-secret -n "$RHDH_NS" -o jsonpath='{.data.SONARQUBE_TOKEN}' 2>/dev/null | base64 -d || true)"
+if [[ -z "$_SQ_HOST" || -z "$_SQ_TOKEN" ]]; then
+  _warn "SonarQube ou o token dele ausentes -- SAML fica para depois de 'cicd' + 'credenciais'"
+else
+  _cid="$(_api "https://${KC_HOST}/admin/realms/sso/clients?clientId=sonarqube" \
+          | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d[0]["id"] if d else "")' 2>/dev/null || true)"
+  _corpo="$(SQ="https://${_SQ_HOST}" python3 -c '
+import json, os
+sq = os.environ["SQ"]
+print(json.dumps({
+  "clientId": "sonarqube", "protocol": "saml", "enabled": True,
+  "rootUrl": sq, "baseUrl": sq,
+  "redirectUris": [sq + "/oauth2/callback/saml"],
+  "frontchannelLogout": True,
+  "attributes": {
+    "saml.authnstatement": "true",
+    "saml.server.signature": "true",
+    "saml.assertion.signature": "true",
+    "saml.client.signature": "false",
+    "saml_name_id_format": "username"},
+  "protocolMappers": [
+    {"name": "login", "protocol": "saml", "protocolMapper": "saml-user-property-mapper",
+     "config": {"user.attribute": "username", "attribute.name": "login",
+                "attribute.nameformat": "Basic", "friendly.name": "login"}},
+    {"name": "email", "protocol": "saml", "protocolMapper": "saml-user-property-mapper",
+     "config": {"user.attribute": "email", "attribute.name": "email",
+                "attribute.nameformat": "Basic", "friendly.name": "email"}},
+    {"name": "name", "protocol": "saml", "protocolMapper": "saml-user-property-mapper",
+     "config": {"user.attribute": "username", "attribute.name": "name",
+                "attribute.nameformat": "Basic", "friendly.name": "name"}}]}))')"
+  if [[ -z "$_cid" ]]; then
+    _api -X POST "https://${KC_HOST}/admin/realms/sso/clients" -d "$_corpo" >/dev/null && _ok "client SAML criado: sonarqube"
+  else
+    _api -X PUT "https://${KC_HOST}/admin/realms/sso/clients/${_cid}" -d "$_corpo" >/dev/null && _ok "client SAML reconciliado: sonarqube"
+  fi
+
+  # o certificado de assinatura sai do descriptor SAML publico do realm
+  _KC_CERT="$(curl -sk "https://${KC_HOST}/realms/sso/protocol/saml/descriptor" 2>/dev/null \
+    | grep -oE '<ds:X509Certificate>[^<]+' | head -1 | sed 's/<ds:X509Certificate>//')"
+  if [[ -z "$_KC_CERT" ]]; then
+    _warn "certificado SAML do realm nao extraido -- Sonar fica sem SAML nesta execucao"
+  else
+    _sq_set() { curl -sk -u "${_SQ_TOKEN}:" -X POST "https://${_SQ_HOST}/api/settings/set" \
+                  --data-urlencode "key=$1" --data-urlencode "value=$2" >/dev/null 2>&1; }
+    _sq_set sonar.core.serverBaseURL "https://${_SQ_HOST}"
+    _sq_set sonar.auth.saml.applicationId sonarqube
+    _sq_set sonar.auth.saml.providerName Keycloak
+    _sq_set sonar.auth.saml.providerId "https://${KC_HOST}/realms/sso"
+    _sq_set sonar.auth.saml.loginUrl "https://${KC_HOST}/realms/sso/protocol/saml"
+    _sq_set sonar.auth.saml.certificate.secured "$_KC_CERT"
+    _sq_set sonar.auth.saml.user.login login
+    _sq_set sonar.auth.saml.user.name name
+    _sq_set sonar.auth.saml.user.email email
+    _sq_set sonar.auth.saml.enabled true
+    if curl -sk -u "${_SQ_TOKEN}:" "https://${_SQ_HOST}/api/settings/values?keys=sonar.auth.saml.enabled" 2>/dev/null | grep -q '"value":"true"'; then
+      _ok "SonarQube com SAML ligado (botao 'Log in with Keycloak')"
+    else
+      _warn "Sonar nao confirmou o SAML -- confira api/settings/values"
+    fi
+  fi
+fi
+
+# ===========================================================================
+# ACS — OIDC (2026-08-31). Era o unico fora da cadeia ('e o proximo a
+# federar', dizia esta etapa desde o inicio). Client confidencial no realm +
+# auth provider OIDC no Central via API, com papel minimo Analyst para quem
+# chega pelo SSO -- o admin local continua para break-glass e automacao.
+# ===========================================================================
+_ACS_HOST="$(oc get route central -n stackrox -o jsonpath='{.spec.host}' 2>/dev/null)"
+_ACS_PW="$(oc get secret central-htpasswd -n stackrox -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || true)"
+if [[ -z "$_ACS_HOST" || -z "$_ACS_PW" ]]; then
+  _warn "Central do ACS ausente -- OIDC fica para depois de 'security'"
+else
+  _cid="$(_api "https://${KC_HOST}/admin/realms/sso/clients?clientId=acs" \
+          | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d[0]["id"] if d else "")' 2>/dev/null || true)"
+  _corpo="$(C=acs S="$KC_ACS_SECRET" R="https://${_ACS_HOST}/sso/providers/oidc/callback" python3 -c '
+import json, os
+print(json.dumps({"clientId": os.environ["C"], "enabled": True, "protocol": "openid-connect",
+  "publicClient": False, "secret": os.environ["S"], "standardFlowEnabled": True,
+  "redirectUris": [os.environ["R"]], "webOrigins": ["+"]}))')"
+  if [[ -z "$_cid" ]]; then
+    _api -X POST "https://${KC_HOST}/admin/realms/sso/clients" -d "$_corpo" >/dev/null && _ok "client criado: acs"
+  else
+    _api -X PUT "https://${KC_HOST}/admin/realms/sso/clients/${_cid}" -d "$_corpo" >/dev/null && _ok "client reconciliado: acs"
+  fi
+
+  _acs_api() { curl -sk -u "admin:${_ACS_PW}" -H 'Content-Type: application/json' "$@"; }
+  _apid="$(_acs_api "https://${_ACS_HOST}/v1/authProviders" 2>/dev/null \
+    | python3 -c 'import sys,json
+for p in json.load(sys.stdin).get("authProviders", []):
+    if p.get("name") == "Keycloak": print(p["id"]); break' 2>/dev/null || true)"
+  if [[ -n "$_apid" ]]; then
+    _ok "auth provider Keycloak ja existe no Central"
+  else
+    _prov="$(H="$_ACS_HOST" KC="$KC_HOST" S="$KC_ACS_SECRET" python3 -c '
+import json, os
+print(json.dumps({"name": "Keycloak", "type": "oidc", "enabled": True,
+  "uiEndpoint": os.environ["H"],
+  "config": {"issuer": "https://" + os.environ["KC"] + "/realms/sso",
+             "client_id": "acs", "client_secret": os.environ["S"], "mode": "post"}}))')"
+    _apid="$(_acs_api -X POST -d "$_prov" "https://${_ACS_HOST}/v1/authProviders" 2>/dev/null \
+      | python3 -c 'import sys,json; print(json.load(sys.stdin).get("id",""))' 2>/dev/null)"
+    if [[ -n "$_apid" ]]; then
+      # papel minimo de quem entra pelo SSO: Analyst (leitura) -- promover
+      # persona especifica e decisao de operacao, nao default
+      _acs_api -X POST -d "{\"props\":{\"authProviderId\":\"${_apid}\",\"key\":\"\",\"value\":\"\"},\"roleName\":\"Analyst\"}" \
+        "https://${_ACS_HOST}/v1/groups" >/dev/null 2>&1
+      _ok "Central com OIDC do Keycloak (papel default: Analyst)"
+    else
+      _warn "falha ao criar o auth provider no Central -- veja /v1/authProviders"
+    fi
+  fi
+fi
+
 printf '\n'
 _log "próximo: federar o GitLab (OmniAuth OIDC) — a conta root continua local"
 printf '    %s\n' "client id     : gitlab"
