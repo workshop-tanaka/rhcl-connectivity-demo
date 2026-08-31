@@ -41,6 +41,9 @@ metadata:
   namespace: travel-packages
   labels:
     app: travel-packages
+    # propagado aos pods pelo operador; e o rotulo de SISTEMA que a Topology
+    # do portal seleciona (todos os workloads da cadeia o carregam)
+    app.kubernetes.io/part-of: travel-packages
     # O par que a aba do portal exige. O plugin Kubernetes le pelo SELETOR da
     # entidade; rotular so com kubernetes-id faz a aba abrir vazia, sem erro.
     # Mesma armadilha medida em 2026-08-28 com os PipelineRun.

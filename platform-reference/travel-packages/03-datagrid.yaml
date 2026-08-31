@@ -22,9 +22,10 @@ metadata:
   # que o mTLS do sidecar quebra sem mensagem util -- o namespace consolidado
   # injeta por default, entao o opt-out e por pod (2026-08-31).
   annotations:
-    infinispan.org/podTargetLabels: sidecar.istio.io/inject
+    infinispan.org/podTargetLabels: sidecar.istio.io/inject,app.kubernetes.io/part-of
   labels:
     sidecar.istio.io/inject: "false"
+    app.kubernetes.io/part-of: travel-packages
 spec:
   replicas: 3
   service:

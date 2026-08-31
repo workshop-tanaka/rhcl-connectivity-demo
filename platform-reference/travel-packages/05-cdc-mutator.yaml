@@ -26,6 +26,7 @@ spec:
         metadata:
           labels:
             app: cdc-mutador
+            app.kubernetes.io/part-of: travel-packages
             # Mesmo caso do Job do seed (02), incluindo a correcao: neste
             # cluster o istio-proxy e init container (sidecar nativo) e as
             # rodadas completam sem este label -- medido, com o CronJob vivo

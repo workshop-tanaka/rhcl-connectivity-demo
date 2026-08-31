@@ -29,6 +29,7 @@ spec:
       metadata:
         labels:
           sidecar.istio.io/inject: "false"
+          app.kubernetes.io/part-of: travel-packages
   storage:
     type: persistent-claim
     size: 10Gi
@@ -138,10 +139,12 @@ spec:
       metadata:
         labels:
           sidecar.istio.io/inject: "false"
+          app.kubernetes.io/part-of: travel-packages
     buildPod:
       metadata:
         labels:
           sidecar.istio.io/inject: "false"
+          app.kubernetes.io/part-of: travel-packages
   groupId: cdc
   offsetStorageTopic: cdc-offsets
   configStorageTopic: cdc-configs

@@ -233,7 +233,7 @@ metadata:
     janus-idp.io/tekton: travel-packages
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/travel/travel-packages
-    backstage.io/kubernetes-label-selector: app=travel-packages
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/part-of=travel-packages
     backstage.io/kubernetes-namespace: travel-packages
     kiali.io/namespace: travel-packages
     jaegertracing.io/service: travel-packages.travel-packages

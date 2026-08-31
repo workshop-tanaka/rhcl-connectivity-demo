@@ -36,6 +36,9 @@ spec:
   inheritedMetadata:
     labels:
       sidecar.istio.io/inject: "false"
+      # rotulo de SISTEMA: e ele que a Topology do portal seleciona -- todos
+      # os workloads da cadeia o carregam (2026-08-31)
+      app.kubernetes.io/part-of: travel-packages
   affinity:
     podAntiAffinityType: preferred
   bootstrap:

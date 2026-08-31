@@ -59,6 +59,7 @@ spec:
       labels:
         app: travel-cache-updater
         sidecar.istio.io/inject: "false"
+        app.kubernetes.io/part-of: travel-packages
     spec:
       containers:
         - name: atualizador
