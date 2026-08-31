@@ -120,6 +120,41 @@ um SNO de 16 vCPU **não agenda o stack completo** por request de CPU, mesmo
 sobrando memória. SNO recomendado: **32 vCPU / 128 Gi / 1 TB NVMe** (mínimo
 pleno 24/96; LVMS default + ODF em modo MCG standalone antes da `registry`).
 
+### 2.2 Custo em RELÓGIO (cluster-flqzh, 2026-08-30)
+
+A §2.1 mede o que a demo ocupa; esta mede quanto tempo ela leva. A pergunta
+prática — "cabe numa sessão de trabalho?" — nunca tinha número. Estes saem dos
+`creationTimestamp` dos próprios objetos do cluster, então são o instante em
+que cada etapa **chegou ao API server**, não em que ficou `Ready`.
+
+| Marco | Δ desde a 1ª Subscription |
+| --- | --- |
+| primeiras Subscriptions (`operators`) | 0 |
+| CR `Istio` + `IstioCNI` | +5 min |
+| namespaces da demo | +6 min |
+| `Gateway/prod-web` | +7 min |
+| **policies + APIProducts — Atos 1 a 4 de pé** | **+8 min** |
+| Tempo com multitenancy | +16 min |
+| Grafana + 12 dashboards | +18 min |
+| samples do Istio (bookinfo) | +20 min |
+| **portal RHDH** | **+24 min** |
+| rota do golden path (`travel-packages`) | +54 min |
+
+Três coisas que o número esconde, e que decidem se cabe mesmo:
+
+1. **É piso, não garantia.** Esta rodada foi interleaved com as 8 correções de
+   reprodutibilidade que ela mesma rendeu; uma execução limpa tende a ser mais
+   rápida, uma com surpresa nova, mais lenta.
+2. **A última milha não está aqui.** Depois do `+54` vêm a convergência do
+   portal — cada mudança de config reinicia o pod, e ele leva minutos — e o
+   build da imagem do `travel-packages`, que o `provision.sh` **não** dispara
+   de propósito (às vezes 40s, às vezes 8 min, e depende de rede externa).
+   Conte 20 a 40 min a mais até o `preflight.sh` fechar.
+3. **O gargalo é o porte, não o script.** No mesmo dia, um SNO de 32 vCPU com
+   disco raiz de 100 GB não chegou ao portal (DiskPressure, ver o aviso no topo
+   da §2); este cluster de 5 nós fez tudo. O tempo só é previsível onde o
+   cluster comporta.
+
 ### Onde o portal parou — 2026-08-27, fim do dia
 
 Verificado **no navegador**, logado como `plat-eng`:
