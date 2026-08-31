@@ -808,6 +808,16 @@ ESPELHO = [
     "docs/componentes/travel-db.md",
     "docs/componentes/travel-cache.md",
     "docs/componentes/travel-streams.md",
+    "docs/componentes/bookinfo-productpage.md",
+    "docs/componentes/bookinfo-details.md",
+    "docs/componentes/bookinfo-reviews.md",
+    "docs/componentes/bookinfo-ratings.md",
+    "docs/componentes/grpc-echo-app.md",
+    "docs/componentes/websockets-tornado.md",
+    "docs/componentes/otel-als-collector.md",
+    "docs/componentes/globex-travel.md",
+    "docs/componentes/initech-voyages.md",
+    "docs/componentes/acme-trips.md",
 ]
 ESPELHO_DIRS = [
     "docs/componentes/img",        # os SVGs das paginas por componente

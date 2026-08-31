@@ -29,6 +29,16 @@ nav:
       - travel-db: componentes/travel-db.md
       - travel-cache (Data Grid): componentes/travel-cache.md
       - travel-streams (Kafka): componentes/travel-streams.md
+      - bookinfo — productpage (a UI): componentes/bookinfo-productpage.md
+      - bookinfo — details: componentes/bookinfo-details.md
+      - bookinfo — reviews (v1 v2 v3): componentes/bookinfo-reviews.md
+      - bookinfo — ratings: componentes/bookinfo-ratings.md
+      - grpc-echo (gRPC na borda): componentes/grpc-echo-app.md
+      - websockets (adiada): componentes/websockets-tornado.md
+      - otel-als-collector (log de acesso): componentes/otel-als-collector.md
+      - parceiro globex-travel (gold): componentes/globex-travel.md
+      - parceiro initech-voyages (silver): componentes/initech-voyages.md
+      - parceiro acme-trips (free): componentes/acme-trips.md
 
 plugins:
   - techdocs-core
