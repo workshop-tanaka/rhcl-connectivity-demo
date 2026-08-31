@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ==========================================================================
+  travel-cache-updater: o elo final do CDC, que faltava.
+
+  Medido em 2026-08-31: o Debezium publicava em travel.public.* e a lista de
+  consumer groups estava VAZIA. Os eventos entravam no Kafka e morriam lá; o
+  Data Grid só se populava por cache-aside no miss, e a narrativa "o CDC
+  atualiza o cache" era vitrine. Este serviço fecha o ciclo: consome os
+  eventos do Debezium e INVALIDA a chave afetada — a próxima leitura recalcula
+  do banco, que é o desenho honesto de cache dirigido por mudança.
+
+  uber-jar pela mesma razão do bookinfo-traffic: o S2I java executa sem
+  configuração. (E hífen duplo é ilegal em comentário XML — a flag de scale
+  não aparece literal aqui; a lição custou um POM inteiro recusado.)
+=========================================================================== -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.redhat.rhcl</groupId>
+  <artifactId>travel-cache-updater</artifactId>
+  <version>1.0.0</version>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <quarkus.platform.version>3.15.1</quarkus.platform.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>io.quarkus.platform</groupId>
+        <artifactId>quarkus-bom</artifactId>
+        <version>${quarkus.platform.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-messaging-kafka</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-infinispan-client</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>io.quarkus.platform</groupId>
+        <artifactId>quarkus-maven-plugin</artifactId>
+        <version>${quarkus.platform.version}</version>
+        <executions>
+          <execution>
+            <goals><goal>build</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

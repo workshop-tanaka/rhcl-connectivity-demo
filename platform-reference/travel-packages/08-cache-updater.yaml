@@ -1,0 +1,68 @@
+# ===========================================================================
+# travel-cache-updater -- o consumidor que faltava no CDC.
+#
+# Medido em 2026-08-31: Debezium publicando, mutador pulsando, e a lista de
+# consumer groups VAZIA -- os eventos morriam no topico e o "CDC atualiza o
+# cache" era narrativa sem implementacao. Este Deployment consome
+# travel.public.pacotes (grupo 'cache-updater') e invalida a chave
+# contagem:<destino> no Data Grid; a proxima leitura recalcula do banco.
+#
+# Fonte: apps/travel-cache-updater (Quarkus). Build BINARIO pela etapa
+# 'pacotes' -- mesma esteira do bookinfo-traffic:
+#   oc start-build travel-cache-updater --from-dir=apps/travel-cache-updater -n travel-packages
+#
+# SEM SIDECAR, por label de pod: consumidor de Kafka e cliente Hot Rod, os
+# dois protocolos que o opt-out do namespace consolidado ja documenta.
+# ===========================================================================
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: travel-cache-updater
+  namespace: travel-packages
+spec:
+  lookupPolicy:
+    local: true
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: travel-cache-updater
+  namespace: travel-packages
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Source
+    sourceStrategy:
+      from:
+        kind: DockerImage
+        name: registry.access.redhat.com/ubi9/openjdk-17:latest
+  output:
+    to:
+      kind: ImageStreamTag
+      name: travel-cache-updater:latest
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: travel-cache-updater
+  namespace: travel-packages
+  labels:
+    app: travel-cache-updater
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: travel-cache-updater
+  template:
+    metadata:
+      labels:
+        app: travel-cache-updater
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+        - name: atualizador
+          image: image-registry.openshift-image-registry.svc:5000/travel-packages/travel-cache-updater:latest
+          resources:
+            requests: {cpu: 50m, memory: 192Mi}
+            limits: {memory: 384Mi}

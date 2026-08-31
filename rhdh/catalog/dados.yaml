@@ -97,8 +97,11 @@ metadata:
   annotations:
     rhcl.demo/cluster-object: kafka/travel-packages/travel-streams
     backstage.io/kubernetes-namespace: travel-packages
-    # formato do plugin: <nome-do-cluster-no-app-config>/<consumer-group>
-    kafka.apache.org/consumer-groups: travel-streams/cdc
+    # formato do plugin: <nome-do-cluster-no-app-config>/<consumer-group>.
+    # 'cache-updater' e o grupo REAL (o consumidor que invalida o Data Grid);
+    # 'cdc' e grupo de CONNECT, que a API de consumer groups recusa -- a aba
+    # morreria com 'GroupId cdc is not a consumer group' (medido 2026-08-31).
+    kafka.apache.org/consumer-groups: travel-streams/cache-updater
   labels:
     rhcl.demo/camada: dados
     rhcl.demo/origem: repo
@@ -237,7 +240,7 @@ metadata:
     # 168h pelo mesmo motivo dos demais: 'd' derruba a aba inteira, e a janela
     # de 1h deixa vazio num cluster sem trafego recente.
     jaegertracing.io/lookback: 168h
-    kafka.apache.org/consumer-groups: travel-streams/cdc
+    kafka.apache.org/consumer-groups: travel-streams/cache-updater
   labels:
     rhcl.demo/camada: aplicacao
     rhcl.demo/origem: repo

@@ -1208,6 +1208,22 @@ st_pacotes() {
 
   _apply platform-reference/travel-packages/05-cdc-mutator.yaml
 
+  # ----- o consumidor do CDC ------------------------------------------------
+  # O elo final: sem ele os eventos do Debezium morrem no topico (medido em
+  # 2026-08-31 -- lista de consumer groups vazia com o connector RUNNING).
+  # Build binario, mesma esteira do bookinfo-traffic; so na primeira vez.
+  _apply platform-reference/travel-packages/08-cache-updater.yaml
+  if [[ $DRY_RUN -eq 0 ]] && [[ -d "${_here}/apps/travel-cache-updater" ]]; then
+    if oc get istag travel-cache-updater:latest -n travel-packages >/dev/null 2>&1; then
+      _ok "imagem do travel-cache-updater ja existe (rebuild: oc start-build travel-cache-updater --from-dir=apps/travel-cache-updater -n travel-packages)"
+    else
+      _log "construindo o travel-cache-updater (maven via S2I -- minutos na primeira vez)..."
+      oc start-build travel-cache-updater --from-dir="${_here}/apps/travel-cache-updater" --wait -n travel-packages >/dev/null 2>&1 \
+        && _ok "travel-cache-updater construido -- grupo 'cache-updater' consumindo travel.public.pacotes" \
+        || _warn "build do travel-cache-updater falhou -- oc logs bc/travel-cache-updater -n travel-packages"
+    fi
+  fi
+
   # ----- console do Streams -------------------------------------------------
   # O CR leva o hostname deste cluster; __APPS_DOMAIN__ e substituido aqui,
   # no mesmo padrao do CR do GitLab. O operador (subscription-amq-streams)
