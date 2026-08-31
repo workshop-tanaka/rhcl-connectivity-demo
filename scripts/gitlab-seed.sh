@@ -856,8 +856,18 @@ def _coleta_espelho(raiz):
             for n in sorted(names):
                 full = os.path.join(dirpath, n)
                 itens.append((os.path.relpath(full, raiz), full))
-    itens.sort()
-    return itens
+    # DEDUPLICAR, e nao e detalhe: quando um arquivo esta na lista explicita E
+    # dentro de um ESPELHO_DIRS, o mesmo caminho entra duas vezes -- e o
+    # segundo 'create' do MESMO commit falha com "A file with this name
+    # already exists", abortando o commit inteiro. O sintoma nao aponta para
+    # duplicidade: parece que o arquivo ja existia no remoto.
+    vistos, unicos = set(), []
+    for rel, full in itens:
+        if rel in vistos:
+            continue
+        vistos.add(rel); unicos.append((rel, full))
+    unicos.sort()
+    return unicos
 
 if root_id and root_id != -1:
     base_id = ensure_group("base", "Base", root_id)
