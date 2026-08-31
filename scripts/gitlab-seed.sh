@@ -793,8 +793,24 @@ ESPELHO = [
     "docs/PROVISIONING-1.4.md",
     "docs/CATALOGO.md",
     "docs/SAMPLES.md",
+    # As paginas por componente (docs/componentes/) nasceram em 2026-08-31:
+    # uma por item do catalogo, com diagrama SVG (o diretorio img/ vem por
+    # ESPELHO_DIRS logo abaixo -- o check do CI so casa os .md do nav).
+    "docs/componentes/prod-web.md",
+    "docs/componentes/travels.md",
+    "docs/componentes/flights.md",
+    "docs/componentes/hotels.md",
+    "docs/componentes/cars.md",
+    "docs/componentes/insurances.md",
+    "docs/componentes/discounts.md",
+    "docs/componentes/echo-api.md",
+    "docs/componentes/travel-packages.md",
+    "docs/componentes/travel-db.md",
+    "docs/componentes/travel-cache.md",
+    "docs/componentes/travel-streams.md",
 ]
 ESPELHO_DIRS = [
+    "docs/componentes/img",        # os SVGs das paginas por componente
     "rhdh/templates",              # os 3 templates e seus skeletons
     # O destino do lapis "edit code" do Topology. As anotacoes vcs-uri/vcs-ref
     # dos Deployments apontam para a RAIZ deste projeto (o decorator espera URL

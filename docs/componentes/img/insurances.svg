@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 400" width="720" height="400" font-family="sans-serif">
+  <defs>
+    <marker id="arrow-green" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#16a34a"/>
+    </marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#dc2626"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="720" height="400" fill="#fff"/>
+
+  <!-- travels (orquestrador, vizinho) -->
+  <rect x="30" y="160" width="140" height="80" rx="6" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="100" y="185" text-anchor="middle" fill="#1e293b" font-size="13" font-weight="bold">travels-v1</text>
+  <text x="100" y="203" text-anchor="middle" fill="#1e293b" font-size="11">orquestrador</text>
+  <text x="100" y="220" text-anchor="middle" fill="#1e293b" font-size="11">sa: default</text>
+
+  <!-- insurances (componente central) -->
+  <rect x="270" y="140" width="190" height="120" rx="6" fill="#2563eb"/>
+  <text x="365" y="165" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">insurances-v1</text>
+  <text x="365" y="185" text-anchor="middle" fill="#fff" font-size="11">container insurances :8000</text>
+  <text x="365" y="203" text-anchor="middle" fill="#fff" font-size="11">istio-proxy (sidecar, mTLS)</text>
+  <text x="365" y="226" text-anchor="middle" fill="#fff" font-size="11">sa: discount-access-sa</text>
+  <text x="365" y="243" text-anchor="middle" fill="#fff" font-size="10">Service insurances (ClusterIP :8000)</text>
+
+  <!-- discounts (vizinho) -->
+  <rect x="545" y="60" width="150" height="70" rx="6" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="620" y="85" text-anchor="middle" fill="#1e293b" font-size="13" font-weight="bold">discounts</text>
+  <text x="620" y="103" text-anchor="middle" fill="#1e293b" font-size="11">discounts.travel-agency:8000</text>
+  <text x="620" y="147" text-anchor="middle" fill="#64748b" font-size="10">AuthorizationPolicy</text>
+  <text x="620" y="160" text-anchor="middle" fill="#64748b" font-size="10">discounts-only-sellers</text>
+
+  <!-- mysqldb (vizinho) -->
+  <rect x="545" y="290" width="160" height="70" rx="6" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="625" y="315" text-anchor="middle" fill="#1e293b" font-size="13" font-weight="bold">mysqldb</text>
+  <text x="625" y="333" text-anchor="middle" fill="#1e293b" font-size="11">mysqldb.travel-db:3306</text>
+  <text x="625" y="349" text-anchor="middle" fill="#1e293b" font-size="10">database: test</text>
+
+  <!-- fluxo: travels -> insurances (fan-out) -->
+  <line x1="170" y1="200" x2="264" y2="200" stroke="#16a34a" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <text x="217" y="188" text-anchor="middle" fill="#16a34a" font-size="10">fan-out HTTP :8000</text>
+
+  <!-- fluxo: insurances -> discounts (permitido pelo SA) -->
+  <line x1="460" y1="175" x2="540" y2="112" stroke="#16a34a" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <text x="470" y="130" text-anchor="middle" fill="#16a34a" font-size="10">mTLS: principal</text>
+  <text x="470" y="143" text-anchor="middle" fill="#16a34a" font-size="10">.../sa/discount-access-sa</text>
+  <text x="470" y="156" text-anchor="middle" fill="#16a34a" font-size="10">200</text>
+
+  <!-- fluxo: insurances -> mysqldb -->
+  <line x1="460" y1="235" x2="540" y2="305" stroke="#16a34a" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <text x="475" y="290" text-anchor="middle" fill="#16a34a" font-size="10">MySQL :3306</text>
+
+  <!-- fluxo negado: travels -> discounts direto -->
+  <path d="M100,160 L100,30 L620,30 L620,56" fill="none" stroke="#dc2626" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arrow-red)"/>
+  <text x="360" y="22" text-anchor="middle" fill="#dc2626" font-size="10">sa: default, sem regra ALLOW que case: 403 RBAC: access denied</text>
+
+  <!-- legenda -->
+  <text x="30" y="385" fill="#1e293b" font-size="10">namespace travel-agency, mTLS STRICT: quem vende produto consulta desconto; o orquestrador não.</text>
+</svg>

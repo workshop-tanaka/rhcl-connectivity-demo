@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 400" width="720" height="400" font-family="sans-serif">
+  <defs>
+    <marker id="seta-verde" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#16a34a"/>
+    </marker>
+    <marker id="seta-vermelha" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#dc2626"/>
+    </marker>
+    <marker id="seta-cinza" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="720" height="400" fill="#fff"/>
+  <text x="360" y="22" text-anchor="middle" fill="#1e293b" font-size="15" font-weight="bold">travel-cache — cache distribuído 'pacotes' (owners=2 em 3 nós)</text>
+
+  <!-- EAP (vizinho, esquerda) -->
+  <rect x="20" y="86" width="165" height="82" rx="6" fill="#f1f5f9" stroke="#64748b"/>
+  <text x="102" y="108" text-anchor="middle" fill="#1e293b" font-size="12" font-weight="bold">travel-packages (EAP)</text>
+  <text x="102" y="124" text-anchor="middle" fill="#64748b" font-size="10">cliente Hot Rod</text>
+  <text x="102" y="138" text-anchor="middle" fill="#64748b" font-size="10">clientIntelligence BASIC</text>
+  <text x="102" y="152" text-anchor="middle" fill="#64748b" font-size="10">(fala sempre pelo Service)</text>
+
+  <!-- seta EAP -> cluster -->
+  <line x1="185" y1="118" x2="278" y2="118" stroke="#16a34a" stroke-width="2" marker-end="url(#seta-verde)"/>
+  <text x="232" y="100" text-anchor="middle" fill="#16a34a" font-size="10">get/put</text>
+  <text x="232" y="112" text-anchor="middle" fill="#16a34a" font-size="10">contagem:&lt;destino&gt;</text>
+  <text x="232" y="134" text-anchor="middle" fill="#16a34a" font-size="9">travel-cache.travel-cache</text>
+  <text x="232" y="145" text-anchor="middle" fill="#16a34a" font-size="9">.svc:11222</text>
+
+  <!-- cluster Infinispan (central) -->
+  <rect x="280" y="52" width="420" height="216" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="490" y="74" text-anchor="middle" fill="#2563eb" font-size="13" font-weight="bold">Infinispan travel-cache — replicas: 3 (DataGrid)</text>
+  <text x="490" y="90" text-anchor="middle" fill="#64748b" font-size="10">sem auth, sem TLS (lab-grade) — fora do Service Mesh: JGroups não sobrevive ao mTLS estrito</text>
+
+  <!-- nós -->
+  <rect x="296" y="102" width="120" height="96" rx="6" fill="#fff" stroke="#2563eb"/>
+  <text x="356" y="120" text-anchor="middle" fill="#1e293b" font-size="11" font-weight="bold">nó 1</text>
+  <rect x="306" y="130" width="100" height="22" rx="3" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="356" y="145" text-anchor="middle" fill="#1e293b" font-size="10">entrada A</text>
+  <rect x="306" y="158" width="100" height="22" rx="3" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="356" y="173" text-anchor="middle" fill="#1e293b" font-size="10">entrada B</text>
+
+  <rect x="430" y="102" width="120" height="96" rx="6" fill="#fff" stroke="#2563eb"/>
+  <text x="490" y="120" text-anchor="middle" fill="#1e293b" font-size="11" font-weight="bold">nó 2</text>
+  <rect x="440" y="130" width="100" height="22" rx="3" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="490" y="145" text-anchor="middle" fill="#1e293b" font-size="10">entrada A</text>
+  <rect x="440" y="158" width="100" height="22" rx="3" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="490" y="173" text-anchor="middle" fill="#1e293b" font-size="10">entrada C</text>
+
+  <rect x="564" y="102" width="120" height="96" rx="6" fill="#fff" stroke="#dc2626" stroke-dasharray="5,3"/>
+  <text x="624" y="120" text-anchor="middle" fill="#1e293b" font-size="11" font-weight="bold">nó 3</text>
+  <rect x="574" y="130" width="100" height="22" rx="3" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="624" y="145" text-anchor="middle" fill="#1e293b" font-size="10">entrada B</text>
+  <rect x="574" y="158" width="100" height="22" rx="3" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="624" y="173" text-anchor="middle" fill="#1e293b" font-size="10">entrada C</text>
+  <line x1="576" y1="108" x2="672" y2="192" stroke="#dc2626" stroke-width="2"/>
+  <line x1="672" y1="108" x2="576" y2="192" stroke="#dc2626" stroke-width="2"/>
+
+  <text x="490" y="220" text-anchor="middle" fill="#dc2626" font-size="10">derrubar 1 nó ao vivo: nenhuma entrada some — cada uma vive em 2 dos 3 nós (owners=2, SYNC)</text>
+  <text x="490" y="238" text-anchor="middle" fill="#64748b" font-size="10">expiração lifespan 5 min: o mutador do CDC muda a origem a cada minuto —</text>
+  <text x="490" y="252" text-anchor="middle" fill="#64748b" font-size="10">cache eterna mentiria no palco</text>
+
+  <!-- Postgres (vizinho, embaixo) -->
+  <rect x="20" y="300" width="230" height="70" rx="6" fill="#f1f5f9" stroke="#64748b"/>
+  <text x="135" y="322" text-anchor="middle" fill="#1e293b" font-size="12" font-weight="bold">Postgres travel-packages-db</text>
+  <text x="135" y="338" text-anchor="middle" fill="#64748b" font-size="10">travel-db — a fonte dos pacotes</text>
+  <text x="135" y="352" text-anchor="middle" fill="#64748b" font-size="10">(o mutador do CDC escreve aqui)</text>
+
+  <!-- seta EAP -> Postgres: os dados vem SEMPRE do banco -->
+  <line x1="102" y1="168" x2="102" y2="296" stroke="#16a34a" stroke-width="2" marker-end="url(#seta-verde)"/>
+  <text x="110" y="220" fill="#16a34a" font-size="10">JPA: a lista de pacotes</text>
+  <text x="110" y="234" fill="#16a34a" font-size="10">vem sempre do banco;</text>
+  <text x="110" y="248" fill="#16a34a" font-size="10">o cache guarda só a</text>
+  <text x="110" y="262" fill="#16a34a" font-size="10">contagem por destino</text>
+
+  <!-- caminho degradado -->
+  <line x1="250" y1="322" x2="330" y2="272" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#seta-vermelha)"/>
+  <text x="310" y="300" fill="#dc2626" font-size="10">cache fora do ar: API responde</text>
+  <text x="310" y="314" fill="#dc2626" font-size="10">só do banco — degrada, não quebra</text>
+  <text x="310" y="328" fill="#64748b" font-size="10">hit → header x-cache: hit</text>
+  <text x="310" y="342" fill="#64748b" font-size="10">miss → put da contagem + x-cache: miss</text>
+
+  <!-- legenda inferior -->
+  <text x="360" y="378" text-anchor="middle" fill="#1e293b" font-size="10" font-weight="bold">O rate limit protege a borda; o cache protege o banco e corta a latência — plataforma de API é o caminho inteiro.</text>
+</svg>

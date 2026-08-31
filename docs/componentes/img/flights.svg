@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="400" viewBox="0 0 720 400" font-family="sans-serif">
+  <defs>
+    <marker id="seta-verde" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#16a34a"/>
+    </marker>
+    <marker id="seta-vermelha" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#dc2626"/>
+    </marker>
+  </defs>
+  <rect width="720" height="400" fill="#fff"/>
+
+  <text x="360" y="26" text-anchor="middle" font-size="14" font-weight="bold" fill="#1e293b">flights — vendedor do fan-out; a identidade que abre o discounts</text>
+
+  <!-- travels (chamador) -->
+  <rect x="25" y="70" width="140" height="80" rx="6" fill="#fff" stroke="#64748b" stroke-width="2"/>
+  <text x="95" y="95" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e293b">travels</text>
+  <text x="95" y="113" text-anchor="middle" font-size="11" fill="#64748b">orquestrador</text>
+  <text x="95" y="130" text-anchor="middle" font-size="11" fill="#64748b">SA: default</text>
+
+  <!-- flights (componente central) -->
+  <rect x="275" y="55" width="185" height="125" rx="6" fill="#2563eb"/>
+  <text x="367" y="80" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">flights-v1</text>
+  <text x="367" y="98" text-anchor="middle" font-size="11" fill="#fff">demo_travels_flights:v1</text>
+  <text x="367" y="114" text-anchor="middle" font-size="11" fill="#fff">escuta :8000 · SA discount-access-sa</text>
+  <rect x="287" y="126" width="161" height="42" rx="4" fill="#fff"/>
+  <text x="367" y="143" text-anchor="middle" font-size="11" font-weight="bold" fill="#2563eb">istio-proxy (sidecar)</text>
+  <text x="367" y="159" text-anchor="middle" font-size="10" fill="#2563eb">mTLS · traces 10% p/ Zipkin</text>
+
+  <!-- discounts -->
+  <rect x="545" y="55" width="150" height="80" rx="6" fill="#fff" stroke="#64748b" stroke-width="2"/>
+  <text x="620" y="80" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e293b">discounts</text>
+  <text x="620" y="98" text-anchor="middle" font-size="11" fill="#64748b">:8000</text>
+  <text x="620" y="115" text-anchor="middle" font-size="11" fill="#64748b">v1 90% · v2 10%</text>
+
+  <!-- mysqldb -->
+  <rect x="545" y="280" width="150" height="70" rx="6" fill="#fff" stroke="#64748b" stroke-width="2"/>
+  <text x="620" y="305" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e293b">mysqldb</text>
+  <text x="620" y="323" text-anchor="middle" font-size="11" fill="#64748b">ns travel-db · :3306</text>
+  <text x="620" y="339" text-anchor="middle" font-size="11" fill="#64748b">db test</text>
+
+  <!-- fluxo permitido: travels -> flights -->
+  <line x1="165" y1="100" x2="270" y2="100" stroke="#16a34a" stroke-width="2" marker-end="url(#seta-verde)"/>
+  <text x="218" y="90" text-anchor="middle" font-size="10" fill="#16a34a">fan-out HTTP :8000</text>
+
+  <!-- fluxo permitido: flights -> discounts (por identidade) -->
+  <line x1="460" y1="85" x2="540" y2="85" stroke="#16a34a" stroke-width="2" marker-end="url(#seta-verde)"/>
+  <text x="501" y="48" text-anchor="middle" font-size="10" fill="#16a34a">mTLS · SA discount-access-sa</text>
+
+  <!-- fluxo permitido: flights -> mysqldb -->
+  <line x1="420" y1="182" x2="572" y2="276" stroke="#16a34a" stroke-width="2" marker-end="url(#seta-verde)"/>
+  <text x="425" y="225" font-size="10" fill="#16a34a">consulta SQL</text>
+
+  <!-- fluxo negado: chamador sem o SA -->
+  <path d="M 95,150 C 150,255 400,245 588,140" fill="none" stroke="#dc2626" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#seta-vermelha)"/>
+  <text x="330" y="268" text-anchor="middle" font-size="11" fill="#dc2626">chamador sem discount-access-sa → 403 RBAC: access denied</text>
+
+  <!-- nota: as policies que decidem -->
+  <text x="25" y="340" font-size="10.5" fill="#64748b">AuthorizationPolicy discounts-only-sellers: só o principal SPIFFE</text>
+  <text x="25" y="356" font-size="10.5" fill="#64748b">cluster.local/ns/travel-agency/sa/discount-access-sa entra no discounts.</text>
+  <text x="25" y="372" font-size="10.5" fill="#64748b">PeerAuthentication travel-agency-mtls STRICT: sem mTLS não há principal.</text>
+</svg>

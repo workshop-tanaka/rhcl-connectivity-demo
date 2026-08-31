@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 400" width="720" height="400" font-family="sans-serif">
+  <defs>
+    <marker id="seta-ok" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#16a34a"/>
+    </marker>
+    <marker id="seta-nega" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#dc2626"/>
+    </marker>
+    <marker id="seta-neutra" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="720" height="400" fill="#fff"/>
+
+  <!-- cliente -->
+  <rect x="10" y="130" width="112" height="64" rx="6" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="66" y="152" text-anchor="middle" font-size="12" font-weight="bold" fill="#1e293b">Parceiro</text>
+  <text x="66" y="168" text-anchor="middle" font-size="9.5" fill="#1e293b">GET /travels/…</text>
+  <text x="66" y="182" text-anchor="middle" font-size="9.5" fill="#1e293b">?APIKEY=…</text>
+
+  <line x1="122" y1="162" x2="158" y2="162" stroke="#64748b" stroke-width="1.5" marker-end="url(#seta-neutra)"/>
+
+  <!-- gateway -->
+  <text x="237" y="78" text-anchor="middle" font-size="9.5" fill="#1e293b">api-travels.apps.&lt;dominio&gt;</text>
+  <rect x="162" y="88" width="150" height="190" rx="6" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="237" y="107" text-anchor="middle" font-size="12" font-weight="bold" fill="#1e293b">Gateway prod-web</text>
+  <text x="237" y="120" text-anchor="middle" font-size="8.5" fill="#64748b">classe istio · ingress-gateway</text>
+
+  <rect x="172" y="128" width="130" height="60" rx="4" fill="#fff" stroke="#64748b" stroke-width="1"/>
+  <text x="237" y="143" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1e293b">AuthPolicy</text>
+  <text x="237" y="156" text-anchor="middle" font-size="8" fill="#1e293b">travel-agency-authpolicy</text>
+  <text x="237" y="169" text-anchor="middle" font-size="8.5" fill="#1e293b">?APIKEY → x-partner</text>
+
+  <rect x="172" y="198" width="130" height="66" rx="4" fill="#fff" stroke="#64748b" stroke-width="1"/>
+  <text x="237" y="212" text-anchor="middle" font-size="9.5" font-weight="bold" fill="#1e293b">PlanPolicy travels-plans</text>
+  <text x="237" y="225" text-anchor="middle" font-size="8.5" fill="#1e293b">tier → Limitador</text>
+  <text x="237" y="238" text-anchor="middle" font-size="8.5" fill="#1e293b">free 3 · silver 10 · gold 30</text>
+  <text x="237" y="251" text-anchor="middle" font-size="8.5" fill="#1e293b">por janela de 10 s</text>
+
+  <!-- recusas -->
+  <line x1="205" y1="278" x2="167" y2="318" stroke="#dc2626" stroke-width="1.6" marker-end="url(#seta-nega)"/>
+  <text x="140" y="338" text-anchor="middle" font-size="10" fill="#dc2626">401 chave inválida</text>
+  <line x1="270" y1="278" x2="308" y2="318" stroke="#dc2626" stroke-width="1.6" marker-end="url(#seta-nega)"/>
+  <text x="330" y="338" text-anchor="middle" font-size="10" fill="#dc2626">429 acima do plano</text>
+  <text x="237" y="360" text-anchor="middle" font-size="9" fill="#dc2626">a recusa nasce no gateway; a aplicação nunca a vê</text>
+
+  <!-- fluxo ok -->
+  <text x="356" y="140" text-anchor="middle" font-size="11" font-weight="bold" fill="#16a34a">200</text>
+  <line x1="312" y1="155" x2="396" y2="155" stroke="#16a34a" stroke-width="2" marker-end="url(#seta-ok)"/>
+  <text x="356" y="172" text-anchor="middle" font-size="9" fill="#1e293b">HTTPRoute</text>
+  <text x="356" y="184" text-anchor="middle" font-size="9" fill="#1e293b">travel-agency</text>
+
+  <!-- componente central -->
+  <rect x="400" y="110" width="130" height="90" rx="6" fill="#2563eb"/>
+  <text x="465" y="140" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">travels</text>
+  <text x="465" y="158" text-anchor="middle" font-size="9" fill="#fff">Deployment travels-v1</text>
+  <text x="465" y="172" text-anchor="middle" font-size="9.5" fill="#fff">:8000 · 1 réplica</text>
+  <text x="465" y="186" text-anchor="middle" font-size="8.5" fill="#fff">sidecar Istio injetado</text>
+
+  <!-- fan-out -->
+  <text x="552" y="34" text-anchor="middle" font-size="9" fill="#16a34a">fan-out :8000</text>
+  <line x1="530" y1="125" x2="573" y2="63" stroke="#16a34a" stroke-width="1.6" marker-end="url(#seta-ok)"/>
+  <line x1="530" y1="145" x2="573" y2="112" stroke="#16a34a" stroke-width="1.6" marker-end="url(#seta-ok)"/>
+  <line x1="530" y1="165" x2="573" y2="161" stroke="#16a34a" stroke-width="1.6" marker-end="url(#seta-ok)"/>
+  <line x1="530" y1="185" x2="573" y2="209" stroke="#16a34a" stroke-width="1.6" marker-end="url(#seta-ok)"/>
+
+  <rect x="575" y="42" width="132" height="38" rx="5" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="641" y="58" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1e293b">flights</text>
+  <text x="641" y="71" text-anchor="middle" font-size="8.5" fill="#64748b">flights.travel-agency:8000</text>
+
+  <rect x="575" y="92" width="132" height="38" rx="5" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="641" y="108" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1e293b">hotels</text>
+  <text x="641" y="121" text-anchor="middle" font-size="8.5" fill="#64748b">hotels.travel-agency:8000</text>
+
+  <rect x="575" y="142" width="132" height="38" rx="5" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="641" y="158" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1e293b">cars</text>
+  <text x="641" y="171" text-anchor="middle" font-size="8.5" fill="#64748b">cars.travel-agency:8000</text>
+
+  <rect x="575" y="192" width="132" height="38" rx="5" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="641" y="208" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1e293b">insurances</text>
+  <text x="641" y="221" text-anchor="middle" font-size="8.5" fill="#64748b">insurances.travel-agency:8000</text>
+
+  <line x1="641" y1="230" x2="641" y2="252" stroke="#64748b" stroke-width="1.4" marker-end="url(#seta-neutra)"/>
+  <text x="628" y="246" text-anchor="end" font-size="8.5" fill="#64748b">os quatro consultam</text>
+
+  <rect x="575" y="256" width="132" height="38" rx="5" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="641" y="272" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1e293b">discounts</text>
+  <text x="641" y="285" text-anchor="middle" font-size="8.5" fill="#64748b">v1 e v2 atrás do Service</text>
+</svg>

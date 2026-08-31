@@ -16,6 +16,19 @@ nav:
   - Provisionamento 1.4: PROVISIONING-1.4.md
   - Vocabulário do catálogo: CATALOGO.md
   - Amostras do Istio: SAMPLES.md
+  - Componentes:
+      - A tese na borda (prod-web): componentes/prod-web.md
+      - travels (orquestrador): componentes/travels.md
+      - flights: componentes/flights.md
+      - hotels: componentes/hotels.md
+      - cars: componentes/cars.md
+      - insurances: componentes/insurances.md
+      - discounts (v1 e v2): componentes/discounts.md
+      - echo-api (contraexemplo): componentes/echo-api.md
+      - travel-packages (EAP + CDC): componentes/travel-packages.md
+      - travel-db: componentes/travel-db.md
+      - travel-cache (Data Grid): componentes/travel-cache.md
+      - travel-streams (Kafka): componentes/travel-streams.md
 
 plugins:
   - techdocs-core
