@@ -252,7 +252,7 @@ metadata:
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
     backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/travel/travels/-/tree/main/
-    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/travels
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
@@ -325,7 +325,7 @@ metadata:
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
     backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/travel/flights/-/tree/main/
-    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/flights
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
@@ -384,7 +384,7 @@ metadata:
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
     backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/travel/hotels/-/tree/main/
-    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/hotels
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
@@ -443,7 +443,7 @@ metadata:
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
     backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/travel/cars/-/tree/main/
-    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/cars
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
@@ -502,7 +502,7 @@ metadata:
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
     backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/travel/insurances/-/tree/main/
-    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/insurances
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
@@ -563,7 +563,7 @@ metadata:
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
     backstage.io/source-location: url:https://${GITLAB_HOST}/rhcl/travel/discounts/-/tree/main/
-    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/discounts
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
     # A aba Kiali usa o mesmo namespace; o provider e o nome do
@@ -618,6 +618,7 @@ metadata:
   # mede. A tag 'rhcl' traz os tres dashboards autorais para a pagina de cada
   # um; o de consumo e o que faz sentido aqui.
   annotations:
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/globex-travel
     grafana/dashboard-selector: rhcl
   links:
     - url: https://${CONSOLE_HOST}/k8s/ns/kuadrant-system/core~v1~Secret/apikey-gold-globex
@@ -657,6 +658,7 @@ metadata:
   # mede. A tag 'rhcl' traz os tres dashboards autorais para a pagina de cada
   # um; o de consumo e o que faz sentido aqui.
   annotations:
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/initech-voyages
     grafana/dashboard-selector: rhcl
   links:
     - url: https://${CONSOLE_HOST}/k8s/ns/kuadrant-system/core~v1~Secret/apikey-silver-initech
@@ -696,6 +698,7 @@ metadata:
   # mede. A tag 'rhcl' traz os tres dashboards autorais para a pagina de cada
   # um; o de consumo e o que faz sentido aqui.
   annotations:
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/acme-trips
     grafana/dashboard-selector: rhcl
   links:
     - url: https://${CONSOLE_HOST}/k8s/ns/kuadrant-system/core~v1~Secret/apikey-free-acme

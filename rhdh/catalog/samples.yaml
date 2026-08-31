@@ -221,6 +221,7 @@ metadata:
     A fachada. Unico servico do bookinfo que a borda alcanca, e o backend das
     DUAS HTTPRoute: a da UI, publica, e a da API, sob chave e plano.
   annotations:
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/bookinfo-productpage
     rhcl.demo/cluster-object: deployment/bookinfo/productpage-v1
     # O deployment tem sufixo de versao, que NAO e o nome da entidade -- errar
     # aqui da uma aba Security que carrega e nao acha nada.
@@ -276,6 +277,7 @@ metadata:
     Metadados do livro (Ruby). So o productpage pode chama-lo, e isso e
     DECLARADO pela AuthorizationPolicy -- nao um acidente de roteamento.
   annotations:
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/bookinfo-details
     rhcl.demo/cluster-object: deployment/bookinfo/details-v1
     acs/deployment-name: details-v1
     gitlab.com/instance: ${GITLAB_HOST}
@@ -313,6 +315,7 @@ metadata:
     distingue versao, porque o principal vem da ServiceAccount, que e uma so
     para as tres.
   annotations:
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/bookinfo-ratings
     rhcl.demo/cluster-object: deployment/bookinfo/ratings-v1
     acs/deployment-name: ratings-v1
     gitlab.com/instance: ${GITLAB_HOST}
@@ -350,6 +353,7 @@ metadata:
     saudavel, no grafo, e com ZERO por cento do trafego -- porque quem decide
     isso e o VirtualService, nao o deploy.
   annotations:
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/bookinfo-reviews
     rhcl.demo/cluster-object: deployment/bookinfo/reviews-v1
     acs/deployment-name: reviews-v1,reviews-v2,reviews-v3
     gitlab.com/instance: ${GITLAB_HOST}
@@ -390,6 +394,7 @@ metadata:
     passam por policy nenhuma. Isso nao e limitacao do RHCL -- e o que Upgrade
     significa.
   annotations:
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/websockets-tornado
     rhcl.demo/cluster-object: deployment/websockets/tornado-v1
     acs/deployment-name: tornado-v1
     janus-idp.io/tekton: websockets
@@ -434,6 +439,7 @@ metadata:
     credencial (metadata). COM SIDECAR e nao proxyless -- sem proxy no caminho
     nao haveria onde a policy da borda agir.
   annotations:
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/grpc-echo-app
     rhcl.demo/cluster-object: deployment/grpc-echo/echo-v1
     acs/deployment-name: echo-v1,echo-v2
     janus-idp.io/tekton: grpc-echo
@@ -473,6 +479,7 @@ metadata:
     o laco obvio e poria o coletor atras de uma PeerAuthentication que ele nao
     tem como negociar com quem lhe manda dados.
   annotations:
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/otel-als-collector
     rhcl.demo/cluster-object: opentelemetrycollector/otel-sample/otel-als
     backstage.io/kubernetes-namespace: otel-sample
     backstage.io/kubernetes-label-selector: app=otel-als
