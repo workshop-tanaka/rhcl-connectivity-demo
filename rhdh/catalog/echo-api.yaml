@@ -119,7 +119,7 @@ metadata:
     # botoes aparecem desabilitados. source-location termina em / porque
     # aponta para um diretorio, nao para um arquivo.
     backstage.io/source-location: url:${DEMO_REPO_URL}/
-    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/echo-api
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/docs/componentes/echo-api
     # Volta agora que o repo tem CI: o workflow valida os manifests DESTE
     # componente, entao a aba Actions passa a ter conteudo proprio.
     # A aba Kiali usa o mesmo namespace; o provider e o nome do

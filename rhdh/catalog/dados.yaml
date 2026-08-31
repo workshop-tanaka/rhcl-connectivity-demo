@@ -214,7 +214,7 @@ metadata:
     Grid, nao do Postgres: quem escreve no cache e o CDC, entao pacote
     desatualizado na tela e sintoma do conector, nao desta aplicacao.
   annotations:
-    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/tree/main/docs/componentes/travel-packages
+    backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/docs/componentes/travel-packages
     # StatefulSet, e nao Deployment: quem o cria e o operator do EAP a partir
     # do WildFlyServer. Procurar 'deployment/travel-packages' nao acha nada.
     rhcl.demo/cluster-object: statefulset/travel-packages/travel-packages
