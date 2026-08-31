@@ -159,3 +159,25 @@ print("""
     uso mem   e quanto disso e real; a diferenca e reserva de operador
     Num SNO a linha '(plataforma OCP)' encolhe: uma instancia de cada, nao tres.""")
 PY
+
+# ----- disco local por no ----------------------------------------------------
+# A dimensao que a primeira validacao nao media e que abandonou um cluster
+# inteiro (k96tq, 2026-08-30): imagem de container mora no disco local do no
+# mesmo com PVC em storage externo, e DiskPressure despeja pods sem cerimonia.
+# O stats/summary do kubelet e a fonte: nodefs e imageFs medidos, nao estimados.
+printf '\n  %-34s %10s %10s %6s\n' 'no' 'disco' 'usado' '%'
+printf '  %s\n' '----------------------------------------------------------------'
+for _n in $(oc get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+  oc get --raw "/api/v1/nodes/${_n}/proxy/stats/summary" 2>/dev/null | python3 -c '
+import sys, json
+no = sys.argv[1]
+try:
+    fs = json.load(sys.stdin)["node"]["fs"]
+    cap, usado = fs["capacityBytes"], fs["usedBytes"]
+    pct = 100.0 * usado / cap
+    alerta = "  <- ATENCAO" if pct >= 80 else ""
+    print(f"  {no:<34}{cap/2**30:>8.0f}Gi{usado/2**30:>8.0f}Gi{pct:>5.0f}%{alerta}")
+except Exception:
+    print(f"  {no}: sem stats (kubelet nao respondeu)")' "$_n"
+done
+printf '  %s\n' 'O kubelet despeja pods quando o livre cai abaixo de ~15% -- acima de 80% de uso, pode a imagem antes de instalar etapa nova.'
