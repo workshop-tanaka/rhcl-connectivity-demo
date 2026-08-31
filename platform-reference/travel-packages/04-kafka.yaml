@@ -16,12 +16,19 @@ apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
   name: dual
-  namespace: travel-streams
+  namespace: travel-packages
   labels:
     strimzi.io/cluster: travel-streams
 spec:
   replicas: 3
   roles: [controller, broker]
+  # sem sidecar: advertised listeners do Kafka nao convivem com o Envoy, e o
+  # namespace consolidado injeta por default (opt-out por pod, 2026-08-31)
+  template:
+    pod:
+      metadata:
+        labels:
+          sidecar.istio.io/inject: "false"
   storage:
     type: persistent-claim
     size: 10Gi
@@ -34,7 +41,7 @@ apiVersion: kafka.strimzi.io/v1
 kind: Kafka
 metadata:
   name: travel-streams
-  namespace: travel-streams
+  namespace: travel-packages
   annotations:
     strimzi.io/node-pools: enabled
     strimzi.io/kraft: enabled
@@ -52,6 +59,11 @@ spec:
       default.replication.factor: 3
       min.insync.replicas: 2
   entityOperator:
+    template:
+      pod:
+        metadata:
+          labels:
+            sidecar.istio.io/inject: "false"
     topicOperator: {}
     userOperator: {}
 ---
@@ -62,7 +74,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: travel-packages-db-debezium
-  namespace: travel-streams
+  namespace: travel-packages
 type: kubernetes.io/basic-auth
 stringData:
   username: debezium
@@ -72,7 +84,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: le-secret-debezium
-  namespace: travel-streams
+  namespace: travel-packages
 rules:
   - apiGroups: [""]
     resources: [secrets]
@@ -83,7 +95,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: cdc-connect-le-secret
-  namespace: travel-streams
+  namespace: travel-packages
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -91,7 +103,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: cdc-connect
-    namespace: travel-streams
+    namespace: travel-packages
 ---
 # A ImageStream do build do connect: o Strimzi constroi a imagem do Debezium
 # PARA DENTRO dela (build.output.type: imagestream) mas NAO a cria -- sem ela
@@ -102,7 +114,7 @@ apiVersion: image.openshift.io/v1
 kind: ImageStream
 metadata:
   name: cdc-connect
-  namespace: travel-streams
+  namespace: travel-packages
 spec:
   lookupPolicy:
     local: true
@@ -111,7 +123,7 @@ apiVersion: kafka.strimzi.io/v1
 kind: KafkaConnect
 metadata:
   name: cdc
-  namespace: travel-streams
+  namespace: travel-packages
   annotations:
     strimzi.io/use-connector-resources: "true"
 spec:
@@ -119,6 +131,17 @@ spec:
   bootstrapServers: travel-streams-kafka-bootstrap:9092
   # Na API v1 do Strimzi, group.id e os topicos de storage viraram campos de
   # primeira classe -- deixa-los em config e erro de validacao, nao aviso.
+  # sem sidecar nos pods do connect E do build dele -- mesmo opt-out dos
+  # brokers; um build com Envoy pendurado pode nunca completar
+  template:
+    pod:
+      metadata:
+        labels:
+          sidecar.istio.io/inject: "false"
+    buildPod:
+      metadata:
+        labels:
+          sidecar.istio.io/inject: "false"
   groupId: cdc
   offsetStorageTopic: cdc-offsets
   configStorageTopic: cdc-configs
@@ -153,17 +176,17 @@ apiVersion: kafka.strimzi.io/v1
 kind: KafkaConnector
 metadata:
   name: travel-cdc
-  namespace: travel-streams
+  namespace: travel-packages
   labels:
     strimzi.io/cluster: cdc
 spec:
   class: io.debezium.connector.postgresql.PostgresConnector
   tasksMax: 1
   config:
-    database.hostname: travel-packages-db-rw.travel-db.svc
+    database.hostname: travel-packages-db-rw.travel-packages.svc
     database.port: 5432
     database.user: debezium
-    database.password: ${secrets:travel-streams/travel-packages-db-debezium:password}
+    database.password: ${secrets:travel-packages/travel-packages-db-debezium:password}
     database.dbname: travelpackages
     topic.prefix: travel
     plugin.name: pgoutput

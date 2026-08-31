@@ -14,7 +14,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: travel-packages-db-debezium
-  namespace: travel-db
+  namespace: travel-packages
 type: kubernetes.io/basic-auth
 stringData:
   username: debezium
@@ -24,16 +24,15 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: travel-packages-db
-  namespace: travel-db
+  namespace: travel-packages
 spec:
   instances: 2
   imageName: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
-  # travel-db esta no Service Mesh (label de namespace, por causa do mysqldb
-  # do Ato 7). O Postgres do CDC fica FORA de proposito: o Debezium conecta a
-  # partir de travel-streams, que nao tem sidecar -- e o Ato 7 endurece
-  # policies ao vivo. Replicacao e failover do CNPG tambem nao ganham nada
-  # com um Envoy no meio. O webhook le LABEL, nunca annotation (armadilha
-  # 5.4), e inheritedMetadata poe o label em todos os pods do cluster.
+  # O namespace consolidado (travel-packages) esta no Service Mesh, mas o
+  # Postgres faz OPT-OUT por label de pod: replicacao e failover do CNPG nao
+  # ganham nada com um Envoy no meio, e o Debezium conecta de pods que tambem
+  # nao tem sidecar. O webhook le LABEL, nunca annotation (armadilha 5.4), e
+  # inheritedMetadata poe o label em todos os pods do cluster (2026-08-31).
   inheritedMetadata:
     labels:
       sidecar.istio.io/inject: "false"

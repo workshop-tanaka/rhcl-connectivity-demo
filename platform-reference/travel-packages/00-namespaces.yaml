@@ -1,14 +1,15 @@
 # ===========================================================================
-# Namespaces do servico travel-packages e das pecas que ele consome.
+# Namespace unico do travel-packages -- servico E dependencias juntos.
 #
-# So o travel-packages entra no Service Mesh (label de NAMESPACE -- o webhook
-# olha label, nunca annotation; armadilha 5.4 do CONHECIMENTO). Cache e Kafka
-# ficam FORA da malha de proposito:
-#   - o Infinispan forma cluster por JGroups/DNS_PING, que o mTLS estrito
-#     quebra sem mensagem util;
-#   - o protocolo do Kafka, com advertised listeners, nao convive com o
-#     sidecar sem configuracao dedicada -- e a demo nao precisa dele na malha.
-# O Postgres (CNPG) mora em travel-db, que ja e o namespace de banco da demo.
+# Consolidado em 2026-08-31 (eram tres: travel-cache e travel-streams alem
+# deste). O QUE NAO MUDOU e o desenho de mesh: so o SERVICO entra na malha.
+# O namespace carrega istio-injection: enabled (label -- o webhook nunca le
+# annotation, armadilha 5.4), e cada workload que NAO deve ter sidecar faz
+# opt-out por label de pod 'sidecar.istio.io/inject: "false"':
+#   - Infinispan: JGroups/DNS_PING quebra sob mTLS estrito sem mensagem util;
+#   - Kafka/Connect: advertised listeners nao convivem com o sidecar;
+#   - CNPG e os Jobs ja faziam opt-out desde 2026-08-28.
+# O MySQL do fan-out NAO mora aqui: e do travel-agency e segue em travel-db.
 # ===========================================================================
 apiVersion: v1
 kind: Namespace
@@ -16,13 +17,3 @@ metadata:
   name: travel-packages
   labels:
     istio-injection: enabled
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: travel-cache
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: travel-streams

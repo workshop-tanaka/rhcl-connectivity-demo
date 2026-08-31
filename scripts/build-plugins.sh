@@ -49,6 +49,8 @@ REPO_COMUNIDADE="https://github.com/backstage/community-plugins"
 # workspace e diretorio costumam coincidir, mas nao sempre: o tech-insights tem
 # o backend em plugins/tech-insights-backend dentro do workspace tech-insights.
 PLUGINS="jaeger|jaeger|0.15.0|1.49.2|@backstage-community/plugin-jaeger
+kafka|kafka|0.12.0|1.49.2|@backstage-community/plugin-kafka
+kafka|kafka-backend|0.11.0|1.49.2|@backstage-community/plugin-kafka-backend
 grafana|grafana|0.17.0|1.49.2|@backstage-community/plugin-grafana
 tech-insights|tech-insights-backend|2.5.2|1.47.2|@backstage-community/plugin-tech-insights-backend"
 

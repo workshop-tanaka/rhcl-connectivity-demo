@@ -83,7 +83,7 @@ spec:
     - name: POSTGRESQL_DATASOURCE
       value: TravelPackagesDS
     - name: POSTGRESQL_HOST
-      value: travel-packages-db-rw.travel-db.svc
+      value: travel-packages-db-rw.travel-packages.svc
     - name: POSTGRESQL_PORT
       value: "5432"
     - name: POSTGRESQL_DATABASE
@@ -103,7 +103,7 @@ spec:
     # namespace travel-cache. O cliente usa clientIntelligence BASIC de
     # proposito -- ver o comentario em CacheDePacotes.java.
     - name: DATAGRID_HOST
-      value: travel-cache.travel-cache.svc
+      value: travel-cache.travel-packages.svc
     - name: DATAGRID_PORT
       value: "11222"
     - name: DATAGRID_CACHE

@@ -1166,22 +1166,22 @@ st_pacotes() {
   # ----- namespaces -----
   # NAO aplica o 00-namespaces.yaml do repo, pelo mesmo motivo do helper _ns:
   # manifest de Namespace capturado carrega faixa de UID/SCC do cluster de
-  # origem. O label de injecao vai so em travel-packages -- cache e streams
-  # ficam FORA da malha de proposito (o cabecalho daquele arquivo explica).
-  _ns travel-packages travel-cache travel-streams
+  # origem. Namespace UNICO desde 2026-08-31: servico e dependencias juntos,
+  # com opt-out de sidecar POR POD nos statefuls (cabecalho do 00 explica).
+  _ns travel-packages
   _run oc label namespace travel-packages istio-injection=enabled --overwrite >/dev/null \
     && _ok "travel-packages com istio-injection=enabled"
 
   # ----- banco, schema e massa -----
   _apply platform-reference/travel-packages/01-postgres.yaml || return 0
-  _wait_cond cluster/travel-packages-db travel-db Ready \
+  _wait_cond cluster/travel-packages-db travel-packages Ready \
     || _log "o Job do seed retenta ate o banco aceitar conexao (backoffLimit 8)"
 
   # Job tem spec imutavel: um segundo apply com qualquer mudanca no template
   # falha com "field is immutable". Recriar e seguro -- o seed.sql e idempotente
   # (ON CONFLICT no codigo, e as reservas so entram com a tabela vazia).
-  if [[ $DRY_RUN -eq 0 ]] && oc get job seed-travel-packages -n travel-db >/dev/null 2>&1; then
-    _run oc delete job seed-travel-packages -n travel-db >/dev/null
+  if [[ $DRY_RUN -eq 0 ]] && oc get job seed-travel-packages -n travel-packages >/dev/null 2>&1; then
+    _run oc delete job seed-travel-packages -n travel-packages >/dev/null
   fi
   _apply platform-reference/travel-packages/02-schema-e-massa.yaml
 
@@ -1200,15 +1200,32 @@ st_pacotes() {
     # KafkaConnector fica sem cluster para rodar -- estado que se le como
     # conector quebrado. Nexus como mirror encurtaria isto; hoje nao esta no
     # caminho (o Connect nao usa settings.xml da pipeline).
-    _log "o build do KafkaConnect leva minutos: oc get build -n travel-streams -w"
+    _log "o build do KafkaConnect leva minutos: oc get build -n travel-packages -w"
   else
     _warn "sem Streams for Apache Kafka -- 04 e 05 nao aplicados"
     return 0
   fi
 
   _apply platform-reference/travel-packages/05-cdc-mutator.yaml
+
+  # ----- console do Streams -------------------------------------------------
+  # O CR leva o hostname deste cluster; __APPS_DOMAIN__ e substituido aqui,
+  # no mesmo padrao do CR do GitLab. O operador (subscription-amq-streams)
+  # gera deployment + route; a tela e o palco do CDC.
+  if oc get crd consoles.console.streamshub.github.com >/dev/null 2>&1; then
+    if [[ $DRY_RUN -eq 1 ]]; then
+      _cmd "aplicar Console streams-console (hostname streams-console.${DOMAIN})"
+    else
+      sed "s|__APPS_DOMAIN__|${DOMAIN}|" "${_here}/platform-reference/travel-packages/07-console.yaml" \
+        | oc apply -f - >/dev/null \
+        && _ok "Console do Streams aplicado -- https://streams-console.${DOMAIN}" \
+        || _warn "falha ao aplicar o Console do Streams"
+    fi
+  else
+    _warn "CRD do streams-console ausente -- operador amq-streams-console ainda subindo? reexecute a etapa"
+  fi
   _log "pausar o fluxo do CDC no palco, se precisar:"
-  _cmd "oc patch cronjob cdc-mutador -n travel-db -p '{\"spec\":{\"suspend\":true}}'"
+  _cmd "oc patch cronjob cdc-mutador -n travel-packages -p '{\"spec\":{\"suspend\":true}}'"
 }
 
 # ===========================================================================
@@ -1473,23 +1490,13 @@ st_entrega() {
   _ns travel-packages
 
   # ----- 1. credencial do banco, COPIADA de travel-db ----------------------
-  # O CloudNativePG gera a senha; nao ha como escreve-la num manifest. E
-  # secretKeyRef so le do proprio namespace, entao nao adianta RoleBinding.
-  # Mesmo padrao do mysql-credentials na etapa 'platform'.
-  if [[ $DRY_RUN -eq 1 ]]; then
-    _cmd "copiar secret travel-packages-db-app de travel-db para travel-packages"
-  elif oc get secret travel-packages-db-app -n travel-packages >/dev/null 2>&1; then
-    _ok "secret do banco ja existe em travel-packages"
-  elif oc get secret travel-packages-db-app -n travel-db -o json 2>/dev/null \
-        | python3 -c 'import sys, json
-d = json.load(sys.stdin)
-d["metadata"] = {"name": "travel-packages-db-app", "namespace": "travel-packages"}
-d.pop("status", None)
-json.dump(d, sys.stdout)' \
-        | oc apply -f - >/dev/null 2>&1; then
-    _ok "secret do banco copiado para travel-packages"
-  else
-    _warn "nao consegui copiar travel-packages-db-app -- o CNPG ja gerou? (oc get secret -n travel-db)"
+  # A copia de secret entre namespaces MORREU com a consolidacao de
+  # 2026-08-31: o CNPG gera travel-packages-db-app no proprio namespace do
+  # servico, e o secretKeyRef le local. Fica so a conferencia.
+  if [[ $DRY_RUN -eq 0 ]]; then
+    oc get secret travel-packages-db-app -n travel-packages >/dev/null 2>&1 \
+      && _ok "secret do banco nativo em travel-packages (CNPG)" \
+      || _warn "travel-packages-db-app ainda nao existe -- o CNPG gera ao criar o cluster"
   fi
 
   # ----- 2. Quay: um secret para empurrar, outro para puxar ----------------

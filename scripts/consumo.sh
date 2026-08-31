@@ -55,9 +55,11 @@ ETAPAS = [
                     "cert-manager", "cert-manager-operator", "keycloak"]),
     ("gitlab",     ["gitlab-system"]),
     ("mesh",       ["istio-system", "istio-cni"]),
-    ("platform",   ["travel-agency", "echo-api"]),
+    ("platform",   ["travel-agency", "echo-api", "travel-db"]),
     ("gateway",    ["ingress-gateway"]),
-    ("pacotes",    ["travel-db", "travel-cache", "travel-streams", "travel-packages"]),
+    # consolidado em 2026-08-31: era travel-db+cache+streams+packages; o
+    # travel-db (mysql do fan-out) voltou para a etapa platform, dona dele
+    ("pacotes",    ["travel-cache", "travel-streams", "travel-packages"]),
     ("consoles",   ["kuadrant-console"]),
     ("tracing",    ["tracing-system"]),
     ("dashboards", ["monitoring"]),

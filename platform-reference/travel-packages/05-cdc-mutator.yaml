@@ -12,7 +12,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: cdc-mutador
-  namespace: travel-db
+  namespace: travel-packages
 spec:
   schedule: "* * * * *"
   concurrencyPolicy: Forbid
@@ -45,7 +45,7 @@ spec:
               command: [psql, -f, /sql/mutador.sql]
               env:
                 - name: PGHOST
-                  value: travel-packages-db-rw.travel-db.svc
+                  value: travel-packages-db-rw.travel-packages.svc
                 - name: PGDATABASE
                   value: travelpackages
                 - name: PGUSER

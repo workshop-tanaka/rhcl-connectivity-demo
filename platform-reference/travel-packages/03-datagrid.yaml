@@ -16,7 +16,15 @@ apiVersion: infinispan.org/v1
 kind: Infinispan
 metadata:
   name: travel-cache
-  namespace: travel-cache
+  namespace: travel-packages
+  # SEM SIDECAR, e o mecanismo e do operador: podTargetLabels copia para os
+  # pods os labels do CR listados nela. JGroups forma cluster por DNS_PING,
+  # que o mTLS do sidecar quebra sem mensagem util -- o namespace consolidado
+  # injeta por default, entao o opt-out e por pod (2026-08-31).
+  annotations:
+    infinispan.org/podTargetLabels: sidecar.istio.io/inject
+  labels:
+    sidecar.istio.io/inject: "false"
 spec:
   replicas: 3
   service:
@@ -33,7 +41,7 @@ apiVersion: infinispan.org/v2alpha1
 kind: Cache
 metadata:
   name: pacotes
-  namespace: travel-cache
+  namespace: travel-packages
 spec:
   clusterName: travel-cache
   name: pacotes

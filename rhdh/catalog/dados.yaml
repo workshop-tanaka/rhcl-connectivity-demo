@@ -51,8 +51,8 @@ metadata:
     Cluster CNPG com a tabela de pacotes. E a FONTE do CDC: o Debezium le o WAL
     daqui, entao o slot de replicacao vive neste cluster e nao no consumidor.
   annotations:
-    rhcl.demo/cluster-object: cluster.postgresql.cnpg.io/travel-db/travel-packages-db
-    backstage.io/kubernetes-namespace: travel-db
+    rhcl.demo/cluster-object: cluster.postgresql.cnpg.io/travel-packages/travel-packages-db
+    backstage.io/kubernetes-namespace: travel-packages
   labels:
     rhcl.demo/camada: dados
     rhcl.demo/origem: repo
@@ -72,8 +72,8 @@ metadata:
     Infinispan que serve as consultas de pacote sem ir ao banco. E o DESTINO do
     CDC: quem escreve aqui e o conector, nao a aplicacao.
   annotations:
-    rhcl.demo/cluster-object: infinispan/travel-cache/travel-cache
-    backstage.io/kubernetes-namespace: travel-cache
+    rhcl.demo/cluster-object: infinispan/travel-packages/travel-cache
+    backstage.io/kubernetes-namespace: travel-packages
   labels:
     rhcl.demo/camada: dados
     rhcl.demo/origem: repo
@@ -95,8 +95,8 @@ metadata:
     O broker Kafka por onde passa a mudanca capturada no Postgres. Um cluster
     dedicado a demo; o topico do CDC nasce do conector, nao declarado a mao.
   annotations:
-    rhcl.demo/cluster-object: kafka/travel-streams/travel-streams
-    backstage.io/kubernetes-namespace: travel-streams
+    rhcl.demo/cluster-object: kafka/travel-packages/travel-streams
+    backstage.io/kubernetes-namespace: travel-packages
   labels:
     rhcl.demo/camada: dados
     rhcl.demo/origem: repo
@@ -117,8 +117,8 @@ metadata:
     que hospeda plugins; o que le o Postgres e o KafkaConnector travel-cdc.
     Confundir os dois e o que faz procurar erro de conexao no lugar errado.
   annotations:
-    rhcl.demo/cluster-object: kafkaconnect/travel-streams/cdc
-    backstage.io/kubernetes-namespace: travel-streams
+    rhcl.demo/cluster-object: kafkaconnect/travel-packages/cdc
+    backstage.io/kubernetes-namespace: travel-packages
   labels:
     rhcl.demo/camada: dados
     rhcl.demo/origem: repo
@@ -141,8 +141,8 @@ metadata:
     torna a replicacao observavel: parar este conector para o cache sem parar o
     banco nem o broker.
   annotations:
-    rhcl.demo/cluster-object: kafkaconnector/travel-streams/travel-cdc
-    backstage.io/kubernetes-namespace: travel-streams
+    rhcl.demo/cluster-object: kafkaconnector/travel-packages/travel-cdc
+    backstage.io/kubernetes-namespace: travel-packages
   labels:
     rhcl.demo/camada: dados
     rhcl.demo/origem: repo
@@ -166,8 +166,8 @@ metadata:
     nao loop num Deployment: cada rodada e transacao curta, o custo aparece em
     'oc get jobs', e pausar a demo e um patch de suspend -- sem matar pod.
   annotations:
-    rhcl.demo/cluster-object: cronjob/travel-db/cdc-mutador
-    backstage.io/kubernetes-namespace: travel-db
+    rhcl.demo/cluster-object: cronjob/travel-packages/cdc-mutador
+    backstage.io/kubernetes-namespace: travel-packages
   labels:
     rhcl.demo/camada: dados
     rhcl.demo/origem: repo
