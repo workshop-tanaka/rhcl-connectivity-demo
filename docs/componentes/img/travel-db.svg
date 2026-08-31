@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 400" width="720" height="400" font-family="sans-serif">
+  <defs>
+    <marker id="seta-verde" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#16a34a"/>
+    </marker>
+    <marker id="seta-vermelha" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#dc2626"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="720" height="400" fill="#fff"/>
+  <text x="360" y="16" text-anchor="middle" font-size="11" font-weight="bold" fill="#1e293b">travel-db: dois bancos, dois consumidores</text>
+
+  <!-- fronteira do Service Mesh (so o lado MySQL) -->
+  <rect x="6" y="28" width="482" height="124" rx="8" fill="none" stroke="#64748b" stroke-width="1" stroke-dasharray="4,4"/>
+  <text x="14" y="41" font-size="9" fill="#64748b">Service Mesh — istio-injection: enabled no namespace</text>
+
+  <!-- backends do fan-out -->
+  <rect x="14" y="50" width="148" height="60" rx="6" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="88" y="70" text-anchor="middle" font-size="10" font-weight="bold" fill="#1e293b">cars · flights</text>
+  <text x="88" y="84" text-anchor="middle" font-size="10" font-weight="bold" fill="#1e293b">hotels · insurances</text>
+  <text x="88" y="98" text-anchor="middle" font-size="9" fill="#64748b">(travel-agency)</text>
+
+  <!-- fluxo backends -> mysql -->
+  <line x1="162" y1="80" x2="276" y2="80" stroke="#16a34a" stroke-width="1.5" marker-end="url(#seta-verde)"/>
+  <text x="219" y="72" text-anchor="middle" font-size="8.5" fill="#16a34a">mysqldb.travel-db:3306</text>
+  <text x="219" y="93" text-anchor="middle" font-size="8.5" fill="#16a34a">SELECT … WHERE cityId=?</text>
+
+  <!-- MySQL: central -->
+  <rect x="280" y="48" width="196" height="76" rx="8" fill="#2563eb"/>
+  <text x="378" y="66" text-anchor="middle" font-size="12" font-weight="bold" fill="#fff">MySQL mysqldb</text>
+  <text x="378" y="81" text-anchor="middle" font-size="9" fill="#fff">demo_travels_mysqldb:v1 · 1 réplica</text>
+  <text x="378" y="95" text-anchor="middle" font-size="9" fill="#fff">:3306 · database test</text>
+  <text x="378" y="109" text-anchor="middle" font-size="9" fill="#fff">emptyDir — massa renasce no start</text>
+
+  <!-- seed do MySQL -->
+  <rect x="548" y="50" width="160" height="60" rx="6" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="628" y="70" text-anchor="middle" font-size="10" font-weight="bold" fill="#1e293b">ConfigMap</text>
+  <text x="628" y="84" text-anchor="middle" font-size="9" fill="#64748b">mysqldb-seed-enrich</text>
+  <text x="628" y="98" text-anchor="middle" font-size="9" fill="#64748b">zz-seed-enrich.sql (subPath)</text>
+
+  <!-- fluxo configmap -> mysql -->
+  <line x1="544" y1="80" x2="480" y2="80" stroke="#16a34a" stroke-width="1.5" marker-end="url(#seta-verde)"/>
+  <text x="512" y="72" text-anchor="middle" font-size="8.5" fill="#16a34a">2º script</text>
+
+  <!-- modo de falha: banco ausente -->
+  <line x1="88" y1="112" x2="88" y2="130" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#seta-vermelha)"/>
+  <text x="14" y="144" font-size="9" fill="#dc2626">sem o mysqldb: "no such host" no backend — e a API responde 200 com corpo []</text>
+
+  <!-- Job de seed + CronJob mutador -->
+  <rect x="14" y="200" width="168" height="76" rx="6" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="98" y="218" text-anchor="middle" font-size="10" font-weight="bold" fill="#1e293b">Job seed-travel-packages</text>
+  <text x="98" y="232" text-anchor="middle" font-size="10" font-weight="bold" fill="#1e293b">CronJob cdc-mutador</text>
+  <text x="98" y="247" text-anchor="middle" font-size="9" fill="#64748b">a cada 1 min · Forbid</text>
+  <text x="98" y="261" text-anchor="middle" font-size="9" fill="#64748b">psql sem sidecar</text>
+
+  <!-- fluxo seed/mutador -> postgres -->
+  <line x1="182" y1="238" x2="276" y2="238" stroke="#16a34a" stroke-width="1.5" marker-end="url(#seta-verde)"/>
+  <text x="229" y="230" text-anchor="middle" font-size="8.5" fill="#16a34a">travel-packages-db-rw</text>
+  <text x="229" y="251" text-anchor="middle" font-size="8.5" fill="#16a34a">seed + mutador.sql</text>
+
+  <!-- Postgres: central -->
+  <rect x="280" y="196" width="196" height="88" rx="8" fill="#2563eb"/>
+  <text x="378" y="215" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#fff">Postgres travel-packages-db</text>
+  <text x="378" y="231" text-anchor="middle" font-size="9" fill="#fff">CNPG · 2 instâncias · 10Gi cada</text>
+  <text x="378" y="245" text-anchor="middle" font-size="9" fill="#fff">db travelpackages · owner travelapp</text>
+  <text x="378" y="259" text-anchor="middle" font-size="9" fill="#fff">480 pacotes · ~1200 reservas</text>
+  <text x="378" y="273" text-anchor="middle" font-size="9" fill="#fff">fora do mesh (inject: "false")</text>
+
+  <!-- Debezium -->
+  <rect x="548" y="200" width="160" height="72" rx="6" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="628" y="220" text-anchor="middle" font-size="10" font-weight="bold" fill="#1e293b">Debezium travel-cdc</text>
+  <text x="628" y="234" text-anchor="middle" font-size="9" fill="#64748b">KafkaConnector em</text>
+  <text x="628" y="248" text-anchor="middle" font-size="9" fill="#64748b">travel-streams (sem sidecar)</text>
+  <text x="628" y="262" text-anchor="middle" font-size="9" fill="#64748b">→ Kafka → Data Grid</text>
+
+  <!-- fluxo postgres -> debezium -->
+  <line x1="476" y1="238" x2="544" y2="238" stroke="#16a34a" stroke-width="1.5" marker-end="url(#seta-verde)"/>
+  <text x="510" y="230" text-anchor="middle" font-size="8.5" fill="#16a34a">WAL · travel_pub</text>
+
+  <!-- EAP: quem NAO le o banco -->
+  <rect x="548" y="300" width="160" height="56" rx="6" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
+  <text x="628" y="322" text-anchor="middle" font-size="10" font-weight="bold" fill="#1e293b">EAP travel-packages</text>
+  <text x="628" y="337" text-anchor="middle" font-size="9" fill="#64748b">lê o cache do Data Grid</text>
+
+  <!-- leitura direta que nao acontece -->
+  <line x1="544" y1="316" x2="482" y2="278" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#seta-vermelha)"/>
+  <text x="400" y="298" font-size="8.5" fill="#dc2626">leitura direta: não acontece</text>
+
+  <!-- legenda -->
+  <line x1="14" y1="316" x2="42" y2="316" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="48" y="320" font-size="9" fill="#1e293b">fluxo real</text>
+  <line x1="14" y1="336" x2="42" y2="336" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5,4"/>
+  <text x="48" y="340" font-size="9" fill="#1e293b">o que não acontece / falha medida</text>
+</svg>
