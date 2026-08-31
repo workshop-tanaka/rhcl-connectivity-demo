@@ -247,6 +247,30 @@ d=json.load(sys.stdin); d["accepted"]=True; print(json.dumps(d))' \
   _secret_literal "$RHDH_NS" rhdh-nexus-secret \
     --from-literal=NEXUS_URL="$_url" \
     --from-literal=NEXUS_AUTH="$(printf '%s' "$_cred" | base64 | tr -d '\n')"
+
+  # ----- publicacao de artefato (2026-08-31) -----
+  # O maven-releases nasce com writePolicy ALLOW_ONCE, e o pom da demo e
+  # 1.0.0 fixo: a SEGUNDA pipeline falharia no deploy com 400. ALLOW e a
+  # escolha certa PARA DEMO -- rebuild da mesma versao e rotina de palco;
+  # numa organizacao real a versao e que deveria mudar, nao a politica.
+  curl -sk -u "$_cred" -X PUT -H 'Content-Type: application/json' \
+    -d '{"name":"maven-releases","online":true,"storage":{"blobStoreName":"default","strictContentTypeValidation":true,"writePolicy":"ALLOW"},"maven":{"versionPolicy":"RELEASE","layoutPolicy":"STRICT"}}' \
+    "${_url}/service/rest/v1/repositories/maven/hosted/maven-releases" >/dev/null 2>&1 \
+    && _ok "maven-releases com redeploy permitido (versao fixa da demo)" \
+    || _warn "nao consegui ajustar o writePolicy do maven-releases"
+
+  # A credencial que a task publica-artefato da pipeline monta como env
+  # (secretKeyRef optional: sem este secret o passo pula com aviso). A URL vai
+  # junto para a task nao depender de descoberta propria.
+  if oc get ns travel-packages >/dev/null 2>&1; then
+    _secret_literal travel-packages nexus-deploy \
+      --from-literal=username="${_cred%%:*}" \
+      --from-literal=password="${_cred#*:}" \
+      --from-literal=url="$_url"
+    _ok "nexus-deploy gravado em travel-packages (pipeline publica no maven-releases)"
+  else
+    _warn "namespace travel-packages ausente -- o secret nexus-deploy fica para depois da etapa pacotes"
+  fi
 }
 
 # ===========================================================================

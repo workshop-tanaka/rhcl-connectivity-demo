@@ -304,6 +304,69 @@ spec:
                   -Dsonar.qualitygate.wait=true
 
     # -----------------------------------------------------------------------
+    # ----- publica o artefato Maven no Nexus --------------------------------
+    # O elo do artefato (2026-08-31): a imagem ia para o Quay e o .war nao ia
+    # para lugar nenhum -- o Nexus era so espelho vazio e a aba do portal nao
+    # tinha o que mostrar (real-only: por isso a anotacao nao existia). Roda
+    # DEPOIS do portao de qualidade -- artefato reprovado nao se publica -- e
+    # em paralelo ao build da imagem: binario no Quay, artefato no Nexus, os
+    # dois rastreaveis do mesmo commit.
+    #
+    # deploy:deploy-file, e nao 'mvn deploy': o .war ja esta em target/ do
+    # compila; rebuildar para publicar dobraria o tempo da pipeline.
+    #
+    # A credencial vem do secret nexus-deploy (optional: sem ele o passo
+    # PULA com aviso alto no log -- a credenciais e quem o cria, e ela roda
+    # depois da entrega na primeira montagem).
+    - name: publica-artefato
+      runAfter: [portao-de-qualidade]
+      workspaces:
+        - name: fonte
+          workspace: fonte
+        - name: cache-maven
+          workspace: cache-maven
+      taskSpec:
+        workspaces:
+          - name: fonte
+          - name: cache-maven
+        steps:
+          - name: deploy
+            image: registry.access.redhat.com/ubi9/openjdk-17:latest
+            workingDir: $(workspaces.fonte.path)
+            env:
+              - name: NEXUS_USER
+                valueFrom:
+                  secretKeyRef: {name: nexus-deploy, key: username, optional: true}
+              - name: NEXUS_PASS
+                valueFrom:
+                  secretKeyRef: {name: nexus-deploy, key: password, optional: true}
+              - name: NEXUS_URL
+                valueFrom:
+                  secretKeyRef: {name: nexus-deploy, key: url, optional: true}
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+              if [[ -z "${NEXUS_USER:-}" || -z "${NEXUS_PASS:-}" || -z "${NEXUS_URL:-}" ]]; then
+                echo "AVISO: secret nexus-deploy ausente -- artefato NAO publicado."
+                echo "       rode 'bash scripts/provision.sh credenciais' e reexecute a pipeline."
+                exit 0
+              fi
+              WAR="$(ls target/*.war 2>/dev/null | head -1)"
+              [[ -n "$WAR" ]] || { echo "nenhum .war em target/ -- o compila rodou?"; exit 1; }
+              cat > /tmp/settings-deploy.xml <<FIM
+              <settings><servers><server>
+                <id>nexus</id>
+                <username>${NEXUS_USER}</username>
+                <password>${NEXUS_PASS}</password>
+              </server></servers></settings>
+              FIM
+              mvn -B -ntp -s /tmp/settings-deploy.xml \
+                  -Dmaven.repo.local=$(workspaces.cache-maven.path) \
+                  deploy:deploy-file \
+                  -DrepositoryId=nexus \
+                  -Durl="${NEXUS_URL}/repository/maven-releases/" \
+                  -DpomFile=pom.xml -Dfile="$WAR" -Dpackaging=war
+              echo "artefato publicado em maven-releases (grupo com.redhat.travel)"
     - name: constroi-imagem
       runAfter: [portao-de-qualidade]
       params:
