@@ -34,6 +34,7 @@ resources:
   - 12-mesh-virtualservice-reviews.yaml
   - 13-mesh-authorizationpolicy.yaml
   - 14-mesh-telemetry.yaml
+  - 15-mesh-podmonitor.yaml
   - 20-gateway.yaml
   - 21-route-openshift.yaml
   - 30-traffic.yaml

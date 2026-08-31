@@ -42,6 +42,7 @@ resources:
   - 11-mesh-destinationrule.yaml
   - 12-mesh-virtualservice.yaml
   - 13-mesh-telemetry.yaml
+  - 14-mesh-podmonitor.yaml
 
 # A copia assinada no Quay -- comentada de proposito; ver samples/README.md.
 #

@@ -23,6 +23,7 @@ kind: Kustomization
 resources:
   - 00-namespace.yaml
   - 01-collector.yaml
+  - 02-mesh-podmonitor.yaml
 
 # Sem bloco 'images': o coletor e gerenciado pelo OpenTelemetry Operator, que
 # escolhe a imagem a partir da versao do operador. Fixar imagem aqui brigaria

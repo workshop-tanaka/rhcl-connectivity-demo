@@ -1,0 +1,47 @@
+# ===========================================================================
+# PodMonitor dos sidecars -- sem ele a amostra e INVISIVEL no Kiali.
+#
+# O Kiali desenha o grafo com METRICA (istio_requests_total via Thanos), nao
+# com pacote: o trafego pode estar fluindo perfeitamente e o namespace aparece
+# vazio -- foi medido em 2026-08-31 no cluster-flqzh, com o gerador contando
+# requisicoes e o grafo em branco. O platform-reference/monitoring cobre so os
+# namespaces da demo; amostra e autocontida, entao o monitor mora aqui.
+# Mesmo spec do istio-proxies-monitor do travel-agency, que funciona.
+# ===========================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: istio-proxies-monitor
+  namespace: bookinfo
+spec:
+  selector:
+    matchExpressions:
+      - key: istio-prometheus-ignore
+        operator: DoesNotExist
+  podMetricsEndpoints:
+    - interval: 30s
+      path: /stats/prometheus
+      relabelings:
+        - action: keep
+          sourceLabels: ["__meta_kubernetes_pod_container_name"]
+          regex: istio-proxy
+        - action: keep
+          sourceLabels: ["__meta_kubernetes_pod_annotationpresent_prometheus_io_scrape"]
+        - action: replace
+          regex: (\d+);(([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4})
+          replacement: '[$2]:$1'
+          sourceLabels: ["__meta_kubernetes_pod_annotation_prometheus_io_port", "__meta_kubernetes_pod_ip"]
+          targetLabel: __address__
+        - action: replace
+          regex: (\d+);((([0-9]+?)(\.|$)){4})
+          replacement: $2:$1
+          sourceLabels: ["__meta_kubernetes_pod_annotation_prometheus_io_port", "__meta_kubernetes_pod_ip"]
+          targetLabel: __address__
+        - action: labeldrop
+          regex: __meta_kubernetes_pod_label_(.+)
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_namespace"]
+          targetLabel: namespace
+        - action: replace
+          sourceLabels: ["__meta_kubernetes_pod_name"]
+          targetLabel: pod_name
