@@ -2356,7 +2356,7 @@ sys.stdout.write(run[0] if run else "")' \
   if [[ $DRY_RUN -eq 0 ]]; then
     printf '\n'
     _log "as amostras publicam em:"
-    [[ " ${alvos[*]} " == *" bookinfo "*   ]] && printf '        %s\n' "https://bookinfo.${DOMAIN}/productpage   (recarregue: 90% v1, 10% v3, nunca v2)"
+    [[ " ${alvos[*]} " == *" bookinfo "*   ]] && printf '        %s\n' "https://bookinfo.${DOMAIN}/productpage   (recarregue: v1/v2/v3 em pesos iguais -- sem estrelas, pretas, vermelhas)"
     [[ " ${alvos[*]} " == *" websockets "* ]] && printf '        %s\n' "https://websockets.${DOMAIN}/           ('WebSocket status' fica verde)"
     [[ " ${alvos[*]} " == *" grpc-echo "*  ]] && printf '        %s\n' "oc port-forward -n grpc-echo svc/echo 7070:7070   (sem entrada externa, como o upstream)"
     [[ " ${alvos[*]} " == *" open-telemetry "* ]] && printf '        %s\n' "oc logs -n otel-sample deploy/otel-als-collector -f   (access log em OTLP)"

@@ -28,15 +28,24 @@ spec:
   hosts:
     - reviews
   http:
+    # As TRES versoes em pesos iguais desde 2026-08-31 (pedido: tudo ativo,
+    # sem intervencao). v1 sem estrelas, v2 estrelas pretas, v3 vermelhas --
+    # recarregar a pagina alterna as tres, e v2/v3 exercitam o ratings (que a
+    # AuthorizationPolicy ja permite a partir do SA dos reviews). O canario
+    # 90/10 do roteiro continua possivel ao vivo: e so reescrever os pesos.
     - route:
         - destination:
             host: reviews
             subset: v1
-          weight: 90
+          weight: 34
+        - destination:
+            host: reviews
+            subset: v2
+          weight: 33
         - destination:
             host: reviews
             subset: v3
-          weight: 10
+          weight: 33
       # Retentativa e timeout aqui, e não na borda, DE PROPÓSITO: a falha que
       # eles cobrem é leste-oeste (reviews chamando ratings por baixo), e a
       # borda não a enxerga. Repetir na HTTPRoute daria a impressão de que
