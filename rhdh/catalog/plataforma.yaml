@@ -364,3 +364,37 @@ spec:
   type: idp
   owner: group:default/platform-team
   system: plataforma
+---
+# CONSOLE CUSTOMIZADA -- a rotulagem e o ponto: title, description e tag dizem
+# que NAO e o plugin oficial do produto (que continua instalado ao lado).
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: kuadrant-console-custom
+  title: Kuadrant Console (customizada)
+  description: >-
+    Console CUSTOMIZADA de comunidade (gateway-smashes/kuadrant-console), sem
+    suporte -- convive com o plugin oficial do RHCL. Reconta os CRs do
+    Kuadrant na linguagem de operacao: API Products, dashboard de gateway,
+    lente AI/MCP, DNS/TLS e custo por consumidor. Read-only, com o token do
+    proprio usuario, e real-only como a demo: o que nao se mede vira N/A.
+  annotations:
+    rhcl.demo/cluster-object: deployment/kuadrant-console/kuadrant-console
+    backstage.io/kubernetes-label-selector: app=kuadrant-console
+    backstage.io/kubernetes-namespace: kuadrant-console
+    backstage.io/source-location: url:https://github.com/gateway-smashes/kuadrant-console
+  links:
+    - url: https://github.com/gateway-smashes/kuadrant-console
+      title: Fonte (comunidade, sem suporte)
+      icon: github
+  labels:
+    rhcl.demo/camada: consoles
+    rhcl.demo/origem: comunidade
+  tags:
+    - rhcl
+    - customizado
+spec:
+  type: website
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: plataforma

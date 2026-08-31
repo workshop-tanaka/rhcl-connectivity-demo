@@ -847,6 +847,24 @@ st_consoles() {
   # se habilita sozinho no console.
   if oc get consoleplugin kuadrant-console-plugin >/dev/null 2>&1 || [[ $DRY_RUN -eq 1 ]]; then
     _enable_console_plugin kuadrant-console-plugin
+
+  # ----- Kuadrant Console CUSTOMIZADA (gateway-smashes) --------------------
+  # NAO substitui o plugin oficial acima -- convive com ele, rotulada de
+  # '(customizada)' no displayName e no cabecalho do proprio manifesto.
+  # Build de Git para a ImageStream local; so na primeira vez.
+  _apply platform-reference/consoles/kuadrant-console-custom.yaml
+  if [[ $DRY_RUN -eq 0 ]]; then
+    if oc get istag kuadrant-console:latest -n kuadrant-console >/dev/null 2>&1; then
+      _ok "imagem da console customizada ja existe"
+    else
+      _log "construindo a Kuadrant Console customizada (webpack via Docker build -- minutos)..."
+      oc start-build kuadrant-console -n kuadrant-console --follow >/dev/null 2>&1 \
+        && _ok "console customizada construida" \
+        || _warn "build da console customizada falhou -- oc logs bc/kuadrant-console -n kuadrant-console"
+    fi
+    _enable_console_plugin kuadrant-console
+    _warn "console CUSTOMIZADA habilitada (gateway-smashes/kuadrant-console) -- comunidade, sem suporte; o plugin oficial continua ativo"
+  fi
   else
     _warn "ConsolePlugin kuadrant-console-plugin ainda nao existe — o operator do RHCL nao terminou de subir"
   fi

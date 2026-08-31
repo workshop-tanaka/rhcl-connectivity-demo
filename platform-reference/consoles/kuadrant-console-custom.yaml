@@ -1,0 +1,139 @@
+# ===========================================================================
+# Kuadrant Console -- CONSOLE CUSTOMIZADA (github.com/gateway-smashes).
+#
+# NAO E O PLUGIN OFICIAL. O oficial (kuadrant-console-plugin, instalado pelo
+# operador do RHCL e ligado na etapa consoles) continua no cluster; este e um
+# plugin de console COMUNITARIO/experimental que reconta os mesmos CRs na
+# linguagem de quem opera: API Products, dashboard de operacao de gateway,
+# lente de AI gateway/MCP, DNS/TLS troubleshooting e custo por consumidor.
+# Read-only, sem service account proprio (usa o token do usuario logado), e
+# com a mesma regra real-only da demo: o que nao se mede vira N/A cinza.
+#
+# A rotulagem de "customizada" e deliberada e aparece em tres lugares:
+#   - no displayName do ConsolePlugin (a lista de plugins do console);
+#   - na entidade do catalogo do RHDH (title e description);
+#   - neste cabecalho e no aviso da etapa consoles.
+#
+# A imagem NAO vem de registry externo: BuildConfig de Git constroi do fonte
+# (contextDir console-plugin, Dockerfile deles) para a ImageStream local --
+# mesmo padrao do plugin-registry. Servida em HTTPS 9001 com cert do
+# service-CA (a falta do TLS e o erro classico: 'Failed to get a valid
+# plugin manifest').
+# ===========================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kuadrant-console
+  labels:
+    rhcl.demo/camada: consoles
+  annotations:
+    rhcl.demo/nota: "console customizada (gateway-smashes/kuadrant-console), nao suportada -- o plugin oficial e o kuadrant-console-plugin"
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: kuadrant-console
+  namespace: kuadrant-console
+spec:
+  lookupPolicy:
+    local: true
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: kuadrant-console
+  namespace: kuadrant-console
+spec:
+  source:
+    type: Git
+    git:
+      uri: https://github.com/gateway-smashes/kuadrant-console
+    contextDir: console-plugin
+  strategy:
+    type: Docker
+  output:
+    to:
+      kind: ImageStreamTag
+      name: kuadrant-console:latest
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kuadrant-console
+  namespace: kuadrant-console
+  labels:
+    app: kuadrant-console
+  annotations:
+    service.beta.openshift.io/serving-cert-secret-name: kuadrant-console-tls
+spec:
+  selector:
+    app: kuadrant-console
+  ports:
+    - port: 9001
+      targetPort: 9001
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kuadrant-console
+  namespace: kuadrant-console
+  labels:
+    app: kuadrant-console
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kuadrant-console
+  template:
+    metadata:
+      labels:
+        app: kuadrant-console
+    spec:
+      containers:
+        - name: kuadrant-console
+          image: image-registry.openshift-image-registry.svc:5000/kuadrant-console/kuadrant-console:latest
+          ports:
+            - name: https
+              containerPort: 9001
+              protocol: TCP
+          volumeMounts:
+            - name: serving-cert
+              mountPath: /var/serving-cert
+              readOnly: true
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 256Mi}
+      volumes:
+        - name: serving-cert
+          secret:
+            # populado assincronamente pelo service-CA; o primeiro start pode
+            # dar um CrashLoop breve ate o cert pousar (documentado no upstream)
+            secretName: kuadrant-console-tls
+---
+# Deep links em runtime, sem rebuild: Grafana e Tempo desta demo.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kuadrant-console-config
+  namespace: kuadrant-console
+data:
+  grafanaNamespace: monitoring
+  grafanaRouteName: grafana-route
+  tempoNamespace: tracing-system
+---
+apiVersion: console.openshift.io/v1
+kind: ConsolePlugin
+metadata:
+  name: kuadrant-console
+spec:
+  # '(customizada)' de proposito: e o rotulo visivel na lista de plugins do
+  # console -- quem olhar sabe na hora que nao e o plugin oficial do produto
+  displayName: Connectivity Link (customizada)
+  backend:
+    type: Service
+    service:
+      name: kuadrant-console
+      namespace: kuadrant-console
+      port: 9001
+      basePath: /
