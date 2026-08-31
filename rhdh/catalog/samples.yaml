@@ -1172,3 +1172,42 @@ spec:
               schema: { type: integer }
           responses:
             "200": { description: OK }
+---
+# O gerador de trafego da amostra: pouco por pod, sempre ligado, e o volume e
+# por replicas -- oc scale e o botao. Sem Sonar/Quay/pipeline de proposito: a
+# imagem nasce de build BINARIO na etapa 'samples' (apps/bookinfo-traffic),
+# sem passar por SCM nem cadeia de suprimento; anotar fonte que nao existe
+# criaria abas mortas, e a regra e real-only.
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: bookinfo-traffic
+  title: bookinfo — traffic (gerador)
+  description: >-
+    Trafego continuo e aleatorio para o bookinfo ter movimento no palco:
+    caminhos e usuarios sorteados contra o gateway da propria amostra
+    (~0,8 req/s por replica, com jitter). Quarkus, construido por build
+    binario na etapa samples. Volume: oc scale deploy/bookinfo-traffic.
+  annotations:
+    rhcl.demo/cluster-object: deployment/bookinfo/bookinfo-traffic
+    acs/deployment-name: bookinfo-traffic
+    backstage.io/kubernetes-label-selector: app=bookinfo-traffic
+    backstage.io/kubernetes-namespace: bookinfo
+    kiali.io/namespace: bookinfo
+    kiali.io/provider: default
+    grafana/dashboard-selector: rhcl
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: repo
+    rhcl.demo/produto: bookinfo
+  tags:
+    - rhcl
+    - sample
+    - istio
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/platform-team
+  system: sample-bookinfo
+  dependsOn:
+    - component:default/bookinfo-productpage

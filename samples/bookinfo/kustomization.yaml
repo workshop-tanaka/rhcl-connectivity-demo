@@ -36,6 +36,7 @@ resources:
   - 14-mesh-telemetry.yaml
   - 20-gateway.yaml
   - 21-route-openshift.yaml
+  - 30-traffic.yaml
 
 # ---------------------------------------------------------------------------
 # A CÓPIA ASSINADA NO QUAY DO CLUSTER -- comentada de propósito.

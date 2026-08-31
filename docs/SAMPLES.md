@@ -498,3 +498,25 @@ documento que ainda não tem medição por trás.
 
 Ao rodar o que falta, registre o resultado aqui e na §7 do
 [CONHECIMENTO](CONHECIMENTO.md) se algum ruído for benigno.
+
+## Tráfego contínuo no bookinfo
+
+A amostra ganhou um gerador próprio (`bookinfo-traffic`, Quarkus, fonte em
+`apps/bookinfo-traffic/`): uma requisição por segundo com 20% de jitter, por
+réplica, com caminho e usuário sorteados — inclusive uma fatia de 404
+proposital, para as métricas terem realismo. O alvo default é o Service do
+gateway da própria amostra, então o tráfego atravessa o data path inteiro e o
+gerador aparece como origem no grafo do Kiali.
+
+O volume é **por réplicas**, nunca por configuração:
+
+```bash
+oc scale deploy/bookinfo-traffic -n bookinfo --replicas=5   # ~4 req/s
+oc scale deploy/bookinfo-traffic -n bookinfo --replicas=0   # silêncio
+```
+
+A imagem nasce de build binário na etapa `samples` (sem SCM, sem cadeia de
+suprimento — de propósito); código novo pede
+`oc start-build bookinfo-traffic --from-dir=apps/bookinfo-traffic -n bookinfo`.
+Para exercitar a camada `rhcl/` da amostra quando ela estiver aplicada, mude
+`TRAFEGO_ALVO` no Deployment para a Route pública.

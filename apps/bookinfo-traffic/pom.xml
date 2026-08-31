@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ==========================================================================
+  bookinfo-traffic: gerador de tráfego contínuo e aleatório para o bookinfo.
+
+  POR QUE EXISTE: as telas da demo (Kiali, Grafana, Tempo, e a camada rhcl/
+  opcional da amostra) só têm o que mostrar com tráfego passando. Gerar na mão
+  prende um terminal e morre quando a apresentação começa; este pod gera pouco
+  e sempre, e o volume é controlado por RÉPLICAS, não por configuração:
+  "oc scale deploy/bookinfo-traffic" com o número desejado é o botão.
+  (Nota de XML: comentário não aceita hífen duplo, por isso a flag não
+  aparece literal aqui. Já mordeu: o Maven recusou o POM inteiro.)
+
+  uber-jar de propósito: o S2I java (ubi9/openjdk-17) detecta e executa um
+  jar único sem configuração extra; o fast-jar exigiria apontar JAVA_APP_JAR
+  para dentro de quarkus-app/, mais uma coisa para quebrar em silêncio.
+=========================================================================== -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.redhat.rhcl</groupId>
+  <artifactId>bookinfo-traffic</artifactId>
+  <version>1.0.0</version>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <quarkus.platform.version>3.15.1</quarkus.platform.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>io.quarkus.platform</groupId>
+        <artifactId>quarkus-bom</artifactId>
+        <version>${quarkus.platform.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-arc</artifactId>
+    </dependency>
+    <!-- o tick vem do scheduler; o cliente HTTP e o da JDK, sem extensao -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-scheduler</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>io.quarkus.platform</groupId>
+        <artifactId>quarkus-maven-plugin</artifactId>
+        <version>${quarkus.platform.version}</version>
+        <executions>
+          <execution>
+            <goals><goal>build</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

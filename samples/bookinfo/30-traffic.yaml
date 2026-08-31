@@ -1,0 +1,78 @@
+# ===========================================================================
+# bookinfo-traffic — trafego continuo e aleatorio para a amostra ter movimento.
+#
+# Fonte: apps/bookinfo-traffic/ (Quarkus). O BuildConfig e BINARIO: quem o
+# alimenta e a etapa 'samples' do provision.sh, com
+#   oc start-build bookinfo-traffic --from-dir=apps/bookinfo-traffic -n bookinfo
+# -- o codigo nao passa pelo GitLab de proposito, para a amostra continuar
+# subindo mesmo sem SCM de pe (a mesma razao de o registry de plugins ser
+# binario). O Argo aplica ESTE arquivo; o build e responsabilidade da etapa.
+#
+# VOLUME POR REPLICAS, nao por configuracao: cada pod gera ~0,8 req/s (1 tick/s
+# com 20% de jitter). Para simular o teto de um limite:
+#   oc scale deploy/bookinfo-traffic -n bookinfo --replicas=5
+#
+# O pod ganha sidecar pela injecao do namespace (STRICT exige) e por isso
+# tambem aparece como origem no grafo do Kiali -- o que e desejado: a plateia
+# ve DE ONDE o trafego vem.
+# ===========================================================================
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: bookinfo-traffic
+  namespace: bookinfo
+spec:
+  lookupPolicy:
+    local: true
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: bookinfo-traffic
+  namespace: bookinfo
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Source
+    sourceStrategy:
+      from:
+        kind: DockerImage
+        name: registry.access.redhat.com/ubi9/openjdk-17:latest
+  output:
+    to:
+      kind: ImageStreamTag
+      name: bookinfo-traffic:latest
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bookinfo-traffic
+  namespace: bookinfo
+  labels:
+    app: bookinfo-traffic
+    rhcl.demo/sample: bookinfo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bookinfo-traffic
+  template:
+    metadata:
+      labels:
+        app: bookinfo-traffic
+        rhcl.demo/sample: bookinfo
+    spec:
+      containers:
+        - name: gerador
+          image: image-registry.openshift-image-registry.svc:5000/bookinfo/bookinfo-traffic:latest
+          env:
+            # explicitos mesmo iguais ao default: e AQUI que se muda o alvo
+            # (ex.: a Route publica, para exercitar a borda) sem rebuild
+            - name: TRAFEGO_ALVO
+              value: http://bookinfo-gateway-istio.bookinfo.svc.cluster.local:80
+            - name: TRAFEGO_INTERVALO
+              value: 1s
+          resources:
+            requests: {cpu: 50m, memory: 160Mi}
+            limits: {memory: 320Mi}

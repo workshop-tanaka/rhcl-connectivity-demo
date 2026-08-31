@@ -2293,6 +2293,25 @@ sys.stdout.write(run[0] if run else "")' \
     fi
   fi
 
+  # ----- 3b. o gerador de trafego do bookinfo -------------------------------
+  # O 30-traffic.yaml sobe IS + BC binario + Deployment; a IMAGEM e desta
+  # etapa: build binario a partir de apps/bookinfo-traffic, sem passar pelo
+  # GitLab (a amostra nao depende do SCM). So constroi quando a tag nao
+  # existe -- codigo novo pede 'oc start-build --from-dir' manual, e o
+  # comentario do proprio manifesto ensina. Volume e por replicas.
+  if [[ $DRY_RUN -eq 0 ]] && [[ " ${alvos[*]} " == *" bookinfo "* ]] \
+      && [[ -d "${_here}/apps/bookinfo-traffic" ]] \
+      && oc get bc bookinfo-traffic -n bookinfo >/dev/null 2>&1; then
+    if oc get istag bookinfo-traffic:latest -n bookinfo >/dev/null 2>&1; then
+      _ok "imagem do bookinfo-traffic ja existe (rebuild: oc start-build bookinfo-traffic --from-dir=apps/bookinfo-traffic -n bookinfo)"
+    else
+      _log "construindo o bookinfo-traffic (maven via S2I -- minutos na primeira vez)..."
+      oc start-build bookinfo-traffic --from-dir="${_here}/apps/bookinfo-traffic" --wait -n bookinfo >/dev/null 2>&1 \
+        && _ok "bookinfo-traffic construido -- 1 replica gerando ~0,8 req/s" \
+        || _warn "build do bookinfo-traffic falhou -- oc logs bc/bookinfo-traffic -n bookinfo"
+    fi
+  fi
+
   # ----- 4. o que conferir --------------------------------------------------
   if [[ $DRY_RUN -eq 0 ]]; then
     printf '\n'
