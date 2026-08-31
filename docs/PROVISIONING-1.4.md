@@ -34,6 +34,13 @@ O `provision.sh` monta a **plataforma**. O Developer Hub é produto que roda
 sobre ela, tem scripts próprios em `rhdh/`, e por isso não é etapa daqui — a
 mesma fronteira que separa `base/` de `platform-reference/`.
 
+**Antes de pedir o cluster**: além de vCPU e memória (§2.1 do CONHECIMENTO),
+confira o **disco local dos nós** — imagem de container mora nele mesmo com
+PVC em storage externo, e um SNO de 100 GB abandonou uma validação inteira em
+DiskPressure (2026-08-30). Multi-node dilui (5 nós de 100 GB fecharam em
+42–53% de uso); SNO pede ≥ 300 GB de raiz. `scripts/consumo.sh` mostra a
+coluna por nó.
+
 Num cluster novo, a ordem é esta, e **a posição do `identity` não é arbitrária**:
 
 ```bash

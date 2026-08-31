@@ -38,7 +38,10 @@ fi
 _sec()  { printf '\n%s== %s ==%s\n' "$_BLU$_BLD" "$*" "$_RST"; }
 _log()  { printf '  %s[*]%s %s\n' "$_BLU" "$_RST" "$*"; }
 _ok()   { printf '  %s✓%s %s\n' "$_GRN" "$_RST" "$*"; }
-_warn() { printf '  %s!%s %s\n' "$_YEL" "$_RST" "$*"; WARN=$((WARN+1)); }
+# Alem de contar, GUARDA a mensagem: em execucao longa o aviso rola para fora
+# da tela e o '== fim ==' parece limpo -- foi assim que um GitLab inteiro
+# faltando passou por 'terminou' (k96tq, 2026-08-30). O rodape reapresenta.
+_warn() { printf '  %s!%s %s\n' "$_YEL" "$_RST" "$*"; WARN=$((WARN+1)); _WARNS+=("$1"); }
 _die()  { printf '\n%s[X]%s %s\n' "$_RED" "$_RST" "$*" >&2; exit 1; }
 # Em stderr de proposito: quase toda chamada de _run redireciona a saida do
 # comando para /dev/null, e um _cmd em stdout sumiria junto — deixando o
@@ -46,6 +49,7 @@ _die()  { printf '\n%s[X]%s %s\n' "$_RED" "$_RST" "$*" >&2; exit 1; }
 _cmd()  { printf '    %s$ %s%s\n' "$_DIM" "$*" "$_RST" >&2; }
 
 WARN=0
+_WARNS=()
 _here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PR="${_here}/platform-reference"
 TIMEOUT="${TIMEOUT:-600}"
@@ -2316,7 +2320,13 @@ if [[ $DRY_RUN -eq 1 ]]; then
   printf '  dry-run: nada foi alterado.\n'
   exit 0
 fi
-printf '  %d aviso(s) nesta execucao.\n\n' "$WARN"
+if [[ $WARN -gt 0 ]]; then
+  printf '  %d aviso(s) nesta execucao -- NAO sao ruido, releia antes de seguir:\n' "$WARN"
+  for _w in "${_WARNS[@]}"; do printf '    ! %s\n' "$_w"; done
+  printf '\n'
+else
+  printf '  0 aviso(s) nesta execucao.\n\n'
+fi
 cat <<EOF
   Agora, o unico veredito que vale:
 
