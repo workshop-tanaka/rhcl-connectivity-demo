@@ -820,7 +820,12 @@ ESPELHO = [
     "docs/componentes/acme-trips.md",
 ]
 ESPELHO_DIRS = [
-    "docs/componentes/img",        # os SVGs das paginas por componente
+    "docs/componentes",                 # paginas, SVGs e os mkdocs.yml por componente
+    # ATENCAO: o diretorio INTEIRO, e nao so o img/. Cada componente tem um
+    # mkdocs.yml de tres linhas ao lado da sua pagina -- e o TechDocs busca esse
+    # arquivo no espelho. Espelhando so o img/, a aba Docs de cada componente
+    # falha no build com "mkdocs.yml not found", que soa como doc ausente e e
+    # arquivo nao espelhado.
     "rhdh/templates",              # os 3 templates e seus skeletons
     # O destino do lapis "edit code" do Topology. As anotacoes vcs-uri/vcs-ref
     # dos Deployments apontam para a RAIZ deste projeto (o decorator espera URL
