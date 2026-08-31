@@ -660,20 +660,19 @@ st_platform() {
   # A ordem importa: o label de injecao tem de existir ANTES dos Deployments,
   # senao os pods sobem sem sidecar e o Ato 7 (Service Mesh leste-oeste) nao acontece —
   # e o sintoma so aparece la, tres atos depois.
-  # travel-db entra aqui, e nao so pelo Namespace que mysqldb.yaml carrega: o
-  # 'oc apply -f <dir>' percorre em ordem alfabetica, entao 00-seed-enrich.yaml
-  # chega ANTES de mysqldb.yaml e falha por namespace inexistente. Criar aqui
-  # tambem tira o label de injecao da mesma requisicao que cria o Deployment.
-  _ns ingress-gateway travel-agency echo-api travel-db
-  for _n in travel-agency travel-db; do
-    _run oc label namespace "$_n" istio-injection=enabled --overwrite >/dev/null \
-      && _ok "${_n} com istio-injection=enabled"
-  done
+  # O MySQL mora em travel-agency desde 2026-08-31 (a dependencia mora com
+  # quem a consome -- mesmo principio da consolidacao do travel-packages); o
+  # namespace travel-db aposentou-se. O manifesto segue em workloads/travel-db/
+  # de proposito: workloads/travel-agency/ e espelhado ao GitLab PUBLICO e o
+  # mysqldb.yaml carrega Secret em stringData.
+  _ns ingress-gateway travel-agency echo-api
+  _run oc label namespace travel-agency istio-injection=enabled --overwrite >/dev/null \
+    && _ok "travel-agency com istio-injection=enabled"
 
   _apply platform-reference/workloads/travel-agency
   _apply platform-reference/workloads/echo-api
-  # travel-db traz o proprio Namespace e o Secret. Nao e opcional, ainda que
-  # pareca: sem MySQL, 4 dos 6 backends respondem 200 com corpo VAZIO e os
+  # O MySQL (em travel-agency desde a unificacao). Nao e opcional, ainda que
+  # pareca: sem ele, 4 dos 6 backends respondem 200 com corpo VAZIO e os
   # Atos 1-4, que medem codigo de status, continuam passando.
   _apply platform-reference/workloads/travel-db
 
@@ -1118,7 +1117,7 @@ EOF
 # de negocio e nao so codigo de status.
 #
 # DEPENDE de duas etapas anteriores, e falha silenciosamente sem elas:
-#   platform  cria travel-db e poe o label de injecao nele;
+#   platform  cria os namespaces da aplicacao (o MySQL mora em travel-agency);
 #   gitlab    instala o CloudNativePG, que e quem entende o CR Cluster.
 #
 # A ORDEM dos manifests e de dependencia, nao estetica: a publication do CDC

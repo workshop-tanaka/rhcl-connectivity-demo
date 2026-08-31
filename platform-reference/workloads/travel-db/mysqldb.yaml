@@ -1,3 +1,10 @@
+# NOTA DA UNIFICACAO (2026-08-31): o MySQL passou a morar no namespace
+# travel-agency -- a dependencia mora com quem a consome (mesmo principio da
+# consolidacao do travel-packages). O ARQUIVO continua neste diretorio de
+# proposito: workloads/travel-agency/ e espelhado para o GitLab PUBLICO e
+# este manifesto carrega Secret com senha em stringData. Diretorio nao e
+# namespace. O bloco Namespace saiu: quem cria o travel-agency e a etapa
+# platform, com faixa de UID/SCC do proprio cluster.
 # ===========================================================================
 # Banco da travel-agency.
 #
@@ -38,17 +45,10 @@
 # dois arquivos deste diretorio, nao so este.
 # ===========================================================================
 apiVersion: v1
-kind: Namespace
-metadata:
-  name: travel-db
-  labels:
-    istio-injection: enabled
----
-apiVersion: v1
 kind: Secret
 metadata:
   name: mysql-credentials
-  namespace: travel-db
+  namespace: travel-agency
 type: Opaque
 stringData:
   # Credencial de demo, descartavel. O mesmo Secret precisa existir em
@@ -59,7 +59,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mysqldb
-  namespace: travel-db
+  namespace: travel-agency
   labels:
     app: mysqldb
     version: v1
@@ -145,7 +145,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: mysqldb
-  namespace: travel-db
+  namespace: travel-agency
   labels:
     app: mysqldb
 spec:

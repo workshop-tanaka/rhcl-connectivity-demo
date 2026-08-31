@@ -61,7 +61,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: mysqldb-seed-enrich
-  namespace: travel-db
+  namespace: travel-agency
   labels:
     app: mysqldb
 data:
