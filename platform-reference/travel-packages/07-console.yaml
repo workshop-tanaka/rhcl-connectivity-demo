@@ -1,0 +1,27 @@
+# ===========================================================================
+# Streams for Apache Kafka Console -- a tela do Kafka da demo.
+#
+# O operador (amq-streams-console, ja na subscription-amq-streams.yaml) gera
+# deployment + route a partir deste CR. A tela mostra topicos, particoes,
+# consumer groups e lag -- e o palco do CDC: os eventos travel.public.* do
+# Debezium correndo ao vivo, e o grupo 'cdc' consumindo.
+#
+# TEMPLATE: __APPS_DOMAIN__ e substituido pela etapa 'pacotes' do
+# provision.sh (mesmo padrao do CR do GitLab). Hostname de UM rotulo sob
+# .apps, para caber no wildcard -- armadilha 5.6.
+#
+# listener 'plain': o mesmo 9092 interno que o Debezium usa. Sem credencial
+# de proposito -- e a instancia da DEMO, no cluster efemero; endurecer o
+# acesso e exercicio do Ato 7, nao pre-requisito da tela.
+# ===========================================================================
+apiVersion: console.streamshub.github.com/v1alpha1
+kind: Console
+metadata:
+  name: streams-console
+  namespace: travel-packages
+spec:
+  hostname: streams-console.__APPS_DOMAIN__
+  kafkaClusters:
+    - name: travel-streams
+      namespace: travel-packages
+      listener: plain
