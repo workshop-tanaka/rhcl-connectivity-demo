@@ -175,11 +175,11 @@ print(json.dumps({
 }
 
 _log "merge requests"
-BR="promove-globex-gold" MSG="Globex Travel passa a gold" FP="identity/apikeys.yaml" \
-CT="$(_curl "${API}/projects/${PROJ_POL}/repository/files/identity%2Fapikeys.yaml/raw?ref=main" 2>/dev/null | sed 's/plan-id: silver/plan-id: gold/')" \
+BR="promove-globex-gold" MSG="Globex Travel passa a gold" FP="base/identity/apikeys.yaml" \
+CT="$(_curl "${API}/projects/${PROJ_POL}/repository/files/base%2Fidentity%2Fapikeys.yaml/raw?ref=main" 2>/dev/null | sed 's/plan-id: silver/plan-id: gold/')" \
 _cria_mr "$PROJ_POL" "promove-globex-gold" \
   "Promover Globex Travel para o tier gold" \
-  "identity/apikeys.yaml" "plan-id: silver" "plan-id: gold" \
+  "base/identity/apikeys.yaml" "plan-id: silver" "plan-id: gold" \
   "Fecha a conversa da issue de capacidade.
 
 O que muda e **um rotulo** — \`kuadrant.io/plan-id\` no Secret da chave. Nao ha
