@@ -1798,6 +1798,20 @@ st_identity() {
     _warn "Keycloak ausente -- ele chega com o RHCL 1.4+; rode a etapa 'operators' antes"
     return 0
   fi
+
+  # ----- os papeis das personas no cluster ---------------------------------
+  #
+  # Nascer no realm e PODER sao coisas diferentes: sem estes bindings,
+  # 'oc login -u plat-eng' funciona e devolve "You don't have any projects" --
+  # e cada modulo do workshop, que compara 'can-i --as=plat-eng' com
+  # '--as=acme-trips', passaria a prometer uma assimetria inexistente.
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "oc apply -f platform-reference/identity/personas-rbac.yaml"
+  else
+    oc apply -f "${_here}/platform-reference/identity/personas-rbac.yaml" >/dev/null 2>&1 \
+      && _ok "personas com papel: plat-eng cluster-admin, parceiros view" \
+      || _warn "falha ao aplicar os papeis das personas"
+  fi
   # NAO bloqueia se o portal ainda nao existe. Ate 2026-08-28 bloqueava, e isso
   # era um impasse: o install.sh do portal exige o segredo do client 'rhdh', que
   # e ESTA etapa que cria, e esta etapa exigia a rota que aquele cria. Nenhum dos

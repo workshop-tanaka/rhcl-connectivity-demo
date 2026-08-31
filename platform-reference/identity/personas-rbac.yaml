@@ -34,14 +34,7 @@
 # A mesma assimetria existe no GitLab, com outro vocabulario: Maintainer contra
 # Developer.
 #
-# COMO APLICAR, hoje:
-#
-#   oc apply -f platform-reference/identity/personas-rbac.yaml
-#
-# A ligacao na etapa 'identity' do provision.sh ficou PENDENTE de proposito:
-# em 2026-08-31 aquele arquivo tinha trabalho nao commitado de outra sessao, e
-# um commit --only teria levado junto o que nao e meu. Uma linha resolve, com a
-# arvore limpa -- e este cabecalho existe para que ela nao se perca.
+# Aplicado por: provision.sh identity
 # ===========================================================================
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
