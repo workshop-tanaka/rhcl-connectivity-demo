@@ -293,6 +293,14 @@ _wait_csv() { # ns prefixo [obrigatorio=1]
 }
 _wait_crd() {
   [[ $DRY_RUN -eq 1 ]] && { _cmd "aguardar CRD $1"; return 0; }
+  # 'oc wait' em CRD INEXISTENTE devolve NotFound na hora -- nao espera nada.
+  # Foi assim que a espera do Dev Spaces "estourou 180s" em segundos, em dois
+  # clusters seguidos (2026-08-30/31): a corrida era pela CRIACAO da CRD, que
+  # este poll cobre antes do Established.
+  local _t=0
+  until oc get "crd/$1" >/dev/null 2>&1 || [[ $_t -ge ${TIMEOUT} ]]; do
+    _t=$((_t + 10)); sleep 10
+  done
   oc wait --for=condition=Established "crd/$1" --timeout=120s >/dev/null 2>&1 \
     && _ok "CRD $1" || _die "CRD $1 nao foi estabelecida — o CSV subiu mas o bundle nao entregou o que a demo usa."
 }
@@ -356,10 +364,18 @@ st_operators() {
     # a demo por um IDE. Espera com teto e segue com aviso.
     if [[ $DRY_RUN -eq 1 ]]; then
       _cmd "aguardar CRD checlusters.org.eclipse.che e aplicar o CheCluster"
-    elif oc wait --for=condition=Established crd/checlusters.org.eclipse.che --timeout=180s >/dev/null 2>&1; then
-      _apply platform-reference/devspaces/checluster.yaml
     else
-      _warn "CRD checlusters nao apareceu em 180s — Dev Spaces fica de fora; rode 'oc apply -f platform-reference/devspaces/' quando o CSV subir"
+      # poll de existencia antes do Established: 'oc wait' em CRD que ainda
+      # nao existe falha na hora (mesma licao do _wait_crd, medida aqui)
+      _t=0
+      until oc get crd/checlusters.org.eclipse.che >/dev/null 2>&1 || [[ $_t -ge 300 ]]; do
+        _t=$((_t + 10)); sleep 10
+      done
+      if oc wait --for=condition=Established crd/checlusters.org.eclipse.che --timeout=60s >/dev/null 2>&1; then
+        _apply platform-reference/devspaces/checluster.yaml
+      else
+        _warn "CRD checlusters nao apareceu em 300s — Dev Spaces fica de fora; rode 'oc apply -f platform-reference/devspaces/' quando o CSV subir"
+      fi
     fi
   else
     _log "OPTIONAL=0 — pulando kiali-ossm, tempo, otel, grafana-operator e Dev Spaces"
