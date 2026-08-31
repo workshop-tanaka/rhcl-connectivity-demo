@@ -22,6 +22,8 @@ metadata:
   name: ${{ values.name }}
   description: ${{ values.description }}
   annotations:
+    # o AppSet nomeia a Application com o nome do repositorio (= values.name)
+    argocd/app-name: ${{ values.name }}
     # Sem estas duas as abas Kubernetes e Topology nao aparecem -- e nao ha erro,
     # a aba simplesmente nao existe. O seletor casa o label que 11-deployment.yaml
     # poe no Deployment E nos pods, entao a aba mostra a cadeia inteira: pods,

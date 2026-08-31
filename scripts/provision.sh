@@ -1052,6 +1052,28 @@ EOF
     _ok "application-controller autorizado a aplicar os manifests do golden path"
   fi
 
+  # ----- credencial do Argo para o PORTAL (2026-08-31) ---------------------
+  # A aba Argo CD do RHDH fala com a API do openshift-gitops; o secret leva
+  # URL e admin para o namespace do portal (se ele ja existir -- na primeira
+  # montagem o portal vem depois, e o setup-plugins avisa ate la).
+  if [[ $DRY_RUN -eq 0 ]]; then
+    local _pns
+    _pns="$(oc get backstage -A -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null)"
+    if [[ -n "$_pns" ]]; then
+      local _apw _art
+      _apw="$(oc get secret openshift-gitops-cluster -n openshift-gitops -o jsonpath='{.data.admin\.password}' 2>/dev/null | base64 -d)"
+      _art="$(oc get route openshift-gitops-server -n openshift-gitops -o jsonpath='{.spec.host}' 2>/dev/null)"
+      if [[ -n "$_apw" && -n "$_art" ]]; then
+        oc create secret generic rhdh-argocd-secret -n "$_pns" \
+          --from-literal=ARGOCD_URL="https://${_art}" \
+          --from-literal=ARGOCD_USERNAME=admin \
+          --from-literal=ARGOCD_PASSWORD="$_apw" \
+          --dry-run=client -o yaml | oc apply -f - >/dev/null \
+          && _ok "rhdh-argocd-secret gravado em ${_pns} (aba Argo CD do portal)"
+      fi
+    fi
+  fi
+
   # ----- 3. credencial do GitLab -------------------------------------------
   # NAO e insumo externo como era no GitHub: o PAT e FABRICADO pela etapa
   # 'gitlab', que o grava em golden-path-gitlab-token. Se ele nao existe, o

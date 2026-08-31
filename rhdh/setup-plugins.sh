@@ -716,6 +716,58 @@ if [[ "${WITH_KAFKA:-false}" == "true" ]]; then
   _warn "plugin do Kafka NAO tem build oficial da Red Hat: construido desta base, sem cobertura."
 fi
 
+# ----- Argo CD (aba de sync/health por Application) --------------------------
+# Par do Roadie, AMBOS na linha exata bs_1.49.4 do registry de overlays (o
+# frontend redhat-argocd para em 1.45 e ficou de fora). Condicional ao secret
+# rhdh-argocd-secret, que a etapa gitops fabrica do admin do openshift-gitops
+# -- mesmo padrao da camada GitLab. A anotacao e argocd/app-name.
+if oc get secret rhdh-argocd-secret -n "$RHDH_NS" >/dev/null 2>&1; then
+  _argocd_front_tag="bs_1.49.4__2.12.5"
+  _argocd_back_tag="bs_1.49.4__4.8.0"
+  _plugins="${_plugins}
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/roadiehq-backstage-plugin-argo-cd-backend:${_argocd_back_tag}!roadiehq-backstage-plugin-argo-cd-backend
+        disabled: false
+        pluginConfig:
+          argocd:
+            username: \${ARGOCD_USERNAME}
+            password: \${ARGOCD_PASSWORD}
+            appLocatorMethods:
+              - type: config
+                instances:
+                  - name: main
+                    url: \${ARGOCD_URL}
+      - package: oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/roadiehq-backstage-plugin-argo-cd:${_argocd_front_tag}!roadiehq-backstage-plugin-argo-cd
+        disabled: false
+        pluginConfig:
+          dynamicPlugins:
+            frontend:
+              roadiehq.backstage-plugin-argo-cd:
+                entityTabs:
+                  - path: /argocd
+                    title: Argo CD
+                    mountPoint: entity.page.argocd
+                mountPoints:
+                  - mountPoint: entity.page.argocd/cards
+                    importName: EntityArgoCDOverviewCard
+                    config:
+                      layout:
+                        gridColumn: 1 / -1
+                      if:
+                        allOf:
+                          - hasAnnotation: argocd/app-name
+                  - mountPoint: entity.page.argocd/cards
+                    importName: EntityArgoCDHistoryCard
+                    config:
+                      layout:
+                        gridColumn: 1 / -1
+                      if:
+                        allOf:
+                          - hasAnnotation: argocd/app-name"
+  _log "Argo CD incluido -- aba nos componentes com argocd/app-name"
+else
+  _warn "rhdh-argocd-secret ausente -- aba Argo CD fica de fora (rode 'provision.sh gitops' com o portal de pe)"
+fi
+
 # ----- Tech Insights + Maturidade (Bronze/Prata/Ouro por check) -------------
 # Tres pecas da mesma esteira comunitaria: o backend (fatos e checks), o
 # modulo jsonfc (checks declarados NA CONFIG, com metadata de rank -- e o que
@@ -1834,7 +1886,7 @@ fi
 # acsUrl: ${ACS_API_URL}, o env nunca chegando, e o schema do app reprovando o
 # boot INTEIRO (medido em 2026-08-30 no cluster-flqzh). Condicionais como o do
 # GitLab: plugin configurado sem secret e warn, nao queda.
-for _s in rhdh-acs-secret rhdh-sonarqube-secret rhdh-nexus-secret; do
+for _s in rhdh-acs-secret rhdh-sonarqube-secret rhdh-nexus-secret rhdh-argocd-secret; do
   if oc get secret "$_s" -n "$RHDH_NS" >/dev/null 2>&1; then
     case ",${_secrets}," in *"\"${_s}\""*) : ;; *) _secrets="${_secrets},{\"name\":\"${_s}\"}" ;; esac
   fi

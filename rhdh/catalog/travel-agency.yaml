@@ -199,6 +199,7 @@ metadata:
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/travel/travels
+    argocd/app-name: travel-travels
     backstage.io/kubernetes-label-selector: app=travels
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -313,6 +314,7 @@ metadata:
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/travel/flights
+    argocd/app-name: travel-flights
     backstage.io/kubernetes-label-selector: app=flights
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -372,6 +374,7 @@ metadata:
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/travel/hotels
+    argocd/app-name: travel-hotels
     backstage.io/kubernetes-label-selector: app=hotels
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -431,6 +434,7 @@ metadata:
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/travel/cars
+    argocd/app-name: travel-cars
     backstage.io/kubernetes-label-selector: app=cars
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -490,6 +494,7 @@ metadata:
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/travel/insurances
+    argocd/app-name: travel-insurances
     backstage.io/kubernetes-label-selector: app=insurances
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
@@ -551,6 +556,7 @@ metadata:
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/travel/discounts
+    argocd/app-name: travel-discounts
     backstage.io/kubernetes-label-selector: app=discounts
     backstage.io/kubernetes-namespace: travel-agency
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.

@@ -235,6 +235,7 @@ metadata:
     # TypeError no navegador -- sem rastro no log do backend.
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/samples/bookinfo
+    argocd/app-name: sample-bookinfo
     backstage.io/kubernetes-label-selector: app=productpage
     backstage.io/kubernetes-namespace: bookinfo
     # O Kiali usa a anotacao DELE, nao a do Kubernetes.
