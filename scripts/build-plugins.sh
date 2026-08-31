@@ -52,7 +52,9 @@ PLUGINS="jaeger|jaeger|0.15.0|1.49.2|@backstage-community/plugin-jaeger
 kafka|kafka|0.12.0|1.49.2|@backstage-community/plugin-kafka
 kafka|kafka-backend|0.11.0|1.49.2|@backstage-community/plugin-kafka-backend
 grafana|grafana|0.17.0|1.49.2|@backstage-community/plugin-grafana
-tech-insights|tech-insights-backend|2.5.2|1.47.2|@backstage-community/plugin-tech-insights-backend"
+tech-insights|tech-insights-backend|2.5.2|1.47.2|@backstage-community/plugin-tech-insights-backend
+tech-insights|tech-insights-backend-module-jsonfc|0.7.2|1.47.2|@backstage-community/plugin-tech-insights-backend-module-jsonfc
+tech-insights|tech-insights-maturity|0.6.0|1.46.2|@backstage-community/plugin-tech-insights-maturity"
 
 _MODO="build"; _ALVO=""; _PUBLICAR=false
 while [[ $# -gt 0 ]]; do

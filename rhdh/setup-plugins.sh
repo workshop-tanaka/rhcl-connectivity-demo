@@ -182,6 +182,7 @@ WITH_SONARQUBE="${WITH_SONARQUBE:-$(_ja_ligado 'plugin-sonarqube')}"
 WITH_JAEGER="${WITH_JAEGER:-$(_ja_ligado 'plugin-jaeger')}"
 WITH_GRAFANA="${WITH_GRAFANA:-$(_ja_ligado 'plugin-grafana')}"
 WITH_KAFKA="${WITH_KAFKA:-$(_ja_ligado 'plugin-kafka-backend')}"
+WITH_TECH_INSIGHTS="${WITH_TECH_INSIGHTS:-$(_ja_ligado 'plugin-tech-insights-backend')}"
 # O connectivity-link-ops e o unico plugin desta lista que e CODIGO DESTE
 # REPOSITORIO, e por isso e o unico que tem uma segunda fonte quando nao ha de
 # quem herdar: rhdh/cl-ops.env, gravado por scripts/build-cl-ops.sh.
@@ -302,6 +303,22 @@ fi
 # falha silenciosa que o cl-ops.env existe para impedir.
 if [[ "$WITH_KAFKA" != "true" ]] && [[ -n "$(_integrity_do_registry 'backstage-community-plugin-kafka-backend-dynamic')" ]]; then
   WITH_KAFKA=true
+fi
+# Tech Insights (maturidade): mesmo criterio do kafka -- publicado = ligado
+if [[ "$WITH_TECH_INSIGHTS" != "true" ]] && [[ -n "$(_integrity_do_registry 'backstage-community-plugin-tech-insights-maturity-dynamic')" ]]; then
+  WITH_TECH_INSIGHTS=true
+fi
+if [[ "$WITH_TECH_INSIGHTS" == "true" ]]; then
+  TI_BACKEND_INTEGRITY="${TI_BACKEND_INTEGRITY:-$(_integrity_de 'backstage-community-plugin-tech-insights-backend-dynamic')}"
+  TI_BACKEND_INTEGRITY="${TI_BACKEND_INTEGRITY:-$(_integrity_do_registry 'backstage-community-plugin-tech-insights-backend-dynamic')}"
+  TI_JSONFC_INTEGRITY="${TI_JSONFC_INTEGRITY:-$(_integrity_de 'backstage-community-plugin-tech-insights-backend-module-jsonfc-dynamic')}"
+  TI_JSONFC_INTEGRITY="${TI_JSONFC_INTEGRITY:-$(_integrity_do_registry 'backstage-community-plugin-tech-insights-backend-module-jsonfc-dynamic')}"
+  TI_MATURITY_INTEGRITY="${TI_MATURITY_INTEGRITY:-$(_integrity_de 'backstage-community-plugin-tech-insights-maturity-dynamic')}"
+  TI_MATURITY_INTEGRITY="${TI_MATURITY_INTEGRITY:-$(_integrity_do_registry 'backstage-community-plugin-tech-insights-maturity-dynamic')}"
+  if [[ -z "${TI_BACKEND_INTEGRITY:-}" || -z "${TI_JSONFC_INTEGRITY:-}" || -z "${TI_MATURITY_INTEGRITY:-}" ]]; then
+    _warn "tech-insights ligado e sem integrity de alguma das tres pecas -- desligado nesta execucao"
+    WITH_TECH_INSIGHTS=false
+  fi
 fi
 if [[ "$WITH_KAFKA" == "true" ]]; then
   KAFKA_INTEGRITY="${KAFKA_INTEGRITY:-$(_integrity_de 'backstage-community-plugin-kafka-dynamic')}"
@@ -697,6 +714,148 @@ if [[ "${WITH_KAFKA:-false}" == "true" ]]; then
                           - hasAnnotation: kafka.apache.org/consumer-groups"
   _log "Kafka incluido -- aba nos componentes com kafka.apache.org/consumer-groups"
   _warn "plugin do Kafka NAO tem build oficial da Red Hat: construido desta base, sem cobertura."
+fi
+
+# ----- Tech Insights + Maturidade (Bronze/Prata/Ouro por check) -------------
+# Tres pecas da mesma esteira comunitaria: o backend (fatos e checks), o
+# modulo jsonfc (checks declarados NA CONFIG, com metadata de rank -- e o que
+# o plugin de maturidade le) e o frontend de maturidade. A primeira onda de
+# checks usa so os fact retrievers embutidos (catalogo); a segunda -- policy
+# na rota, PodMonitor presente, pipeline assinada -- pede fact retrievers
+# custom e fica registrada aqui como proximo passo.
+if [[ "${WITH_TECH_INSIGHTS:-false}" == "true" ]]; then
+  _ti_back_tgz="backstage-community-plugin-tech-insights-backend-dynamic-2.5.2.tgz"
+  _ti_jsonfc_tgz="backstage-community-plugin-tech-insights-backend-module-jsonfc-dynamic-0.7.2.tgz"
+  _ti_mat_tgz="backstage-community-plugin-tech-insights-maturity-dynamic-0.6.0.tgz"
+  _plugins="${_plugins}
+      - package: http://plugin-registry:8080/${_ti_back_tgz}
+        integrity: \"${TI_BACKEND_INTEGRITY}\"
+        disabled: false
+        pluginConfig:
+          techInsights:
+            factRetrievers:
+              entityMetadataFactRetriever:
+                cadence: '*/15 * * * *'
+                lifecycle: { maxItems: 2 }
+              entityOwnershipFactRetriever:
+                cadence: '*/15 * * * *'
+                lifecycle: { maxItems: 2 }
+              techdocsFactRetriever:
+                cadence: '*/15 * * * *'
+                lifecycle: { maxItems: 2 }
+      - package: http://plugin-registry:8080/${_ti_jsonfc_tgz}
+        integrity: \"${TI_JSONFC_INTEGRITY}\"
+        disabled: false
+        pluginConfig:
+          techInsights:
+            factChecker:
+              checks:
+                tem-dono:
+                  type: json-rules-engine
+                  name: Tem dono (grupo)
+                  description: spec.owner aponta para um Group do catalogo
+                  factIds: [entityOwnershipFactRetriever]
+                  rule:
+                    conditions:
+                      all:
+                        - fact: hasGroupOwner
+                          operator: equal
+                          value: true
+                  metadata:
+                    category: Propriedade
+                    rank: 1
+                    solution: defina spec.owner com um group:default/<time> existente
+                tem-descricao:
+                  type: json-rules-engine
+                  name: Tem descricao
+                  description: metadata.description explica o que o componente e
+                  factIds: [entityMetadataFactRetriever]
+                  rule:
+                    conditions:
+                      all:
+                        - fact: hasDescription
+                          operator: equal
+                          value: true
+                  metadata:
+                    category: Documentacao
+                    rank: 1
+                    solution: escreva metadata.description no arquivo do catalogo
+                tem-titulo:
+                  type: json-rules-engine
+                  name: Tem titulo legivel
+                  description: metadata.title da nome humano a entidade
+                  factIds: [entityMetadataFactRetriever]
+                  rule:
+                    conditions:
+                      all:
+                        - fact: hasTitle
+                          operator: equal
+                          value: true
+                  metadata:
+                    category: Catalogo
+                    rank: 2
+                    solution: adicione metadata.title
+                tem-docs:
+                  type: json-rules-engine
+                  name: Tem TechDocs
+                  description: backstage.io/techdocs-ref aponta documentacao propria
+                  factIds: [techdocsFactRetriever]
+                  rule:
+                    conditions:
+                      all:
+                        - fact: hasAnnotationBackstageIoTechdocsRef
+                          operator: equal
+                          value: true
+                  metadata:
+                    category: Documentacao
+                    rank: 2
+                    solution: aponte backstage.io/techdocs-ref para docs/componentes/<slug>
+                tem-tags:
+                  type: json-rules-engine
+                  name: Classificado com tags
+                  description: metadata.tags permite filtrar e agrupar
+                  factIds: [entityMetadataFactRetriever]
+                  rule:
+                    conditions:
+                      all:
+                        - fact: hasTags
+                          operator: equal
+                          value: true
+                  metadata:
+                    category: Catalogo
+                    rank: 3
+                    solution: adicione tags (rhcl, camada, ato)
+      - package: http://plugin-registry:8080/${_ti_mat_tgz}
+        integrity: \"${TI_MATURITY_INTEGRITY}\"
+        disabled: false
+        pluginConfig:
+          dynamicPlugins:
+            frontend:
+              backstage-community.plugin-tech-insights-maturity:
+                entityTabs:
+                  - path: /maturidade
+                    title: Maturidade
+                    mountPoint: entity.page.maturidade
+                mountPoints:
+                  - mountPoint: entity.page.maturidade/cards
+                    importName: EntityMaturityScorecardContent
+                    config:
+                      layout:
+                        gridColumn: 1 / -1
+                      if:
+                        allOf:
+                          - isKind: component
+                  - mountPoint: entity.page.overview/cards
+                    importName: EntityMaturitySummaryCard
+                    config:
+                      layout:
+                        gridColumnEnd:
+                          lg: \"span 4\"
+                      if:
+                        allOf:
+                          - isKind: component"
+  _log "Tech Insights incluido -- aba Maturidade nos Components (Bronze/Prata/Ouro)"
+  _warn "tech-insights NAO tem build oficial da Red Hat nesta linha: construido desta base, sem cobertura."
 fi
 
 

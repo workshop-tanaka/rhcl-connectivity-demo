@@ -241,6 +241,9 @@ metadata:
     # de 1h deixa vazio num cluster sem trafego recente.
     jaegertracing.io/lookback: 168h
     kafka.apache.org/consumer-groups: travel-streams/cache-updater
+    # A aba do Nexus so entrou quando o artefato passou a EXISTIR (real-only):
+    # a task publica-artefato poe o .war em maven-releases desde 2026-08-31.
+    nexus-repository-manager/config.query: 'maven.groupId=com.redhat.travel&maven.artifactId=travel-packages'
   labels:
     rhcl.demo/camada: aplicacao
     rhcl.demo/origem: repo

@@ -87,15 +87,18 @@ trap 'rm -rf "$_STAGE"' EXIT
 # o stage incompleto -- que é exatamente o estado que este script existe para
 # impedir. Medido em 2026-08-27.
 _log "extraindo o que o registry já serve"
-# Em DUAS etapas, e não num pipe: com `set -o pipefail` o status do `oc exec`
-# derruba o pipeline inteiro mesmo tendo escrito todos os bytes, e a mensagem
-# resultante ("falha ao extrair") acusa o lugar errado.
-_TARBALL="${_STAGE}/.registro.tar"
-oc exec -n "$RHDH_NS" "$_P" -- tar cf - -C /opt/app-root/src . > "$_TARBALL" 2>/dev/null || true
-[[ -s "$_TARBALL" ]] || _die "extração vazia do registry -- não publique por cima disso"
-tar xf "$_TARBALL" -C "$_STAGE" 2>/dev/null || _die "o tar extraído do registry está corrompido"
-rm -f "$_TARBALL"
-find "$_STAGE" -type f ! -name '*.tgz' -delete 2>/dev/null || true
+# ARQUIVO A ARQUIVO, e nao um tar unico: o stream do 'oc exec' TRUNCA por
+# volta de 40MB, e quando o acervo cresceu alem disso o tar chegava cortado
+# -- 'corrompido' acusava o registry, e o culpado era o transporte (medido em
+# 2026-08-31, acervo com 7 pacotes: bytes parados em exatos 40960000). Cada
+# .tgz individual fica muito abaixo do teto. A verificacao de integridade por
+# arquivo (gzip -t) segura truncamento parcial.
+while IFS= read -r _f; do
+  [[ "$_f" == *.tgz ]] || continue
+  oc exec -n "$RHDH_NS" "$_P" -- cat "/opt/app-root/src/${_f}" > "${_STAGE}/${_f}" 2>/dev/null || _die "falha ao trazer ${_f} do registry"
+  gzip -t "${_STAGE}/${_f}" 2>/dev/null || _die "${_f} chegou truncado do registry -- nao publique por cima disso"
+done < <(oc exec -n "$RHDH_NS" "$_P" -- sh -c 'ls /opt/app-root/src/' 2>/dev/null)
+[[ -n "$(ls "$_STAGE"/*.tgz 2>/dev/null)" ]] || _die "extração vazia do registry -- não publique por cima disso"
 
 for _d in "${_DROP[@]:-}"; do
   [[ -z "$_d" ]] && continue
