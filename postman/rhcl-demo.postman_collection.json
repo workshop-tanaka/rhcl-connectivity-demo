@@ -729,6 +729,58 @@
           ]
         },
         {
+          "name": "ver os claims do token (quem sou eu para a policy)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_echo}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{keycloak_host}}/realms/sso/protocol/openid-connect/userinfo",
+              "protocol": "https",
+              "host": [
+                "{{keycloak_host}}"
+              ],
+              "path": [
+                "realms",
+                "sso",
+                "protocol",
+                "openid-connect",
+                "userinfo"
+              ],
+              "query": []
+            },
+            "description": "Duas visoes da mesma identidade: o USERINFO do Keycloak (esta resposta) e o PAYLOAD do proprio JWT, decodificado no script de teste -- abra o Console do Postman para ver os claims anotados. Sao eles que a AuthPolicy le: preferred_username decide o PLANO no echo-plans e vira o x-partner nas metricas; iss tem de casar com o issuerUrl da policy; exp explica por que o request 3 comeca a dar 401 depois de ~5 min (token expirado, nao policy quebrada)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('userinfo 200 (token valido para o proprio emissor)', () => pm.response.to.have.status(200));",
+                  "pm.test('identidade presente', () => pm.expect(pm.response.json().preferred_username).to.exist);",
+                  "",
+                  "// decodifica o payload do JWT localmente -- base64url, sem chamar ninguem",
+                  "const tok = pm.environment.get('token_echo') || '';",
+                  "const b64 = tok.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');",
+                  "const claims = JSON.parse(atob(b64));",
+                  "console.log('=== claims do JWT (o que a AuthPolicy enxerga) ===');",
+                  "console.log('preferred_username :', claims.preferred_username, ' <- decide o PLANO (echo-plans) e o x-partner (metricas)');",
+                  "console.log('iss                :', claims.iss, ' <- tem de casar com o issuerUrl da AuthPolicy');",
+                  "console.log('exp                :', new Date(claims.exp * 1000).toISOString(), ' <- depois disso, 401 (token, nao policy)');",
+                  "console.log('azp (client)       :', claims.azp);",
+                  "console.log('claims completos   :', JSON.stringify(claims, null, 2));",
+                  "pm.test('iss aponta para o realm sso deste cluster', () => pm.expect(claims.iss).to.include('/realms/sso'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "echo SEM token -> 401",
           "request": {
             "method": "GET",
