@@ -23,7 +23,9 @@ _dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null
 _saida="postman/rhcl-demo.local.postman_environment.json"
 mkdir -p postman
 
-oc get secrets -n kuadrant-system -l app=partner \
+# As chaves de TESTE, de proposito: o trafego do Postman e teste, e com o
+# user-id 'sistema-teste' ele nasce filtravel nas metricas (2026-08-31).
+oc get secrets -n kuadrant-system -l app=partner,rhcl.demo/finalidade=teste,devportal.kuadrant.io/apiproduct=travels-api \
   -o jsonpath='{range .items[*]}{.metadata.labels.kuadrant\.io/plan-id}{"\t"}{.data.api_key}{"\n"}{end}' 2>/dev/null \
   | awk -F'\t' '!seen[$1]++' \
   | DOM="$_dom" SAIDA="$_saida" python3 -c '

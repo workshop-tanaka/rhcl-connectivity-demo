@@ -3,3 +3,4 @@ kind: Kustomization
 # Consumidores da API (Secrets de API key), um por tier.
 resources:
   - apikeys.yaml
+  - apikeys-teste.yaml

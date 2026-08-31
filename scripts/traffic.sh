@@ -10,6 +10,11 @@
 #   bash traffic.sh burst gold       # rajada de um tier só
 #   bash traffic.sh soak             # tráfego contínuo, para assistir no Grafana
 #   bash traffic.sh mesh             # fan-out real, para o grafo do Kiali (Ato 5)
+#   bash traffic.sh pacotes          # a cadeia do travel-packages sob carga:
+#                                    # leitura por tier + POST de reservas -> CDC
+#                                    # (sempre com as chaves de TESTE: a serie
+#                                    # nasce filtravel como 'sistema-teste')
+#   TESTE=1 bash traffic.sh tiers    # qualquer modo com as chaves de teste
 #   bash traffic.sh all              # todas as APIs e tiers, ate mandarem parar
 #   bash traffic.sh mesh-split       # divisão de tráfego v1/v2 do canary (Ato 7)
 #   bash traffic.sh anon             # sem chave e com chave inválida (401)
@@ -83,11 +88,20 @@ URL="https://${HOST}${API_PATH}"
 # ler daqui garante que o script e a policy nunca divergem.
 declare -a TIERS=() KEYS=()
 _load_keys() {
-  local line ns=kuadrant-system
+  local line ns=kuadrant-system sel
+  # TESTE=1 troca o conjunto de chaves: as de finalidade=teste carregam o
+  # user-id 'sistema-teste' e todo o trafego vira UMA linha filtravel no
+  # Grafana/Kiali/Tempo. Sem TESTE=1 (a cena), elas ficam de fora para o
+  # palco mostrar so os parceiros da historia (2026-08-31).
+  # o apiproduct entra no seletor: sem ele, a chave de teste do ECHO (mesmo
+  # plano gold, produto errado) vence por ordem alfabetica e o tier inteiro
+  # da 401 -- medido em 2026-08-31, no primeiro TESTE=1
+  sel="app=partner,devportal.kuadrant.io/apiproduct=travels-api,rhcl.demo/finalidade!=teste"
+  [[ "${TESTE:-0}" == "1" ]] && sel="app=partner,devportal.kuadrant.io/apiproduct=travels-api,rhcl.demo/finalidade=teste"
   while IFS=$'\t' read -r tier b64; do
     [[ -z "$tier" || -z "$b64" ]] && continue
     TIERS+=("$tier"); KEYS+=("$(printf '%s' "$b64" | base64 -d)")
-  done < <(oc get secrets -n "$ns" -l app=partner \
+  done < <(oc get secrets -n "$ns" -l "$sel" \
              -o jsonpath='{range .items[*]}{.metadata.labels.kuadrant\.io/plan-id}{"\t"}{.data.api_key}{"\n"}{end}' 2>/dev/null \
            | awk -F'\t' '!seen[$1]++')
   [[ ${#TIERS[@]} -gt 0 ]] || _die "nenhum Secret com 'app: partner' em ${ns}. Aplicou 'oc apply -k ${OVERLAY}'?"
@@ -656,6 +670,54 @@ mode_mesh_split() {
   _log "sem VirtualService o Service faz round-robin e isto da ~50/50"
 }
 
+# ----- pacotes: a cadeia de dados sob carga ---------------------------------
+# Cobre o que nasceu depois do script (2026-08-31): leitura por tier (o efeito
+# de negocio -- gold ve a categoria romantico), o cache por destino (hit/miss
+# no Data Grid) e a ESCRITA: POST de reserva a cada 10 leituras, que vira
+# evento em travel.public.reservas -- Debezium, Kafka, Console e a aba do
+# portal se mexem juntos. Destinos descobertos da propria API (em portugues:
+# o seed do pacotes fala pt, o do travels fala en -- ver commit ca73c6f).
+mode_pacotes() {
+  local pkg_host dur="${DURATION:-120}" n=0 reservas=0
+  pkg_host="$(oc get httproute travel-packages -n travel-packages \
+    -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null)"
+  [[ -n "$pkg_host" ]] || _die "HTTPRoute travel-packages nao encontrada -- rode 'provision.sh entrega'"
+  local base="https://${pkg_host}/api"
+
+  local -a DESTINOS=() CODIGOS=()
+  while IFS=$'\t' read -r d c; do
+    [[ -n "$d" ]] && { DESTINOS+=("$d"); CODIGOS+=("$c"); }
+  done < <(curl -sk --max-time 15 "${base}/pacotes?tier=gold&limite=200" 2>/dev/null \
+    | python3 -c 'import sys, json
+vistos = {}
+for p in json.load(sys.stdin):
+    vistos.setdefault(p["destino"], p["codigo"])
+for d, c in sorted(vistos.items()):
+    print(d + "\t" + c)' 2>/dev/null)
+  [[ ${#DESTINOS[@]} -gt 0 ]] || _die "a API de pacotes nao listou destinos -- o seed rodou?"
+
+  _log "cadeia do travel-packages por ${dur}s: ${#DESTINOS[@]} destinos, POST de reserva a cada 10 leituras"
+  _log "identidade: sistema-teste (filtre por ela no Grafana/Kiali/Tempo)"
+  local fim=$(( $(date +%s) + dur )) tiers=(free silver gold)
+  while (( $(date +%s) < fim )); do
+    local d="${DESTINOS[$((RANDOM % ${#DESTINOS[@]}))]}"
+    local t="${tiers[$((RANDOM % 3))]}"
+    curl -sk -o /dev/null --max-time 10 "${base}/pacotes/${d// /%20}" &
+    curl -sk -o /dev/null --max-time 10 "${base}/pacotes?tier=${t}&limite=10" &
+    n=$((n + 2))
+    if (( n % 20 == 0 )); then
+      local c="${CODIGOS[$((RANDOM % ${#CODIGOS[@]}))]}"
+      curl -sk -o /dev/null --max-time 10 -X POST \
+        -H 'x-partner: sistema-teste' -H 'Content-Type: application/json' \
+        -d "{\"codigo\":\"${c}\",\"cliente\":\"sistema-teste\"}" \
+        "${base}/reservas" &
+      reservas=$((reservas + 1))
+    fi
+    wait; sleep 0.4
+  done
+  _ok "${n} leituras e ${reservas} reservas -- confira travel.public.reservas no Streams Console"
+}
+
 case "${1:-tiers}" in
   tiers)   mode_tiers ;;
   burst)   mode_burst "${2:-}" ;;
@@ -665,6 +727,7 @@ case "${1:-tiers}" in
   all)     mode_all ;;
   mesh-split) mode_mesh_split ;;
   metrics) mode_metrics ;;
+  pacotes) mode_pacotes ;;
   reset)   mode_reset ;;
   *)       _die "modo desconhecido: $1 (use: tiers | burst <tier> | anon | soak | mesh | mesh-split | metrics | reset)" ;;
 esac

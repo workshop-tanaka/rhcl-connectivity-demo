@@ -225,3 +225,28 @@ metadata:
     - rhcl
 spec:
   owner: group:default/platform-team
+---
+# O usuario de SISTEMA do trafego de teste (2026-08-31). Nao e pessoa e nao
+# loga: e a identidade que as chaves apikey-teste-* carregam no user-id -- o
+# x-partner de todo trafego de script/Postman vira 'sistema-teste', e filtrar
+# teste vs cena no Grafana/Kiali/Tempo e um clique. A tag 'teste' faz o mesmo
+# no catalogo.
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: sistema-teste
+  description: >-
+    Conta de sistema do trafego de teste (traffic.sh TESTE=1, modo pacotes e
+    Postman). Tudo que ela gera aparece como parceiro 'sistema-teste' nas
+    metricas -- separavel da cena num filtro.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - teste
+spec:
+  profile:
+    displayName: Sistema de Teste
+    email: sistema-teste@travel-agency.demo
+  memberOf:
+    - group:default/parceiros

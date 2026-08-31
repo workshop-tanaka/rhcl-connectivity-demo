@@ -1,0 +1,93 @@
+# ===========================================================================
+# Chaves de TESTE -- identidade propria para filtrar o que nao e cena.
+#
+# As tres compartilham o user-id 'sistema-teste': e ele que o AuthPolicy poe
+# no header x-partner, e o Telemetry transforma em dimensao -- todo trafego
+# de teste vira UMA linha propria no Grafana (Consumo por parceiro), no Kiali
+# e no Tempo, separavel dos parceiros de cena (acme/initech/globex) num
+# filtro. O plano continua distinguindo o tier normalmente.
+#
+# Quem as usa: scripts/traffic.sh com TESTE=1 (e o modo pacotes por default),
+# o environment do Postman (scripts/postman-env.sh) e qualquer automacao. Os
+# modos de CENA (tiers/burst/mesh sem TESTE=1) as ignoram pela label
+# rhcl.demo/finalidade -- o palco continua mostrando os parceiros da
+# historia.
+# ===========================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-teste-free
+  namespace: kuadrant-system
+  labels:
+    app: partner
+    authorino.kuadrant.io/managed-by: authorino
+    kuadrant.io/plan-id: free
+    rhcl.demo/finalidade: teste
+    # exigido pelo AuthConfig que o devportal aumenta -- sem ele, 401 eterno
+    devportal.kuadrant.io/apiproduct: travels-api
+  annotations:
+    kuadrant.io/partner-name: "Sistema de Teste"
+    secret.kuadrant.io/user-id: sistema-teste
+type: Opaque
+stringData:
+  api_key: teste-free-7c21ea
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-teste-silver
+  namespace: kuadrant-system
+  labels:
+    app: partner
+    authorino.kuadrant.io/managed-by: authorino
+    kuadrant.io/plan-id: silver
+    rhcl.demo/finalidade: teste
+    # exigido pelo AuthConfig que o devportal aumenta -- sem ele, 401 eterno
+    devportal.kuadrant.io/apiproduct: travels-api
+  annotations:
+    kuadrant.io/partner-name: "Sistema de Teste"
+    secret.kuadrant.io/user-id: sistema-teste
+type: Opaque
+stringData:
+  api_key: teste-silver-9d43bb
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-teste-gold
+  namespace: kuadrant-system
+  labels:
+    app: partner
+    authorino.kuadrant.io/managed-by: authorino
+    kuadrant.io/plan-id: gold
+    rhcl.demo/finalidade: teste
+    # exigido pelo AuthConfig que o devportal aumenta -- sem ele, 401 eterno
+    devportal.kuadrant.io/apiproduct: travels-api
+  annotations:
+    kuadrant.io/partner-name: "Sistema de Teste"
+    secret.kuadrant.io/user-id: sistema-teste
+type: Opaque
+stringData:
+  api_key: teste-gold-4fa08d
+---
+# A chave de teste do ECHO -- e a explicacao de um misterio antigo: as chaves
+# de parceiro sempre deram 401 no echo porque o AuthConfig de cada produto
+# exige o rotulo devportal.kuadrant.io/apiproduct correspondente (medido em
+# 2026-08-31 lendo o AuthConfig vivo). Esta carrega echo-api.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-teste-echo
+  namespace: kuadrant-system
+  labels:
+    app: partner
+    authorino.kuadrant.io/managed-by: authorino
+    kuadrant.io/plan-id: gold
+    rhcl.demo/finalidade: teste
+    devportal.kuadrant.io/apiproduct: echo-api
+  annotations:
+    kuadrant.io/partner-name: "Sistema de Teste"
+    secret.kuadrant.io/user-id: sistema-teste
+type: Opaque
+stringData:
+  api_key: teste-echo-1b56f2
