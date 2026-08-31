@@ -272,6 +272,38 @@ listener bifurca para as duas rotas e as policies chegam como aresta tracejada.
 **O grafo não marca quem venceu** — não existe badge de *overridden*. O desenho
 faz a pergunta, o status responde; não perca tempo procurando na tela.
 
+**E o portal responde para quem não abre um terminal.** No RHDH, em qualquer
+Component, API ou rota do catálogo, o card **Conectividade** traz uma linha por
+tipo de policy; o botão **resolução, limites e consumo** abre a cadeia efetiva:
+
+```
+Overrides do Gateway   —
+Overrides da rota      —
+Defaults da rota       travel-agency-authpolicy    ← vence
+Defaults do Gateway    prod-web-deny-all           sobreposta por travel-agency
+```
+
+As quatro camadas do GEP-713 em ordem, **com o vencedor marcado** — que é
+exatamente o badge que a Policy Topology não tem. É a mesma sobreposição que o
+`Enforced=False` acabou de mostrar no terminal, agora com as duas policies no
+mesmo quadro e o motivo escrito: *"default na rota — mais próximo do que o
+default do Gateway"*. Ao lado, o limite de cada plano e o consumo real vindo do
+Limitador.
+
+> As duas policies deste exemplo são **defaults**, e é por isso que a mais
+> próxima vence. Se alguém perguntar pelo caso contraintuitivo — *override* do
+> Gateway ganhando de *override* da rota —, ele é o primeiro degrau do quadro e
+> está vazio aqui: o teto da plataforma existe e ninguém precisou usá-lo.
+
+> *"O grafo faz a pergunta, o status a responde no terminal, e o portal a
+> responde na tela de quem consome a API."*
+
+Duas escolhas que valem dizer se alguém perguntar. **Camada vazia aparece
+vazia**: é o que mostra que a precedência tem degraus, em vez de sugerir que
+faltou informação. E a cadeia é **conferida contra o cluster** — se o cálculo
+não bater com a condição `kuadrant.io/…Affected` da própria rota, o card diz
+`diverge do que a rota declara` em vez de mostrar um número bonito e errado.
+
 Depois, os artefatos que o `PlanPolicy` gerou **sozinho**: um contador por tier
 no Limitador, e os predicados por plano dentro do filtro do Envoy — junto com o
 `metrics.labels.plan`, que é o `TelemetryPolicy` e a ponte para o passo 4. Uma
@@ -398,6 +430,17 @@ escopo do `targetRef` — que é o que decide o alcance de cada uma. `rhcl-ingre
 tem o `prod-web` e as policies que miram o Gateway (valem para toda rota
 anexada); `travel-agency` tem a aplicação e as que miram a HTTPRoute (valem só
 para essa API). Os parceiros do passo 2 aparecem como consumidores, um por chave.
+
+**Parte desse inventário não foi escrita por ninguém.** As rotas e as policies
+que existem no cluster e que ninguém descreveu entram sozinhas, por um provider
+que lê o cluster a cada 30 min — e a regra é *quem foi descrito à mão manda, o
+resto é descoberto*: entidade curada carrega dono, System e a prosa que explica
+por que aquela policy importa, e descoberta nenhuma inventa isso. O rótulo
+`rhcl.demo/origem` diz de onde cada uma veio, `repo` ou `cluster`.
+
+É o que fecha a objeção seguinte à do YAML: *"e quando alguém criar uma policy
+fora do template?"*. Ela aparece no catálogo na próxima passada, com o alvo que
+ela governa ligado por `dependsOn` — sem ninguém precisar lembrar de cadastrar.
 
 **b) O golden path**, em *Create* — três templates, e a ordem deles é a jornada
 de uma API:
