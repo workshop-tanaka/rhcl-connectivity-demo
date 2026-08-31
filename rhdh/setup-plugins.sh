@@ -181,6 +181,7 @@ WITH_NEXUS="${WITH_NEXUS:-$(_ja_ligado 'plugin-nexus-repository-manager')}"
 WITH_SONARQUBE="${WITH_SONARQUBE:-$(_ja_ligado 'plugin-sonarqube')}"
 WITH_JAEGER="${WITH_JAEGER:-$(_ja_ligado 'plugin-jaeger')}"
 WITH_GRAFANA="${WITH_GRAFANA:-$(_ja_ligado 'plugin-grafana')}"
+WITH_KAFKA="${WITH_KAFKA:-$(_ja_ligado 'plugin-kafka-backend')}"
 # O connectivity-link-ops e o unico plugin desta lista que e CODIGO DESTE
 # REPOSITORIO, e por isso e o unico que tem uma segunda fonte quando nao ha de
 # quem herdar: rhdh/cl-ops.env, gravado por scripts/build-cl-ops.sh.
@@ -216,6 +217,25 @@ WITH_GITLAB="${WITH_GITLAB:-false}"
 # ConfigMap como string pelo shell. O conteudo tem as quebras escapadas, e
 # tentar casar "package" e "integrity" em linhas vizinhas passando por aspas de
 # shell, heredoc e regex era escape em tres camadas -- errava calado.
+# A irma da _integrity_de para PLUGIN NOVO: quando nao ha ConfigMap de quem
+# herdar (primeira vez do plugin, cluster virgem), a verdade e o proprio
+# registry -- calcula o sha512 do .tgz servido, dentro do pod. Nascida em
+# 2026-08-31, quando o plugin do Kafka ficou de fora em silencio: a heranca
+# devolvia vazio e o guard desligava o plugin recem-publicado.
+_integrity_do_registry() { # prefixo do nome do .tgz -> sha512-...
+  local _pod _tgz
+  _pod="$(oc get pods -n "$RHDH_NS" --no-headers 2>/dev/null | grep plugin-registry | grep Running | awk '{print $1}' | head -1)"
+  [[ -n "$_pod" ]] || return 0
+  _tgz="$(oc exec -n "$RHDH_NS" "$_pod" -- sh -c "ls /opt/app-root/src/ 2>/dev/null" 2>/dev/null | grep "^$1" | head -1)"
+  [[ -n "$_tgz" ]] || return 0
+  # o hash e calculado AQUI, nao no pod: a imagem httpd do registry nao tem
+  # openssl (medido em 2026-08-31 -- o helper devolvia vazio em silencio e o
+  # plugin continuava de fora). O cat via exec e binario-seguro, mesmo canal
+  # que o registry-publish.sh usa para extrair o acervo.
+  oc exec -n "$RHDH_NS" "$_pod" -- cat "/opt/app-root/src/${_tgz}" 2>/dev/null \
+    | openssl dgst -sha512 -binary | openssl base64 -A | sed 's/^/sha512-/'
+}
+
 _integrity_de() { # nome do .tgz -> integrity que a ConfigMap ja declara
   oc get cm dynamic-plugins-rhdh -n "$RHDH_NS" -o json 2>/dev/null \
     | ALVO="$1" python3 -c '
@@ -277,11 +297,25 @@ if [[ "$WITH_CL_OPS" == "true" ]]; then
 fi
 [[ "$WITH_JAEGER"  == "true" ]] && JAEGER_INTEGRITY="${JAEGER_INTEGRITY:-$(_integrity_de 'backstage-community-plugin-jaeger-dynamic')}"
 [[ "$WITH_GRAFANA" == "true" ]] && GRAFANA_INTEGRITY="${GRAFANA_INTEGRITY:-$(_integrity_de 'backstage-community-plugin-grafana-dynamic')}"
+# Kafka: publicado no registry = ligado. Nao ha de quem herdar na primeiravez
+# (o plugin nasceu em 2026-08-31), e exigir WITH_KAFKA=true a mao repetiria a
+# falha silenciosa que o cl-ops.env existe para impedir.
+if [[ "$WITH_KAFKA" != "true" ]] && [[ -n "$(_integrity_do_registry 'backstage-community-plugin-kafka-backend-dynamic')" ]]; then
+  WITH_KAFKA=true
+fi
+if [[ "$WITH_KAFKA" == "true" ]]; then
+  KAFKA_INTEGRITY="${KAFKA_INTEGRITY:-$(_integrity_de 'backstage-community-plugin-kafka-dynamic')}"
+  KAFKA_INTEGRITY="${KAFKA_INTEGRITY:-$(_integrity_do_registry 'backstage-community-plugin-kafka-dynamic')}"
+  KAFKA_BACKEND_INTEGRITY="${KAFKA_BACKEND_INTEGRITY:-$(_integrity_de 'backstage-community-plugin-kafka-backend-dynamic')}"
+  KAFKA_BACKEND_INTEGRITY="${KAFKA_BACKEND_INTEGRITY:-$(_integrity_do_registry 'backstage-community-plugin-kafka-backend-dynamic')}"
+fi
 
 # So desliga se nem o ambiente nem quem chamou souberam dizer a integrity --
 # aí nao ha como emitir a entrada, e prosseguir daria CrashLoopBackOff.
 [[ "$WITH_CL_OPS"  == "true" && -z "${CL_OPS_FRONTEND_INTEGRITY:-}" ]] && {
   _warn "connectivity-link-ops ligado e sem integrity (nem herdada) -- desligado nesta execucao"; WITH_CL_OPS=false; }
+[[ "$WITH_KAFKA" == "true" && ( -z "${KAFKA_INTEGRITY:-}" || -z "${KAFKA_BACKEND_INTEGRITY:-}" ) ]] && {
+  _warn "kafka ligado e sem integrity de front ou back no registry -- desligado nesta execucao"; WITH_KAFKA=false; }
 [[ "$WITH_JAEGER"  == "true" && -z "${JAEGER_INTEGRITY:-}"  ]] && {
   _warn "jaeger ligado e sem integrity (nem herdada) -- desligado nesta execucao"; WITH_JAEGER=false; }
 [[ "$WITH_GRAFANA" == "true" && -z "${GRAFANA_INTEGRITY:-}" ]] && {
@@ -616,6 +650,53 @@ if [[ "${WITH_GRAFANA:-false}" == "true" ]]; then
                           - hasAnnotation: grafana/alert-label-selector"
   _log "Grafana incluido -- cards nos componentes com grafana/dashboard-selector ou grafana/alert-label-selector"
   _warn "plugin do Grafana NAO tem build oficial da Red Hat: construido desta base, sem cobertura."
+fi
+
+# ----- Kafka (aba de consumer groups + config do broker) --------------------
+# Construido por scripts/build-plugins.sh (workspace kafka, Backstage 1.49.2)
+# e servido pelo plugin-registry -- mesma esteira do Jaeger/Grafana, mesmo
+# aviso de cobertura. O BACKEND fala DIRETO com os brokers (kafkajs), pelo
+# listener plain interno; a aba mostra os consumer groups da anotacao
+# kafka.apache.org/consumer-groups (formato <cluster>/<grupo>). O
+# dashboardUrl aponta para o Console do Streams, que e a tela funda.
+if [[ "${WITH_KAFKA:-false}" == "true" ]]; then
+  _kafka_tgz="backstage-community-plugin-kafka-dynamic-0.12.0.tgz"
+  _kafka_back_tgz="backstage-community-plugin-kafka-backend-dynamic-0.11.0.tgz"
+  _console_host="$(oc get route -n travel-packages -o jsonpath='{range .items[*]}{.spec.host}{"\n"}{end}' 2>/dev/null | grep '^streams-console' | head -1)"
+  _plugins="${_plugins}
+      - package: http://plugin-registry:8080/${_kafka_back_tgz}
+        integrity: \"${KAFKA_BACKEND_INTEGRITY}\"
+        disabled: false
+        pluginConfig:
+          kafka:
+            clientId: rhdh
+            clusters:
+              - name: travel-streams
+                dashboardUrl: https://${_console_host:-streams-console-indisponivel}
+                brokers:
+                  - travel-streams-kafka-bootstrap.travel-packages.svc:9092
+      - package: http://plugin-registry:8080/${_kafka_tgz}
+        integrity: \"${KAFKA_INTEGRITY}\"
+        disabled: false
+        pluginConfig:
+          dynamicPlugins:
+            frontend:
+              backstage-community.plugin-kafka:
+                entityTabs:
+                  - path: /kafka
+                    title: Kafka
+                    mountPoint: entity.page.kafka
+                mountPoints:
+                  - mountPoint: entity.page.kafka/cards
+                    importName: EntityKafkaContent
+                    config:
+                      layout:
+                        gridColumn: 1 / -1
+                      if:
+                        allOf:
+                          - hasAnnotation: kafka.apache.org/consumer-groups"
+  _log "Kafka incluido -- aba nos componentes com kafka.apache.org/consumer-groups"
+  _warn "plugin do Kafka NAO tem build oficial da Red Hat: construido desta base, sem cobertura."
 fi
 
 
