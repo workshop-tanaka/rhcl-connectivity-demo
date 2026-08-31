@@ -17,3 +17,4 @@ overlays/cluster-*/
 
 # artefatos de build de plugin (scripts/build-plugins.sh) -- reconstruiveis
 .plugins-build/
+postman/*.local.*

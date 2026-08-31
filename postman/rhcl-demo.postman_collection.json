@@ -1,0 +1,320 @@
+{
+  "info": {
+    "name": "RHCL Demo — travel-agency, planos e pacotes",
+    "description": "Testes das APIs da demo do Red Hat Connectivity Link.\n\nPREENCHA O ENVIRONMENT primeiro — gere um pronto, com as chaves reais do cluster:\n    bash scripts/postman-env.sh\ne importe o postman/rhcl-demo.local.postman_environment.json gerado.\n\nA chave de API vai por query (?APIKEY=...), como as policies da demo esperam.\nPara VER o corte de rate limit do Ato 2, rode a pasta 'Ato 2' no Collection Runner com 14 iteracoes e delay 0: free corta em 3, silver em 10, gold nao corta.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Ato 1 — a borda e fechada",
+      "item": [
+        {
+          "name": "travels SEM chave -> 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://api-travels.{{apps_domain}}/travels/Roma",
+              "protocol": "https",
+              "host": [
+                "api-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "travels",
+                "Roma"
+              ],
+              "query": []
+            },
+            "description": "A AuthPolicy nega por padrao: 401 e o sucesso deste teste."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('sem chave e 401 (deny-all na borda)', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "travels com chave INVALIDA -> 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://api-travels.{{apps_domain}}/travels/Roma?APIKEY=nao-existe",
+              "protocol": "https",
+              "host": [
+                "api-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "travels",
+                "Roma"
+              ],
+              "query": [
+                {
+                  "key": "APIKEY",
+                  "value": "nao-existe"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('chave invalida e 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Ato 2 — planos comerciais (rode no Runner com 14 iteracoes)",
+      "item": [
+        {
+          "name": "free (3 req/10s)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://api-travels.{{apps_domain}}/travels/Roma?APIKEY={{api_key_free}}",
+              "protocol": "https",
+              "host": [
+                "api-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "travels",
+                "Roma"
+              ],
+              "query": [
+                {
+                  "key": "APIKEY",
+                  "value": "{{api_key_free}}"
+                }
+              ]
+            },
+            "description": "No Runner com 14 iteracoes: as 3 primeiras dao 200, o resto 429 -- o corte do Limitador."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('free responde 200 ou corta com 429', () => pm.expect([200,429]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) pm.test('corpo com dados (MySQL vivo)', () => pm.expect(pm.response.text().length).to.be.above(2));",
+                  "console.log('free -> ' + pm.response.code);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "silver (10 req/10s)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://api-travels.{{apps_domain}}/travels/Roma?APIKEY={{api_key_silver}}",
+              "protocol": "https",
+              "host": [
+                "api-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "travels",
+                "Roma"
+              ],
+              "query": [
+                {
+                  "key": "APIKEY",
+                  "value": "{{api_key_silver}}"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('silver responde 200 ou corta com 429', () => pm.expect([200,429]).to.include(pm.response.code));",
+                  "console.log('silver -> ' + pm.response.code);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "gold (30 req/10s)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://api-travels.{{apps_domain}}/travels/Roma?APIKEY={{api_key_gold}}",
+              "protocol": "https",
+              "host": [
+                "api-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "travels",
+                "Roma"
+              ],
+              "query": [
+                {
+                  "key": "APIKEY",
+                  "value": "{{api_key_gold}}"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('gold nao corta em 14 iteracoes', () => pm.response.to.have.status(200));",
+                  "console.log('gold -> ' + pm.response.code);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "travel-packages — EAP + cadeia de dados",
+      "item": [
+        {
+          "name": "saude (banco e cache)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://pacotes-travels.{{apps_domain}}/api/saude",
+              "protocol": "https",
+              "host": [
+                "pacotes-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "api",
+                "saude"
+              ],
+              "query": []
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json();",
+                  "pm.test('banco ok', () => pm.expect(s.banco).to.eql('ok'));",
+                  "pm.test('cache ok (degradado = Data Grid fora, app segue)', () => pm.expect(s.cache).to.eql('ok'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "pacotes por tier (efeito de negocio)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://pacotes-travels.{{apps_domain}}/api/pacotes?tier=free&limite=5",
+              "protocol": "https",
+              "host": [
+                "pacotes-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "api",
+                "pacotes"
+              ],
+              "query": [
+                {
+                  "key": "tier",
+                  "value": "free"
+                },
+                {
+                  "key": "limite",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": "Troque tier para silver/gold e compare O QUE volta -- o tier muda o conteudo, nao so o limite."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('json com itens', () => pm.expect(pm.response.json().length).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "por destino (x-cache hit|miss)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://pacotes-travels.{{apps_domain}}/api/pacotes/Roma",
+              "protocol": "https",
+              "host": [
+                "pacotes-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "api",
+                "pacotes",
+                "Roma"
+              ],
+              "query": []
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('header x-cache presente', () => pm.expect(pm.response.headers.has('x-cache')).to.be.true);",
+                  "console.log('x-cache -> ' + pm.response.headers.get('x-cache') + '  (rode 2x: miss depois hit; o CDC invalida quando o mutador mexe)');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
