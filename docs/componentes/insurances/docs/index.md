@@ -9,7 +9,7 @@ spans dele aparecem no trace do fan-out, e no **Passo 7** a identidade dele
 (ServiceAccount `discount-access-sa`) é o que a `AuthorizationPolicy`
 `discounts-only-sellers` usa para provar que a borda não é a única fronteira.
 
-![arquitetura](img/insurances.svg)
+![arquitetura](../../img/insurances.svg)
 
 ## Como funciona
 

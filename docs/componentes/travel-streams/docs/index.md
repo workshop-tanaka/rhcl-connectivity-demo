@@ -12,7 +12,7 @@ conector que de fato lê o banco (`travel-cdc`) e o gerador de movimento
 (`cdc-mutador`) — confundir runtime com conector é o que faz procurar erro de
 conexão no lugar errado.
 
-![arquitetura](img/travel-streams.svg)
+![arquitetura](../../img/travel-streams.svg)
 
 ## Como funciona
 

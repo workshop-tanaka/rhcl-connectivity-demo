@@ -9,7 +9,7 @@ prova de que a governança do RHCL é **por rota**, não por aplicação: a chav
 `gold` do travels, válida e classificada, devolve `401` aqui. Assinar um
 produto não dá acesso ao Gateway inteiro.
 
-![arquitetura](img/echo-api.svg)
+![arquitetura](../../img/echo-api.svg)
 
 ## Como funciona
 

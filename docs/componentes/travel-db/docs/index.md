@@ -13,7 +13,7 @@ fora do cluster, com a ponte feita por Red Hat Service Interconnect (Skupper)
 — mover o Deployment de lugar e trocar o Service não muda nenhuma aplicação,
 porque todas continuam resolvendo o mesmo nome.
 
-![arquitetura](img/travel-db.svg)
+![arquitetura](../../img/travel-db.svg)
 
 ## Como funciona
 

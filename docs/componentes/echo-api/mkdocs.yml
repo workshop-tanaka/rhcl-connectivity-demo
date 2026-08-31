@@ -1,14 +1,10 @@
-# TechDocs DESTE componente, e nao do repositorio inteiro.
+# TechDocs deste componente. O RHDH constroi com mkdocs no proprio pod.
 #
-# 'docs_dir: ..' aponta para docs/componentes/, que ja existe: a pagina e a
-# MESMA que o site principal serve, e nao uma copia. Sem isto, cada entidade
-# precisaria do proprio diretorio -- e a pagina passaria a existir em dois
-# lugares, que e o que o job anti-drift deste repositorio impede.
-#
-# O 'img/' resolve sozinho: esta no mesmo diretorio.
+# Layout obrigatorio: mkdocs.yml AQUI e a pagina em docs/. O TechDocs baixa SO
+# esta subarvore -- um 'docs_dir: ..' apontando para a pagina la fora parece
+# elegante e falha, porque o arquivo nem chega ao build. Medido.
 site_name: echo-api
-docs_dir: ..
 nav:
-  - Visao geral: echo-api.md
+  - Visao geral: index.md
 plugins:
   - techdocs-core

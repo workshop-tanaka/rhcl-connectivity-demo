@@ -9,7 +9,7 @@ declara uma policy. O `401` do **Ato 1** nasce aqui, e as duas policies que
 miram o Gateway são o lado "default da plataforma" do par gateway-vs-rota que
 o **Ato 3** conta.
 
-![arquitetura](img/prod-web.svg)
+![arquitetura](../../img/prod-web.svg)
 
 ## Como funciona
 

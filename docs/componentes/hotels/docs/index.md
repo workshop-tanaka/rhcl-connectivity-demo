@@ -11,7 +11,7 @@ de que a borda não é a única fronteira: o `hotels` roda com o ServiceAccount
 aceita, enquanto o `travels`, com o SA `default`, recebe `403` no mesmo
 endereço. Identidade de workload, não endereço.
 
-![arquitetura](img/hotels.svg)
+![arquitetura](../../img/hotels.svg)
 
 ## Como funciona
 

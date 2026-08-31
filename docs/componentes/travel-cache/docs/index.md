@@ -10,7 +10,7 @@ Ele também carrega a cena de replicação mais barata da demo: derrubar
 qualquer um dos três nós ao vivo e nenhuma entrada sumir, porque `owners=2`
 garante que cada uma existe em dois lugares.
 
-![arquitetura](img/travel-cache.svg)
+![arquitetura](../../img/travel-cache.svg)
 
 ## Como funciona
 

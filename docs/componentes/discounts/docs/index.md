@@ -10,7 +10,7 @@ nível mais profundo: `prod-web → travels → cars/flights/hotels/insurances �
 discounts`, e por isso é o alvo natural das quatro policies de Service Mesh de
 `base/mesh/`.
 
-![arquitetura](img/discounts.svg)
+![arquitetura](../../img/discounts.svg)
 
 ## Como funciona
 

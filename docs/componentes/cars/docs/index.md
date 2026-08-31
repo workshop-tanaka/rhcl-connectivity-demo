@@ -10,7 +10,7 @@ identidades que a `AuthorizationPolicy` `discounts-only-sellers` autoriza a
 falar com o `discounts`. Quem vende produto consulta desconto; quem não vende,
 recebe `403`.
 
-![arquitetura](img/cars.svg)
+![arquitetura](../../img/cars.svg)
 
 ## Como funciona
 

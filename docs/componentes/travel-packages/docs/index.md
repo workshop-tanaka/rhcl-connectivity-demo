@@ -11,7 +11,7 @@ Chains, Rekor, ACS, Quay, Tekton) estavam instalados sem nada passando por
 eles. É o primeiro artefato compilável do repositório, e por isso a imagem
 dele vem de uma pipeline assinada, não de um registry público.
 
-![arquitetura](img/travel-packages.svg)
+![arquitetura](../../img/travel-packages.svg)
 
 ## Como funciona
 

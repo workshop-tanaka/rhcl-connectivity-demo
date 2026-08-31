@@ -9,7 +9,7 @@ ServiceAccount `discount-access-sa`, e é essa identidade, provada por mTLS, que
 a `AuthorizationPolicy discounts-only-sellers` exige para deixar alguém falar
 com o `discounts`. Quem vende produto consulta desconto; o orquestrador não.
 
-![arquitetura](img/flights.svg)
+![arquitetura](../../img/flights.svg)
 
 ## Como funciona
 

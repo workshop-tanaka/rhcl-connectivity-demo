@@ -10,7 +10,7 @@ detalhe que sustenta a tese: o `travels` não tem uma linha de autenticação ne
 de rate limit; a governança inteira mora nas policies, na borda. RHCL como
 plataforma de API, não como gateway.
 
-![arquitetura](img/travels.svg)
+![arquitetura](../../img/travels.svg)
 
 ## Como funciona
 
