@@ -36,7 +36,7 @@ muda a cada minuto pelo mutador do CDC, e uma cache eterna mentiria no palco.
 
 **Quem lê e escreve.** O cliente é a aplicação EAP `travel-packages`
 (`CacheDePacotes.java`), via Hot Rod no endereço estável
-`travel-cache.travel-cache.svc:11222` (env `DATAGRID_HOST`/`DATAGRID_PORT`/
+`travel-cache.travel-packages.svc:11222` (env `DATAGRID_HOST`/`DATAGRID_PORT`/
 `DATAGRID_CACHE` do `WildFlyServer`). O padrão é **cache-aside da contagem,
 não da lista**: a consulta `GET /api/pacotes/{destino}` busca a chave
 `contagem:<destino>`, responde com o header `x-cache: hit|miss`, e no miss
@@ -61,7 +61,7 @@ estado do cache, mas quem decide o readiness é só o banco.
 | Namespace | `travel-cache` — **fora** do Service Mesh (JGroups × mTLS estrito) |
 | Réplicas | 3 nós, `service.type: DataGrid` |
 | Recursos por nó | memória `1Gi:512Mi`, cpu `500m:200m` (sintaxe `limite:request` do operador) |
-| Porta / endereço | Hot Rod `:11222`, Service `travel-cache.travel-cache.svc` |
+| Porta / endereço | Hot Rod `:11222`, Service `travel-cache.travel-packages.svc` |
 | Segurança | `endpointAuthentication: false`, `endpointEncryption: None` — lab-grade |
 | Topologia da cache | `distributedCache`, `mode: SYNC`, `owners: 2`, `statistics: true` |
 | Expiração | `lifespan: 300000` ms (5 min) — a origem muda pelo mutador do CDC |
@@ -81,7 +81,7 @@ estado do cache, mas quem decide o readiness é só o banco.
 - **Na própria API**: `curl` em `https://pacotes-travels.apps.<domínio>/api/pacotes/<destino>`
   duas vezes seguidas — a primeira responde `x-cache: miss`, a segunda `hit`.
   Espere 5 minutos e o `miss` volta: é o `lifespan` trabalhando.
-- **A cena de replicação**: `oc get pods -n travel-cache` mostra os 3 nós;
+- **A cena de replicação**: `oc get pods -n travel-packages` mostra os 3 nós;
   deletar qualquer um e repetir o `curl` — a contagem continua respondendo,
   porque cada entrada vive em 2 nós.
 - **`/api/saude`** do `travel-packages` reporta se o cache está de fato no

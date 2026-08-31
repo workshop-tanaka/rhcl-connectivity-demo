@@ -82,8 +82,8 @@ o serviço subiu.
 | Imagem | `<quay-do-cluster>/rhcl/travel-packages:latest`, construída pela pipeline; base `registry.redhat.io/jboss-eap-8/eap81-openjdk17-runtime-openshift-rhel9` |
 | Requests / limits | cpu `500m`, memória `1Gi` / limite de memória `2Gi` |
 | Sondas | as três em `GET /api/saude:8080`; startup 30×10s (~5 min de tolerância — o primeiro pull da imagem de 546MB não sobe em 10s) |
-| Datasource | `TravelPackagesDS` → `travel-packages-db-rw.travel-db.svc:5432`, banco `travelpackages`, Secret `travel-packages-db-app` |
-| Cache | Hot Rod em `travel-cache.travel-cache.svc:11222`, cache `pacotes` (3 nós, `owners=2`, lifespan 5 min) |
+| Datasource | `TravelPackagesDS` → `travel-packages-db-rw.travel-packages.svc:5432`, banco `travelpackages`, Secret `travel-packages-db-app` |
+| Cache | Hot Rod em `travel-cache.travel-packages.svc:11222`, cache `pacotes` (3 nós, `owners=2`, lifespan 5 min) |
 | Bind | `SERVER_PUBLIC_BIND_ADDRESS=0.0.0.0` — obrigatório no Service Mesh (ver "Quando quebra") |
 | ServiceAccount | `travel-packages`, com o secret `quay-pull` vinculado pelo `provision.sh` |
 | Service de backend | `travel-packages-loadbalancer:8080` — o nome é do operador, não nosso |

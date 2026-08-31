@@ -56,7 +56,7 @@ o RoleBinding `cdc-connect-le-secret` a entrega só à ServiceAccount
 **O conector Debezium.** O `KafkaConnector travel-cdc` (label
 `strimzi.io/cluster: cdc`; a annotation `use-connector-resources` no Connect é
 o que faz o CR virar conector de verdade) roda o `PostgresConnector` com
-`tasksMax: 1` contra `travel-packages-db-rw.travel-db.svc:5432`, database
+`tasksMax: 1` contra `travel-packages-db-rw.travel-packages.svc:5432`, database
 `travelpackages`, usuário `debezium`. Lê o WAL por replicação lógica:
 `plugin.name: pgoutput`, publication `travel_pub` com
 `publication.autocreate.mode: disabled` — quem cria a publication é o seed do
@@ -84,7 +84,7 @@ CDC, não da aplicação.
 | Objeto / namespace | `Kafka` + `KafkaNodePool dual` em `travel-streams` | `KafkaConnect` + `KafkaConnector` em `travel-streams` | `CronJob` em `travel-db` |
 | Réplicas | 3 nós combinados (`controller` + `broker`), KRaft | 1 réplica; `tasksMax: 1` no conector | 1 rodada/min (`schedule: * * * * *`, `concurrencyPolicy: Forbid`) |
 | Imagem | do operador (canal `stable`, linha 3.2 — versão não fixada de propósito) | construída pelo Strimzi → ImageStream `cdc-connect:latest`, plugin `debezium-connector-postgres 3.1.3.Final` (tgz) | `ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie` |
-| Porta / endereço | listener `plain` `:9092`, interno, sem TLS | bootstrap `travel-streams-kafka-bootstrap:9092`; lê `travel-packages-db-rw.travel-db.svc:5432` | escreve em `travel-packages-db-rw.travel-db.svc`, database `travelpackages` |
+| Porta / endereço | listener `plain` `:9092`, interno, sem TLS | bootstrap `travel-streams-kafka-bootstrap:9092`; lê `travel-packages-db-rw.travel-packages.svc:5432` | escreve em `travel-packages-db-rw.travel-packages.svc`, database `travelpackages` |
 | Storage | `persistent-claim` 10Gi por nó, `deleteClaim: true` | tópicos internos `cdc-offsets` / `cdc-configs` / `cdc-status` (RF 3) | ConfigMap `travel-packages-sql` montado em `/sql` |
 | Requests | cpu 300m, mem 1Gi (por nó) | cpu 300m, mem 1Gi | nenhum declarado |
 | Limits | mem 2Gi (sem limite de cpu) | mem 2Gi (idem) | nenhum |
@@ -105,8 +105,8 @@ CDC, não da aplicação.
   conector → runtime + banco, cache → conector.
 - **Console OpenShift**: os tópicos `travel.public.*` em `travel-streams` — a
   prova de que a cadeia anda é o tópico em movimento.
-  `oc get kafkaconnector -n travel-streams` mostra o READY do `travel-cdc`;
-  `oc get kafka,kafkaconnect -n travel-streams`, o estado do cluster e do
+  `oc get kafkaconnector -n travel-packages` mostra o READY do `travel-cdc`;
+  `oc get kafka,kafkaconnect -n travel-packages`, o estado do cluster e do
   runtime.
 - **`oc get jobs -n travel-db`**: as rodadas do mutador, uma por minuto.
   Pausar a demo é

@@ -68,7 +68,7 @@ falha. O `wal_level` do CNPG já nasce `logical`, então o CDC não pede
 parâmetro nenhum.
 
 A massa vem do Job `seed-travel-packages` (`psql -f /sql/seed.sql` contra
-`travel-packages-db-rw.travel-db.svc`, credencial do Secret
+`travel-packages-db-rw.travel-packages.svc`, credencial do Secret
 `travel-packages-db-app` que o CNPG gera sozinho): **480 pacotes** (24
 destinos × 5 categorias × 4 partidas) com `tier_minimo` derivado do preço —
 distribuição ~60/30/10 que espelha `free`/`silver`/`gold` dos planos do RHCL —
