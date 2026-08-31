@@ -14,7 +14,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://api-travels.{{apps_domain}}/travels/Roma",
+              "raw": "https://api-travels.{{apps_domain}}/travels/Rome",
               "protocol": "https",
               "host": [
                 "api-travels",
@@ -22,7 +22,7 @@
               ],
               "path": [
                 "travels",
-                "Roma"
+                "Rome"
               ],
               "query": []
             },
@@ -46,7 +46,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://api-travels.{{apps_domain}}/travels/Roma?APIKEY=nao-existe",
+              "raw": "https://api-travels.{{apps_domain}}/travels/Rome?APIKEY=nao-existe",
               "protocol": "https",
               "host": [
                 "api-travels",
@@ -54,7 +54,7 @@
               ],
               "path": [
                 "travels",
-                "Roma"
+                "Rome"
               ],
               "query": [
                 {
@@ -119,7 +119,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://api-travels.{{apps_domain}}/travels/Roma?APIKEY={{api_key_free}}",
+              "raw": "https://api-travels.{{apps_domain}}/travels/Rome?APIKEY={{api_key_free}}",
               "protocol": "https",
               "host": [
                 "api-travels",
@@ -127,7 +127,7 @@
               ],
               "path": [
                 "travels",
-                "Roma"
+                "Rome"
               ],
               "query": [
                 {
@@ -158,7 +158,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://api-travels.{{apps_domain}}/travels/Roma?APIKEY={{api_key_silver}}",
+              "raw": "https://api-travels.{{apps_domain}}/travels/Rome?APIKEY={{api_key_silver}}",
               "protocol": "https",
               "host": [
                 "api-travels",
@@ -166,7 +166,7 @@
               ],
               "path": [
                 "travels",
-                "Roma"
+                "Rome"
               ],
               "query": [
                 {
@@ -196,7 +196,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://api-travels.{{apps_domain}}/travels/Roma?APIKEY={{api_key_gold}}",
+              "raw": "https://api-travels.{{apps_domain}}/travels/Rome?APIKEY={{api_key_gold}}",
               "protocol": "https",
               "host": [
                 "api-travels",
@@ -204,7 +204,7 @@
               ],
               "path": [
                 "travels",
-                "Roma"
+                "Rome"
               ],
               "query": [
                 {
@@ -233,7 +233,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://api-travels.{{apps_domain}}/travels/Roma?APIKEY={{api_key_free}}",
+              "raw": "https://api-travels.{{apps_domain}}/travels/Rome?APIKEY={{api_key_free}}",
               "protocol": "https",
               "host": [
                 "api-travels",
@@ -241,7 +241,7 @@
               ],
               "path": [
                 "travels",
-                "Roma"
+                "Rome"
               ],
               "query": [
                 {
@@ -267,7 +267,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const u = pm.variables.replaceIn('https://api-travels.{{apps_domain}}/travels/Roma?APIKEY={{api_key_free}}');",
+                  "const u = pm.variables.replaceIn('https://api-travels.{{apps_domain}}/travels/Rome?APIKEY={{api_key_free}}');",
                   "function bate(n, done) {",
                   "  if (n === 0) return done();",
                   "  pm.sendRequest(u, () => bate(n - 1, done));",
