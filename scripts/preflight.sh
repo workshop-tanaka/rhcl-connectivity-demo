@@ -602,6 +602,30 @@ print(r[0]['value'][1] if r else '')
   fi
 fi
 
+# Namespace com sidecar e SEM PodMonitor e invisivel no Kiali com trafego
+# correndo -- foi assim que as tres amostras e o travel-packages passaram
+# despercebidos ate 2026-08-31 (grafo em branco le-se como 'nao funciona').
+# A regra agora e de comportamento: TODO namespace raspavel tem monitor, venha
+# ele do istio-monitors.yaml, da propria amostra ou do skeleton do golden
+# path. Este check e quem impede o proximo esquecimento de ficar mudo.
+_sem_monitor="$(oc get pods -A -o json 2>/dev/null | python3 -c '
+import sys, json
+ns = set()
+for p in json.load(sys.stdin)["items"]:
+    conts = p["spec"].get("containers", []) + p["spec"].get("initContainers", [])
+    if any(c["name"] == "istio-proxy" for c in conts):
+        ns.add(p["metadata"]["namespace"])
+print(" ".join(sorted(ns)))' 2>/dev/null)"
+_faltando=""
+for _n in $_sem_monitor; do
+  oc get podmonitor -n "$_n" --no-headers 2>/dev/null | grep -q . || _faltando="${_faltando} ${_n}"
+done
+if [[ -n "$_faltando" ]]; then
+  _warn "namespace(s) com sidecar e sem PodMonitor:${_faltando} — invisiveis no Kiali"         "copie o istio-proxies-monitor de um namespace que funciona (ver platform-reference/monitoring/istio-monitors.yaml)"
+else
+  _ok "todo namespace com sidecar tem PodMonitor (Kiali enxerga o mesh inteiro)"
+fi
+
 # A emissão do span começa no Service Mesh, e é a metade que costuma faltar: o CR Istio
 # declara PARA ONDE mandar (extensionProvider) e a Telemetry manda EMITIR. Com
 # uma das duas ausente, tudo o que vem depois -- collector, gateway do Tempo,
