@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "RHCL Demo — travel-agency, planos e pacotes",
-    "description": "Testes das APIs da demo do Red Hat Connectivity Link.\n\nPREENCHA O ENVIRONMENT primeiro — gere um pronto, com as chaves reais do cluster:\n    bash scripts/postman-env.sh\ne importe o postman/rhcl-demo.local.postman_environment.json gerado.\n\nA chave de API vai por query (?APIKEY=...), como as policies da demo esperam.\nPara VER o corte de rate limit do Ato 2, rode a pasta 'Ato 2' no Collection Runner com 14 iteracoes e delay 0: free corta em 3, silver em 10, gold nao corta.",
+    "name": "RHCL Demo — travel-agency, planos, pacotes e CDC",
+    "description": "Testes das APIs da demo do Red Hat Connectivity Link, por ato.\n\nSETUP: gere o environment com as chaves reais do cluster:\n    bash scripts/postman-env.sh\ne importe postman/rhcl-demo.local.postman_environment.json.\n\nA chave vai por query (?APIKEY=...), como as policies esperam. O corte de\nrate limit tem DOIS caminhos: o request 'estourar o free' prova o 429 numa\nexecucao so (pre-request queima a cota), e o Runner com 14 iteracoes na\npasta Ato 2 mostra o corte requisicao a requisicao.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -26,7 +26,7 @@
               ],
               "query": []
             },
-            "description": "A AuthPolicy nega por padrao: 401 e o sucesso deste teste."
+            "description": ""
           },
           "event": [
             {
@@ -76,11 +76,42 @@
               }
             }
           ]
+        },
+        {
+          "name": "echo SEM chave -> 401 (toda rota do gateway nasce fechada)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://echo-travels.{{apps_domain}}/qualquer",
+              "protocol": "https",
+              "host": [
+                "echo-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "qualquer"
+              ],
+              "query": []
+            },
+            "description": "O deny-all e de GATEWAY: rota nova sem AuthPolicy propria ja nasce negada."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('echo sem chave e 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "Ato 2 — planos comerciais (rode no Runner com 14 iteracoes)",
+      "name": "Ato 2 — planos comerciais",
       "item": [
         {
           "name": "free (3 req/10s)",
@@ -105,7 +136,7 @@
                 }
               ]
             },
-            "description": "No Runner com 14 iteracoes: as 3 primeiras dao 200, o resto 429 -- o corte do Limitador."
+            "description": "No Runner (14 iteracoes): 3x 200 e depois 429."
           },
           "event": [
             {
@@ -113,8 +144,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('free responde 200 ou corta com 429', () => pm.expect([200,429]).to.include(pm.response.code));",
-                  "if (pm.response.code === 200) pm.test('corpo com dados (MySQL vivo)', () => pm.expect(pm.response.text().length).to.be.above(2));",
+                  "pm.test('free: 200 ou 429', () => pm.expect([200,429]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) pm.test('corpo com dados', () => pm.expect(pm.response.text().length).to.be.above(2));",
                   "console.log('free -> ' + pm.response.code);"
                 ]
               }
@@ -152,7 +183,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('silver responde 200 ou corta com 429', () => pm.expect([200,429]).to.include(pm.response.code));",
+                  "pm.test('silver: 200 ou 429', () => pm.expect([200,429]).to.include(pm.response.code));",
                   "console.log('silver -> ' + pm.response.code);"
                 ]
               }
@@ -190,8 +221,58 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('gold nao corta em 14 iteracoes', () => pm.response.to.have.status(200));",
-                  "console.log('gold -> ' + pm.response.code);"
+                  "pm.test('gold nao corta', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "estourar o free numa execucao (429 deterministico)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://api-travels.{{apps_domain}}/travels/Roma?APIKEY={{api_key_free}}",
+              "protocol": "https",
+              "host": [
+                "api-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "travels",
+                "Roma"
+              ],
+              "query": [
+                {
+                  "key": "APIKEY",
+                  "value": "{{api_key_free}}"
+                }
+              ]
+            },
+            "description": "O pre-request queima a cota do free (4 chamadas em serie); esta e a 5a."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('a 5a requisicao em 10s leva 429 do Limitador', () => pm.response.to.have.status(429));"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const u = pm.variables.replaceIn('https://api-travels.{{apps_domain}}/travels/Roma?APIKEY={{api_key_free}}');",
+                  "function bate(n, done) {",
+                  "  if (n === 0) return done();",
+                  "  pm.sendRequest(u, () => bate(n - 1, done));",
+                  "}",
+                  "bate(4, () => console.log('cota do free queimada'));"
                 ]
               }
             }
@@ -200,7 +281,7 @@
       ]
     },
     {
-      "name": "travel-packages — EAP + cadeia de dados",
+      "name": "travel-packages — leitura, cache e efeito de negocio",
       "item": [
         {
           "name": "saude (banco e cache)",
@@ -231,19 +312,19 @@
                   "pm.test('200', () => pm.response.to.have.status(200));",
                   "const s = pm.response.json();",
                   "pm.test('banco ok', () => pm.expect(s.banco).to.eql('ok'));",
-                  "pm.test('cache ok (degradado = Data Grid fora, app segue)', () => pm.expect(s.cache).to.eql('ok'));"
+                  "pm.test('cache ok', () => pm.expect(s.cache).to.eql('ok'));"
                 ]
               }
             }
           ]
         },
         {
-          "name": "pacotes por tier (efeito de negocio)",
+          "name": "tier free NAO ve a categoria romantico",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://pacotes-travels.{{apps_domain}}/api/pacotes?tier=free&limite=5",
+              "raw": "https://pacotes-travels.{{apps_domain}}/api/pacotes?tier=free&limite=200",
               "protocol": "https",
               "host": [
                 "pacotes-travels",
@@ -260,11 +341,11 @@
                 },
                 {
                   "key": "limite",
-                  "value": "5"
+                  "value": "200"
                 }
               ]
             },
-            "description": "Troque tier para silver/gold e compare O QUE volta -- o tier muda o conteudo, nao so o limite."
+            "description": "O tier muda O QUE a API devolve, nao so o quanto -- a tese do Ato 2."
           },
           "event": [
             {
@@ -273,14 +354,61 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200', () => pm.response.to.have.status(200));",
-                  "pm.test('json com itens', () => pm.expect(pm.response.json().length).to.be.above(0));"
+                  "const cats = new Set(pm.response.json().map(p => p.categoria));",
+                  "pm.test('free sem romantico (efeito de NEGOCIO do plano)', () => pm.expect(cats.has('romantico')).to.be.false);",
+                  "console.log('categorias do free: ' + [...cats].sort());"
                 ]
               }
             }
           ]
         },
         {
-          "name": "por destino (x-cache hit|miss)",
+          "name": "tier gold VE a categoria romantico",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://pacotes-travels.{{apps_domain}}/api/pacotes?tier=gold&limite=200",
+              "protocol": "https",
+              "host": [
+                "pacotes-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "api",
+                "pacotes"
+              ],
+              "query": [
+                {
+                  "key": "tier",
+                  "value": "gold"
+                },
+                {
+                  "key": "limite",
+                  "value": "200"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const cats = new Set(pm.response.json().map(p => p.categoria));",
+                  "pm.test('gold com romantico', () => pm.expect(cats.has('romantico')).to.be.true);",
+                  "const um = pm.response.json().find(p => p.ativo !== false);",
+                  "if (um) { pm.environment.set('codigo_pacote', um.codigo); console.log('codigo_pacote <- ' + um.codigo); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "por destino: x-cache vira HIT (aquecido no pre-request)",
           "request": {
             "method": "GET",
             "header": [],
@@ -307,8 +435,228 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200', () => pm.response.to.have.status(200));",
-                  "pm.test('header x-cache presente', () => pm.expect(pm.response.headers.has('x-cache')).to.be.true);",
-                  "console.log('x-cache -> ' + pm.response.headers.get('x-cache') + '  (rode 2x: miss depois hit; o CDC invalida quando o mutador mexe)');"
+                  "pm.test('x-cache presente', () => pm.expect(pm.response.headers.has('x-cache')).to.be.true);",
+                  "pm.test('hit apos aquecer (cache-aside vivo)', () => pm.expect(pm.response.headers.get('x-cache')).to.eql('hit'));",
+                  "console.log('nota: quando o mutador mexe em Roma, o cache-updater invalida e volta a miss');"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.sendRequest(pm.variables.replaceIn('https://pacotes-travels.{{apps_domain}}/api/pacotes/Roma'), () => console.log('aquecido'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "destino inexistente -> 404 honesto",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://pacotes-travels.{{apps_domain}}/api/pacotes/Xanadu",
+              "protocol": "https",
+              "host": [
+                "pacotes-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "api",
+                "pacotes",
+                "Xanadu"
+              ],
+              "query": []
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 (e nao 200 vazio)', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Reservas — escrita que vira evento no CDC",
+      "item": [
+        {
+          "name": "POST sem corpo -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-partner",
+                "value": "postman"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://pacotes-travels.{{apps_domain}}/api/reservas",
+              "protocol": "https",
+              "host": [
+                "pacotes-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "api",
+                "reservas"
+              ],
+              "query": []
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 com validacao', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST reserva valida -> 201 (assista no Streams Console)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-partner",
+                "value": "postman"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "https://pacotes-travels.{{apps_domain}}/api/reservas",
+              "protocol": "https",
+              "host": [
+                "pacotes-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "api",
+                "reservas"
+              ],
+              "query": []
+            },
+            "description": "Rode 'tier gold VE romantico' antes (ela grava {{codigo_pacote}}). Sem vagas o servico devolve 409 -- tambem e comportamento correto.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"codigo\": \"{{codigo_pacote}}\", \"cliente\": \"Teste Postman\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 CREATED', () => pm.response.to.have.status(201));",
+                  "pm.test('reserva com id', () => pm.expect(pm.response.json().id).to.exist);",
+                  "console.log('o INSERT vira evento em travel.public.reservas -- Debezium -> Kafka -> Console');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Amostra bookinfo (gateway proprio, SEM RHCL)",
+      "item": [
+        {
+          "name": "productpage -> 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://bookinfo.{{apps_domain}}/productpage",
+              "protocol": "https",
+              "host": [
+                "bookinfo",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "productpage"
+              ],
+              "query": []
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 aberto (a amostra nao tem policies do RHCL)', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API de produtos -> 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://bookinfo.{{apps_domain}}/api/v1/products",
+              "protocol": "https",
+              "host": [
+                "bookinfo",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products"
+              ],
+              "query": []
+            },
+            "description": "Contraste com o Ato 1: mesma classe de gateway, sem deny-all -- e a diferenca que o RHCL adiciona."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('lista de produtos', () => pm.expect(pm.response.json().length).to.be.above(0));"
                 ]
               }
             }
