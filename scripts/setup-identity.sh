@@ -302,6 +302,7 @@ plat-eng|Plataforma|RHCL|plataforma@example.invalid|admins
 globex-travel|Globex|Travel|globex@example.invalid|users
 initech-voyages|Initech|Voyages|initech@example.invalid|users
 acme-trips|ACME|Trips|acme@example.invalid|users
+sistema-teste|Sistema|de Teste|sistema-teste@example.invalid|users
 PERSONAS
 
 # clients
@@ -325,6 +326,21 @@ print(json.dumps({"clientId":os.environ["C"],"enabled":True,"protocol":"openid-c
     _ok "client reconciliado: ${_c}"
   fi
 done
+
+# O client do ECHO (2026-08-31): PUBLICO e com Direct Access Grants -- e o
+# password grant que o Postman e os scripts usam para obter token de persona.
+# Nao ha segredo porque nao ha backend confidencial: quem valida o token e a
+# AuthPolicy do echo (jwt/issuerUrl), nao o client. E o par OIDC do contraste
+# do gateway: travels autentica parceiro por API key, echo autentica USUARIO
+# por JWT do Keycloak.
+_cid="$(_api "https://${KC_HOST}/admin/realms/sso/clients?clientId=echo-api" \
+        | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d[0]["id"] if d else "")' 2>/dev/null || true)"
+_corpo='{"clientId":"echo-api","enabled":true,"protocol":"openid-connect","publicClient":true,"directAccessGrantsEnabled":true,"standardFlowEnabled":false,"webOrigins":["+"]}'
+if [[ -z "$_cid" ]]; then
+  _api -X POST "https://${KC_HOST}/admin/realms/sso/clients" -d "$_corpo" >/dev/null && _ok "client criado: echo-api (publico, password grant)"
+else
+  _api -X PUT "https://${KC_HOST}/admin/realms/sso/clients/${_cid}" -d "$_corpo" >/dev/null && _ok "client reconciliado: echo-api"
+fi
 printf '\n'
 _log "próximo: federar o GitLab (OmniAuth OIDC) — a conta root continua local"
 printf '    %s\n' "client id     : gitlab"

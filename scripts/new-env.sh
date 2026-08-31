@@ -145,6 +145,24 @@ patches:
       kind: HTTPRoute
       name: travel-agency
       namespace: travel-agency
+  # O issuer do OIDC do echo e o Keycloak DESTE cluster (sso.<apps>): o iss do
+  # token carrega o host externo, entao o issuerUrl da AuthPolicy tem de ser o
+  # mesmo -- mecanica identica ao hostname da HTTPRoute (2026-08-31).
+  - path: patch-authpolicy-echo-issuer.yaml
+    target:
+      group: kuadrant.io
+      version: v1
+      kind: AuthPolicy
+      name: echo-api-authpolicy
+      namespace: echo-api
+EOF
+
+_emit "${ENV_DIR}/patch-authpolicy-echo-issuer.yaml" <<EOF
+# AuthPolicy do echo (OIDC): o issuerUrl aponta para o Keycloak deste cluster.
+# O realm e sempre 'sso' e o host segue o padrao sso.<apps-domain>.
+- op: replace
+  path: /spec/rules/authentication/keycloak-jwt/jwt/issuerUrl
+  value: https://sso.${DOMAIN}/realms/sso
 EOF
 
 _emit "${ENV_DIR}/patch-httproute-travel-agency.yaml" <<EOF

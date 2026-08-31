@@ -31,20 +31,34 @@ spec:
   # 'rules' e nao 'defaults.rules': o controller do APIProduct ignora o wrapper
   # de defaults e ficaria sem discoveredAuthScheme, reprovando todo APIKey com
   # 'AuthSchemeNotFound'. Mesma armadilha do travel-agency-authpolicy.
+  # OIDC DESDE 2026-08-31 -- o contraste vivo do gateway: o travels autentica
+  # PARCEIRO por API key; o echo autentica USUARIO por JWT do Keycloak (realm
+  # sso, o mesmo login do portal/GitLab). O issuerUrl abaixo e o do cluster de
+  # REFERENCIA da release e e reescrito pela camada env/cluster-<slug>
+  # (patch-authpolicy-echo-issuer.yaml, gerado pelo new-env.sh) -- mesma
+  # mecanica do hostname da HTTPRoute. Token de teste, na mao:
+  #   curl -sk -d client_id=echo-api -d grant_type=password \
+  #     -d username=<persona> -d password=redhat123 \
+  #     https://sso.<apps>/realms/sso/protocol/openid-connect/token
   rules:
     authentication:
-      api-key-authn:
-        apiKey:
-          allNamespaces: false
-          selector:
-            matchLabels:
-              app: partner
-              devportal.kuadrant.io/apiproduct: echo-api
+      keycloak-jwt:
+        jwt:
+          issuerUrl: https://sso.apps.cluster-w4xtj.dyn.redhatworkshops.io/realms/sso
         credentials:
-          queryString:
-            name: APIKEY
+          authorizationHeader:
+            prefix: Bearer
         metrics: false
         priority: 0
+    # O x-partner sai do claim: cada PERSONA vira uma linha nas metricas por
+    # parceiro -- inclusive sistema-teste, que continua filtravel como no
+    # travels. Mesmo desenho do travel-agency-authpolicy, outra fonte.
+    response:
+      success:
+        headers:
+          x-partner:
+            plain:
+              expression: 'has(auth.identity.preferred_username) ? auth.identity.preferred_username : "anonimo"'
   targetRef:
     group: gateway.networking.k8s.io
     kind: HTTPRoute
@@ -72,13 +86,28 @@ spec:
     group: gateway.networking.k8s.io
     kind: HTTPRoute
     name: echo-api
+  # Planos por IDENTIDADE (claim), nao por label de Secret -- o argumento que
+  # a versao por chave nao consegue fazer: o tier acompanha QUEM voce e no
+  # Keycloak. Mesmos limites do travels para a historia ficar simetrica; o
+  # free e o catch-all com 'true' por ultimo (ordem importa).
   plans:
-    - tier: default
+    - tier: gold
+      predicate: 'auth.identity.preferred_username in ["globex-travel", "sistema-teste"]'
+      limits:
+        custom:
+          - limit: 30
+            window: 10s
+    - tier: silver
+      predicate: 'auth.identity.preferred_username == "initech-voyages"'
+      limits:
+        custom:
+          - limit: 10
+            window: 10s
+    - tier: free
       predicate: 'true'
       limits:
-        daily: 2000
         custom:
-          - limit: 20
+          - limit: 3
             window: 10s
 ---
 apiVersion: devportal.kuadrant.io/v1alpha1

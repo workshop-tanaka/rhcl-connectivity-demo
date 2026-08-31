@@ -663,6 +663,195 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Echo — OIDC pelo Keycloak (planos por identidade)",
+      "item": [
+        {
+          "name": "obter token (sistema-teste)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "url": {
+              "raw": "https://{{keycloak_host}}/realms/sso/protocol/openid-connect/token",
+              "protocol": "https",
+              "host": [
+                "{{keycloak_host}}"
+              ],
+              "path": [
+                "realms",
+                "sso",
+                "protocol",
+                "openid-connect",
+                "token"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "client_id",
+                  "value": "echo-api"
+                },
+                {
+                  "key": "grant_type",
+                  "value": "password"
+                },
+                {
+                  "key": "username",
+                  "value": "sistema-teste"
+                },
+                {
+                  "key": "password",
+                  "value": "redhat123"
+                }
+              ]
+            },
+            "description": "Password grant no client publico echo-api. O token carrega preferred_username=sistema-teste, que vira o x-partner nas metricas e decide o PLANO (gold) no echo-plans."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 com access_token', () => pm.expect(pm.response.json().access_token).to.exist);",
+                  "pm.environment.set('token_echo', pm.response.json().access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "echo SEM token -> 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://echo-travels.{{apps_domain}}/x",
+              "protocol": "https",
+              "host": [
+                "echo-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "x"
+              ],
+              "query": []
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 sem JWT', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "echo COM token -> autenticado (404 e do app)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_echo}}"
+              }
+            ],
+            "url": {
+              "raw": "https://echo-travels.{{apps_domain}}/x",
+              "protocol": "https",
+              "host": [
+                "echo-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "x"
+              ],
+              "query": []
+            },
+            "description": "O que importa: NAO e 401/403 de auth. O 404 e o proprio app respondendo -- o JWT atravessou a AuthPolicy. sistema-teste e gold: 30 req/10s."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('autenticou (nao e 401)', () => pm.expect(pm.response.code).to.not.eql(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "estourar o free POR IDENTIDADE (acme-trips) -> 429",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_acme}}"
+              }
+            ],
+            "url": {
+              "raw": "https://echo-travels.{{apps_domain}}/x",
+              "protocol": "https",
+              "host": [
+                "echo-travels",
+                "{{apps_domain}}"
+              ],
+              "path": [
+                "x"
+              ],
+              "query": []
+            },
+            "description": "O pre-request loga como acme-trips (free por CLAIM, nao por chave) e queima as 3 do plano; esta e a 4a. O tier acompanha QUEM voce e no Keycloak."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const kc = pm.variables.replaceIn('https://{{keycloak_host}}/realms/sso/protocol/openid-connect/token');",
+                  "pm.sendRequest({url: kc, method: 'POST', body: {mode: 'urlencoded', urlencoded: [",
+                  "  {key:'client_id', value:'echo-api'}, {key:'grant_type', value:'password'},",
+                  "  {key:'username', value:'acme-trips'}, {key:'password', value:'redhat123'}]}},",
+                  "  (e, r) => {",
+                  "    const tok = r.json().access_token;",
+                  "    pm.environment.set('token_acme', tok);",
+                  "    const alvo = pm.variables.replaceIn('https://echo-travels.{{apps_domain}}/x');",
+                  "    const cab = {Authorization: 'Bearer ' + tok};",
+                  "    function bate(n, done) { if (n === 0) return done();",
+                  "      pm.sendRequest({url: alvo, method: 'GET', header: cab}, () => bate(n - 1, done)); }",
+                  "    bate(3, () => console.log('cota free da persona queimada'));",
+                  "  });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('4a chamada do free leva 429', () => pm.response.to.have.status(429));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

@@ -37,7 +37,8 @@ for linha in sys.stdin:
     tier, b64 = linha.rstrip("\n").split("\t")
     chaves[tier] = base64.b64decode(b64).decode()
 dom = os.environ["DOM"]
-valores = [{"key": "apps_domain", "value": dom, "enabled": True}]
+valores = [{"key": "apps_domain", "value": dom, "enabled": True},
+           {"key": "keycloak_host", "value": "sso." + dom, "enabled": True}]
 for tier in ("free", "silver", "gold"):
     valores.append({"key": "api_key_" + tier, "value": chaves.get(tier, ""),
                     "type": "secret", "enabled": True})

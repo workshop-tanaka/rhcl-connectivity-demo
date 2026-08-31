@@ -70,24 +70,7 @@ type: Opaque
 stringData:
   api_key: teste-gold-4fa08d
 ---
-# A chave de teste do ECHO -- e a explicacao de um misterio antigo: as chaves
-# de parceiro sempre deram 401 no echo porque o AuthConfig de cada produto
-# exige o rotulo devportal.kuadrant.io/apiproduct correspondente (medido em
-# 2026-08-31 lendo o AuthConfig vivo). Esta carrega echo-api.
-apiVersion: v1
-kind: Secret
-metadata:
-  name: apikey-teste-echo
-  namespace: kuadrant-system
-  labels:
-    app: partner
-    authorino.kuadrant.io/managed-by: authorino
-    kuadrant.io/plan-id: gold
-    rhcl.demo/finalidade: teste
-    devportal.kuadrant.io/apiproduct: echo-api
-  annotations:
-    kuadrant.io/partner-name: "Sistema de Teste"
-    secret.kuadrant.io/user-id: sistema-teste
-type: Opaque
-stringData:
-  api_key: teste-echo-1b56f2
+# NAO ha mais chave de teste do ECHO: desde 2026-08-31 ele autentica por OIDC
+# (JWT do realm sso) -- o contraste do gateway e justamente esse: travels por
+# API key, echo por identidade. O teste do echo obtem token como a persona
+# sistema-teste (client echo-api, password grant); ver a colecao do Postman.
