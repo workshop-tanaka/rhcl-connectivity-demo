@@ -389,7 +389,8 @@ metadata:
       icon: github
   labels:
     rhcl.demo/camada: consoles
-    rhcl.demo/origem: comunidade
+    # origem 'repo': o manifesto que a implanta vive neste repositorio
+    rhcl.demo/origem: repo
   tags:
     - rhcl
     - customizado

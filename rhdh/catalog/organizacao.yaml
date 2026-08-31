@@ -250,3 +250,24 @@ spec:
     email: sistema-teste@travel-agency.demo
   memberOf:
     - group:default/parceiros
+---
+# O superusuario do ambiente (2026-08-31): autonomia total pela cadeia
+# federada -- cluster-admin, realm-admin, admin do GitLab/Argo/ACS/Sonar.
+# A SENHA nao mora aqui nem em lugar nenhum do repo: vive no cofre
+# rhcl-identity-secrets (KC_TANAKA_PASSWORD).
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: tanaka
+  description: Superusuario do ambiente. Uma credencial, todas as portas, papel maximo.
+  labels:
+    rhcl.demo/origem: repo
+  tags:
+    - rhcl
+    - admin
+spec:
+  profile:
+    displayName: Sandro Tanaka
+    email: tanaka@example.invalid
+  memberOf:
+    - group:default/platform-team

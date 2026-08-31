@@ -123,6 +123,11 @@ KC_ADMIN_PASSWORD="${KC_ADMIN_PASSWORD:-$(oc get keycloakrealmimport sso -n "$KC
 KC_GITLAB_SECRET="$(_le KC_GITLAB_SECRET || true)"; [[ -n "$KC_GITLAB_SECRET" ]] || KC_GITLAB_SECRET="$(_gera)"
 KC_RHDH_SECRET="$(_le KC_RHDH_SECRET || true)";     [[ -n "$KC_RHDH_SECRET"   ]] || KC_RHDH_SECRET="$(_gera)"
 KC_ACS_SECRET="$(_le KC_ACS_SECRET || true)";       [[ -n "$KC_ACS_SECRET"    ]] || KC_ACS_SECRET="$(_gera)"
+# Senha do SUPERUSUARIO (tanaka): mora SO no cofre -- gerada se ausente, e
+# preservada entre execucoes. Para defini-la, grave no secret ANTES de rodar:
+#   oc patch secret rhcl-identity-secrets -n keycloak --type merge \
+#     -p "{\"stringData\":{\"KC_TANAKA_PASSWORD\":\"<senha>\"}}"
+KC_TANAKA_PASSWORD="$(_le KC_TANAKA_PASSWORD || true)"; [[ -n "$KC_TANAKA_PASSWORD" ]] || KC_TANAKA_PASSWORD="$(_gera)"
 # a mesma senha que as personas já usam no GitLab, para não haver duas verdades
 KC_PERSONA_PASSWORD="${KC_PERSONA_PASSWORD:-redhat123}"
 
@@ -130,6 +135,7 @@ oc create secret generic "$_SEC" -n "$KC_NS" \
   --from-literal=KC_GITLAB_SECRET="$KC_GITLAB_SECRET" \
   --from-literal=KC_RHDH_SECRET="$KC_RHDH_SECRET" \
   --from-literal=KC_ACS_SECRET="$KC_ACS_SECRET" \
+  --from-literal=KC_TANAKA_PASSWORD="$KC_TANAKA_PASSWORD" \
   --from-literal=KC_ADMIN_PASSWORD="$KC_ADMIN_PASSWORD" \
   --dry-run=client -o yaml | oc apply -f - >/dev/null \
   || _die "falha ao guardar os segredos de identidade"
@@ -277,17 +283,21 @@ _TOKEN="$(curl -sk -d client_id=admin-cli -d "username=${_ADM_U}" -d "password=$
 _api() { curl -sk -H "Authorization: Bearer ${_TOKEN}" -H 'Content-Type: application/json' "$@"; }
 
 # usuários
-while IFS='|' read -r _u _nome _sobrenome _mail _grupo; do
+while IFS='|' read -r _u _nome _sobrenome _mail _grupo _pwvar; do
   [[ -z "$_u" ]] && continue
+  # 6a coluna opcional: NOME da variavel com a senha daquele usuario (o valor
+  # vem do cofre, nunca da tabela) -- e o que da ao superusuario senha propria
+  _pw="$KC_PERSONA_PASSWORD"
+  [[ -n "$_pwvar" ]] && _pw="${!_pwvar}"
   _uid="$(_api "https://${KC_HOST}/admin/realms/sso/users?username=${_u}&exact=true" \
           | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d[0]["id"] if d else "")' 2>/dev/null || true)"
-  _senha="$(P="$KC_PERSONA_PASSWORD" python3 -c '
+  _senha="$(P="$_pw" python3 -c '
 import json,os; print(json.dumps({"type":"password","value":os.environ["P"],"temporary":False}))')"
   if [[ -z "$_uid" ]]; then
     # firstName E lastName: sem os dois o Keycloak intercepta o primeiro login
     # com "Update Account Information" e a pessoa nao chega ao destino. E o
     # tipo de tropeco que so aparece no navegador, nunca na API.
-    _corpo="$(U="$_u" N="$_nome" L="$_sobrenome" M="$_mail" P="$KC_PERSONA_PASSWORD" python3 -c '
+    _corpo="$(U="$_u" N="$_nome" L="$_sobrenome" M="$_mail" P="$_pw" python3 -c '
 import json,os
 print(json.dumps({"username":os.environ["U"],"email":os.environ["M"],
  "firstName":os.environ["N"],"lastName":os.environ["L"],
@@ -305,6 +315,7 @@ globex-travel|Globex|Travel|globex@example.invalid|users
 initech-voyages|Initech|Voyages|initech@example.invalid|users
 acme-trips|ACME|Trips|acme@example.invalid|users
 sistema-teste|Sistema|de Teste|sistema-teste@example.invalid|users
+tanaka|Sandro|Tanaka|tanaka@example.invalid|admins|KC_TANAKA_PASSWORD
 PERSONAS
 
 # clients
@@ -463,6 +474,89 @@ print(json.dumps({"name": "Keycloak", "type": "oidc", "enabled": True,
       _warn "falha ao criar o auth provider no Central -- veja /v1/authProviders"
     fi
   fi
+fi
+
+# ===========================================================================
+# SUPERUSUARIO tanaka (2026-08-31) -- autonomia total pela cadeia federada.
+# A senha vive so no cofre (KC_TANAKA_PASSWORD). O que cada sistema recebe:
+#   OpenShift: cluster-admin (e por tabela: console, Kiali, Argo via OAuth)
+#   Argo CD:   role:admin explicito no RBAC (alem do que o OAuth ja da)
+#   Keycloak:  realm-admin do realm sso (gerir usuarios/clients sem o master)
+#   GitLab:    conta admin pre-criada com a identidade OIDC ja vinculada
+#   ACS:       regra userid=tanaka -> Admin no provider Keycloak
+#   Sonar:     usuario externo + permissao de administrar
+#   RHDH:      a entidade User vive em rhdh/catalog/organizacao.yaml (o
+#              resolver exige; sem ela o login morre em 'user not found')
+# ===========================================================================
+_log "superusuario tanaka"
+# sem _run: aquele helper e do provision.sh, nao deste script -- a chamada
+# falhava muda e o cluster-admin nunca era concedido (medido em 2026-08-31)
+oc adm policy add-cluster-role-to-user cluster-admin tanaka >/dev/null 2>&1 \
+  && _ok "OpenShift: cluster-admin para tanaka" \
+  || _warn "nao consegui conceder cluster-admin ao tanaka"
+
+# Argo: acrescenta a policy sem apagar a existente
+_rb="$(oc get argocd openshift-gitops -n openshift-gitops -o jsonpath='{.spec.rbac.policy}' 2>/dev/null)"
+if [[ "$_rb" != *"g, tanaka, role:admin"* ]]; then
+  _rb="${_rb}${_rb:+
+}g, tanaka, role:admin"
+  P="$_rb" python3 -c 'import json,os; print(json.dumps({"spec":{"rbac":{"policy":os.environ["P"]}}}))' \
+    | xargs -0 -I{} oc patch argocd openshift-gitops -n openshift-gitops --type merge -p {} >/dev/null 2>&1 \
+    && _ok "Argo CD: role:admin para tanaka" || _warn "nao consegui ajustar o RBAC do Argo"
+else
+  _ok "Argo CD: role:admin ja concedido"
+fi
+
+# Keycloak: realm-admin do realm sso (client realm-management)
+_uid_t="$(_api "https://${KC_HOST}/admin/realms/sso/users?username=tanaka&exact=true" \
+  | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d[0]["id"] if d else "")' 2>/dev/null)"
+_rmid="$(_api "https://${KC_HOST}/admin/realms/sso/clients?clientId=realm-management" \
+  | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d[0]["id"] if d else "")' 2>/dev/null)"
+if [[ -n "$_uid_t" && -n "$_rmid" ]]; then
+  _role="$(_api "https://${KC_HOST}/admin/realms/sso/clients/${_rmid}/roles/realm-admin" 2>/dev/null)"
+  printf '[%s]' "$_role" | _api -X POST -d @- \
+    "https://${KC_HOST}/admin/realms/sso/users/${_uid_t}/role-mappings/clients/${_rmid}" >/dev/null 2>&1
+  _ok "Keycloak: realm-admin do sso para tanaka"
+fi
+
+# GitLab: admin pre-criado com a identidade OIDC vinculada (primeiro login
+# entra direto como admin, sem aprovacao)
+if [[ -n "${GITLAB_HOST:-}" ]]; then
+  _glt="$(oc get secret golden-path-gitlab-token -n openshift-gitops -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || true)"
+  if [[ -n "$_glt" ]]; then
+    _gexists="$(curl -sk -m 15 -H "PRIVATE-TOKEN: ${_glt}" "https://${GITLAB_HOST}/api/v4/users?username=tanaka" \
+      | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d[0]["id"] if d else "")' 2>/dev/null)"
+    if [[ -z "$_gexists" ]]; then
+      curl -sk -m 20 -X POST -H "PRIVATE-TOKEN: ${_glt}" \
+        --data-urlencode "username=tanaka" --data-urlencode "name=Sandro Tanaka" \
+        --data-urlencode "email=tanaka@example.invalid" --data-urlencode "admin=true" \
+        --data-urlencode "password=${KC_TANAKA_PASSWORD}" --data-urlencode "skip_confirmation=true" \
+        --data-urlencode "provider=openid_connect" --data-urlencode "extern_uid=tanaka" \
+        "https://${GITLAB_HOST}/api/v4/users" >/dev/null 2>&1 \
+        && _ok "GitLab: admin tanaka criado (identidade OIDC vinculada)" \
+        || _warn "nao consegui criar tanaka no GitLab"
+    else
+      curl -sk -m 15 -X PUT -H "PRIVATE-TOKEN: ${_glt}" --data-urlencode "admin=true" \
+        "https://${GITLAB_HOST}/api/v4/users/${_gexists}" >/dev/null 2>&1 && _ok "GitLab: tanaka ja existe (admin garantido)"
+    fi
+  fi
+fi
+
+# ACS: userid tanaka -> Admin (a regra especifica vence o default Analyst)
+if [[ -n "${_ACS_HOST:-}" && -n "${_apid:-}" ]]; then
+  _acs_api -X POST -d "{\"props\":{\"authProviderId\":\"${_apid}\",\"key\":\"userid\",\"value\":\"tanaka\"},\"roleName\":\"Admin\"}" \
+    "https://${_ACS_HOST}/v1/groups" >/dev/null 2>&1 \
+    && _ok "ACS: tanaka -> Admin no provider Keycloak"
+fi
+
+# Sonar: usuario EXTERNO pre-criado + admin (o SAML casa pelo login)
+if [[ -n "${_SQ_HOST:-}" && -n "${_SQ_TOKEN:-}" ]]; then
+  curl -sk -u "${_SQ_TOKEN}:" -X POST "https://${_SQ_HOST}/api/users/create" \
+    --data-urlencode "login=tanaka" --data-urlencode "name=Sandro Tanaka" \
+    --data-urlencode "email=tanaka@example.invalid" --data-urlencode "local=false" >/dev/null 2>&1
+  curl -sk -u "${_SQ_TOKEN}:" -X POST "https://${_SQ_HOST}/api/permissions/add_user" \
+    --data-urlencode "login=tanaka" --data-urlencode "permission=admin" >/dev/null 2>&1 \
+    && _ok "Sonar: tanaka com permissao de administrar (usuario externo)"
 fi
 
 printf '\n'
