@@ -137,11 +137,14 @@ spec:
     plugins:
       - name: debezium-postgres
         artifacts:
-          - type: maven
-            repository: https://repo1.maven.org/maven2
-            group: io.debezium
-            artifact: debezium-connector-postgres
-            version: 3.1.3.Final
+          # tgz do plugin, e NAO type: maven: o maven resolve transitivas e
+          # poe jars do proprio Kafka no diretorio do plugin -- o classloader
+          # do connect sombreia o runtime e ate o JsonConverter DE FABRICA
+          # morre com 'Could not instantiate class' no PUT do connector
+          # (medido em 2026-08-30 no cluster-flqzh). O tar.gz -plugin do
+          # Debezium e o caminho que a doc dele mesma manda.
+          - type: tgz
+            url: https://repo1.maven.org/maven2/io/debezium/debezium-connector-postgres/3.1.3.Final/debezium-connector-postgres-3.1.3.Final-plugin.tar.gz
   resources:
     requests: {cpu: 300m, memory: 1Gi}
     limits: {memory: 2Gi}
