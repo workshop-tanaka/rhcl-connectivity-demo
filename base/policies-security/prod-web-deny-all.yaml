@@ -1,3 +1,27 @@
+# ===========================================================================
+# O DEFAULT DO GATEWAY: negar quem nao declarou nada.
+#
+# ---------------------------------------------------------------------------
+# ELE NAO NEGAVA. Ate 2026-09-01 esta policy trazia 'rego: allow = true' --
+# copia do exemplo do upstream, sem adaptacao e sem um comentario. O nome, o
+# corpo da resposta ("Access denied by default by the gateway operator") e o
+# CLAUDE.md diziam que rota sem AuthPolicy propria e negada; a regra dizia o
+# contrario, e quem mandava era a regra.
+#
+# O efeito: qualquer rota pendurada no prod-web SEM policy propria ficava
+# aberta, com o operador convicto de que estava fechada. Para um default de
+# seguranca, e o pior modo de falha possivel -- e so apareceu porque um
+# exercicio do workshop esperava 401 e recebeu 200.
+#
+# ---------------------------------------------------------------------------
+# O QUE MUDA AO CORRIGIR: rota anexada ao prod-web passa a precisar declarar a
+# sua propria AuthPolicy -- inclusive para ser PUBLICA, e a que permite anonimo
+# e uma policy como outra qualquer. Uma rota esquecida nao fica aberta: fica
+# fora do ar, que e ruidoso e, portanto, seguro.
+#
+# Quem ja declarava continua igual: policy de rota SOBREPOE a de gateway, e o
+# status da policy nomeia quem venceu.
+# ===========================================================================
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata:
@@ -10,7 +34,9 @@ spec:
         metrics: false
         opa:
           allValues: false
-          rego: allow = true
+          # 'false' e o ponto desta policy. Ver o cabecalho: por um ano
+          # ela disse 'true' e o ambiente inteiro acreditou no nome.
+          rego: allow = false
         priority: 0
     response:
       unauthorized:

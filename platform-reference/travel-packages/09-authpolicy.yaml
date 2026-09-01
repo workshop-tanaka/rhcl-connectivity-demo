@@ -1,0 +1,31 @@
+# ===========================================================================
+# A ROTA DO travel-packages E PUBLICA -- POR DECISAO, e nao por omissao.
+#
+# Ate 2026-09-01 ela nao tinha AuthPolicy nenhuma e respondia assim mesmo,
+# porque o prod-web-deny-all trazia 'allow = true' e nao negava. Corrigido o
+# default, uma rota sem policy propria passa a ser negada -- e esta ficaria
+# fora do ar sem que ninguem tivesse decidido isso.
+#
+# Entao a decisao vira declaracao. E, se um dia o servico precisar de chave, o
+# lugar de mudar e este arquivo, com o diff aparecendo na revisao.
+#
+# PUBLICO NAO E AUSENCIA DE POLICY: e uma policy que permite anonimo.
+# ===========================================================================
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: travel-packages-publica
+  namespace: travel-packages
+  labels:
+    app: travel-packages
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: travel-packages
+  # spec.rules, e nao spec.defaults.rules: com defaults a policy fica
+  # Accepted=True / Enforced=False e nenhuma requisicao e avaliada.
+  rules:
+    authentication:
+      anonimo:
+        anonymous: {}
