@@ -721,6 +721,11 @@
                 {
                   "key": "password",
                   "value": "redhat123"
+                },
+                {
+                  "key": "scope",
+                  "value": "openid",
+                  "description": "sem ele o /userinfo responde 403 no Keycloak recente (medido 2026-09-01)"
                 }
               ]
             },
