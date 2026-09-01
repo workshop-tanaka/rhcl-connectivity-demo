@@ -42,7 +42,34 @@
 # ===========================================================================
 set -euo pipefail
 
-REPO="https://github.com/gateway-smashes/kuadrant-console"
+# ===========================================================================
+# DE ONDE O CLUSTER CONSTROI -- e por que nao e mais o upstream
+#
+# O upstream (gateway-smashes) quebra no OpenShift 4.22: seis arquivos ainda
+# chamam useHistory, que e API do React Router v5, importando do
+# 'react-router-dom' puro. O console fornece esse modulo COMPARTILHADO por
+# module federation, e a copia dele (v6/v7) vence a do plugin -- entao o
+# react-router-dom-v5-compat, que esta no package.json justamente para essa
+# ponte, nunca e consultado. A Overview estoura com:
+#
+#   TypeError: (0 , p.useHistory) is not a function
+#
+# Nao e versao errada, e migracao pela metade: onze arquivos do mesmo repo ja
+# usam o shim com useNavigate. O fork abaixo e o upstream ATUAL mais a
+# correcao desses seis (commit d19de48), medida com tsc limpo, build de 177
+# chunks e ZERO chunks contendo useHistory.
+#
+# ESTE APONTAMENTO PRECISA VIVER AQUI, e nao so no BuildConfig do cluster: o
+# cluster e efemero, e um cluster novo reconstruiria a versao quebrada sem
+# nenhum aviso -- o build passa, o pod sobe 1/1, e so a tela estoura.
+#
+# QUANDO VOLTAR PARA O UPSTREAM: assim que ele aceitar a correcao. Basta trocar
+# as duas linhas abaixo; o REF vazio significa branch padrao.
+#   CL_CONSOLE_REPO=https://github.com/gateway-smashes/kuadrant-console \
+#   CL_CONSOLE_REF= bash scripts/kuadrant-console-lab.sh
+# ===========================================================================
+REPO="${CL_CONSOLE_REPO:-https://github.com/sandrotanaka/custom-rhcl-console}"
+REF="${CL_CONSOLE_REF:-main}"
 NS="kuadrant-console"
 NAME="kuadrant-console"
 PLUGIN="kuadrant-console"
@@ -124,10 +151,21 @@ cmd_install() {
   # ---------------------------------------------------------------------
   _sec "build no proprio cluster"
   if oc get bc "$NAME" -n "$NS" >/dev/null 2>&1; then
+    # RECONCILIAR ANTES DE DISPARAR. Um BuildConfig criado quando o REPO era
+    # outro continua construindo o repo antigo, e o start-build reporta
+    # sucesso -- o build passa, a imagem sobe, e o defeito volta com ela.
+    local _uri_atual
+    _uri_atual="$(oc get bc "$NAME" -n "$NS" -o jsonpath='{.spec.source.git.uri}' 2>/dev/null)"
+    if [[ "$_uri_atual" != "$REPO" ]]; then
+      _log "BuildConfig aponta para ${_uri_atual:-<vazio>} — corrigindo para ${REPO}"
+      oc patch bc "$NAME" -n "$NS" --type=json -p "[
+        {\"op\":\"replace\",\"path\":\"/spec/source/git/uri\",\"value\":\"${REPO}\"},
+        {\"op\":\"add\",\"path\":\"/spec/source/git/ref\",\"value\":\"${REF}\"}]" >/dev/null
+    fi
     _log "BuildConfig ja existe — disparando novo build"
     oc start-build "$NAME" -n "$NS" >/dev/null
   else
-    oc new-build "$REPO" --context-dir=console-plugin --strategy=docker \
+    oc new-build "${REPO}${REF:+#$REF}" --context-dir=console-plugin --strategy=docker \
        --name="$NAME" -n "$NS" >/dev/null
     _ok "BuildConfig criado"
   fi

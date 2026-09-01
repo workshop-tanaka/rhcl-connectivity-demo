@@ -1,5 +1,6 @@
 # ===========================================================================
-# Kuadrant Console -- CONSOLE CUSTOMIZADA (github.com/gateway-smashes).
+# Kuadrant Console -- CONSOLE CUSTOMIZADA (github.com/gateway-smashes,
+# construida do fork sandrotanaka/custom-rhcl-console -- ver o BuildConfig).
 #
 # NAO E O PLUGIN OFICIAL. O oficial (kuadrant-console-plugin, instalado pelo
 # operador do RHCL e ligado na etapa consoles) continua no cluster; este e um
@@ -47,7 +48,17 @@ spec:
   source:
     type: Git
     git:
-      uri: https://github.com/gateway-smashes/kuadrant-console
+      # FORK, e nao o upstream -- de proposito. O upstream quebra no OpenShift
+      # 4.22: seis arquivos chamam useHistory (React Router v5) importando do
+      # 'react-router-dom' puro, que o console fornece como modulo compartilhado
+      # em v6/v7. A Overview estoura com "useHistory is not a function", e o
+      # react-router-dom-v5-compat que existe no package.json nunca e consultado.
+      #
+      # O fork e o upstream ATUAL mais a correcao desses seis (commit d19de48).
+      # Voltar para o upstream assim que ele aceitar o patch -- ver o cabecalho
+      # de scripts/kuadrant-console-lab.sh, que tem o comando pronto.
+      uri: https://github.com/sandrotanaka/custom-rhcl-console
+      ref: main
     contextDir: console-plugin
   strategy:
     type: Docker
