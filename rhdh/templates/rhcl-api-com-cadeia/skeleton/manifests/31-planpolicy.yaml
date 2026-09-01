@@ -1,0 +1,127 @@
+# ===========================================================================
+# PlanPolicy -- quanto passa, POR TIER. E o que transforma a rota em PRODUTO.
+#
+# Nao ha RateLimitPolicy "plana" neste projeto, e a ausencia e deliberada: no
+# RHCL 1.4.2 uma RateLimitPolicy anexada a mesma HTTPRoute SOBREPOE a RLP que o
+# PlanPolicy gera (a precedencia inverteu em relacao ao 1.2.1). Com as duas, o
+# PlanPolicy fica Enforced=False e os planos somem -- sem erro, com o caminho de
+# dados continuando a devolver 200. Armadilha 5 do runbook; e o motivo de
+# overlays/rhcl-1.4 remover a RLP plana do travel-agency.
+#
+# Sem PlanPolicy tambem NAO SE EMITE CHAVE: 'planTier' e obrigatorio no CRD do
+# APIKey e precisa resolver para um tier existente na rota. Sem ela o APIProduct
+# fica Ready e mesmo assim todo pedido de chave morre em Pending -- vitrine sem
+# assinatura possivel.
+#
+# ---------------------------------------------------------------------------
+{%- if values.planPreset == 'three-tier' %}
+{%- if values.planReading == 'simples' %}
+# >>> ATENCAO: este projeto foi gerado com leitura de plano SIMPLES. <<<
+#
+# O predicate indexa o label direto. Se uma chave com o label de grupo NAO
+# tiver 'kuadrant.io/plan-id', a expressao CEL nao devolve false: ela ERRA em
+# runtime, e o erro aborta a classificacao INTEIRA -- inclusive o catch-all de
+# predicate 'true'. Nenhum plano e atribuido, o Limitador nao e chamado, e a
+# requisicao passa SEM LIMITE NENHUM. Fail-open, silencioso.
+#
+# Medido neste cluster: 10 de 10 chamadas com uma chave assim devolveram 200 num
+# tier de 3 req/10s. E o caminho por onde uma chave aprovada no developer portal
+# escapa, porque o portal grava o plano como ANNOTATION, nao como label.
+#
+# Para corrigir, troque cada predicate pela forma defensiva (has() antes de 'in',
+# 'in' antes de indexar) -- e o que o modo 'defensivo' deste template gera.
+{%- else %}
+# LEITURA DEFENSIVA DO PLANO -- has() antes de 'in', 'in' antes de indexar, e
+# fallback do label para a annotation.
+#
+# Existem DOIS emissores de chave, e eles gravam o plano em lugares diferentes:
+# o Secret escrito a mao usa o LABEL kuadrant.io/plan-id; o controlador do
+# developer portal, ao aprovar um APIKey, cunha um Secret novo com o plano em
+# ANNOTATION secret.kuadrant.io/plan-id. Um predicate que so indexa o label ERRA
+# em CEL na chave do portal -- e erro em predicate nao e 'false', e abortar a
+# classificacao inteira, catch-all incluido. O resultado e uma chave sem limite.
+#
+# Sem chave reconhecida o resultado e "", que nao casa com nenhum tier nomeado e
+# cai no catch-all: fail-CLOSED, que era a intencao.
+{%- endif %}
+{%- endif %}
+# ---------------------------------------------------------------------------
+# ORDEM IMPORTA: a identidade e classificada pelo PRIMEIRO plano que casar. O
+# catch-all fica por ultimo -- se viesse antes, engoliria os outros.
+#
+# 'daily' nao aparece em nenhuma tela de rajada: existe porque o APIProduct
+# publica os planos a partir daqui (status.discoveredPlans), e plano comercial
+# sem cota nao convence ninguem. Mantenha as diarias ALTAS -- cota diaria
+# esgotada durante o ensaio produz exatamente o sintoma que a demo quer mostrar
+# (429 em tudo), sem nenhum 200 antes. Armadilha 8.
+#
+# Depois de mexer nos limites: 'bash scripts/traffic.sh reset'. O Limitador
+# guarda o contador com o teto vigente quando ele foi criado.
+# ===========================================================================
+{%- if values.planReading == 'defensivo' %}
+{%- set planId = '(has(auth.identity.metadata.labels) && "kuadrant.io/plan-id" in auth.identity.metadata.labels ? auth.identity.metadata.labels["kuadrant.io/plan-id"] : (has(auth.identity.metadata.annotations) && "secret.kuadrant.io/plan-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] : ""))' %}
+{%- else %}
+{%- set planId = 'auth.identity.metadata.labels["kuadrant.io/plan-id"]' %}
+{%- endif %}
+apiVersion: extensions.kuadrant.io/v1alpha1
+kind: PlanPolicy
+metadata:
+  name: ${{ values.name }}-plans
+  namespace: ${{ values.namespace }}
+  labels:
+    app: ${{ values.name }}
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: ${{ values.name }}
+  plans:
+{%- if values.planPreset == 'three-tier' %}
+    # -- gold: parceiro integrado. Cota de negocio (diaria), nao de rajada.
+    - tier: gold
+      predicate: '${{ planId }} == "gold"'
+      limits:
+        daily: 100000
+        custom:
+          - limit: 30
+            window: 10s
+
+    # -- silver: contrato menor, mesma API.
+    - tier: silver
+      predicate: '${{ planId }} == "silver"'
+      limits:
+        daily: 10000
+        custom:
+          - limit: 10
+            window: 10s
+
+    # -- free: avaliacao. O 429 aqui e o argumento de upgrade.
+    - tier: free
+      predicate: '${{ planId }} == "free"'
+      limits:
+        daily: 1000
+        custom:
+          - limit: 3
+            window: 10s
+
+    # -- catch-all: rede contra o fail-open. MANTENHA POR ULTIMO. Apertado de
+    #    proposito: chave sem tier tem efeito visivel (429 cedo) em vez de
+    #    invisivel (sem limite).
+    - tier: unclassified
+      predicate: 'true'
+      limits:
+        custom:
+          - limit: 1
+            window: 60s
+{%- else %}
+    # Plano unico: o predicate e 'true', entao nao ha indexacao de label para
+    # errar em CEL e nao existe identidade sem plano. Por isso tambem nao ha
+    # catch-all -- este plano JA e o catch-all. Mesmo desenho do echo-api.
+    - tier: default
+      predicate: 'true'
+      limits:
+        daily: 2000
+        custom:
+          - limit: 20
+            window: 10s
+{%- endif %}

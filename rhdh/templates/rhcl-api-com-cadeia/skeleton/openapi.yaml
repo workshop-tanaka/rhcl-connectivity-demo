@@ -1,0 +1,61 @@
+# Spec versionada no repositorio -- e esta URL que o APIProduct manda o
+# controlador do developer portal buscar (manifests/40-apiproduct.yaml), e a
+# mesma que o catalog-info.yaml referencia para a aba Definition do RHDH.
+#
+# Editar aqui e suficiente: o proximo sync do Argo republica o produto, e o
+# plugin do Kuadrant repropaga a URL para o catalogo.
+openapi: 3.0.3
+info:
+  title: ${{ values.name }}
+  version: "${{ values.productVersion }}"
+  description: >-
+    ${{ values.description }}
+
+    Autenticacao e limite sao impostos NA BORDA pelo Red Hat Connectivity Link
+    (AuthPolicy + PlanPolicy). A aplicacao nao valida credencial nem conta
+    requisicao: ela nunca ve uma chamada nao autenticada.
+servers:
+  - url: https://${{ values.hostname }}
+security:
+  - ApiKeyQuery: []
+paths:
+  /:
+    get:
+      summary: Eco do request recebido
+      description: >-
+        Devolve em JSON o metodo, o path e os cabecalhos que chegaram ao
+        servico -- inclusive os que o gateway acrescentou. E o jeito mais direto
+        de mostrar que a identidade foi resolvida antes de a aplicacao ser
+        chamada.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          description: Chave ausente ou invalida (recusado pelo Authorino, na borda)
+        "403":
+          description: Rota sem AuthPolicy propria — deny-all do Gateway
+        "429":
+          description: Limite do plano excedido (contado pelo Limitador, por plano)
+    post:
+      summary: Eco do request recebido, com corpo
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Chave ausente ou invalida
+        "429":
+          description: Limite do plano excedido
+components:
+  securitySchemes:
+    ApiKeyQuery:
+      type: apiKey
+      in: query
+      name: APIKEY
+      description: >-
+        Chave emitida pelo developer portal do RHCL. Vive como Secret em
+        kuadrant-system (namespace do Authorino), com os labels
+        app=${{ values.apiKeyGroup }} e devportal.kuadrant.io/apiproduct=${{ values.name }}.

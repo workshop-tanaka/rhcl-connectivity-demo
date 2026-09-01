@@ -1,0 +1,44 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ===========================================================================
+# A ordem dos arquivos e a ordem em que as coisas passam a existir para quem
+# assiste -- o kustomize nao ordena por isso, mas quem le o repo, sim:
+#
+#   00  namespace ja no Service Mesh        <- sem isto, nada abaixo tem sidecar
+#   10-12  workload com identidade propria
+#   20  a rota, anexada ao gateway compartilhado
+#   21  a Route que publica o host para fora (o Gateway e ClusterIP)
+#   30  quem entra          (AuthPolicy)
+#   31  quanto passa POR TIER (PlanPolicy)
+#   40  a vitrine           (APIProduct do developer portal)
+#   50-53 a fronteira de dentro (Service Mesh)
+#
+# NAO ha RateLimitPolicy: no RHCL 1.4 uma RLP plana na mesma rota sobrepoe a que
+# o PlanPolicy gera e apaga os planos. Ver 31-planpolicy.yaml.
+# ===========================================================================
+
+resources:
+  - 00-namespace.yaml
+  # 05 e 60 sao a diferenca deste template para o rhcl-api-product: a imagem
+  # do Deployment nasce da PROPRIA pipeline (60), e o bootstrap (05) resolve o
+  # que nao cabe em YAML de aplicacao -- Secrets de outros namespaces, o
+  # 'secrets link' na SA pipeline e a SCC do buildah. Ver rhcl-app-com-cadeia.
+  - 05-bootstrap.yaml
+  - 10-serviceaccount.yaml
+  - 11-deployment.yaml
+  - 12-service.yaml
+  - 20-httproute.yaml
+  - 21-route.yaml
+  - 30-authpolicy.yaml
+  - 31-planpolicy.yaml
+  - 40-apiproduct.yaml
+  - 50-peerauthentication.yaml
+{%- if values.allowedCallers | length %}
+  - 51-authorizationpolicy.yaml
+{%- endif %}
+{%- if values.canaryReady %}
+  - 52-destinationrule.yaml
+  - 53-virtualservice.yaml
+{%- endif %}
+  - 60-pipeline.yaml

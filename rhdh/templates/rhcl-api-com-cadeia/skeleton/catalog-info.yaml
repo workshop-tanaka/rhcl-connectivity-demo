@@ -1,0 +1,111 @@
+# ===========================================================================
+# Entidades deste servico no Red Hat Developer Hub.
+#
+# ATENCAO A UMA DUPLICIDADE QUE E PROPOSITAL: se o plugin @kuadrant/* estiver
+# ligado no portal, ele ingere o APIProduct do cluster como uma SEGUNDA entidade
+# API, chamada '${{ values.name }}' (esta aqui e '${{ values.name }}-api'). Nao e
+# erro nem conflito -- sao coisas diferentes, e vale dizer isso na demo:
+#
+#   ${{ values.name }}-api   a API como CODIGO   -- nasce deste repo, tem a spec
+#                            versionada, existe mesmo com o cluster desligado
+#   ${{ values.name }}       a API como PRODUTO  -- nasce do cluster, traz as abas
+#                            API Keys e API Product Info, os planos descobertos
+#                            do PlanPolicy e o fluxo de aprovacao de chave
+#
+# 'system' fica de fora de proposito: declarar um System aqui faria cada servico
+# gerado declarar a MESMA entidade a partir de uma location diferente, e o
+# catalogo rejeita a segunda com conflito de entityRef.
+# ===========================================================================
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{ values.name }}
+  description: ${{ values.description }}
+  annotations:
+    # Proveniencia: qual template criou este componente. E o que liga o
+    # repositorio gerado de volta ao golden path -- e o que permite, no
+    # catalogo, responder "quantos servicos nasceram pelo caminho de ouro".
+    backstage.io/source-template: template:default/rhcl-api-com-cadeia
+    # As duas abas que o rhcl-api-product nao tem: CI (as runs da pipeline
+    # carregam o label app=<nome>, o mesmo selector do kubernetes) e Quay
+    # (o repositorio da imagem que a propria pipeline publica e assina).
+    janus-idp.io/tekton: ${{ values.name }}
+    quay.io/repository-slug: ${{ values.quayOrg }}/${{ values.name }}
+    # o AppSet nomeia a Application com o nome do repositorio (= values.name)
+    argocd/app-name: ${{ values.name }}
+    # Sem estas duas as abas Kubernetes e Topology nao aparecem -- e nao ha erro,
+    # a aba simplesmente nao existe. O seletor casa o label que 11-deployment.yaml
+    # poe no Deployment E nos pods, entao a aba mostra a cadeia inteira: pods,
+    # service, deployment e os CRs de policy (HTTPRoute, AuthPolicy, PlanPolicy),
+    # que sao rotulados com o mesmo 'app'.
+    backstage.io/kubernetes-label-selector: app=${{ values.name }}
+    backstage.io/kubernetes-namespace: ${{ values.namespace }}
+    gitlab.com/project-slug: ${{ values.repoSlug }}
+    # As duas terminam diferente e nao e descuido: source-location PRECISA
+    # terminar em '/' (sem a barra o RHDH trata como arquivo e os botoes de
+    # View Source aparecem desabilitados); techdocs-ref, nao. Mesma convencao
+    # do catalogo da demo em rhdh/catalog/travel-agency.yaml.
+    backstage.io/source-location: url:https://${{ values.gitlabHost }}/${{ values.repoSlug }}/-/tree/main/
+    # Aba Docs a partir do mkdocs.yml deste repositorio. O RHDH gera no proprio
+    # pod (mkdocs vive em /opt/techdocs-venv), entao nao ha pipeline a montar.
+    backstage.io/techdocs-ref: url:https://${{ values.gitlabHost }}/${{ values.repoSlug }}/-/tree/main
+  tags:
+    - rhcl
+    - golden-path
+{%- if values.mtlsStrict %}
+    - mtls-strict
+{%- endif %}
+  # Vocabulario de docs/CATALOGO.md -- o mesmo do catalogo da demo, e e isso
+  # que faz um servico gerado aqui e um servico da demo aparecerem no mesmo
+  # filtro. 'origem: template' e o que os distingue depois.
+  #
+  # Sem 'produto': o vocabulario so tem 'travels' e 'echo', que sao os produtos
+  # da demo. Um servico gerado nao pertence a nenhum dos dois, e inventar um
+  # valor aqui furaria a tabela que o valida-catalogo.sh confere.
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: template
+  links:
+    - url: https://${{ values.hostname }}
+      title: Endpoint
+      icon: web
+    - url: https://${{ values.gitlabHost }}/${{ values.repoSlug }}/-/blob/main/manifests/31-planpolicy.yaml
+      title: Planos (PlanPolicy)
+      icon: docs
+spec:
+  type: service
+  lifecycle: experimental
+  owner: ${{ values.owner }}
+  providesApis:
+    - ${{ values.name }}-api
+  # O gateway compartilhado como dependencia declarada. Nao e enfeite de
+  # grafo: e o que faz a pergunta "o que mais esta atras do prod-web?" ter
+  # resposta na tela, em vez de exigir um 'oc get httproute -A'. A entidade
+  # resource:default/prod-web e servida pelo catalogo da demo -- se este
+  # componente for para um cluster sem ela, a relacao fica pendurada.
+  dependsOn:
+    - resource:default/prod-web
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: ${{ values.name }}-api
+  description: >-
+    ${{ values.description }} Exposta pelo Gateway prod-web, protegida por
+    AuthPolicy e limitada por plano.
+  annotations:
+    gitlab.com/project-slug: ${{ values.repoSlug }}
+  tags:
+    - rhcl
+    - golden-path
+  labels:
+    rhcl.demo/camada: aplicacao
+    rhcl.demo/origem: template
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: ${{ values.owner }}
+  # $text carrega o arquivo do repositorio na ingestao -- a spec fica num lugar
+  # so, e nao duplicada entre o openapi.yaml e esta entidade.
+  definition:
+    $text: ./openapi.yaml

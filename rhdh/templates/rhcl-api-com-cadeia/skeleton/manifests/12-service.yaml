@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ values.name }}
+  namespace: ${{ values.namespace }}
+  labels:
+    app: ${{ values.name }}
+    app.kubernetes.io/name: ${{ values.name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: ${{ values.name }}
+  ports:
+    # O nome da porta importa no Service Mesh: o Istio deduz o protocolo do prefixo
+    # ('http', 'grpc', 'tcp'). Porta sem nome vira TCP opaco, e o grafo do Kiali
+    # perde metrica de HTTP -- codigo de resposta, taxa de erro, tudo.
+    - name: http
+      port: ${{ values.port }}
+      targetPort: ${{ values.port }}
+      protocol: TCP
