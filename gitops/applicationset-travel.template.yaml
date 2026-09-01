@@ -134,3 +134,27 @@ spec:
       syncPolicy:
         syncOptions:
           - CreateNamespace=false
+  # ---------------------------------------------------------------------------
+  # A EXCECAO: travel-packages e GitOps de verdade (pedido de 2026-08-31).
+  #
+  # A regra 'sem automated' acima protege os seis backends, cujos objetos o
+  # provision.sh aplica no bootstrap -- dois donos, sync preso em Running. O
+  # travel-packages e diferente: o manifests/ dele nasce do seed (renderizado
+  # de platform-reference/travel-packages/06-eap.yaml) e o repositorio E o dono.
+  #
+  #   prune: false   continua -- o mesmo motivo da regra geral: se o espelho no
+  #                  GitLab ficar para tras, prune apagaria o servico vivo.
+  #   selfHeal: true aqui sim: nenhum ato do roteiro edita o travel-packages ao
+  #                  vivo, entao o enforcement nao quebra playbook nenhum -- e a
+  #                  tela do Argo passa a demonstrar a reconciliacao real.
+  # ---------------------------------------------------------------------------
+  templatePatch: |
+    {{- if eq .repository "travel-packages" }}
+    spec:
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=false
+    {{- end }}
