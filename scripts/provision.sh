@@ -1973,7 +1973,7 @@ _check() {
   if [[ -n "$_nexus_host" ]]; then
     _eula="$(curl -sk -u "admin:${NEXUS_ADMIN_PASS:-admin123}" \
                "https://${_nexus_host}/service/rest/v1/system/eula" 2>/dev/null \
-             | grep -c '"accepted":true' || true)"
+             | grep -cE '"accepted"[[:space:]]*:[[:space:]]*true' || true)"
     if [[ "${_eula:-0}" -gt 0 ]]; then
       _ok "EULA do Nexus aceito (escrita liberada)"
     else
