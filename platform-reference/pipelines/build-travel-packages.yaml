@@ -347,9 +347,13 @@ spec:
               #!/bin/bash
               set -euo pipefail
               if [[ -z "${NEXUS_USER:-}" || -z "${NEXUS_PASS:-}" || -z "${NEXUS_URL:-}" ]]; then
-                echo "AVISO: secret nexus-deploy ausente -- artefato NAO publicado."
+                # exit 1, e nao 0: com exit 0 a run aparecia Succeeded na aba
+                # CI do RHDH com o artefato NAO publicado -- falso positivo
+                # relatado em 2026-09-01. A mesma licao do qualitygate.wait
+                # logo acima: task que nao pode falhar e portao que nao existe.
+                echo "FALHA: secret nexus-deploy ausente -- artefato NAO publicado."
                 echo "       rode 'bash scripts/provision.sh credenciais' e reexecute a pipeline."
-                exit 0
+                exit 1
               fi
               WAR="$(ls target/*.war 2>/dev/null | head -1)"
               [[ -n "$WAR" ]] || { echo "nenhum .war em target/ -- o compila rodou?"; exit 1; }
