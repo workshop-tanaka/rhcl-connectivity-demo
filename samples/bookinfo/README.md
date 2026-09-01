@@ -3,6 +3,11 @@
 A amostra canônica do Istio, sobre o OpenShift Service Mesh, **como o upstream
 a construiu** — sem Connectivity Link no caminho.
 
+Origem: <https://istio.io/latest/docs/examples/bookinfo/> (projeto Istio, *Istio
+Authors*, Apache 2.0). O código da aplicação não foi alterado; o que este
+repositório acrescenta são as camadas em volta — as de mesh no próprio
+diretório, as de RHCL em [rhcl/](rhcl/).
+
 A camada de RHCL existe, pronta e explicada, em [rhcl/](rhcl/). Ela está fora
 do `kustomization.yaml` de propósito: a primeira coisa a fazer com uma amostra
 do Istio é vê-la funcionando como Istio.

@@ -2,7 +2,10 @@
 
 Quatro amostras do [projeto Istio](https://github.com/istio/istio/tree/master/samples)
 — `bookinfo`, `websockets`, `open-telemetry` e `grpc-echo` — rodando sobre o
-**OpenShift Service Mesh**, com o gateway e o roteamento do upstream.
+**OpenShift Service Mesh**, com o gateway e o roteamento do upstream. Código das
+aplicações inalterado (*Istio Authors*, Apache 2.0); a do `bookinfo` está
+documentada em
+[istio.io/docs/examples/bookinfo](https://istio.io/latest/docs/examples/bookinfo/).
 
 **Sem Connectivity Link.** A camada de RHCL de cada amostra existe, escrita e
 explicada, em `samples/<nome>/rhcl/`, e está **fora** do `kustomization.yaml`.
