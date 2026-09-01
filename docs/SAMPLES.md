@@ -214,7 +214,7 @@ saber antes:
 
 | Amostra | Convive com a camada do upstream? |
 | --- | --- |
-| `bookinfo` | **não**: a `HTTPRoute` do upstream já casa `/api/v1/products`. É preciso `oc delete httproute bookinfo -n bookinfo` antes |
+| `bookinfo` | **sim**, desde 2026-08-31: a camada usa `bookinfo-rhcl.<d>` com `Route` própria. Antes pedia o mesmo hostname da amostra, e o tráfego nem chegava ao `prod-web` |
 | `websockets` | **sim**, em hostnames diferentes (`websockets.<d>` sem chave, `websockets-rhcl.<d>` com) |
 | `grpc-echo` | **sim**: a amostra não publica nada, então a camada só acrescenta |
 

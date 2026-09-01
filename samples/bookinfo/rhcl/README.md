@@ -33,14 +33,23 @@ deliberado: o `prod-web` é o gateway governado pelo RHCL, e é lá que
 [../20-gateway.yaml](../20-gateway.yaml) continua existindo e continua servindo
 a UI sem chave.
 
-**2. Há conflito de caminho, e ele precisa ser resolvido à mão.** A `HTTPRoute`
-`bookinfo` do upstream já casa `/api/v1/products`. Com as duas camadas
-aplicadas, esse caminho passaria pelo gateway da amostra — sem chave — enquanto
-o resto de `/api/v1` passaria pelo `prod-web` com chave. Antes de aplicar:
+**2. As duas camadas CONVIVEM, em hostnames diferentes.** Até 2026-08-31 esta
+camada pedia `bookinfo.<domínio>` e mandava apagar a `HTTPRoute` do upstream
+antes. Duas coisas quebravam isso:
 
-```bash
-oc delete httproute bookinfo -n bookinfo
-```
+- o hostname já era servido pela `Route` da própria amostra, apontando para o
+  gateway dela — a decisão acontece na **borda do OpenShift**, antes de qualquer
+  policy, e o pedido respondia `200` como se o `prod-web` não existisse;
+- e apagar a `HTTPRoute` não durava: o `ApplicationSet` a recria em segundos.
+
+Agora a camada usa **`bookinfo-rhcl.<domínio>`**, com `Route` própria
+([25-route-openshift.yaml](25-route-openshift.yaml)) — o mesmo padrão do
+`websockets`. Nada precisa ser apagado, e comparar a mesma aplicação com e sem
+plataforma na frente é demonstração melhor do que trocar uma pela outra.
+
+> O `prod-web` é publicado por **uma Route por hostname**, `passthrough` e sem
+> wildcard. Um hostname novo exige uma `Route` nova — não há wildcard que o
+> adote.
 
 **3. `oc apply -k` não serve aqui pelo mesmo motivo de sempre:** as duas rotas
 trazem `__DOMAIN__`.

@@ -37,7 +37,7 @@ spec:
     - name: prod-web
       namespace: ingress-gateway
   hostnames:
-    - bookinfo.__DOMAIN__
+    - bookinfo-rhcl.__DOMAIN__
   rules:
     - matches:
         - path:

@@ -18,4 +18,5 @@ resources:
   - 22-authpolicy.yaml
   - 23-planpolicy.yaml
   - 24-ratelimitpolicy-ui.yaml
+  - 25-route-openshift.yaml
   - 26-identity-apikeys.yaml
