@@ -111,20 +111,30 @@ spec:
           - name: documentos
             description: quantos manifestos o kustomize produziu
         steps:
+          # DUAS steps, e nao uma: o ose-cli usa repos RHEL com entitlement e o
+          # 'microdnf install git || true' falhava MUDO -- a pipeline morria em
+          # 'git: command not found' na primeira execucao real (medido em
+          # 2026-09-01 no cluster-flqzh). O ubi-minimal instala git dos repos
+          # UBI abertos; e o mesmo par de imagens que a build-travel-packages
+          # ja usa com sucesso.
+          - name: git-clone
+            image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+            workingDir: $(workspaces.fonte.path)
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+              microdnf install -y git >/dev/null
+              rm -rf repo
+              # sslVerify desligado: o GitLab da demo serve com o wildcard do
+              # proprio cluster, que a imagem base nao conhece.
+              git -c http.sslVerify=false clone --depth 1 \
+                  --branch "$(params.revisao)" "$(params.repo)" repo
           - name: kustomize-build
             image: registry.redhat.io/openshift4/ose-cli:latest
             workingDir: $(workspaces.fonte.path)
             script: |
               #!/bin/bash
               set -euo pipefail
-              microdnf install -y git >/dev/null 2>&1 || true
-
-              rm -rf repo
-              # sslVerify desligado: o GitLab da demo serve com o wildcard do
-              # proprio cluster, que a imagem base nao conhece.
-              git -c http.sslVerify=false clone --depth 1 \
-                  --branch "$(params.revisao)" "$(params.repo)" repo
-
               # 'oc kustomize' e o kustomize embutido -- nao ha binario extra
               # para baixar, e um cluster sem saida para a internet continua
               # conseguindo rodar esta pipeline.
