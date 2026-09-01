@@ -258,7 +258,9 @@ metadata:
 spec:
   type: service
   lifecycle: production
-  owner: group:default/platform-team
+  # tanaka, e nao platform-team: com o servico em GitOps automatizado
+  # (2026-08-31), o dono passa a ser quem responde pelo repositorio.
+  owner: user:default/tanaka
   system: travel-packages
   dependsOn:
     - resource:default/travel-cache

@@ -255,7 +255,7 @@ metadata:
 spec:
   type: service
   lifecycle: experimental
-  owner: group:default/platform-team
+  owner: user:default/tanaka
   system: sample-bookinfo
   providesApis:
     - bookinfo-api
@@ -296,7 +296,7 @@ metadata:
 spec:
   type: service
   lifecycle: experimental
-  owner: group:default/platform-team
+  owner: user:default/tanaka
   system: sample-bookinfo
   dependsOn:
     - resource:default/bookinfo-authz-leste-oeste
@@ -334,7 +334,7 @@ metadata:
 spec:
   type: service
   lifecycle: experimental
-  owner: group:default/platform-team
+  owner: user:default/tanaka
   system: sample-bookinfo
   dependsOn:
     - resource:default/bookinfo-authz-leste-oeste
@@ -372,7 +372,7 @@ metadata:
 spec:
   type: service
   lifecycle: experimental
-  owner: group:default/platform-team
+  owner: user:default/tanaka
   system: sample-bookinfo
   dependsOn:
     - component:default/bookinfo-ratings
@@ -543,7 +543,7 @@ metadata:
     - gateway-api
 spec:
   type: gateway
-  owner: group:default/platform-team
+  owner: user:default/tanaka
   system: sample-bookinfo
 ---
 apiVersion: backstage.io/v1alpha1
@@ -569,7 +569,7 @@ metadata:
     - gateway-api
 spec:
   type: httproute
-  owner: group:default/platform-team
+  owner: user:default/tanaka
   system: sample-bookinfo
   dependsOn:
     - resource:default/bookinfo-gateway
@@ -632,7 +632,7 @@ metadata:
     - service-mesh
 spec:
   type: istio-peerauthentication
-  owner: group:default/platform-team
+  owner: user:default/tanaka
   system: sample-bookinfo
 
 ---
@@ -656,7 +656,7 @@ metadata:
     - service-mesh
 spec:
   type: istio-virtualservice
-  owner: group:default/platform-team
+  owner: user:default/tanaka
   system: sample-bookinfo
 
 ---
@@ -682,7 +682,7 @@ metadata:
     - service-mesh
 spec:
   type: istio-authorizationpolicy
-  owner: group:default/platform-team
+  owner: user:default/tanaka
   system: sample-bookinfo
 
 ---
@@ -860,7 +860,7 @@ metadata:
     - cicd
 spec:
   type: pipeline
-  owner: group:default/platform-team
+  owner: user:default/tanaka
   system: sample-bookinfo
   dependsOn:
     - resource:default/tekton-pipelines
@@ -977,7 +977,7 @@ metadata:
     - gitops
 spec:
   type: gitops
-  owner: group:default/platform-team
+  owner: user:default/tanaka
   system: sample-bookinfo
   dependsOn:
     - resource:default/openshift-gitops
@@ -1113,7 +1113,7 @@ metadata:
 spec:
   type: openapi
   lifecycle: experimental
-  owner: group:default/platform-team
+  owner: user:default/tanaka
   system: sample-bookinfo
   definition: |
     openapi: 3.0.3
@@ -1199,7 +1199,7 @@ metadata:
 spec:
   type: service
   lifecycle: experimental
-  owner: group:default/platform-team
+  owner: user:default/tanaka
   system: sample-bookinfo
   dependsOn:
     - component:default/bookinfo-productpage
