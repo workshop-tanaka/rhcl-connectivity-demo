@@ -946,7 +946,13 @@ else
     # do proprio operator, que era o unico lugar onde a verdade estava.
     _opns="$(oc get subscription -A --no-headers 2>/dev/null | awk '$2=="rhdh"{print $1; exit}')"
     if [[ -n "$_opns" ]]; then
-      _operr="$(oc logs -n "$_opns" deploy/rhdh-operator --tail=120 2>/dev/null \
+      # --since=15m, e nao --tail: o log guarda erros ja superados. Em 01/09
+      # um 'route.openshift.io/v1: the server is currently unable to handle the
+      # request' de 36 minutos antes -- churn do apiserver, com o Backstage em
+      # Deployed=True e zero erros desde entao -- reprovava o preflight inteiro.
+      # Congelamento de verdade re-erra a cada reconcile, entao janela recente
+      # separa o que esta quebrado do que ja quebrou.
+      _operr="$(oc logs -n "$_opns" deploy/rhdh-operator --since=15m 2>/dev/null \
                  | grep -c 'ERROR.*Reconciler error')"
       if [[ "${_operr:-0}" -gt 0 ]]; then
         _bad "operator do RHDH com erro de reconciliacao -- mudancas no portal nao sao aplicadas" \
