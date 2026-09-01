@@ -189,7 +189,7 @@ RE_TAG    = re.compile(r'^[a-z0-9:+#]+(\-[a-z0-9:+#]+)*$')
 
 VOCAB = {
     'rhcl.demo/camada':        {'borda', 'aplicacao', 'consumidor', 'plataforma',
-                                'dados', 'cicd', 'seguranca'},
+                                'dados', 'cicd', 'seguranca', 'consoles'},
     'rhcl.demo/escopo-policy': {'gateway', 'rota'},
     'rhcl.demo/origem':        {'repo', 'cluster', 'template'},
     # bookinfo, websockets e grpc-echo entraram com rhdh/catalog/samples.yaml:
