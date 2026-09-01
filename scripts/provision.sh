@@ -1171,8 +1171,11 @@ st_pacotes() {
     _warn "CloudNativePG ausente -- rode 'provision.sh gitlab' antes (e ele quem o instala)"
     return 0
   fi
-  if [[ $DRY_RUN -eq 0 ]] && ! oc get ns travel-db >/dev/null 2>&1; then
-    _warn "namespace travel-db ausente -- rode 'provision.sh platform' antes"
+  # travel-agency, e nao travel-db: desde a unificacao de 2026-08-31 o MySQL
+  # mora em travel-agency e o namespace travel-db nao existe mais -- o gate
+  # antigo faria esta etapa desistir em TODO cluster novo.
+  if [[ $DRY_RUN -eq 0 ]] && ! oc get ns travel-agency >/dev/null 2>&1; then
+    _warn "namespace travel-agency ausente -- rode 'provision.sh platform' antes"
     return 0
   fi
 
@@ -1902,8 +1905,8 @@ _check() {
   _c "Nexus + SonarQube"       "$(oc get deploy nexus sonarqube -n cicd >/dev/null 2>&1 && echo sim)" "provision.sh cicd"
   _c "Data Grid"               "$(_has_crd infinispans.infinispan.org && echo sim)"            "provision.sh pacotes"
   _c "Streams for Apache Kafka" "$(_has_crd kafkas.kafka.strimzi.io && echo sim)"              "provision.sh pacotes"
-  _c "dados do travel-packages" "$(oc get clusters.postgresql.cnpg.io travel-packages-db -n travel-db >/dev/null 2>&1 && echo sim)" "provision.sh pacotes"
-  _c "CDC do Debezium"         "$(oc get kafkaconnector travel-cdc -n travel-streams >/dev/null 2>&1 && echo sim)" "provision.sh pacotes"
+  _c "dados do travel-packages" "$(oc get clusters.postgresql.cnpg.io travel-packages-db -n travel-packages >/dev/null 2>&1 && echo sim)" "provision.sh pacotes"
+  _c "CDC do Debezium"         "$(oc get kafkaconnector travel-cdc -n travel-packages >/dev/null 2>&1 && echo sim)" "provision.sh pacotes"
   _c "JBoss EAP"               "$(_has_crd wildflyservers.wildfly.org && echo sim)"           "provision.sh pacotes"
   _c "Quay no cluster"          "$(oc get quayregistry registry -n quay >/dev/null 2>&1 && echo sim)" "provision.sh registry"
   _c "robot de push do Quay"   "$(oc get secret quay-robot -n quay >/dev/null 2>&1 && echo sim)"     "provision.sh registry"
