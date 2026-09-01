@@ -559,6 +559,43 @@ if [[ -n "${_SQ_HOST:-}" && -n "${_SQ_TOKEN:-}" ]]; then
     && _ok "Sonar: tanaka com permissao de administrar (usuario externo)"
 fi
 
+# ----- Nexus: conta local nx-admin (CE nao tem SAML -- medido 404) ----------
+# O Nexus Community nao entra no login unificado: /v1/security/saml responde
+# 404 (recurso Pro). Autonomia total ali e conta local com nx-admin, mesma
+# senha do cofre. Repetir devolve 400 (ja existe) e segue.
+_NX_HOST="$(oc get route -n cicd --no-headers 2>/dev/null | awk '$1=="nexus"{print $2}')"
+_TPW="$(oc get secret "$_SEC" -n "$KC_NS" -o jsonpath='{.data.KC_TANAKA_PASSWORD}' 2>/dev/null | base64 -d)"
+if [[ -n "$_NX_HOST" && -n "$_TPW" ]]; then
+  curl -sk -m 15 -u "admin:${NEXUS_ADMIN_PASS:-admin123}" -X POST \
+    "https://${_NX_HOST}/service/rest/v1/security/users" \
+    -H 'Content-Type: application/json' \
+    -d "{\"userId\":\"tanaka\",\"firstName\":\"Sandro\",\"lastName\":\"Tanaka\",\"emailAddress\":\"tanaka@example.invalid\",\"password\":\"${_TPW}\",\"status\":\"active\",\"roles\":[\"nx-admin\"]}" \
+    >/dev/null 2>&1 && _ok "Nexus: tanaka com nx-admin (conta local; CE nao federa)"
+fi
+
+# ----- Quay: usuario + dono da org (token do quay-admin expira em horas) ----
+# So funciona enquanto o token OAuth do initialize esta fresco -- ver a
+# memoria 'token do quay-admin expira'. Num cluster novo, rodar esta etapa
+# logo depois de 'provision.sh registry'. Token morto: criar pela UI, ou pela
+# sessao de login (csrf_token + /api/v1/signin), que exige decisao de quem
+# opera.
+_QHOST="$(oc get quayregistry registry -n quay -o jsonpath='{.status.registryEndpoint}' 2>/dev/null | sed 's|https://||')"
+_QTOK="$(oc get secret quay-admin -n quay -o jsonpath='{.data.token}' 2>/dev/null | base64 -d)"
+if [[ -n "$_QHOST" && -n "$_QTOK" && -n "$_TPW" ]]; then
+  _qapi=(-sk -m 15 -H "Authorization: Bearer ${_QTOK}" -H 'Content-Type: application/json')
+  curl "${_qapi[@]}" -o /dev/null -X POST "https://${_QHOST}/api/v1/superuser/users/" \
+    -d '{"username":"tanaka","email":"tanaka@example.invalid"}' 2>/dev/null
+  curl "${_qapi[@]}" -o /dev/null -X PUT "https://${_QHOST}/api/v1/superuser/users/tanaka" \
+    -d "{\"password\":\"${_TPW}\"}" 2>/dev/null
+  _qrc="$(curl "${_qapi[@]}" -o /dev/null -w '%{http_code}' -X PUT \
+    "https://${_QHOST}/api/v1/organization/rhcl/team/owners/members/tanaka" 2>/dev/null)"
+  if [[ "$_qrc" == "200" ]]; then
+    _ok "Quay: tanaka criado e dono da org rhcl"
+  else
+    _warn "Quay: nao consegui conceder (HTTP ${_qrc}) -- token do quay-admin expirado? Ver memoria; criar pela UI"
+  fi
+fi
+
 printf '\n'
 _log "próximo: federar o GitLab (OmniAuth OIDC) — a conta root continua local"
 printf '    %s\n' "client id     : gitlab"
