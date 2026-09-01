@@ -222,10 +222,17 @@ if [[ $_esp_ok -eq 0 ]]; then
   _tpl_urls=""
 else
   _tpl_urls=""
-  # A LISTA E LITERAL, e e ela quem decide o que aparece no Create. Um template
-  # novo em rhdh/templates/ e espelhado pelo seed e mesmo assim NAO e registrado
-  # se nao entrar aqui -- e a falha e muda: o Create simplesmente nao o mostra.
-  _tpls="rhcl-adotar-amostra rhcl-api-product rhcl-api-subscription rhcl-api-canary rhcl-app-com-cadeia"
+  # A lista ERA literal, e o comentario aqui previa a falha que ela causaria:
+  # template novo em rhdh/templates/, espelhado pelo seed, mas ausente da lista
+  # nao aparece no Create -- e em silencio. Aconteceu duas vezes: o
+  # adotar-amostra e o app-com-cadeia ficaram de fora ate 01/09, e o
+  # api-com-cadeia (e8dd41b) nunca entrou. Nao ha lista literal que sobreviva a
+  # um template novo, entao a lista virou uma leitura do proprio diretorio.
+  _tpls="$(cd "${_here}/templates" 2>/dev/null && \
+           for _d in */template.yaml; do printf '%s ' "${_d%/template.yaml}"; done)"
+  if [[ -z "${_tpls// /}" ]]; then
+    _die "nenhum template em ${_here}/templates -- o script roda de dentro do repo"
+  fi
   for _t in ${_tpls}; do
     _tpl_urls="${_tpl_urls} https://${GITLAB_HOST}/${_ESP}/-/blob/main/rhdh/templates/${_t}/template.yaml"
     _log "software template: ${_t}"

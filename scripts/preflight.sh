@@ -977,11 +977,15 @@ else
   _tplsrc="$(oc get cm app-config-rhdh-catalog -n "$_rhdh_ns" \
       -o jsonpath='{.data.app-config-catalog\.yaml}' 2>/dev/null \
       | awk '$1 == "target:" {print $2}' | grep -c 'gitlab' 2>/dev/null)"
-  if [[ "${_tplsrc:-0}" -ge 3 ]]; then
-    _ok "os 3 software templates vêm do GitLab (espelho no cluster)"
-  elif [[ "${_tplsrc:-0}" -ge 1 ]]; then
-    _warn "só ${_tplsrc} template(s) apontando para o GitLab" \
-          "esperados 3 — bash scripts/gitlab-seed.sh && bash rhdh/setup-gitlab.sh"
+  # O numero esperado NAO fica aqui. Ate 01/09 esta sonda exigia '>= 3' e
+  # anunciava 'os 3 software templates': com os 5 do repo publicados no
+  # espelho, o portal carregava so 3 e o preflight aprovava -- os dois
+  # templates novos nao existiam para quem apresentava. Quantidade esperada
+  # que envelhece sozinha e falso verde garantido. Aqui fica so 'vem do
+  # GitLab?'; quem confere se veio TUDO e a sonda de cobertura, na secao do
+  # GitLab, que compara com o que o espelho realmente tem.
+  if [[ "${_tplsrc:-0}" -ge 1 ]]; then
+    _ok "${_tplsrc} software template(s) vindos do GitLab (espelho no cluster)"
   else
     _bad "nenhum software template vindo do GitLab — o Ato 6 não tem o que criar" \
          "bash scripts/gitlab-seed.sh && bash rhdh/setup-gitlab.sh"
@@ -1094,6 +1098,38 @@ else
     else
       _bad "o PAT não autentica em https://${_glhost}/api/v4/user" \
            "reemita: bash scripts/provision.sh gitlab (apague antes o secret golden-path-gitlab-token)"
+    fi
+
+    # Cobertura: todo template que existe no espelho esta declarado para o
+    # portal? A ConfigMap e escrita uma vez, no setup; template adicionado ao
+    # repo depois disso chega ao espelho pelo gitlab-seed e NAO chega ao
+    # portal. Foi o que aconteceu com adotar-amostra e app-com-cadeia.
+    _esp="$(oc get cm app-config-rhdh-catalog -n "${_rhdh_ns:-rhdh-rhcl}" \
+        -o jsonpath='{.data.app-config-catalog\.yaml}' 2>/dev/null \
+        | awk '$1 == "target:" {print $2}' | grep -m1 'rhdh/templates' \
+        | sed 's|https://[^/]*/||; s|/-/blob/.*||')"
+    if [[ -n "$_esp" ]]; then
+      _tplfalta="$(curl -s -m 20 -H "PRIVATE-TOKEN: ${_gltok}" \
+          "https://${_glhost}/api/v4/projects/$(printf '%s' "$_esp" | sed 's|/|%2F|g')/repository/tree?path=rhdh/templates&per_page=100" 2>/dev/null \
+        | python3 -c '
+import json, subprocess, sys
+try:
+    espelho = {e["name"] for e in json.load(sys.stdin) if e["type"] == "tree"}
+except Exception:
+    sys.exit(0)
+cm = subprocess.run(["oc", "get", "cm", "app-config-rhdh-catalog", "-n", sys.argv[1],
+                     "-o", "jsonpath={.data.app-config-catalog\\.yaml}"],
+                    capture_output=True, text=True).stdout
+declarados = {l.split("/templates/")[1].split("/")[0]
+              for l in cm.splitlines() if "/templates/" in l}
+print(" ".join(sorted(espelho - declarados)))
+' "${_rhdh_ns:-rhdh-rhcl}" 2>/dev/null)"
+      if [[ -z "$_tplfalta" ]]; then
+        _ok "todo template do espelho esta declarado para o portal"
+      else
+        _bad "template(s) no espelho que o portal nao carrega: ${_tplfalta}" \
+             "regerar as locations: bash rhdh/setup-gitlab.sh"
+      fi
     fi
 
     # rhcl/apis pode e DEVE estar vazio antes do Ato 6 -- e o proprio ato que o
