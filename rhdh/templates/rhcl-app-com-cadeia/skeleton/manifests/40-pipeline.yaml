@@ -160,7 +160,10 @@ spec:
         workspaces: [{name: acs, optional: true}]
         steps:
           - name: roxctl
-            image: registry.redhat.io/advanced-cluster-security/rhacs-roxctl-rhel8:latest
+            # SEM :latest e rhel9, nao rhel8: o repositorio nao publica a tag
+            # latest (ImagePullFailed antes de rodar) e a linha 4.x mudou de
+            # base. Mesmo defeito medido na samples-supply-chain em 2026-08-31.
+            image: registry.redhat.io/advanced-cluster-security/rhacs-roxctl-rhel9:4.11.3
             script: |
               #!/bin/sh
               set -u
