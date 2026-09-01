@@ -478,9 +478,33 @@ if app_id:
         # exclui, mas quem semeia aqui e os.walk, que nao le .gitignore.
         codigo = [(rel, full) for rel, full in arquivos_de(fonte_app)
                   if not rel.startswith("target" + os.sep)]
+        # manifests/ RENDERIZADO a partir da FONTE UNICA (platform-reference/
+        # .../06-eap.yaml): e o que faz o AppSet rhcl-travel descobrir o
+        # travel-packages (filtro pathsExist: [manifests]) e a aba Argo CD
+        # acender com sync/health REAIS. Renderizar aqui, e nao versionar uma
+        # copia, evita duas verdades para o mesmo WildFlyServer -- e como os
+        # valores sao os MESMOS que a etapa entrega aplica, o app nasce
+        # Synced em modo observacao (2026-08-31).
+        manif_src = os.path.join(ROOT_REPO, "platform-reference",
+                                 "travel-packages", "06-eap.yaml")
+        if APPS_DOMAIN and os.path.isfile(manif_src):
+            import tempfile
+            imagem = f"registry-quay-quay.{APPS_DOMAIN}/rhcl/travel-packages"
+            pkg_host = f"pacotes-travels.{APPS_DOMAIN}"
+            texto = open(manif_src, encoding="utf-8").read()
+            texto = (texto.replace("__IMAGEM__", imagem)
+                          .replace("__PKG_HOST__", pkg_host)
+                          .replace("__DOMAIN__", APPS_DOMAIN))
+            tmp = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False,
+                                              encoding="utf-8")
+            tmp.write(texto); tmp.close()
+            codigo.append((os.path.join("manifests", "06-eap.yaml"), tmp.name))
+            print("  [*] manifests/06-eap.yaml renderizado (AppSet descobre; aba Argo CD)")
+        else:
+            warn("sem dominio ou sem 06-eap.yaml -- manifests/ nao semeado; a aba Argo CD do travel-packages fica apagada")
         print(f"  [*] {len(codigo)} arquivo(s) em apps/travel-packages")
         semeia(app_id, app_path, codigo,
-               "Semeadura do servico travel-packages a partir de apps/")
+               "Semeadura do servico travel-packages a partir de apps/ (+ manifests/ renderizado)")
 
 # ----- 3c. um repositorio por servico do travel-agency ----------------------
 # POR QUE UM PROJETO POR SERVICO: o decorator "edit code" do Topology aponta

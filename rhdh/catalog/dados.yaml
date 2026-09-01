@@ -243,6 +243,9 @@ metadata:
     kafka.apache.org/consumer-groups: travel-streams/cache-updater
     # A aba do Nexus so entrou quando o artefato passou a EXISTIR (real-only):
     # a task publica-artefato poe o .war em maven-releases desde 2026-08-31.
+    # o app existe desde que o seed rende o manifests/ (modo observacao --
+    # quem aplica segue sendo a etapa entrega; o Argo mostra sync/health)
+    argocd/app-name: travel-packages
     nexus-repository-manager/config.query: 'maven.groupId=com.redhat.travel&maven.artifactId=travel-packages'
   labels:
     rhcl.demo/camada: aplicacao
