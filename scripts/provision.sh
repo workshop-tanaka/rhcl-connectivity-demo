@@ -1999,6 +1999,22 @@ _check() {
   fi
 
   printf '\n'
+  # ConsolePlugin registrado que NAO esta em console.operator spec.plugins:
+  # instalado != exibido -- registrar so oferece, quem exibe e o operator. Nao
+  # da erro em lugar nenhum; o sintoma e um menu que simplesmente nao existe
+  # (foi assim que a console customizada do Kuadrant ficou invisivel por dias,
+  # 1/1 Running, ate 2026-09-01). Informativo, fora do contador de faltantes:
+  # deixar um plugin de fora pode ser decisao.
+  local _cp_reg _cp_on _cp
+  _cp_reg="$(oc get consoleplugin --no-headers -o custom-columns=N:.metadata.name 2>/dev/null || true)"
+  _cp_on="$(oc get console.operator cluster -o jsonpath='{.spec.plugins}' 2>/dev/null || true)"
+  for _cp in $_cp_reg; do
+    if [[ -n "$_cp_on" ]] && ! grep -q "\"${_cp}\"" <<<"$_cp_on"; then
+      _warn "ConsolePlugin '${_cp}' registrado mas fora do console.operator -- instalado, nao exibido"
+      printf '        %s\n' "oc patch console.operator cluster --type=json -p '[{\"op\":\"add\",\"path\":\"/spec/plugins/-\",\"value\":\"${_cp}\"}]'"
+    fi
+  done
+
   _sec "plugins do portal"
   local _reg
   _reg="$(oc get pods -n rhdh-rhcl --no-headers 2>/dev/null | grep -c 'plugin-registry.*Running' || true)"
