@@ -78,7 +78,7 @@
           ]
         },
         {
-          "name": "echo SEM chave -> 401 (toda rota do gateway nasce fechada)",
+          "name": "echo SEM token -> 302 para o Keycloak (OIDCPolicy)",
           "request": {
             "method": "GET",
             "header": [],
@@ -102,7 +102,18 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('echo sem chave e 401', () => pm.response.to.have.status(401));"
+                  "// OIDCPolicy desde 2026-09-01: sem credencial o gateway REDIRECIONA",
+                  "// para o login do Keycloak em vez do 401 seco da AuthPolicy antiga.",
+                  "// Desligue 'Automatically follow redirects' nas settings do Postman",
+                  "// para ver o 302; com follow ligado, o teste aceita a pagina de login.",
+                  "pm.test('echo sem token redireciona ao Keycloak (ou entrega o login)', () => {",
+                  "    if (pm.response.code === 302) {",
+                  "        pm.expect(pm.response.headers.get('Location')).to.include('/protocol/openid-connect/auth');",
+                  "    } else {",
+                  "        pm.expect(pm.response.code).to.equal(200);",
+                  "        pm.expect(pm.response.text()).to.include('Sign in');",
+                  "    }",
+                  "});"
                 ]
               }
             }

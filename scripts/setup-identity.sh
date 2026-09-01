@@ -348,7 +348,12 @@ done
 # por JWT do Keycloak.
 _cid="$(_api "https://${KC_HOST}/admin/realms/sso/clients?clientId=echo-api" \
         | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d[0]["id"] if d else "")' 2>/dev/null || true)"
-_corpo='{"clientId":"echo-api","enabled":true,"protocol":"openid-connect","publicClient":true,"directAccessGrantsEnabled":true,"standardFlowEnabled":false,"webOrigins":["+"]}'
+# standardFlow + redirectUri desde a OIDCPolicy (2026-09-01): o fluxo de
+# navegador do gateway dedicado redireciona para /auth/callback no host do
+# echo. O password grant continua -- e o que o Postman e o traffic.sh usam.
+# O dominio vem do cluster na hora, como tudo aqui -- nada de host fixo.
+_APPS_DOMAIN="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)"
+_corpo='{"clientId":"echo-api","enabled":true,"protocol":"openid-connect","publicClient":true,"directAccessGrantsEnabled":true,"standardFlowEnabled":true,"redirectUris":["https://echo-travels.'"${_APPS_DOMAIN}"'/auth/callback"],"webOrigins":["+"]}'
 if [[ -z "$_cid" ]]; then
   _api -X POST "https://${KC_HOST}/admin/realms/sso/clients" -d "$_corpo" >/dev/null && _ok "client criado: echo-api (publico, password grant)"
 else

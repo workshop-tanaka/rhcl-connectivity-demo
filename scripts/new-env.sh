@@ -150,19 +150,28 @@ patches:
   # mesmo -- mecanica identica ao hostname da HTTPRoute (2026-08-31).
   - path: patch-authpolicy-echo-issuer.yaml
     target:
-      group: kuadrant.io
-      version: v1
-      kind: AuthPolicy
-      name: echo-api-authpolicy
+      group: extensions.kuadrant.io
+      version: v1alpha1
+      kind: OIDCPolicy
+      name: echo-api-oidc
       namespace: echo-api
 EOF
 
 _emit "${ENV_DIR}/patch-authpolicy-echo-issuer.yaml" <<EOF
-# AuthPolicy do echo (OIDC): o issuerUrl aponta para o Keycloak deste cluster.
-# O realm e sempre 'sso' e o host segue o padrao sso.<apps-domain>.
+# OIDCPolicy do echo (2026-09-01, era AuthPolicy antes): as TRES URLs apontam
+# para o Keycloak deste cluster. O realm e sempre 'sso' e o host segue o
+# padrao sso.<apps-domain>. authorization/token explicitos porque o default do
+# CRD (issuer + /oauth/authorize) NAO e o caminho do Keycloak -- medido: o
+# redirect ia para um 404.
 - op: replace
-  path: /spec/rules/authentication/keycloak-jwt/jwt/issuerUrl
+  path: /spec/provider/issuerURL
   value: https://sso.${DOMAIN}/realms/sso
+- op: replace
+  path: /spec/provider/authorizationEndpoint
+  value: https://sso.${DOMAIN}/realms/sso/protocol/openid-connect/auth
+- op: replace
+  path: /spec/provider/tokenEndpoint
+  value: https://sso.${DOMAIN}/realms/sso/protocol/openid-connect/token
 EOF
 
 _emit "${ENV_DIR}/patch-httproute-travel-agency.yaml" <<EOF

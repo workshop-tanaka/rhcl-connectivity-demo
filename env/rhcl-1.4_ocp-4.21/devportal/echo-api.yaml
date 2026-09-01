@@ -25,47 +25,49 @@
 # selector la invalidaria as chaves estaticas de base/identity/, que nao
 # carregam o label de produto, e quebraria o Ato 2.
 # ===========================================================================
-apiVersion: kuadrant.io/v1
-kind: AuthPolicy
+# OIDCPOLICY DESDE 2026-09-01 -- era uma AuthPolicy com regra JWT.
+#
+# A troca e o que popula a aba OIDC da console do Kuadrant e liga o fluxo de
+# navegador: sem credencial, o gateway responde 302 para o Keycloak (antes era
+# 401 seco). O CRD gera DUAS AuthPolicies por baixo (echo-api-oidc e
+# echo-api-oidc-callback) -- e o APIProduct descobre a primeira, entao a
+# vitrine continua Ready.
+#
+# TRES escolhas medidas neste cluster:
+#   endpoints   explicitos porque o default (issuer + /oauth/authorize) nao e
+#               o caminho do Keycloak -- o redirect ia para 404;
+#   tokenSource authorizationHeader, e nao o default (cookie): as fontes sao
+#               EXCLUSIVAS, e cookie quebraria todo o contrato Bearer
+#               (Postman, traffic.sh, PlanPolicy por claim -- 403/429). O
+#               fluxo de navegador completo (login -> cookie jwt -> sessao)
+#               foi validado e fica a um switch: trocar tokenSource para
+#               cookie {name: jwt}. O client echo-api ja tem o redirectUri.
+#   x-partner   se foi: OIDCPolicy nao tem secao de response. As series por
+#               parceiro do echo param; as por PLANO continuam, via
+#               TelemetryPolicy (auth.kuadrant.plan).
+#
+# As URLs abaixo sao do cluster de REFERENCIA e sao reescritas pela camada
+# env/cluster-<slug> (patch-authpolicy-echo-issuer.yaml, gerado por
+# new-env.sh -- o nome do arquivo ficou pelo historico).
+apiVersion: extensions.kuadrant.io/v1alpha1
+kind: OIDCPolicy
 metadata:
-  name: echo-api-authpolicy
+  name: echo-api-oidc
   namespace: echo-api
 spec:
-  # 'rules' e nao 'defaults.rules': o controller do APIProduct ignora o wrapper
-  # de defaults e ficaria sem discoveredAuthScheme, reprovando todo APIKey com
-  # 'AuthSchemeNotFound'. Mesma armadilha do travel-agency-authpolicy.
-  # OIDC DESDE 2026-08-31 -- o contraste vivo do gateway: o travels autentica
-  # PARCEIRO por API key; o echo autentica USUARIO por JWT do Keycloak (realm
-  # sso, o mesmo login do portal/GitLab). O issuerUrl abaixo e o do cluster de
-  # REFERENCIA da release e e reescrito pela camada env/cluster-<slug>
-  # (patch-authpolicy-echo-issuer.yaml, gerado pelo new-env.sh) -- mesma
-  # mecanica do hostname da HTTPRoute. Token de teste, na mao:
-  #   curl -sk -d client_id=echo-api -d grant_type=password \
-  #     -d username=<persona> -d password=redhat123 \
-  #     https://sso.<apps>/realms/sso/protocol/openid-connect/token
-  rules:
-    authentication:
-      keycloak-jwt:
-        jwt:
-          issuerUrl: https://sso.apps.cluster-w4xtj.dyn.redhatworkshops.io/realms/sso
-        credentials:
-          authorizationHeader:
-            prefix: Bearer
-        metrics: false
-        priority: 0
-    # O x-partner sai do claim: cada PERSONA vira uma linha nas metricas por
-    # parceiro -- inclusive sistema-teste, que continua filtravel como no
-    # travels. Mesmo desenho do travel-agency-authpolicy, outra fonte.
-    response:
-      success:
-        headers:
-          x-partner:
-            plain:
-              expression: 'has(auth.identity.preferred_username) ? auth.identity.preferred_username : "anonimo"'
   targetRef:
     group: gateway.networking.k8s.io
     kind: HTTPRoute
     name: echo-api
+  provider:
+    issuerURL: https://sso.apps.cluster-w4xtj.dyn.redhatworkshops.io/realms/sso
+    clientID: echo-api
+    authorizationEndpoint: https://sso.apps.cluster-w4xtj.dyn.redhatworkshops.io/realms/sso/protocol/openid-connect/auth
+    tokenEndpoint: https://sso.apps.cluster-w4xtj.dyn.redhatworkshops.io/realms/sso/protocol/openid-connect/token
+  auth:
+    tokenSource:
+      authorizationHeader:
+        prefix: Bearer
 ---
 # UM plano so, e o predicate e 'true'.
 #
