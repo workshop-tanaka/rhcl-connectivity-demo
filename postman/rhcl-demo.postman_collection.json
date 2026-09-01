@@ -792,7 +792,7 @@
           ]
         },
         {
-          "name": "echo SEM token -> 401",
+          "name": "echo SEM token -> 302 para o Keycloak (OIDCPolicy)",
           "request": {
             "method": "GET",
             "header": [],
@@ -815,7 +815,17 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('401 sem JWT', () => pm.response.to.have.status(401));"
+                  "// OIDCPolicy (2026-09-01): sem token o gateway REDIRECIONA ao login",
+                  "// do Keycloak -- e a prova viva da integracao, melhor que o 401 seco.",
+                  "// Com 'follow redirects' ligado o Postman entrega a pagina de login.",
+                  "pm.test('sem token: redirect ao Keycloak (ou a pagina de login)', () => {",
+                  "    if (pm.response.code === 302) {",
+                  "        pm.expect(pm.response.headers.get('Location')).to.include('/protocol/openid-connect/auth');",
+                  "    } else {",
+                  "        pm.expect(pm.response.code).to.equal(200);",
+                  "        pm.expect(pm.response.text()).to.include('Sign in');",
+                  "    }",
+                  "});"
                 ]
               }
             }
