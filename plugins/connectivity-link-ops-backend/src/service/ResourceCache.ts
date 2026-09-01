@@ -324,15 +324,66 @@ export class ResourceCache {
       }, 5000);
     });
 
+    await this.arrancar(kind, informer, entry, qualified, 0);
+  }
+
+  /**
+   * Arranque com nova tentativa — porque falhar AO SUBIR e cair DEPOIS de subir
+   * tinham tratamentos diferentes, e não deviam.
+   *
+   * O `on('error')` acima religa em 5s um informer que já vinha funcionando. O
+   * arranque não tinha nada disso: um erro transitório marcava o tipo como
+   * indisponível PARA SEMPRE, até alguém reiniciar o pod.
+   *
+   * Não é hipótese. Em 2026-09-01, três dos nove tipos subiram assim neste
+   * cluster -- ratelimitpolicies, planpolicies e telemetrypolicies -- todos com
+   * "HttpError: HTTP request failed", provavelmente o mesmo 429 que o
+   * tokenratelimitpolicies levou e do qual se recuperou por já estar de pé. O
+   * `can-i list` respondia `yes` para os três o tempo todo: a permissão nunca
+   * foi o problema. O card ficou com N/A em "Limite de uso" -- justamente o que
+   * o Ato 2 mostra -- e a tela estava CERTA: o dado não podia ser lido.
+   *
+   * O N/A honesto salvou a tela de mentir; o que faltava era voltar sozinho.
+   */
+  private async arrancar(
+    kind: WatchedKind,
+    informer: CachingInformer,
+    entry: Entry,
+    qualified: string,
+    tentativa: number,
+  ): Promise<void> {
     try {
       await informer.start();
-      this.logger.info(`informer de ${kind.key} iniciado`);
+      this.logger.info(
+        `informer de ${kind.key} iniciado` +
+          (tentativa ? ` (na tentativa ${tentativa + 1})` : ''),
+      );
+      return;
     } catch (err) {
       entry.state = 'unavailable';
-      entry.reason = isNotFound(err)
+      const naoExiste = isNotFound(err);
+      entry.reason = naoExiste
         ? `a CRD ${qualified} não existe neste cluster`
         : `não foi possível listar ${qualified}: ${err}`;
-      this.logger.warn(`${kind.key}: ${entry.reason}`);
+
+      // CRD ausente também volta a ser tentada, só que devagar: nesta demo os
+      // operators sobem em etapas, e o Kuadrant pode chegar depois do portal.
+      // Um tipo marcado como inexistente no arranque ficaria escondido por uma
+      // ordem de provisionamento, e não por uma verdade do cluster.
+      const espera = naoExiste
+        ? 300_000
+        : Math.min(5_000 * 2 ** tentativa, 120_000);
+
+      this.logger.warn(
+        `${kind.key}: ${entry.reason}; nova tentativa em ${Math.round(espera / 1000)}s`,
+      );
+      this.agendarAviso();
+      const t = setTimeout(() => {
+        void this.arrancar(kind, informer, entry, qualified, tentativa + 1);
+      }, espera);
+      // Sem unref o processo não encerra: um timer pendente segura o event loop,
+      // e o pod ficaria preso no SIGTERM até o kill.
+      t.unref?.();
     }
   }
 

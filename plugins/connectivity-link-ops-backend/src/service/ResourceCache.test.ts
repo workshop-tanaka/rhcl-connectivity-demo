@@ -13,7 +13,8 @@ import { ResourceCache } from './ResourceCache';
  * Um dublê que deduplicasse por conta própria deixaria o teste verde com o bug
  * de volta no lugar.
  */
-const informerFalso = () => {
+const informerFalso = (falharAte = 0, erroAoSubir: any = new Error('HTTP request failed')) => {
+  let chamadasStart = 0;
   const cbs: Record<string, Array<(obj?: any) => void>> = {
     add: [], update: [], delete: [], connect: [], error: [],
   };
@@ -23,10 +24,17 @@ const informerFalso = () => {
     on: (verbo: string, cb: (obj?: any) => void) => {
       cbs[verbo].push(cb);
     },
-    start: async () => {},
+    // Falha nas primeiras `falharAte` chamadas -- e o que separa "tentou de
+    // novo" de "desistiu na primeira".
+    start: async () => {
+      chamadasStart++;
+      if (chamadasStart <= falharAte) throw erroAoSubir;
+    },
     stop: async () => {},
     list: () => objetos,
 
+    /** Quantas vezes o start foi chamado — 1 = nunca tentou de novo. */
+    tentativas: () => chamadasStart,
     /** Quantos handlers há para um verbo — o que a duplicação faz crescer. */
     quantos: (verbo: string) => cbs[verbo].length,
     emitir: (verbo: string, obj?: any) => {
@@ -54,12 +62,12 @@ const JANELA = 15_000;
 beforeEach(() => jest.useFakeTimers());
 afterEach(() => jest.useRealTimers());
 
-const montar = async () => {
+const montar = async (falhas: Record<string, number> = {}, erro?: any) => {
   const informers = new Map<string, ReturnType<typeof informerFalso>>();
   const kube = {
     canI: async () => ({ allowed: true }),
     makeInformer: (_path: string, ref: { plural: string }) => {
-      const i = informerFalso();
+      const i = informerFalso(falhas[ref.plural] ?? 0, erro);
       informers.set(ref.plural, i);
       return i;
     },
@@ -354,5 +362,65 @@ describe('ResourceCache: religar o watch não acumula handler', () => {
 
     expect(antes).toEqual([1, 1, 1]);
     expect(depois).toEqual(antes);
+  });
+});
+
+describe('ResourceCache: falhar ao subir nao pode ser permanente', () => {
+  /**
+   * Medido em 2026-09-01 no cluster-flqzh: ratelimitpolicies, planpolicies e
+   * telemetrypolicies subiram com "HttpError: HTTP request failed" e ficaram
+   * indisponiveis ate alguem reiniciar o pod -- embora o `can-i list`
+   * respondesse `yes` para os tres o tempo todo. O informer que CAI depois de
+   * subir religa em 5s; o que falha AO SUBIR nao tinha nada disso.
+   *
+   * O card mostrou N/A em "Limite de uso", que e exatamente o que o Ato 2
+   * apresenta. A tela estava certa -- o dado nao podia ser lido. O que faltava
+   * era voltar sozinha.
+   */
+  it('tenta de novo depois de falha transitoria no arranque, com recuo que dobra', async () => {
+    const { de, esperar } = await montar({ ratelimitpolicies: 2 });
+    const rlp = de('ratelimitpolicies');
+
+    expect(rlp.tentativas()).toBe(1);
+
+    esperar(5_001);
+    await Promise.resolve();
+    expect(rlp.tentativas()).toBe(2);
+
+    esperar(10_001);
+    await Promise.resolve();
+    expect(rlp.tentativas()).toBe(3);
+
+    // Subiu: para de tentar. Um retry que nao para vira carga permanente na API.
+    esperar(300_000);
+    await Promise.resolve();
+    expect(rlp.tentativas()).toBe(3);
+  });
+
+  it('CRD ausente tambem volta a ser tentada, so que devagar', async () => {
+    // Nesta demo os operators sobem em etapas e o Kuadrant pode chegar depois
+    // do portal: um tipo marcado como inexistente no arranque ficaria escondido
+    // por uma ordem de provisionamento, e nao por uma verdade do cluster.
+    const naoExiste: any = new Error('not found');
+    naoExiste.statusCode = 404;
+    const { de, esperar } = await montar({ planpolicies: 1 }, naoExiste);
+    const pp = de('planpolicies');
+
+    expect(pp.tentativas()).toBe(1);
+
+    esperar(120_000);
+    await Promise.resolve();
+    expect(pp.tentativas()).toBe(1);   // o recuo curto NAO se aplica a 404
+
+    esperar(180_001);
+    await Promise.resolve();
+    expect(pp.tentativas()).toBe(2);
+  });
+
+  it('um tipo que falha nao impede os outros de subir', async () => {
+    const { de } = await montar({ ratelimitpolicies: 99 });
+    expect(de('ratelimitpolicies').tentativas()).toBe(1);
+    expect(de('authpolicies').tentativas()).toBe(1);
+    expect(de('httproutes').tentativas()).toBe(1);
   });
 });
