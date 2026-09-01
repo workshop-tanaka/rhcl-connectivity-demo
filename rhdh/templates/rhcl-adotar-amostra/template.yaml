@@ -146,6 +146,18 @@ spec:
         # a assimetria de papéis (parceiro x plataforma) significar algo.
         token: ${{ secrets.USER_OAUTH_TOKEN }}
         defaultBranch: main
+        # PUBLICO, e a razao aqui e outra: o Argo nao tem credencial de
+        # repositorio para este GitLab -- nenhuma, conferido em 01/09. O
+        # ApplicationSet ENXERGA o projeto privado (ele tem o PAT), cria a
+        # Application e ela para em ComparisonError 'authentication required:
+        # HTTP Basic: Access denied'. Verde no ApplicationSet, servico que
+        # nunca sobe.
+        #
+        # O default do publish:gitlab e private. O ApplicationSet ja dizia em
+        # comentario que 'o template cria os projetos como publicos' -- este
+        # era o unico que criava repo sem cumprir isso. Medido: rhcl-adotar-
+        # amostra gerou otel-adotado privado e a Application ficou Unknown.
+        repoVisibility: public
         # 'description' NAO e input desta acao: passar solto derruba a task com
         # InputError sobre propriedade adicional. Vai em settings.
         settings:
