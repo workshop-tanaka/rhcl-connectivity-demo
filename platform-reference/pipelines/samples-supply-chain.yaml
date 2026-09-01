@@ -212,9 +212,15 @@ spec:
               texto = open("bundle.yaml").read()
               falhas = []
 
-              if "__DOMAIN__" in texto:
+              # Montado em pedacos DE PROPOSITO: o provision.sh aplica este
+              # arquivo passando sed no placeholder inteiro, e uma ocorrencia
+              # literal aqui seria substituida junto -- o teste viraria
+              # 'reprove se o dominio real aparecer', o oposto do que promete
+              # (foi exatamente assim que as 7 primeiras runs morreram).
+              ph = "__" + "DOMAIN" + "__"
+              if ph in texto:
                   falhas.append(
-                      "__DOMAIN__ sobreviveu ao render: a rota subiria com um "
+                      ph + " sobreviveu ao render: a rota subiria com um "
                       "hostname literal que o DNS nao resolve, sem erro nenhum")
 
               # Um rotulo sob .apps: 'bookinfo.apps.<cluster>...' e nao
