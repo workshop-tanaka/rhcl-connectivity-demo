@@ -1,0 +1,42 @@
+# ===========================================================================
+# A ROTA QUE PUBLICA ESTA CAMADA -- e sem ela nada aqui e alcancavel.
+#
+# Descoberto em 2026-08-31, com a camada aplicada e o trafego nunca chegando ao
+# prod-web. Duas coisas se somavam:
+#
+#   1. as HTTPRoutes daqui pediam 'bookinfo.<dominio>' -- hostname que a Route
+#      da PROPRIA amostra ja serve, apontando para o gateway dela. A decisao
+#      acontece na borda do OpenShift, antes de qualquer policy: o pedido ia
+#      para o bookinfo-gateway e respondia 200, como se o prod-web nao
+#      existisse;
+#
+#   2. o prod-web e publicado por UMA ROUTE POR HOSTNAME (passthrough,
+#      wildcardPolicy None). Nao ha wildcard que adote um hostname novo.
+#
+# Entao a camada passa a usar 'bookinfo-rhcl.<dominio>', com Route propria --
+# o mesmo padrao que o 'websockets' ja usava. E o ganho nao e so tecnico: as
+# duas versoes passam a CONVIVER, e comparar a mesma aplicacao com e sem
+# plataforma na frente e demonstracao melhor do que trocar uma pela outra.
+#
+# Consequencia: nao e mais preciso apagar a HTTPRoute do upstream. E bom, porque
+# apagar nao funcionava: o ApplicationSet a recria em segundos.
+# ===========================================================================
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: bookinfo-rhcl
+  namespace: ingress-gateway
+  labels:
+    app: bookinfo
+    app.kubernetes.io/part-of: rhcl-ingress
+spec:
+  host: bookinfo-rhcl.__DOMAIN__
+  port:
+    targetPort: 443
+  tls:
+    termination: passthrough
+  to:
+    kind: Service
+    name: prod-web-istio
+    weight: 100
+  wildcardPolicy: None
