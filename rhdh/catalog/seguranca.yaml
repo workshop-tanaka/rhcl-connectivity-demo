@@ -102,7 +102,9 @@ metadata:
   annotations:
     rhcl.demo/cluster-object: deployment/openshift-pipelines/tekton-chains-controller
     backstage.io/kubernetes-namespace: openshift-pipelines
-    backstage.io/kubernetes-label-selector: app=tekton-chains-controller
+    # part-of, e nao app: o deployment do Chains nao carrega 'app' -- o
+    # selector antigo deixava a Topology vazia sem erro (medido 2026-09-01).
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/part-of=tekton-chains
   labels:
     rhcl.demo/camada: seguranca
     rhcl.demo/origem: repo

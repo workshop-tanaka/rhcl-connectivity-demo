@@ -110,7 +110,10 @@ metadata:
   annotations:
     rhcl.demo/cluster-object: quayregistry/quay/registry
     backstage.io/kubernetes-namespace: quay
-    backstage.io/kubernetes-label-selector: quay-component=quay-app
+    # quay-operator/quayregistry, e nao quay-component: o deploy do app leva
+    # quay-component=quay (sem sufixo -app), e o rotulo do operador casa a
+    # cadeia inteira (app + postgres + redis) -- Topology com o quadro real.
+    backstage.io/kubernetes-label-selector: quay-operator/quayregistry=registry
   labels:
     rhcl.demo/camada: cicd
     rhcl.demo/origem: repo
@@ -134,7 +137,9 @@ metadata:
   annotations:
     rhcl.demo/cluster-object: deployment/openshift-pipelines/tekton-pipelines-controller
     backstage.io/kubernetes-namespace: openshift-pipelines
-    backstage.io/kubernetes-label-selector: app=tekton-pipelines-controller
+    # part-of, e nao app: os deployments do operator nao carregam 'app' --
+    # selector antigo deixava a Topology vazia sem erro (medido 2026-09-01).
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/part-of=tekton-pipelines
   labels:
     rhcl.demo/camada: cicd
     rhcl.demo/origem: repo

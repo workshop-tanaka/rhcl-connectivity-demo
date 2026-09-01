@@ -81,6 +81,14 @@ for e in sorted(entidades, key=lambda x: x["metadata"]["name"]):
         d = oc_json(args)
         n = len(d["items"]) if d else 0
         if n == 0: achados.append(f"kubernetes: selector '{sel}' casa 0 pods")
+        # A Topology desenha WORKLOADS, nao pods: um selector que so casa
+        # pods de pipeline deixa a aba vazia com a sonda de pods verde --
+        # foi exatamente o falso negativo do travel-packages (2026-09-01),
+        # em que o eap-operator nao propagou o label novo ao StatefulSet.
+        args = ["get", "deploy,statefulset,daemonset", "-l", sel] + (["-n", ns] if ns else ["-A"])
+        d = oc_json(args)
+        n = len(d["items"]) if d else 0
+        if n == 0: achados.append(f"topology: selector '{sel}' casa 0 workloads (aba Topology vazia)")
 
     # --- Tekton (a aba le pelo MESMO selector do kubernetes) ---
     if "janus-idp.io/tekton" in a and sel:

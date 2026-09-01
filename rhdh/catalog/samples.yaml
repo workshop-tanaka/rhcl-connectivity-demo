@@ -929,7 +929,10 @@ metadata:
   annotations:
     rhcl.demo/cluster-object: pipeline/grpc-echo/samples-supply-chain
     backstage.io/kubernetes-namespace: grpc-echo
-    backstage.io/kubernetes-label-selector: app=grpc-echo
+    # app=echo, e nao app=grpc-echo: os deployments da amostra (echo-v1/v2)
+    # levam app=echo; o namespace ja escopa. O selector antigo deixava a
+    # Topology vazia sem erro (medido 2026-09-01).
+    backstage.io/kubernetes-label-selector: app=echo
   labels:
     rhcl.demo/camada: cicd
     rhcl.demo/origem: repo
