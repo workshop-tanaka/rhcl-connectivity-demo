@@ -22,6 +22,10 @@ metadata:
   name: ${{ values.name }}
   description: ${{ values.description }}
   annotations:
+    # Proveniencia: qual template criou este componente. E o que liga o
+    # repositorio gerado de volta ao golden path -- e o que permite, no
+    # catalogo, responder "quantos servicos nasceram pelo caminho de ouro".
+    backstage.io/source-template: template:default/rhcl-api-product
     # o AppSet nomeia a Application com o nome do repositorio (= values.name)
     argocd/app-name: ${{ values.name }}
     # Sem estas duas as abas Kubernetes e Topology nao aparecem -- e nao ha erro,

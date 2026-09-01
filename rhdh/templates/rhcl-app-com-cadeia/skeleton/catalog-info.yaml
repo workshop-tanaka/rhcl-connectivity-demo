@@ -4,6 +4,8 @@ metadata:
   name: ${{ values.name }}
   description: ${{ values.description }}
   annotations:
+    # Proveniencia: qual template criou este componente (rastreio do golden path).
+    backstage.io/source-template: template:default/rhcl-app-com-cadeia
     backstage.io/kubernetes-id: ${{ values.name }}
     backstage.io/kubernetes-namespace: ${{ values.namespace }}
     backstage.io/techdocs-ref: dir:.

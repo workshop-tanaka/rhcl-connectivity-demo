@@ -6,6 +6,8 @@ metadata:
     ${{ values.origem }} adotado pela plataforma. Aplicado pelo ApplicationSet
     rhcl-samples -- nao ha passo de deploy.
   annotations:
+    # Proveniencia: qual template criou este componente (rastreio do golden path).
+    backstage.io/source-template: template:default/rhcl-adotar-amostra
     # O portal le os objetos deste namespace pela aba Kubernetes.
     backstage.io/kubernetes-id: ${{ values.name }}
     backstage.io/kubernetes-namespace: ${{ values.name }}
