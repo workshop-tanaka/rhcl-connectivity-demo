@@ -157,6 +157,15 @@ spec:
       host: ${RHDH_HOST}
   database:
     enableLocalDb: true
+  # ----- metricas do proprio portal -----
+  # O operator cria o ServiceMonitor 'metrics-<nome-do-cr>' e o portal passa a
+  # expor Prometheus na 9464: processamento de catalogo, tarefas do scaffolder,
+  # HTTP do backend. O receptor ja existe -- o user-workload monitoring que o
+  # provision.sh habilita para o RHCL -- entao isto e so o emissor. O valor nao
+  # e palco, e diagnostico: as investigacoes do readiness-503 e da descoberta
+  # de 30 minutos teriam sido mais curtas com estas metricas a mao.
+  monitoring:
+    enabled: true
   # ----- flavours: nenhum, explicitamente -----
   # O build do rhdh-operator 1.10.3 no catalogo do OCP 4.22 traz "flavours" e
   # liga o de Lightspeed POR DEFAULT (enabledByDefault: true): todo CR ganha o
