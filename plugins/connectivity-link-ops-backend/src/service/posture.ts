@@ -28,6 +28,8 @@ export interface K8sObject {
   };
 }
 
+import { ValidadeCert, certificadoPara } from './certificados';
+
 export type Concern = 'auth' | 'rateLimit' | 'tls' | 'dns';
 
 /** Que preocupação cada tipo de policy atende. PlanPolicy fica fora: ela
@@ -64,6 +66,15 @@ export interface ConcernResult {
    * `unknown`   — o tipo não pôde ser lido. É N/A, e nunca deve virar `none`.
    */
   status: 'enforced' | 'attached' | 'none' | 'unknown';
+  /**
+   * So no concern `tls`, e so quando ha certificado que cubra o hostname.
+   *
+   * Fica SEPARADO de `policies` de proposito: um certificado nao e uma policy
+   * -- nao tem targetRef, nao entra na cadeia do GEP-713 e nao tem Enforced.
+   * Misturar os dois faria o quadro de precedencia ganhar uma linha que nao
+   * obedece a nenhuma das regras que ele existe para explicar.
+   */
+  certificado?: ValidadeCert;
 }
 
 export interface RouteRef {
@@ -145,6 +156,9 @@ export function computePosture(
   gateway: GatewayRef | undefined,
   policiesByKind: Record<string, K8sObject[]>,
   unreadableKinds: string[] = [],
+  /** Certificates do cert-manager. Vazio = nao lidos ou inexistentes. */
+  certificates: K8sObject[] = [],
+  agora: Date = new Date(),
 ): ConcernResult[] {
   const routeRef = ref(route);
   const found: Record<Concern, AttachedPolicy[]> = {
@@ -182,7 +196,21 @@ export function computePosture(
     else if (policies.length) status = 'attached';
     else if (unknown.has(concern)) status = 'unknown';
     else status = 'none';
-    return { concern, policies, status };
+
+    if (concern !== 'tls') return { concern, policies, status };
+
+    // O certificado responde mesmo SEM TLSPolicy -- e o caso desta demo, em que
+    // o Gateway termina TLS com um Secret copiado e nao ha policy nenhuma. A
+    // linha deixa de dizer so 'sem policy' e passa a dizer ate quando o TLS que
+    // esta no ar vale.
+    const certificado = certificadoPara(
+      route.spec?.hostnames ?? [],
+      certificates,
+      agora,
+    );
+    return certificado
+      ? { concern, policies, status, certificado }
+      : { concern, policies, status };
   });
 }
 

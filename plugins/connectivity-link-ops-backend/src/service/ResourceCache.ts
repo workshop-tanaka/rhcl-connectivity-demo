@@ -37,6 +37,10 @@ export const WATCHED_KINDS: WatchedKind[] = [
   // telemetrypolicies.kuadrant.io' -> no) e este kind ficou de fora por uma
   // permissao que sempre existiu. O rhdh/04-kubernetes-rbac.yaml a concede
   // desde antes deste plugin.
+  // NAO e policy: nao tem condicao Enforced, entao fica fora da sineta e do
+  // mapa de postura. Entra so para responder "o certificado desta rota vence
+  // quando" -- ver service/certificados.ts.
+  { key: 'certificates', label: 'Certificate', kind: 'Certificate', group: 'cert-manager.io', version: 'v1', plural: 'certificates' },
   { key: 'telemetrypolicies', label: 'TelemetryPolicy', kind: 'TelemetryPolicy', group: 'extensions.kuadrant.io', version: 'v1alpha1', plural: 'telemetrypolicies', isPolicy: true },
 ];
 

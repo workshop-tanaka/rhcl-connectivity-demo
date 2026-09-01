@@ -92,6 +92,16 @@ export interface ConcernResult {
   /** A cadeia resolvida por GEP-713, do vencedor para os sobrepostos. */
   cadeia?: Elo[];
   conferencias?: Conferencia[];
+  /** So no concern `tls`: a validade do certificado que cobre o hostname. */
+  certificado?: ValidadeCert;
+}
+
+export interface ValidadeCert {
+  ref: string;
+  cobertura: string;
+  notAfter: string;
+  /** Negativo quando já venceu. */
+  diasRestantes: number;
 }
 
 export interface ConsumoDoPlano {

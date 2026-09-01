@@ -198,6 +198,10 @@ export async function createRouter(
       gateway,
       porKind,
       cache.unreadableKinds(),
+      // Certificates NAO entram no `porKind`: aquele mapa alimenta a cadeia do
+      // GEP-713, e certificado nao tem targetRef nem Enforced. Vai por
+      // parametro proprio para nao virar uma linha do quadro de precedencia.
+      cache.objects('certificates'),
     ).map(c => {
       const cadeia = resolverCadeia(c.policies, niveis);
       // A conferência é por Kind porque a condição da rota também é: existe uma

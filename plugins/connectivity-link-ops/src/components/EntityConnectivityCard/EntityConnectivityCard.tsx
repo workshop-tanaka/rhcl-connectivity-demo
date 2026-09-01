@@ -21,7 +21,7 @@ import { RELATION_API_PROVIDED_BY } from '@backstage/catalog-model';
 
 import type { Entity } from '@backstage/catalog-model';
 
-import { ConcernResult, connectivityLinkOpsApiRef } from '../../api';
+import { ConcernResult, ValidadeCert, connectivityLinkOpsApiRef } from '../../api';
 import { NotAvailable } from '../common';
 import { CadeiaEfetiva } from './CadeiaEfetiva';
 import { useMudancasDoCluster } from '../../hooks/useMudancasDoCluster';
@@ -137,6 +137,35 @@ function porQueSemAlvo(entity: Entity): React.ReactNode {
   );
 }
 
+/**
+ * Validade do certificado, com a cor vindo do PRAZO e não do status.
+ *
+ * `Ready=True` continua verdadeiro num certificado que vence amanhã, e é isso
+ * que faz a expiração pegar todo mundo de surpresa. Os cortes são 30 e 7 dias:
+ * 30 porque é quando o cert-manager costuma renovar sozinho e ainda não
+ * renovou, 7 porque aí já é problema de alguém.
+ */
+const Validade = ({ v }: { v: ValidadeCert }) => {
+  const d = v.diasRestantes;
+  const cor: 'default' | 'secondary' | 'primary' =
+    d < 7 ? 'secondary' : d < 30 ? 'primary' : 'default';
+  const texto =
+    d < 0
+      ? `VENCIDO há ${Math.abs(d)}d`
+      : d === 0
+      ? 'vence hoje'
+      : `vence em ${d}d`;
+  return (
+    <Tooltip
+      title={`${v.ref} cobre esta rota por ${v.cobertura}. Válido até ${new Date(
+        v.notAfter,
+      ).toLocaleString()}. Não há TLSPolicy — o dado vem do Certificate do cert-manager.`}
+    >
+      <Chip size="small" variant="outlined" color={cor} label={texto} />
+    </Tooltip>
+  );
+};
+
 const Estado = ({ c }: { c: ConcernResult }) => {
   if (c.status === 'unknown') {
     return (
@@ -144,6 +173,11 @@ const Estado = ({ c }: { c: ConcernResult }) => {
     );
   }
   if (c.status === 'none') {
+    // TLS sem policy nao e o fim da resposta: o Gateway pode estar terminando
+    // TLS com um certificado que ninguem declarou por policy -- e nesta demo e
+    // exatamente o caso. A data e a UNICA coisa no quadro que fala de tempo, e
+    // e a que envelhece sozinha enquanto ninguem olha.
+    if (c.certificado) return <Validade v={c.certificado} />;
     return (
       <Tooltip title="Nenhuma policy deste tipo alcança esta rota. O cluster foi consultado e respondeu isto.">
         <Chip size="small" variant="outlined" label="sem policy" />
