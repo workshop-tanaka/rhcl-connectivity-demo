@@ -9,7 +9,10 @@
 # continuar aplicavel no cluster 1.2.
 #
 # Antes disto o echo-api respondia 403 a todos: sem AuthPolicy propria, a rota
-# herda o prod-web-deny-all do Gateway.
+# herdava o prod-web-deny-all do Gateway. Desde 2026-09-01 o echo tem gateway
+# DEDICADO (echo-web, criado pela etapa 'gateway' do provision.sh) -- e as duas
+# herancas que ele perdeu ao sair do prod-web estao espelhadas no fim deste
+# arquivo: echo-web-deny-all e echo-web-telemetry.
 # ---------------------------------------------------------------------------
 # ISOLAMENTO ENTRE PRODUTOS -- a diferenca deliberada em relacao ao travels.
 #
@@ -139,3 +142,67 @@ spec:
     group: gateway.networking.k8s.io
     kind: HTTPRoute
     name: echo-api
+---
+# ===========================================================================
+# AS DUAS HERANCAS DO GATEWAY DEDICADO -- "de resto tudo igual" (2026-09-01).
+#
+# Ao sair do prod-web, o echo perdia o que toda rota atras daquele Gateway
+# herda: o deny-all (rota sem policy propria fica FORA DO AR, nao aberta) e a
+# TelemetryPolicy (as series por plan/method/vhost do Ato 4). Os dois espelhos
+# abaixo moram no namespace do alvo -- policy de Gateway exige isso -- e por
+# isso declaram ingress-gateway, nao echo-api.
+#
+# A OIDC do echo NAO esta aqui e nao mudou: a AuthPolicy keycloak-jwt acima
+# mira a HTTPRoute, e policy de rota SOBREPOE a de gateway -- exatamente como
+# no par prod-web / travels.
+# ===========================================================================
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: echo-web-deny-all
+  namespace: ingress-gateway
+spec:
+  rules:
+    authorization:
+      deny-all:
+        metrics: false
+        opa:
+          allValues: false
+          # 'false' nega. A historia do 'allow = true' que nao negava esta em
+          # base/policies-security/prod-web-deny-all.yaml -- mesma regra aqui.
+          rego: allow = false
+        priority: 0
+    response:
+      unauthorized:
+        body:
+          value: |
+            {
+              "error": "Forbidden",
+              "message": "Access denied by default by the gateway operator. If you are the administrator of the service, create a specific auth policy for the route."
+            }
+        headers:
+          content-type:
+            value: application/json
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: echo-web
+---
+apiVersion: extensions.kuadrant.io/v1alpha1
+kind: TelemetryPolicy
+metadata:
+  name: echo-web-telemetry
+  namespace: ingress-gateway
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: echo-web
+  metrics:
+    default:
+      labels:
+        # Identicas as do prod-web-telemetry -- e a mesma tela do Grafana que
+        # quebra a serie por plano, agora tambem para o gateway do echo.
+        plan: 'auth.kuadrant.plan'
+        method: 'request.method'
+        vhost: 'request.host'

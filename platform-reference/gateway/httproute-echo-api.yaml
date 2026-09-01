@@ -16,9 +16,13 @@ spec:
   hostnames:
     - echo.travels.example.com
   parentRefs:
+    # echo-web, e nao prod-web (2026-09-01): o echo ganhou gateway DEDICADO,
+    # com listener no hostname exato dele. As policies (AuthPolicy OIDC e
+    # PlanPolicy) miram esta HTTPRoute e se movem junto; deny-all e telemetria
+    # do gateway novo estao em env/rhcl-1.4_ocp-4.21/devportal/echo-api.yaml.
     - group: gateway.networking.k8s.io
       kind: Gateway
-      name: prod-web
+      name: echo-web
       namespace: ingress-gateway
   rules:
     - backendRefs:

@@ -740,20 +740,36 @@ st_gateway() {
   printf 'apiVersion: gateway.networking.k8s.io/v1\nkind: Gateway\nmetadata:\n  name: prod-web\n  namespace: ingress-gateway\n  annotations:\n    networking.istio.io/service-type: ClusterIP\nspec:\n  gatewayClassName: istio\n  listeners:\n    - name: api\n      hostname: "*.%s"\n      port: 443\n      protocol: HTTPS\n      allowedRoutes:\n        namespaces:\n          from: All\n      tls:\n        mode: Terminate\n        certificateRefs:\n          - group: ""\n            kind: Secret\n            name: api-tls\n' "$DOMAIN" | _pipe_apply
   _ok "Gateway prod-web servindo *.${DOMAIN}"
 
+  # ----- Gateway dedicado do echo (pedido de 2026-09-01) -----
+  # Mesmo namespace e mesmo api-tls do prod-web -- o que muda e o LISTENER:
+  # hostname exato do echo, nao wildcard, entao so a rota do echo se anexa.
+  # As duas herancas que o echo perdia ao sair do prod-web (deny-all e
+  # TelemetryPolicy) sao espelhadas em env/rhcl-1.4_ocp-4.21/devportal/,
+  # porque policy de Gateway precisa morar no namespace do alvo.
+  printf 'apiVersion: gateway.networking.k8s.io/v1\nkind: Gateway\nmetadata:\n  name: echo-web\n  namespace: ingress-gateway\n  annotations:\n    networking.istio.io/service-type: ClusterIP\nspec:\n  gatewayClassName: istio\n  listeners:\n    - name: api\n      hostname: "%s"\n      port: 443\n      protocol: HTTPS\n      allowedRoutes:\n        namespaces:\n          from: All\n      tls:\n        mode: Terminate\n        certificateRefs:\n          - group: ""\n            kind: Secret\n            name: api-tls\n' "$ECHO_HOST" | _pipe_apply
+  _ok "Gateway echo-web servindo ${ECHO_HOST}"
+
   # ----- Routes -----
   if [[ $DRY_RUN -eq 0 ]]; then
     local t=0
-    while (( t < 120 )); do oc get svc prod-web-istio -n ingress-gateway >/dev/null 2>&1 && break; sleep 5; t=$((t+5)); done
+    while (( t < 120 )); do oc get svc prod-web-istio -n ingress-gateway >/dev/null 2>&1 \
+      && oc get svc echo-web-istio -n ingress-gateway >/dev/null 2>&1 && break; sleep 5; t=$((t+5)); done
     oc get svc prod-web-istio -n ingress-gateway >/dev/null 2>&1 \
       || _die "o Service prod-web-istio nao foi criado — o Gateway nao foi programado. Confira 'oc get gateway prod-web -n ingress-gateway -o yaml'."
+    oc get svc echo-web-istio -n ingress-gateway >/dev/null 2>&1 \
+      || _die "o Service echo-web-istio nao foi criado — o Gateway echo-web nao foi programado."
   fi
+  # A route do echo aponta para o SERVICE DO GATEWAY DEDICADO -- apontar para
+  # o prod-web-istio serviria 404: o listener de la continua atendendo o
+  # wildcard, mas a HTTPRoute do echo agora se anexa ao echo-web.
   local r
-  for r in "prod-web-gateway:${API_HOST}" "echo-api-gateway:${ECHO_HOST}"; do
-    local rname="${r%%:*}" rhost="${r##*:}"
-    if [[ $DRY_RUN -eq 1 ]]; then _cmd "oc create route passthrough ${rname} --hostname=${rhost}"; continue; fi
-    oc create route passthrough "$rname" --service=prod-web-istio --port=443 \
+  for r in "prod-web-gateway:${API_HOST}:prod-web-istio" "echo-api-gateway:${ECHO_HOST}:echo-web-istio"; do
+    local rname rhost rsvc
+    IFS=: read -r rname rhost rsvc <<<"$r"
+    if [[ $DRY_RUN -eq 1 ]]; then _cmd "oc create route passthrough ${rname} --service=${rsvc} --hostname=${rhost}"; continue; fi
+    oc create route passthrough "$rname" --service="$rsvc" --port=443 \
       --hostname="$rhost" -n ingress-gateway --dry-run=client -o yaml 2>/dev/null \
-      | oc apply -f - >/dev/null && _ok "route ${rname} -> ${rhost}" || _warn "falha na route ${rname}"
+      | oc apply -f - >/dev/null && _ok "route ${rname} -> ${rhost} (${rsvc})" || _warn "falha na route ${rname}"
   done
 
   # ----- HTTPRoute do echo-api -----
