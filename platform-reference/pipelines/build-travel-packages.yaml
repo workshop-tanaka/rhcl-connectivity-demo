@@ -456,6 +456,10 @@ metadata:
   namespace: travel-packages
   labels:
     app: travel-packages
+    # O MESMO selector da entidade no catalogo (dados.yaml): a aba Tekton le
+    # por backstage.io/kubernetes-label-selector, e run sem este label e
+    # exatamente 'aba CI vazia com pipeline rodando'.
+    app.kubernetes.io/part-of: travel-packages
     backstage.io/kubernetes-id: travel-packages
 spec:
   pipelineRef:
