@@ -139,6 +139,11 @@ spec:
               # para baixar, e um cluster sem saida para a internet continua
               # conseguindo rodar esta pipeline.
               oc kustomize "repo/$(params.caminho)" > rendered.yaml
+              # Tambem em JSON: a imagem python-311 dos checks NAO traz PyYAML,
+              # e 'pip install' exigiria a internet que esta pipeline promete
+              # dispensar. O proprio oc converte offline (--dry-run=client) e
+              # emite um objeto JSON por documento, concatenados.
+              oc create --dry-run=client -o json -f rendered.yaml > rendered.json
 
               N="$(grep -c '^---' rendered.yaml || true)"
               echo "$N" | tr -d '\n' > $(results.documentos.path)
@@ -159,9 +164,23 @@ spec:
             workingDir: $(workspaces.fonte.path)
             script: |
               #!/usr/bin/env python3
-              import sys, yaml
+              import json, sys
 
-              docs = [d for d in yaml.safe_load_all(open("rendered.yaml")) if d]
+              # rendered.json e uma sequencia de objetos JSON concatenados
+              # (um por documento do kustomize) -- raw_decode os percorre.
+              def _docs(caminho):
+                  dec, docs = json.JSONDecoder(), []
+                  texto, i = open(caminho).read(), 0
+                  while i < len(texto):
+                      while i < len(texto) and texto[i].isspace():
+                          i += 1
+                      if i >= len(texto):
+                          break
+                      d, i = dec.raw_decode(texto, i)
+                      docs.append(d)
+                  return docs
+
+              docs = [d for d in _docs("rendered.json") if d]
               falhas, vistos = [], []
 
               # Alvo de uma policy, normalizado em texto -- e a chave que
@@ -256,7 +275,21 @@ spec:
             workingDir: $(workspaces.fonte.path)
             script: |
               #!/usr/bin/env python3
-              import sys, yaml
+              import json, sys
+
+              # rendered.json: objetos JSON concatenados, um por documento --
+              # mesma leitura stdlib do confere-campos (PyYAML nao existe aqui).
+              def _docs(caminho):
+                  dec, docs = json.JSONDecoder(), []
+                  texto, i = open(caminho).read(), 0
+                  while i < len(texto):
+                      while i < len(texto) and texto[i].isspace():
+                          i += 1
+                      if i >= len(texto):
+                          break
+                      d, i = dec.raw_decode(texto, i)
+                      docs.append(d)
+                  return docs
 
               # A regra que ja custou um ambiente: hostname sob .apps precisa
               # ter UM rotulo. 'api.travels.apps...' nao cabe no wildcard do
@@ -264,7 +297,7 @@ spec:
               # resolucao do proprio host -- armadilha 6 do RUNBOOK.
               falhas, conferidos = [], 0
 
-              for d in (d for d in yaml.safe_load_all(open("rendered.yaml")) if d):
+              for d in (d for d in _docs("rendered.json") if d):
                   if d.get("kind") not in ("HTTPRoute", "Gateway"):
                       continue
                   spec = d.get("spec") or {}
