@@ -544,6 +544,7 @@ Confirmado inofensivo em 2026-08-20/21. Some da lista se o comportamento mudar.
 | Série `connection_security_policy="unknown"` | é o *reporter=source*, que não determina a política. O `destination` reporta `mutual_tls` |
 | `etcdDatabaseHighFragmentationRatio` | páginas livres no etcd (razão 0,334 em 2026-08-24, db de 458 MB). Desfragmentar recupera ~300 MB, mas causa indisponibilidade breve — não fazer em véspera de demo |
 | `PodDisruptionBudgetAtLimit` (`noobaa-db`) | PDB com `minAvailable: 1` sobre réplica única — inevitável em SNO |
+| RHDH enviando telemetria para a Red Hat (Segment), menu **Adoption Insights** populado, botão **Report Issue** nos TechDocs | os três *defaults silenciosos* do RHDH 1.10 — vêm ligados de fábrica e nós não os configuramos em lugar nenhum (verificado 2026-08-31: a única menção a `analytics` no `setup-plugins.sh` é a telemetria própria do plugin Ansible). **Não desligar o Segment**: é ele que alimenta o Adoption Insights. Com ~4 personas os números são esparsos — não levar ao palco |
 
 ---
 
@@ -596,6 +597,17 @@ REQS=20 bash scripts/traffic.sh mesh-split    # esperado ~90/10
 - **Provisionar ambiente novo em vez de upgrade in-place** foi a escolha certa na
   migração 1.2 → 1.4: as apiVersions que a demo usa não mudaram, nada quebrou por
   versão.
+- **O framework de permissão do RHDH fica desligado** (2026-08-31). Verificado:
+  `permission.enabled` não aparece em nenhuma configuração — todo "RBAC" em
+  `rhdh/` é RBAC do Kubernetes (ServiceAccounts dos plugins e papéis das
+  personas no cluster). Ligar o framework inverte o padrão para *deny*: cada
+  plugin passa a exigir permissões enumeradas, e uma permissão esquecida vira
+  tela vazia no meio do ato, sem erro. A história de autorização da demo é
+  contada onde a tese mora — no cluster (papéis das personas) e na borda
+  (AuthPolicy, deny-all, planos) — não no portal. Ressalva a verificar em
+  cluster novo: o comentário no bloco Kuadrant do `setup-plugins.sh` diz que o
+  plugin "requer permission.enabled + política de RBAC", mas o Ato 6 já rodou
+  sem isso; confirmar se algo degrada em silêncio.
 
 ## 10. Ferramental local
 
