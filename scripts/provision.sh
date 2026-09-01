@@ -2340,6 +2340,15 @@ st_samples() {
     if [[ -z "$qhost" ]]; then
       _warn "sem registry de destino -- rode 'provision.sh registry' antes de DISPARA_BUILD=1"
     else
+      # O robot nao cria repositorio: push para repo inexistente volta como
+      # 'authentication required', que aponta para a credencial e nao para a
+      # causa (as 7 primeiras runs morreram assim, com o secret correto em
+      # todos os namespaces). Criar e autorizar aqui, do mesmo jeito barato e
+      # idempotente da etapa registry -- repetir devolve 4xx e segue.
+      local qtoken
+      qtoken="$(oc get secret quay-admin -n quay -o jsonpath='{.data.token}' 2>/dev/null | base64 -d)"
+      [[ -z "$qtoken" && $DRY_RUN -eq 0 ]] \
+        && _warn "sem quay/quay-admin: nao consigo criar os repositorios de destino"
       for nome in "${alvos[@]}"; do
         local ns2; ns2="$(_samples_ns "$nome")"
         while read -r img nome_quay; do
@@ -2349,6 +2358,15 @@ st_samples() {
           if [[ $DRY_RUN -eq 1 ]]; then
             _cmd "PipelineRun samples-supply-chain (${nome}): ${img} -> ${destino}"
             continue
+          fi
+          if [[ -n "$qtoken" ]]; then
+            curl -sk -o /dev/null -X POST \
+              -H "Authorization: Bearer ${qtoken}" -H 'Content-Type: application/json' \
+              -d "{\"namespace\":\"${qorg}\",\"repository\":\"${nome_quay}\",\"visibility\":\"private\",\"description\":\"Espelho assinado da amostra ${nome}\",\"repo_kind\":\"image\"}" \
+              "https://${qhost}/api/v1/repository" 2>/dev/null
+            curl -sk -o /dev/null -X PUT -d '{"role":"write"}' \
+              -H "Authorization: Bearer ${qtoken}" -H 'Content-Type: application/json' \
+              "https://${qhost}/api/v1/repository/${qorg}/${nome_quay}/permissions/user/${qorg}+tekton" 2>/dev/null
           fi
           # O recorte inverso do _aplica_pipeline: aqui so o PipelineRun, e com
           # 'oc create' porque generateName nao passa por apply.
