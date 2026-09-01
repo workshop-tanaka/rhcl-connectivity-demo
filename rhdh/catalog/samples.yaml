@@ -226,10 +226,6 @@ metadata:
     # O deployment tem sufixo de versao, que NAO e o nome da entidade -- errar
     # aqui da uma aba Security que carrega e nao acha nada.
     acs/deployment-name: productpage-v1
-    # Liga a aba CI. O que o plugin ENXERGA sai do kubernetes-label-selector; a
-    # anotacao so decide se a aba aparece. As PipelineRun da cadeia de
-    # suprimento levam app=bookinfo, que e o seletor abaixo.
-    janus-idp.io/tekton: bookinfo
     sonarqube.org/project-key: rhcl-sample-bookinfo
     # Sem gitlab.com/instance o plugin assume gitlab.com e a aba quebra com
     # TypeError no navegador -- sem rastro no log do backend.
@@ -443,7 +439,6 @@ metadata:
     backstage.io/techdocs-ref: url:${DEMO_REPO_URL}/docs/componentes/grpc-echo-app
     rhcl.demo/cluster-object: deployment/grpc-echo/echo-v1
     acs/deployment-name: echo-v1,echo-v2
-    janus-idp.io/tekton: grpc-echo
     sonarqube.org/project-key: rhcl-sample-grpc-echo
     gitlab.com/instance: ${GITLAB_HOST}
     gitlab.com/project-slug: rhcl/samples/grpc-echo
@@ -972,7 +967,6 @@ metadata:
   annotations:
     rhcl.demo/cluster-object: application/openshift-gitops/sample-bookinfo
     backstage.io/kubernetes-namespace: openshift-gitops
-    backstage.io/kubernetes-label-selector: app.kubernetes.io/part-of=rhcl-samples
   labels:
     rhcl.demo/camada: cicd
     rhcl.demo/origem: repo
@@ -1004,7 +998,6 @@ metadata:
   annotations:
     rhcl.demo/cluster-object: application/openshift-gitops/sample-websockets
     backstage.io/kubernetes-namespace: openshift-gitops
-    backstage.io/kubernetes-label-selector: app.kubernetes.io/part-of=rhcl-samples
   labels:
     rhcl.demo/camada: cicd
     rhcl.demo/origem: repo
@@ -1036,7 +1029,6 @@ metadata:
   annotations:
     rhcl.demo/cluster-object: application/openshift-gitops/sample-grpc-echo
     backstage.io/kubernetes-namespace: openshift-gitops
-    backstage.io/kubernetes-label-selector: app.kubernetes.io/part-of=rhcl-samples
   labels:
     rhcl.demo/camada: cicd
     rhcl.demo/origem: repo
@@ -1068,7 +1060,6 @@ metadata:
   annotations:
     rhcl.demo/cluster-object: application/openshift-gitops/sample-open-telemetry
     backstage.io/kubernetes-namespace: openshift-gitops
-    backstage.io/kubernetes-label-selector: app.kubernetes.io/part-of=rhcl-samples
   labels:
     rhcl.demo/camada: cicd
     rhcl.demo/origem: repo
