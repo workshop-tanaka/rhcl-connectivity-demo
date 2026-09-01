@@ -245,7 +245,9 @@ metadata:
     # a task publica-artefato poe o .war em maven-releases desde 2026-08-31.
     # o app existe desde que o seed rende o manifests/ (modo observacao --
     # quem aplica segue sendo a etapa entrega; o Argo mostra sync/health)
-    argocd/app-name: travel-packages
+    argocd/app-name: travel-travel-packages
+    # 'travel-' duplicado NAO e erro: o AppSet nomeia 'travel-{{repo}}' e o
+    # repo ja se chama travel-packages -- medido no controller (7 geradas)
     nexus-repository-manager/config.query: 'maven.groupId=com.redhat.travel&maven.artifactId=travel-packages'
   labels:
     rhcl.demo/camada: aplicacao
