@@ -304,6 +304,32 @@ faltou informação. E a cadeia é **conferida contra o cluster** — se o cálc
 não bater com a condição `kuadrant.io/…Affected` da própria rota, o card diz
 `diverge do que a rota declara` em vez de mostrar um número bonito e errado.
 
+**A linha que fala de tempo.** No mesmo card, `TLS` não diz `sem policy` — diz
+`vence em 88d`, e o tooltip nomeia o certificado e a cobertura:
+
+```
+TLS   vence em 88d
+      openshift-ingress/cert-manager-ingress-cert cobre esta rota por
+      *.apps.<cluster>. Válido até <data>. Não há TLSPolicy — o dado vem do
+      Certificate do cert-manager.
+```
+
+É o único item do quadro que responde **"até quando"** em vez de "como está
+configurado", e o único que envelhece sozinho enquanto ninguém olha. Vale dizer
+a frase: *"o `Ready=True` de um certificado continua verdadeiro no dia anterior
+ao vencimento — é por isso que expiração pega todo mundo de surpresa."* O chip
+destaca-se pelo **prazo**, e não pelo status: muda aos 30 dias e de novo aos 7.
+Abaixo de zero o texto vira `VENCIDO há Nd`.
+
+> Se alguém perguntar de onde sai o número: o certificado é casado pelo
+> **hostname** da rota contra o `spec.dnsNames` do `Certificate` — o plugin não
+> abre o Secret do Gateway, porque `get secrets` traria a chave privada junto.
+> Numa borda servida por certificado fora do cert-manager, a linha volta a
+> `sem policy`, que é a verdade sobre aquele cluster.
+
+O `DNS` continua em `sem policy` ao lado, e é bom que continue: mostra que a
+linha do TLS não é enfeite — quando não há o que medir, o card diz que não há.
+
 Depois, os artefatos que o `PlanPolicy` gerou **sozinho**: um contador por tier
 no Limitador, e os predicados por plano dentro do filtro do Envoy — junto com o
 `metrics.labels.plan`, que é o `TelemetryPolicy` e a ponte para o passo 4. Uma
