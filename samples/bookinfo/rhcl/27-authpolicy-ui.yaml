@@ -1,0 +1,30 @@
+# A UI e publica -- e isso passa a ser uma DECLARACAO.
+#
+# Ate 2026-09-01 esta policy nao existia e a UI respondia 200 assim mesmo,
+# porque a prod-web-deny-all carregava 'rego: allow = true' e nao negava nada.
+# Corrigido o deny-all, rota sem AuthPolicy propria cai nela e recebe 403.
+#
+# Publico deixa de ser o que sobra da ausencia de policy e passa a ser uma
+# decisao registrada: a UI autentica ANONIMO, de proposito, e quem le o
+# diretorio ve a diferenca entre "aberto" e "esquecido".
+#
+# A protecao de capacidade da rota anonima nao vem daqui: e a
+# 24-ratelimitpolicy-ui.yaml, que limita por IP.
+#
+# No workshop (trilha 3, modulo 3.2) o participante escreve esta policy a mao
+# depois de ver o 403 -- por isso o exercicio nao aplica este arquivo.
+---
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: bookinfo-ui-authpolicy
+  namespace: bookinfo
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: bookinfo-ui
+  rules:
+    authentication:
+      anonimo:
+        anonymous: {}

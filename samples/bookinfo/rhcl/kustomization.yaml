@@ -3,9 +3,10 @@ kind: Kustomization
 
 # ===========================================================================
 # A camada de RHCL do bookinfo -- NAO referenciada pelo kustomization da
-# amostra, de proposito. Ler o README.md deste diretorio antes de aplicar: ha
-# um conflito de caminho com a HTTPRoute do upstream que precisa ser resolvido
-# a mao.
+# amostra, de proposito. Ler o README.md deste diretorio antes de aplicar.
+#
+# Nao ha conflito com a HTTPRoute do upstream: esta camada publica a app em
+# bookinfo-rhcl.<dominio>, com Route propria, e as duas fronteiras convivem.
 #
 # Render (as rotas trazem __DOMAIN__):
 #   D=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
@@ -20,3 +21,4 @@ resources:
   - 24-ratelimitpolicy-ui.yaml
   - 25-route-openshift.yaml
   - 26-identity-apikeys.yaml
+  - 27-authpolicy-ui.yaml
