@@ -63,31 +63,30 @@ data:
   #     -d '{"accepted":true,"disclaimer":"<o texto que o GET devolve>"}' \
   #     https://<nexus>/service/rest/v1/system/eula
   #
-  # Enquanto isso o Nexus segue VAZIO, e por isso o Component travel-packages
-  # nao leva anotacao nexus-repository-manager/* -- ver rhdh/catalog/dados.yaml.
+  # A DECISAO ACIMA FOI REVERTIDA EM 2026-09-01, e pelo motivo certo: o EULA
+  # foi aceito (a sonda do --check confirma 'accepted:true' estavel) e o
+  # espelho voltou a responder -- medido com 200 anonimo em maven-public para
+  # junit:4.13.2 E para org.jboss:jboss-parent:47, exatamente o artefato que
+  # morreu com 401 na tentativa de 28/08. O mirror abaixo esta ATIVO a pedido:
+  # o build passa a alimentar o proxy maven-central, e a tela de repositorio
+  # do portal ganha o quadro real de dependencias.
   #
-  # A DECISAO: o mirror e otimizacao, nao requisito. Sem ele o build passa
-  # (BUILD SUCCESS, verificado), e quem faz o segundo build ser rapido e o PVC
-  # cache-maven, que independe do Nexus. Perseguir licenciamento de Nexus Pro
-  # para acelerar o build de uma aplicacao de demonstracao e trocar o problema
-  # certo por um mais caro.
-  #
-  # O Nexus continua no ambiente pelo OUTRO papel: a tela de repositorio no
-  # portal. Para religar o mirror depois de resolver o 403, basta descomentar
-  # o bloco <mirrors> abaixo.
+  # mirrorOf 'central', e nao '*': o build do EAP tambem le o repositorio
+  # redhat-ga (driver, galleon pack), que o proxy nao espelha -- um mirror
+  # total o esconderia e o build morreria pedindo artefato da Red Hat ao
+  # Central. O PVC cache-maven continua sendo quem acelera o segundo build;
+  # o Nexus registra e serve o que passa.
   # -------------------------------------------------------------------------
   settings.xml: |
     <?xml version="1.0" encoding="UTF-8"?>
     <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
-      <!--
-        <mirrors>
-          <mirror>
-            <id>nexus-central</id>
-            <url>http://nexus.cicd.svc:8081/repository/maven-public/</url>
-            <mirrorOf>central</mirrorOf>
-          </mirror>
-        </mirrors>
-      -->
+      <mirrors>
+        <mirror>
+          <id>nexus-central</id>
+          <url>http://nexus.cicd.svc:8081/repository/maven-public/</url>
+          <mirrorOf>central</mirrorOf>
+        </mirror>
+      </mirrors>
     </settings>
 ---
 apiVersion: tekton.dev/v1
