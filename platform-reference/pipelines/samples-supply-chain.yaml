@@ -415,7 +415,9 @@ spec:
             # SEM ':latest' -- este repositorio nao publica a tag (o registro
             # devolve 'unsupported' e a task morre em ImagePullFailed antes de
             # rodar). A versao acompanha o operator do cluster (CSV rhacs-*).
-            image: registry.redhat.io/advanced-cluster-security/rhacs-roxctl-rhel8:4.11.3
+            # E rhel9, nao rhel8: a linha 4.x mudou de base (o proprio Central
+            # e rhacs-main-rhel9) e 4.11.3 nao existe no repo rhel8.
+            image: registry.redhat.io/advanced-cluster-security/rhacs-roxctl-rhel9:4.11.3
             onError: continue
             env:
               - name: ROX_API_TOKEN
