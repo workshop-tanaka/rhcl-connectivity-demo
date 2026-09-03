@@ -143,6 +143,18 @@ for e in sorted(entidades, key=lambda x: x["metadata"]["name"]):
         tem = st == 200 and svc.split(".")[0].encode() in corpo
         if not tem: achados.append(f"tempo: servico '{svc}' sem traces")
 
+    # --- Links da entidade (pedido de 2026-09-03: 'links quebrados') ---
+    # Vivo = responde qualquer coisa razoavel (2xx/3xx, ou 401/403 de pagina
+    # atras de login). Quebrado = DNS/conexao falhando, 404 ou 5xx -- e o
+    # botao que morre na frente da plateia.
+    for lk in e["metadata"].get("links", []):
+        url = lk.get("url", "")
+        if not url.startswith("http"):
+            continue
+        st, _ = http(url, timeout=6)
+        if st == 0 or st == 404 or st >= 500:
+            achados.append(f"link '{lk.get('title', url)}' quebrado (HTTP {st}): {url}")
+
     # --- TechDocs ---
     ref = a.get("backstage.io/techdocs-ref")
     if ref:
