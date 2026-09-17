@@ -397,14 +397,28 @@ fi
 #
 # Aconteceu com duas APIs (cobranca, pagamentos) e o sintoma que chegou foi
 # "metrica vazia no Grafana" -- porque requisicao que nao chega nao vira serie.
+#
+# ...mas so onde a publicacao E por Route. Onde ha LoadBalancer de verdade -- o
+# sandbox do workshop tem ELB e DNSPolicy -- Route nenhuma existe, nem deve:
+# o DNS aponta direto para o balanceador. Cobrar Route ali e cobrar a falta de
+# uma peca que aquele desenho nao usa (medido em 2026-09-17, cluster-45bp4:
+# duas falhas vermelhas com a API respondendo 401 dois blocos acima).
 _sec "exposicao das APIs (o que o router conhece)"
 _hosts="$(oc get httproute -A -o jsonpath='{range .items[*]}{range .spec.hostnames[*]}{@}{"\t"}{end}{end}' 2>/dev/null | tr '\t' '\n' | grep -v '^$' | sort -u)"
 _rhosts="$(oc get route -A -o jsonpath='{range .items[*]}{.spec.host}{"\n"}{end}' 2>/dev/null)"
+# Endereco do Gateway que NAO vem do router: Service type=LoadBalancer com
+# ingress provisionado. Em SNO isso nao existe e a Route continua obrigatoria.
+_lb="$(oc get svc -A -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.status.loadBalancer.ingress[*].hostname}{.status.loadBalancer.ingress[*].ip}{"\n"}{end}' 2>/dev/null | grep -v '^$' | head -1)"
+_gwaddr="$(oc get gateway -A -o jsonpath='{range .items[*]}{.status.addresses[*].value}{"\n"}{end}' 2>/dev/null | grep -v '^$')"
+_viaLB=0
+[[ -n "$_lb" ]] && grep -qxF "$_lb" <<< "$_gwaddr" && _viaLB=1
 _semroute=0
 while read -r _h; do
   [[ -z "$_h" ]] && continue
   if grep -qx "$_h" <<< "$_rhosts"; then
     _ok "${_h%%.*}: hostname exposto pelo router"
+  elif [[ $_viaLB -eq 1 ]]; then
+    _ok "${_h%%.*}: publicado pelo LoadBalancer do Gateway (${_lb}), sem Route -- correto neste desenho"
   else
     _bad "${_h%%.*}: HTTPRoute anexada ao Gateway, mas SEM Route do OpenShift" \
          "de fora isso e 503 do router (HTML, HTTP/1.0) e metrica vazia. Crie a Route passthrough para o Service prod-web-istio"
@@ -488,9 +502,16 @@ else
         "oc apply -f platform-reference/devspaces/ — os componentes ficam sem o link do IDE"
 fi
 
-for r in "grafana-route:monitoring:Grafana" "kiali:istio-system:Kiali" "tempo-tempo-jaegerui:tracing-system:Tempo (Jaeger UI, deprecada)"; do
+# O primeiro campo aceita ALTERNATIVAS separadas por '|': a UI do Tempo se
+# chama 'tempo-tempo-jaegerui' onde o TempoMonolithic do repo a publica, e
+# 'tracing-ui' no TempoStack do sandbox do workshop. Nome diferente, mesma tela.
+for r in "grafana-route:monitoring:Grafana" "kiali:istio-system:Kiali" "tempo-tempo-jaegerui|tracing-ui:tracing-system:Tempo (Jaeger UI)"; do
   _n="${r%%:*}"; _rest="${r#*:}"; _ns="${_rest%%:*}"; _label="${_rest##*:}"
-  _h="$(oc get route "$_n" -n "$_ns" -o jsonpath='{.spec.host}' 2>/dev/null)"
+  _h=""
+  for _cand in ${_n//|/ }; do
+    _h="$(oc get route "$_cand" -n "$_ns" -o jsonpath='{.spec.host}' 2>/dev/null)"
+    [[ -n "$_h" ]] && break
+  done
   if [[ -n "$_h" ]]; then
     _ok "${_label}: https://${_h}"
   else
@@ -509,8 +530,18 @@ if oc get crd grafanadashboards.grafana.integreatly.org >/dev/null 2>&1; then
   # dashboard) -- é o nome que precisa existir, não o UID, que é gerado por
   # cluster. Ver o cabeçalho de dashboard-negocio-planos.yaml.
   _dsok="$(oc get grafanadatasource -n monitoring             -o jsonpath='{range .items[?(@.spec.datasource.name=="Thanos")]}{.status.conditions[?(@.type=="DatasourceSynchronized")].status}{end}' 2>/dev/null)"
+  # Onde o Grafana e de outro dono o datasource existe com OUTRO nome
+  # ('thanos-query-ds' no sandbox do workshop). Dizer qual e poupa a caca: o
+  # painel nao acha 'Thanos', abre "No data", e isso se le como falta de
+  # trafego. Medido em 2026-09-17, cluster-45bp4.
+  _dsoutro="$(oc get grafanadatasource -n monitoring \
+                -o jsonpath='{range .items[*]}{.spec.datasource.name}{"\n"}{end}' 2>/dev/null \
+              | grep -v '^Thanos$' | grep -v '^$' | tr '\n' ' ')"
   if [[ "$_dsok" == *"True"* ]]; then
     _ok "datasource 'Thanos' aplicado no Grafana"
+  elif [[ -n "$_dsoutro" ]]; then
+    _warn "datasource 'Thanos' não existe; o Grafana deste cluster tem: ${_dsoutro}" \
+          "os paineis do repo referenciam 'Thanos' pelo NOME e abrem 'No data'. Crie um datasource com esse nome, ou renomeie a variavel nos dashboards"
   else
     _warn "datasource 'Thanos' não confirmado no Grafana" \
           "os painéis do Ato 4 abrem sem dado — docs/PROVISIONING-1.4.md"
@@ -631,18 +662,50 @@ fi
 # uma das duas ausente, tudo o que vem depois -- collector, gateway do Tempo,
 # plugin do console -- continua saudável, e nenhum trace nasce. Checado antes do
 # Tempo de propósito: é a causa que explica o sintoma seguinte.
+#
+# Duas coisas que esta checagem aprendeu em 2026-09-17 (cluster-45bp4), e que
+# a versao anterior -- 'o provider chama otel-tracing e ha Telemetry em
+# istio-system' -- dava por boas enquanto ZERO span era exportado:
+#
+#   1. o NOME do provider e do cluster, nao do repo. Onde o CR Istio e de outro
+#      dono ele chama outra coisa ('otel' no sandbox do workshop).
+#   2. Telemetry no namespace do workload SUBSTITUI a do rootNamespace, nao se
+#      mescla. Uma Telemetry so de metricas no namespace do Gateway apaga o
+#      tracing herdado, em silencio. E no proprio root, se ha mais de uma, a
+#      MAIS ANTIGA vence.
+#
+# Dai a checagem ser por NAMESPACE que a demo usa, e nao global.
 if oc get crd telemetries.telemetry.istio.io >/dev/null 2>&1; then
-  _prov="$(oc get istio default -o jsonpath='{.spec.values.meshConfig.extensionProviders}' 2>/dev/null)"
-  _tel="$(oc get telemetry -n istio-system \
-            -o jsonpath='{range .items[*]}{.spec.tracing[*].providers[*].name}{"\n"}{end}' 2>/dev/null)"
-  if [[ "$_prov" == *otel-tracing* && "$_tel" == *otel-tracing* ]]; then
-    _ok "Service Mesh emitindo span (extensionProvider + Telemetry)"
-  elif [[ "$_prov" != *otel-tracing* ]]; then
+  _provs="$(oc get istio default -o jsonpath='{range .spec.values.meshConfig.extensionProviders[*]}{.name}{"\n"}{end}' 2>/dev/null | grep -v '^$')"
+  _root="$(oc get istio default -o jsonpath='{.spec.namespace}' 2>/dev/null)"; _root="${_root:-istio-system}"
+  if [[ -z "$_provs" ]]; then
     _warn "CR Istio sem extensionProvider de tracing: nenhum span sai do Service Mesh" \
           "platform-reference/mesh-control-plane/istio.yaml — ou 'bash scripts/provision.sh mesh'"
   else
-    _warn "nenhuma Telemetry aponta para 'otel-tracing': o provider existe e ninguém emite" \
-          "oc apply -f platform-reference/mesh-control-plane/telemetry-tracing.yaml"
+    # Telemetry de tracing que VALE para um namespace, pela regra acima.
+    _tracing_em() { # _tracing_em <ns> -> nome do provider, ou vazio
+      local ns="$1" n
+      n="$(oc get telemetry -n "$ns" -o jsonpath='{range .items[*]}{.spec.tracing[*].providers[*].name}{"\n"}{end}' 2>/dev/null | grep -v '^$' | head -1)"
+      if [[ -n "$n" ]]; then printf '%s' "$n"; return; fi
+      # sem Telemetry propria com tracing: so herda se NAO ha Telemetry alguma
+      # no namespace (uma so de metricas ja teria substituido o herdado).
+      oc get telemetry -n "$ns" -o name 2>/dev/null | grep -q . && return
+      oc get telemetry -n "$_root" --sort-by=.metadata.creationTimestamp \
+        -o jsonpath='{.items[0].spec.tracing[*].providers[*].name}' 2>/dev/null
+    }
+    for _ns in ingress-gateway travel-agency; do
+      oc get ns "$_ns" >/dev/null 2>&1 || continue
+      _p="$(_tracing_em "$_ns")"
+      if [[ -z "$_p" ]]; then
+        _warn "${_ns}: nenhuma Telemetry manda emitir span — a aba Traces abre vazia" \
+              "Telemetry com bloco 'tracing' NO namespace: base/policies-telemetry/ (a do rootNamespace nao vale onde ja existe Telemetry local)"
+      elif ! grep -qxF "$_p" <<< "$_provs"; then
+        _warn "${_ns}: Telemetry aponta para o provider '${_p}', que o CR Istio nao declara" \
+              "providers deste cluster: $(tr '\n' ' ' <<< "$_provs")— ajuste na camada env/ da release"
+      else
+        _ok "${_ns}: emitindo span pelo provider '${_p}'"
+      fi
+    done
   fi
 fi
 
@@ -655,13 +718,25 @@ fi
 #
 #   antes   https://tracing-ui/api/services
 #   agora   https://<rota do gateway>/api/traces/v1/dev/api/services   + Bearer
+#
+# ...e onde NAO ha multitenancy (o TempoStack do sandbox do workshop publica a
+# rota 'tracing-ui') a leitura volta a ser a antiga, sem tenant e sem token.
+# Descobrir qual das duas, em vez de assumir, e o que separa 'o Ato 5 esta sem
+# tela' de 'o Ato 5 esta de pe e o script nao sabia olhar'.
 _tempo="$(oc get route tempo-tempo-jaegerui -n tracing-system -o jsonpath='{.spec.host}' 2>/dev/null)"
+_tempo_url=""
+if [[ -n "$_tempo" ]]; then
+  _tempo_url="https://${_tempo}/api/traces/v1/${TEMPO_TENANT:-dev}/api/services"
+else
+  _tempo="$(oc get route tracing-ui -n tracing-system -o jsonpath='{.spec.host}' 2>/dev/null)"
+  [[ -n "$_tempo" ]] && _tempo_url="https://${_tempo}/api/services"
+fi
 if [[ -z "$_tempo" ]]; then
   _warn "route do Tempo não encontrada em tracing-system" \
         "o Ato 5 fica sem tela — platform-reference/tracing/tempo-monolithic.yaml"
 else
   _svcs="$(curl -sk --max-time 15 -H "Authorization: Bearer $(oc whoami -t)" \
-            "https://${_tempo}/api/traces/v1/${TEMPO_TENANT:-dev}/api/services" 2>/dev/null)"
+            "$_tempo_url" 2>/dev/null)"
   if grep -q 'ingress-gateway' <<< "$_svcs"; then
     _ok "Tempo tem traces do gateway (Ato 5)"
   elif grep -q 'tenant not found' <<< "$_svcs"; then
