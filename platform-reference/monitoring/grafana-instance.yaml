@@ -49,10 +49,18 @@ metadata:
 # Sem isto o datasource conecta e o Thanos devolve 403 em toda query: o
 # thanos-querier autoriza por SubjectAccessReview, e e o ClusterRole
 # 'cluster-monitoring-view' que concede a leitura.
+#
+# O NOME do binding e nosso, e nao o do ClusterRole. Chamar-se
+# 'cluster-monitoring-view', como era ate 2026-09-17, e colidir com o binding
+# de mesmo nome que outros stacks de observabilidade criam -- medido no
+# cluster-45bp4, onde o Argo do workshop ja tinha um, com a SA 'thanos-query'
+# dentro. 'oc apply' num binding existente SUBSTITUI a lista de subjects: o
+# nosso datasource passaria a funcionar e o do outro dono comecaria a devolver
+# 403 em todo painel, sem que nada no nosso lado parecesse errado.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: cluster-monitoring-view
+  name: rhcl-grafana-cluster-monitoring-view
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
