@@ -76,7 +76,7 @@ _overlay() {
 }
 OVERLAY="$(_overlay)"
 
-STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda degrada falha reset pos)
+STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda degrada trace falha reset pos)
 # O default e o nucleo da tese. Ato 6 e 7 sao opcionais e longos; 'aquece',
 # 'falha' e 'reset' mudam estado e nunca devem entrar sem alguem pedir.
 STEPS_DEFAULT=(ato1 ato2 ato3 ato4 ato5)
@@ -108,6 +108,7 @@ Atos extras, fora do default (cada um roda sozinho):
 
   borda    O certificado e o DNS tambem sao policy   (3 min, entre 3 e 4)
   degrada  O que acontece quando a policy cai        (4 min, MUDA ESTADO)
+  trace    O que um contador nao responde            (4 min, depois do 4 ou 5)
 
 Depois:
 
@@ -679,6 +680,119 @@ step_degrada() {
   _do_sh "oc rollout status deploy/limitador-limitador -n kuadrant-system --timeout=120s"
   echo
   _look "de volta. Confirme com: bash scripts/demo.sh ato2"
+}
+
+# Descobre a rota do Tempo e o DIALETO da consulta. Sao dois desenhos:
+# TempoMonolithic com multitenancy publica 'tempo-tempo-jaegerui' e exige
+# tenant + Bearer; o TempoStack do sandbox publica 'tracing-ui' e responde
+# direto. Assumir um so foi o que fez o preflight dar o Ato 5 por ausente num
+# cluster onde ele funcionava (2026-09-17).
+_tempo_api() { # imprime a URL base da API de traces, ou vazio
+  local h
+  h="$(_route tempo-tempo-jaegerui tracing-system)"
+  if [[ -n "$h" ]]; then printf 'https://%s/api/traces/v1/%s/api' "$h" "${TEMPO_TENANT:-dev}"; return; fi
+  h="$(_route tracing-ui tracing-system)"
+  [[ -n "$h" ]] && printf 'https://%s/api' "$h"
+}
+
+step_trace() {
+  _title "Ato trace — o que um contador nao consegue responder" "4 min"
+  _why "O Ato 4 mostrou a metrica: quantas requisicoes, de qual plano, quantas"
+  _why "recusadas. A metrica AGREGA -- ela soma requisicoes diferentes num numero"
+  _why "so. O trace CORRELACIONA: amarra os pedacos de UMA requisicao."
+  _why ""
+  _why "Sao perguntas diferentes, e a segunda tem dono: quando alguem pergunta"
+  _why "'quanto essa policy me custa em latencia?', nenhum contador responde."
+  _pause || return 0
+
+  local base; base="$(_tempo_api)"
+  if [[ -z "$base" ]]; then
+    _warn "sem rota do Tempo em tracing-system — o ato fica sem tela"
+    _log  "platform-reference/tracing/ monta o Tempo; 'provision.sh tracing' aplica"
+    return 0
+  fi
+  local tok; tok="$(oc whoami -t 2>/dev/null || true)"
+  local api gold; api="$(_api_host)"; gold="$(_key_of gold)"
+
+  _why "1. Meia duzia de chamadas limpas, para ter o que olhar."
+  _do_as "6 requisicoes com a chave gold" \
+    bash -c "for i in 1 2 3 4 5 6; do curl -s -o /dev/null -w '%{http_code} ' 'https://${api}/travels/Rome?APIKEY=${gold}'; done; echo"
+  _why "   a coleta leva ~25s: o span sai do proxy, passa pelo collector e so"
+  _why "   entao e indexado. Fale enquanto isso."
+  sleep 28
+
+  _why "2. O mesmo salto, visto das duas pontas:"
+  _pause || return 0
+  _do_as "os spans pai e filho de cada requisicao, e a diferenca" \
+    bash -c "curl -sk --max-time 30 -H 'Authorization: Bearer ${tok}' '${base}/traces?service=prod-web-istio.ingress-gateway&limit=12' 2>/dev/null | python3 -c \"
+import sys, json
+d = json.load(sys.stdin)
+pares = []
+for t in (d.get('data') or []):
+    procs = {k: v.get('serviceName') for k, v in (t.get('processes') or {}).items()}
+    cli = srv = None
+    for sp in t.get('spans', []):
+        kind = next((x['value'] for x in sp.get('tags', []) if x['key'] == 'span.kind'), None)
+        if kind == 'client': cli = sp
+        elif kind == 'server': srv = sp
+    if cli and srv:
+        pares.append((cli.get('duration',0)/1000.0, srv.get('duration',0)/1000.0))
+if not pares:
+    print('  ainda sem par pai/filho indexado -- repita o passo em ~20s')
+else:
+    pares.sort()
+    print('  %12s %12s %12s' % ('BORDA', 'APLICACAO', 'DIFERENCA'))
+    for c, sv in pares[:6]:
+        print('  %10.1fms %10.1fms %10.1fms' % (c, sv, c - sv))
+    med = pares[len(pares)//2]
+    print()
+    print('  mediana: a borda respondeu em %.1fms, dos quais %.1fms foram a aplicacao.' % (med[0], med[1]))
+    print('  o que sobra -- %.1fms -- e o que a plataforma cobra por requisicao.' % (med[0]-med[1]))
+\""
+  echo
+  _look "a diferenca entre as duas colunas e o custo da policy, MEDIDO"
+  echo
+  _why "Dentro daqueles milissegundos estao duas chamadas gRPC fora do processo"
+  _why "-- autenticacao e rate limit -- mais o roteamento. Nenhum contador do"
+  _why "mundo separa isso: 'a API respondeu em 18ms' e um numero so, e a conta"
+  _why "de quem vende a plataforma depende de saber qual pedaco e dela."
+  _say  "Esta e a resposta para a pergunta mais dificil que voces vao ouvir depois de comprar: quanto isto custa em latencia. Nao e estimativa, e nao e benchmark de fabricante — e este cluster, agora, com as policies de voces."
+  echo
+
+  _why "3. E agora a parte que quase ninguem mostra: ONDE a visibilidade acaba."
+  _pause || return 0
+  _do_as "quantos servicos cada trace do travels alcanca" \
+    bash -c "curl -sk --max-time 30 -H 'Authorization: Bearer ${tok}' '${base}/traces?service=travels.travel-agency&limit=12' 2>/dev/null | python3 -c \"
+import sys, json
+from collections import Counter
+d = json.load(sys.stdin)
+c = Counter(); exemplo = {}
+for t in (d.get('data') or []):
+    procs = {k: v.get('serviceName') for k, v in (t.get('processes') or {}).items()}
+    svcs = sorted({procs.get(sp.get('processID'), '?') for sp in t.get('spans', [])})
+    c[len(svcs)] += 1
+    exemplo.setdefault(len(svcs), svcs)
+if not c:
+    print('  sem trace do travels na janela -- gere trafego de fan-out: bash scripts/traffic.sh mesh')
+for n in sorted(c):
+    print('  %2d trace(s) alcancam %d servico(s): %s' % (c[n], n, ', '.join(exemplo[n])))
+\""
+  echo
+  _look "o fan-out tem SEIS servicos atras do travels, e o trace alcanca dois"
+  echo
+  _why "Nao e defeito de coleta, e a conta que ninguem conta na hora de vender:"
+  _why "o Service Mesh instrumenta o TRANSPORTE. Ele abre um span em cada salto"
+  _why "que passa pelo proxy, sem tocar no codigo -- e essa e a metade dificil."
+  _why "Mas so a APLICACAO pode levar o cabecalho de correlacao de uma chamada"
+  _why "que ela RECEBEU para a proxima que ela FAZ. Onde o codigo nao repassa o"
+  _why "header, a arvore se parte em pedacos orfaos, cada um correto e sozinho."
+  echo
+  _say  "Instalar mesh nao da observabilidade de graca: ele entrega a metade dificil, e a outra metade sao tres linhas por servico. E o pedido mais barato que uma plataforma ja fez a um time de aplicacao — e e melhor combinar isso na sala, hoje, do que descobrir na primeira semana."
+  echo
+  _why "E a razao de mostrar isto em vez de esconder: quem compra esperando"
+  _why "arvore completa descobre na primeira semana e sente que foi vendido."
+  _why "Quem conhece a conta faz o trabalho, e colhe a arvore."
+  _log  "a tela: $(_tempo_api | sed 's#/api.*##')  -- servico prod-web-istio.ingress-gateway"
 }
 
 step_falha() {

@@ -536,6 +536,73 @@ que o resto do tráfego.
 
 ---
 
+## Passo 5b — O que um contador não responde *(4 min, extra)*
+
+```bash
+bash scripts/demo.sh trace
+```
+
+Não muda estado. Posição natural: **logo depois do passo 4**, enquanto a métrica
+ainda está na cabeça de todos, ou como aprofundamento do passo 5.
+
+Este passo existe porque o Ato 5 **mostra** tracing e não **justifica** tracing.
+A plateia sai sabendo que a tela existe, sem saber por que ela teria de
+existir — e é essa a pergunta que decide se alguém vai instrumentar ou não.
+
+**O que aparece**
+
+```
+       BORDA    APLICACAO    DIFERENCA
+      18.8ms       12.7ms        6.1ms
+      19.3ms       12.8ms        6.5ms
+      19.5ms       12.8ms        6.8ms
+
+mediana: a borda respondeu em 19.5ms, dos quais 12.8ms foram a aplicacao.
+o que sobra -- 6.8ms -- e o que a plataforma cobra por requisicao.
+```
+
+**O que explicar.** Métrica **agrega**: soma requisições diferentes num número
+só. Trace **correlaciona**: amarra os pedaços de uma requisição. São perguntas
+diferentes, e a segunda tem dono — *quanto essa policy me custa em latência?*
+não é respondível por contador nenhum.
+
+O mesmo salto aparece duas vezes no trace, uma de cada ponta: o span do gateway
+(`span.kind=client`) é o que o cliente esperou; o span da aplicação
+(`span.kind=server`) é o que ela levou. A diferença é a borda: duas chamadas
+gRPC fora do processo, autenticação e rate limit, mais o roteamento.
+
+> *"Esta é a resposta para a pergunta mais difícil que vocês vão ouvir depois de
+> comprar: quanto isto custa em latência. Não é estimativa, e não é benchmark de
+> fabricante — é este cluster, agora, com as policies de vocês."*
+
+**O terceiro movimento é o que quase ninguém mostra.** O fan-out tem seis
+serviços atrás do `travels`, e o trace alcança dois:
+
+```
+ 3 trace(s) alcancam 1 servico(s): travels
+ 9 trace(s) alcancam 2 servico(s): insurances, travels
+```
+
+Não é defeito de coleta. O Service Mesh instrumenta o **transporte**: abre um
+span em cada salto que passa pelo proxy, sem tocar no código, e essa é a metade
+difícil. Mas só a **aplicação** pode levar o cabeçalho de correlação de uma
+chamada que recebeu para a próxima que faz. Onde o código não repassa o header,
+a árvore se parte em pedaços órfãos, cada um correto e sozinho.
+
+> *"Instalar mesh não dá observabilidade de graça: ele entrega a metade difícil,
+> e a outra metade são três linhas por serviço."*
+
+Mostrar isso no palco é uma escolha deliberada. Quem compra esperando árvore
+completa descobre na primeira semana e sente que foi vendido; quem conhece a
+conta faz o trabalho e colhe a árvore.
+
+> **Por que o passo não usa o `429`.** A ideia óbvia — contrastar o trace de uma
+> requisição servida com o de uma recusada — não se sustenta: medido em
+> 2026-09-17, as requisições recusadas pelo limite **não produzem trace de forma
+> confiável** neste cluster. O par pai/filho de um `200`, sim, e é determinístico.
+
+---
+
 ## Passo 6 — A policy nasce com o serviço *(8 min, opcional)*
 
 ```bash
