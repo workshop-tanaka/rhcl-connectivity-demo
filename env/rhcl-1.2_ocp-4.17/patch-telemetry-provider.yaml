@@ -1,0 +1,13 @@
+# O extensionProvider de tracing do sandbox do workshop chama-se 'otel'; o que
+# a base/ referencia -- 'otel-tracing' -- e o nome que
+# platform-reference/mesh-control-plane/istio.yaml declara, e ali o CR Istio e
+# nosso. Aqui ele e do Argo (Application 'istio-system'), entao quem se adapta
+# e a demo.
+#
+# Provider errado nao da erro visivel: o proxy reclama nos proprios logs, o
+# bloco de tracing sai sem provider e a aba Traces abre vazia. Conferir com:
+#
+#   oc get cm istio -n istio-system -o jsonpath='{.data.mesh}' | grep -A3 extensionProviders
+- op: replace
+  path: /spec/tracing/0/providers/0/name
+  value: otel

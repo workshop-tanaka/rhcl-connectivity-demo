@@ -1,0 +1,27 @@
+# ===========================================================================
+# Tracing do travel-agency -- declarado, e nao herdado.
+#
+# Sem este arquivo o namespace depende da Telemetry do rootNamespace
+# (platform-reference/mesh-control-plane/telemetry-tracing.yaml). Isso funciona
+# enquanto NOSSA Telemetry for a unica la. Medido em 2026-09-17, cluster-45bp4:
+# quando o root ja tem uma Telemetry de outro dono -- ali a 'namespace-metrics'
+# do Argo do workshop, 14 dias mais velha e so com metricas -- e ELA que vale,
+# e o tracing herdado simplesmente nao existe. Duas Telemetry no mesmo
+# namespace: a mais antiga ganha, sem erro e sem aviso.
+#
+# Declarar aqui tira a demo dessa disputa: o fan-out do travels aparece no
+# Tempo em qualquer cluster, seja quem for o dono do rootNamespace.
+#
+# Sobre o provider 'otel-tracing' e o que fazer onde o CR Istio usa outro nome,
+# ver o cabecalho de istio-partner-dimension.yaml, ao lado.
+# ===========================================================================
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: tracing-default
+  namespace: travel-agency
+spec:
+  tracing:
+    - providers:
+        - name: otel-tracing
+      randomSamplingPercentage: 100
