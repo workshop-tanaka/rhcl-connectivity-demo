@@ -87,6 +87,11 @@ URL="https://${HOST}${API_PATH}"
 # O label kuadrant.io/plan-id e o mesmo que o PlanPolicy usa no predicate --
 # ler daqui garante que o script e a policy nunca divergem.
 declare -a TIERS=() KEYS=()
+_keys_by() { # _keys_by <ns> <selector> -> "tier<TAB>api_key_b64" por tier, um so de cada
+  oc get secrets -n "$1" -l "$2" \
+    -o jsonpath='{range .items[*]}{.metadata.labels.kuadrant\.io/plan-id}{"\t"}{.data.api_key}{"\n"}{end}' 2>/dev/null \
+    | awk -F'\t' '!seen[$1]++'
+}
 _load_keys() {
   local line ns=kuadrant-system sel
   # TESTE=1 troca o conjunto de chaves: as de finalidade=teste carregam o
@@ -96,14 +101,27 @@ _load_keys() {
   # o apiproduct entra no seletor: sem ele, a chave de teste do ECHO (mesmo
   # plano gold, produto errado) vence por ordem alfabetica e o tier inteiro
   # da 401 -- medido em 2026-08-31, no primeiro TESTE=1
-  sel="app=partner,devportal.kuadrant.io/apiproduct=travels-api,rhcl.demo/finalidade!=teste"
-  [[ "${TESTE:-0}" == "1" ]] && sel="app=partner,devportal.kuadrant.io/apiproduct=travels-api,rhcl.demo/finalidade=teste"
+  #
+  # ...mas o label do apiproduct so existe onde ha DEVPORTAL, e o devportal e da
+  # camada da release 1.4. No sandbox 1.2 as chaves dos PARCEIROS nao o carregam
+  # (as de teste carregam, porque vem da base/), o seletor estrito devolvia zero
+  # e o script morria mandando aplicar o overlay que ja estava aplicado --
+  # medido em 2026-09-17 no cluster-45bp4. Dai a segunda tentativa: so roda
+  # quando a primeira volta vazia, entao onde ha devportal o seletor estrito
+  # continua sendo o que vale e a chave do echo nunca entra.
+  local fin="!=" ; [[ "${TESTE:-0}" == "1" ]] && fin="="
+  sel="app=partner,devportal.kuadrant.io/apiproduct=travels-api,rhcl.demo/finalidade${fin}teste"
   while IFS=$'\t' read -r tier b64; do
     [[ -z "$tier" || -z "$b64" ]] && continue
     TIERS+=("$tier"); KEYS+=("$(printf '%s' "$b64" | base64 -d)")
-  done < <(oc get secrets -n "$ns" -l "$sel" \
-             -o jsonpath='{range .items[*]}{.metadata.labels.kuadrant\.io/plan-id}{"\t"}{.data.api_key}{"\n"}{end}' 2>/dev/null \
-           | awk -F'\t' '!seen[$1]++')
+  done < <(_keys_by "$ns" "$sel")
+  if [[ ${#TIERS[@]} -eq 0 ]]; then
+    sel="app=partner,rhcl.demo/finalidade${fin}teste"
+    while IFS=$'\t' read -r tier b64; do
+      [[ -z "$tier" || -z "$b64" ]] && continue
+      TIERS+=("$tier"); KEYS+=("$(printf '%s' "$b64" | base64 -d)")
+    done < <(_keys_by "$ns" "$sel")
+  fi
   [[ ${#TIERS[@]} -gt 0 ]] || _die "nenhum Secret com 'app: partner' em ${ns}. Aplicou 'oc apply -k ${OVERLAY}'?"
 }
 
