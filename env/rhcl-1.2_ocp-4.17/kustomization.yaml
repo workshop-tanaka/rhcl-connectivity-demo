@@ -28,6 +28,14 @@ resources:
   - ../../base
 
 patches:
+  # Nome do extensionProvider de tracing: 'otel' neste sandbox, 'otel-tracing'
+  # na base/. Sem name no target, vale para as duas Telemetry que a base/ traz
+  # com bloco tracing (partner-dimension e tracing-default).
+  - path: patch-telemetry-provider.yaml
+    target:
+      group: telemetry.istio.io
+      version: v1
+      kind: Telemetry
   # JSON 6902 (nao strategic merge): HTTPRoute e CRD sem schema conhecido pelo
   # kustomize -- um merge de lista sobrescreveria campos vizinhos. O patch
   # posicional altera so o campo alvo.

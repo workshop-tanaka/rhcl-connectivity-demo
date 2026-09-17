@@ -29,6 +29,25 @@
 # medir por PLANO e deixar a atribuicao individual para log ou trace.
 #
 # Escopo: namespace do Gateway, entao vale para toda rota atras do prod-web.
+#
+# ---------------------------------------------------------------------------
+# O BLOCO 'tracing' ABAIXO NAO E ENFEITE -- medido em 2026-09-17, cluster-45bp4.
+#
+# Uma Telemetry no namespace do workload NAO se mescla com a do rootNamespace:
+# ela a SUBSTITUI inteira. Entao esta Telemetry, que existe pelas metricas,
+# apagava em silencio o tracing que a Telemetry de istio-system manda emitir --
+# e o Gateway, justamente a peca cujo span abre o trace da demo, parava de
+# exportar. Nenhum erro em lugar nenhum: o proxy fica com sampling e sem
+# provider, o collector nao recebe nada, a aba Traces abre vazia.
+#
+# Conferir no proprio Envoy, que e onde a verdade mora (AUSENTE = quebrado):
+#
+#   oc exec -n ingress-gateway <pod-do-gateway> -- pilot-agent request GET config_dump \
+#     | python3 -c 'import json,sys; d=json.load(sys.stdin); print([f["typed_config"].get("tracing",{}).get("provider","AUSENTE") for c in d["configs"] if "Listeners" in c["@type"] for l in c.get("dynamic_listeners",[]) for fc in l.get("active_state",{}).get("listener",{}).get("filter_chains",[]) for f in fc.get("filters",[]) if "HttpConnectionManager" in f.get("typed_config",{}).get("@type","")][:1])'
+#
+# O nome 'otel-tracing' e o provider que platform-reference/mesh-control-plane/
+# istio.yaml declara. Onde o CR Istio e de outro dono e usa outro nome (no
+# sandbox do workshop e 'otel'), quem corrige e a camada env/ da release.
 # ===========================================================================
 apiVersion: telemetry.istio.io/v1
 kind: Telemetry
@@ -36,6 +55,10 @@ metadata:
   name: partner-dimension
   namespace: ingress-gateway
 spec:
+  tracing:
+    - providers:
+        - name: otel-tracing
+      randomSamplingPercentage: 100
   metrics:
     - providers:
         - name: prometheus

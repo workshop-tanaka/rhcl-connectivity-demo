@@ -5,3 +5,4 @@ kind: Kustomization
 resources:
   - prod-web-telemetry.yaml
   - istio-partner-dimension.yaml
+  - istio-tracing-travel-agency.yaml
