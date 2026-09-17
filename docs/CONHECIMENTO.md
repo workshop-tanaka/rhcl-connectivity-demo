@@ -31,6 +31,42 @@ sem acentuação em comentários de script.
 Cluster de workshop, com prazo de validade. Tudo nesta seção envelhece; a
 seção 5 (armadilhas) não.
 
+### 2026-09-17 — ambiente ATUAL: `cluster-45bp4`, sandbox do workshop, RHCL 1.2.1
+
+Sandbox do **Application Connectivity Workshop**, não um cluster provisionado
+por nós. Aqui a demo **não roda o `provision.sh`**: a plataforma inteira é
+entregue pelo Argo CD do workshop, de
+`github.com/app-connectivity-workshop/acw-helm`, em 16 Applications quase todas
+com `selfHeal` ligado. A demo entra só com a camada de `overlays/`.
+
+| Item | Valor em 2026-09-17 |
+| --- | --- |
+| API | `https://api.cluster-45bp4.45bp4.sandbox940.opentlc.com:6443` |
+| OpenShift | 4.17.56 — **1 node** na AWS, 16 vCPU / 64 Gi, disco raiz 106 GB |
+| RHCL | `rhcl-operator.v1.2.1` — Authorino 1.2.4, Limitador 1.2.0 |
+| Service Mesh | OSSM `servicemeshoperator3.v3.1.8`, Istio **1.26.8**, sidecar |
+| Borda | `Gateway/prod-web` com **ELB**, `DNSPolicy` e `TLSPolicy` — **não há Route**, e não deve haver |
+| Hosts | `api.travels.sandbox940.opentlc.com` e `echo.travels.sandbox940...` |
+| Overlay | `overlays/cluster-45bp4` (gerado), que herda `env/rhcl-1.2_ocp-4.17` |
+| TLS | Let's Encrypt (CN=YR1) por cert-manager, válido até **2026-12-02** |
+| Não existe | RHDH, GitLab, Keycloak, Quay, ACS, Pipelines, Dev Spaces, COO |
+
+**Os Atos 1 a 5 e o 7 estão de pé**; o 6 (portal e golden path) fica de fora —
+RHDH e GitLab somam ~2,8 c de request e ~73 Gi de PVC, e o nó não comporta.
+`preflight.sh` fecha em `[OK] demo pode ser apresentada` com 4 avisos, todos
+ausências conhecidas (Dev Spaces, COO, RHDH, GitLab).
+
+**O que este ambiente ensinou, e que valia para o 1.4 também:** a demo apagava
+o próprio tracing (§5.11) e o binding do Grafana roubava o subject de quem já
+estava no cluster (§5.12). Nenhum dos dois era visível nos ambientes anteriores,
+onde o repositório era o único dono de tudo.
+
+**Reaplicar do zero:** `bash scripts/new-env.sh` (detecta a release 1.2 e tira
+o hostname do listener do Gateway), depois o `oc replace` da
+`travel-agency-authpolicy` que o script imprime — a do workshop usa
+`spec.defaults` e a do repositório usa `spec.rules`, e o `apply` soma os dois —
+e então `oc apply -k overlays/<slug>`.
+
 > **2026-08-30: o cluster-cxr7d foi DESLIGADO, não destruído.** O ambiente
 > seguinte valida o processo de reprovisionamento do zero — a ordem está em
 > `docs/PROVISIONING-1.4.md` e o custo medido de cada etapa sai de
@@ -480,6 +516,60 @@ real, mas não é durável, e tratá-la como fato final produz cinco falsos para
 verdadeiro. Foi o que aconteceu com a sineta do plugin de Connectivity Link, e
 por isso ela só avisa depois que a queda **persiste** por 15 s — ver
 [`plugins/connectivity-link-ops-backend/README.md`](../plugins/connectivity-link-ops-backend/README.md).
+
+---
+
+### 5.11 Telemetry do namespace SUBSTITUI a do root — não se mescla
+
+Duas regras da Telemetry API do Istio, medidas em **2026-09-17** no
+`cluster-45bp4`, e nenhuma delas produz erro em lugar nenhum:
+
+1. Uma `Telemetry` no namespace do workload **não se mescla** com a do
+   `rootNamespace`: substitui. Uma `Telemetry` só de métricas naquele namespace
+   apaga o tracing herdado.
+2. Havendo **mais de uma** `Telemetry` no mesmo namespace, a **mais antiga**
+   vence. Num cluster de terceiros isso costuma ser a do outro dono.
+
+As duas juntas explicavam por que o Ato 5 não tinha tela com a cadeia inteira
+saudável: Tempo `Ready`, collector sem erro, `extensionProvider` declarado no CR
+Istio, `Telemetry` de tracing aplicada — e **zero** span exportado. A demo
+apagava o próprio tracing com a `partner-dimension`, que existe pelas métricas
+do Ato 4 e mora justamente no namespace do Gateway.
+
+**Onde a verdade está — no Envoy, e só nele.** `provider` ausente significa que
+o proxy não exporta nada, por mais que sampling e `custom_tags` estejam lá:
+
+```bash
+oc exec -n ingress-gateway <pod-do-gateway> -- pilot-agent request GET config_dump \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print([f["typed_config"].get("tracing",{}).get("provider","AUSENTE") for c in d["configs"] if "Listeners" in c["@type"] for l in c.get("dynamic_listeners",[]) for fc in l.get("active_state",{}).get("listener",{}).get("filter_chains",[]) for f in fc.get("filters",[]) if "HttpConnectionManager" in f.get("typed_config",{}).get("@type","")][:1])'
+```
+
+A correção está em `base/policies-telemetry/`: a `partner-dimension` ganhou
+bloco `tracing`, e o `travel-agency` ganhou `Telemetry` própria — declarada em
+vez de herdada, para sair da disputa por quem é dono do `rootNamespace`.
+
+O **nome** do provider é do cluster, não do repositório: `otel-tracing` onde o
+CR Istio é nosso, `otel` no sandbox do workshop. Quem corrige é a camada
+`env/` da release.
+
+---
+
+### 5.12 Nome de ClusterRoleBinding é do binding, nunca do ClusterRole
+
+O binding do Grafana chamava-se `cluster-monitoring-view`, igual ao ClusterRole
+que referencia. Nome genérico: outros stacks de observabilidade criam um com
+exatamente esse nome — o Argo do workshop tinha o seu, com a SA `thanos-query`
+dentro.
+
+**`oc apply` num ClusterRoleBinding existente SUBSTITUI a lista de subjects.**
+A quebra que isso produz é da pior espécie: o nosso datasource passa a
+funcionar e o do outro dono começa a devolver 403 em todo painel, sem nada do
+nosso lado parecer errado. Onde o binding é de um Argo com `selfHeal`, a troca
+ainda volta sozinha minutos depois, e o sintoma vai e vem.
+
+Vale para qualquer objeto **cluster-scoped** que o repositório aplique:
+ClusterRole, ClusterRoleBinding, CRD, IngressClass, GatewayClass. Namespace
+protege; escopo de cluster, não. Prefixar com `rhcl-` é a regra.
 
 ---
 

@@ -8,7 +8,7 @@ Executada em duas releases, e o overlay muda com a release:
 
 | Ambiente | Overlay | Estado |
 | --- | --- | --- |
-| RHCL 1.2.1 / OCP 4.17 | `overlays/provisioned` | validado; sandbox expirado |
+| RHCL 1.2.1 / OCP 4.17 | `overlays/provisioned` | validado; **revalidado em 2026-09-17** num sandbox do workshop |
 | **RHCL 1.4.2 / OCP 4.21** | `overlays/rhcl-1.4` | **release suportada** |
 
 Esta tabela lista **releases**, não clusters. O cluster de cada vez é efêmero e

@@ -11,8 +11,8 @@ Tudo aqui foi executado, em duas releases. Não é roteiro teórico.
 
 | Ambiente | Overlay | Estado |
 | --- | --- | --- |
-| RHCL 1.2.1 / OCP 4.17 (`sandbox5518.opentlc.com`) | `overlays/provisioned` | validado; sandbox expirado |
-| **RHCL 1.4.2 / OCP 4.21** (`cluster-w4xtj.dyn.redhatworkshops.io`) | `overlays/rhcl-1.4` | **ambiente atual** |
+| RHCL 1.2.1 / OCP 4.17 (sandbox do workshop) | `overlays/provisioned` | validado; **revalidado em 2026-09-17** — Atos 1 a 5 e 7, sem o 6 |
+| **RHCL 1.4.2 / OCP 4.21** | `overlays/rhcl-1.4` | **release suportada** |
 
 Onde as duas divergem, o texto marca qual release está descrevendo. A diferença
 que mais custa é o **Ato 3**: o 1.4 inverteu a precedência entre a
