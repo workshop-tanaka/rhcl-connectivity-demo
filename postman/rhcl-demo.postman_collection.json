@@ -14,11 +14,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://api-travels.{{apps_domain}}/travels/Rome",
+              "raw": "https://{{api_host}}/travels/Rome",
               "protocol": "https",
               "host": [
-                "api-travels",
-                "{{apps_domain}}"
+                "{{api_host}}"
               ],
               "path": [
                 "travels",
@@ -46,11 +45,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://api-travels.{{apps_domain}}/travels/Rome?APIKEY=nao-existe",
+              "raw": "https://{{api_host}}/travels/Rome?APIKEY=nao-existe",
               "protocol": "https",
               "host": [
-                "api-travels",
-                "{{apps_domain}}"
+                "{{api_host}}"
               ],
               "path": [
                 "travels",
@@ -83,11 +81,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://echo-travels.{{apps_domain}}/qualquer",
+              "raw": "https://{{echo_host}}/qualquer",
               "protocol": "https",
               "host": [
-                "echo-travels",
-                "{{apps_domain}}"
+                "{{echo_host}}"
               ],
               "path": [
                 "qualquer"
@@ -130,11 +127,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://api-travels.{{apps_domain}}/travels/Rome?APIKEY={{api_key_free}}",
+              "raw": "https://{{api_host}}/travels/Rome?APIKEY={{api_key_free}}",
               "protocol": "https",
               "host": [
-                "api-travels",
-                "{{apps_domain}}"
+                "{{api_host}}"
               ],
               "path": [
                 "travels",
@@ -169,11 +165,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://api-travels.{{apps_domain}}/travels/Rome?APIKEY={{api_key_silver}}",
+              "raw": "https://{{api_host}}/travels/Rome?APIKEY={{api_key_silver}}",
               "protocol": "https",
               "host": [
-                "api-travels",
-                "{{apps_domain}}"
+                "{{api_host}}"
               ],
               "path": [
                 "travels",
@@ -207,11 +202,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://api-travels.{{apps_domain}}/travels/Rome?APIKEY={{api_key_gold}}",
+              "raw": "https://{{api_host}}/travels/Rome?APIKEY={{api_key_gold}}",
               "protocol": "https",
               "host": [
-                "api-travels",
-                "{{apps_domain}}"
+                "{{api_host}}"
               ],
               "path": [
                 "travels",
@@ -244,11 +238,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://api-travels.{{apps_domain}}/travels/Rome?APIKEY={{api_key_free}}",
+              "raw": "https://{{api_host}}/travels/Rome?APIKEY={{api_key_free}}",
               "protocol": "https",
               "host": [
-                "api-travels",
-                "{{apps_domain}}"
+                "{{api_host}}"
               ],
               "path": [
                 "travels",
@@ -278,7 +271,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const u = pm.variables.replaceIn('https://api-travels.{{apps_domain}}/travels/Rome?APIKEY={{api_key_free}}');",
+                  "const u = pm.variables.replaceIn('https://{{api_host}}/travels/Rome?APIKEY={{api_key_free}}');",
                   "function bate(n, done) {",
                   "  if (n === 0) return done();",
                   "  pm.sendRequest(u, () => bate(n - 1, done));",
@@ -300,11 +293,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://pacotes-travels.{{apps_domain}}/api/saude",
+              "raw": "https://{{pacotes_host}}/api/saude",
               "protocol": "https",
               "host": [
-                "pacotes-travels",
-                "{{apps_domain}}"
+                "{{pacotes_host}}"
               ],
               "path": [
                 "api",
@@ -335,11 +327,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://pacotes-travels.{{apps_domain}}/api/pacotes?tier=free&limite=200",
+              "raw": "https://{{pacotes_host}}/api/pacotes?tier=free&limite=200",
               "protocol": "https",
               "host": [
-                "pacotes-travels",
-                "{{apps_domain}}"
+                "{{pacotes_host}}"
               ],
               "path": [
                 "api",
@@ -379,11 +370,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://pacotes-travels.{{apps_domain}}/api/pacotes?tier=gold&limite=200",
+              "raw": "https://{{pacotes_host}}/api/pacotes?tier=gold&limite=200",
               "protocol": "https",
               "host": [
-                "pacotes-travels",
-                "{{apps_domain}}"
+                "{{pacotes_host}}"
               ],
               "path": [
                 "api",
@@ -424,11 +414,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://pacotes-travels.{{apps_domain}}/api/pacotes/Roma",
+              "raw": "https://{{pacotes_host}}/api/pacotes/Roma",
               "protocol": "https",
               "host": [
-                "pacotes-travels",
-                "{{apps_domain}}"
+                "{{pacotes_host}}"
               ],
               "path": [
                 "api",
@@ -457,7 +446,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.sendRequest(pm.variables.replaceIn('https://pacotes-travels.{{apps_domain}}/api/pacotes/Roma'), () => console.log('aquecido'));"
+                  "pm.sendRequest(pm.variables.replaceIn('https://{{pacotes_host}}/api/pacotes/Roma'), () => console.log('aquecido'));"
                 ]
               }
             }
@@ -469,11 +458,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://pacotes-travels.{{apps_domain}}/api/pacotes/Xanadu",
+              "raw": "https://{{pacotes_host}}/api/pacotes/Xanadu",
               "protocol": "https",
               "host": [
-                "pacotes-travels",
-                "{{apps_domain}}"
+                "{{pacotes_host}}"
               ],
               "path": [
                 "api",
@@ -516,11 +504,10 @@
               }
             ],
             "url": {
-              "raw": "https://pacotes-travels.{{apps_domain}}/api/reservas",
+              "raw": "https://{{pacotes_host}}/api/reservas",
               "protocol": "https",
               "host": [
-                "pacotes-travels",
-                "{{apps_domain}}"
+                "{{pacotes_host}}"
               ],
               "path": [
                 "api",
@@ -566,11 +553,10 @@
               }
             ],
             "url": {
-              "raw": "https://pacotes-travels.{{apps_domain}}/api/reservas",
+              "raw": "https://{{pacotes_host}}/api/reservas",
               "protocol": "https",
               "host": [
-                "pacotes-travels",
-                "{{apps_domain}}"
+                "{{pacotes_host}}"
               ],
               "path": [
                 "api",
@@ -614,11 +600,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://bookinfo.{{apps_domain}}/productpage",
+              "raw": "https://{{bookinfo_host}}/productpage",
               "protocol": "https",
               "host": [
-                "bookinfo",
-                "{{apps_domain}}"
+                "{{bookinfo_host}}"
               ],
               "path": [
                 "productpage"
@@ -645,11 +630,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://bookinfo.{{apps_domain}}/api/v1/products",
+              "raw": "https://{{bookinfo_host}}/api/v1/products",
               "protocol": "https",
               "host": [
-                "bookinfo",
-                "{{apps_domain}}"
+                "{{bookinfo_host}}"
               ],
               "path": [
                 "api",
@@ -802,11 +786,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://echo-travels.{{apps_domain}}/x",
+              "raw": "https://{{echo_host}}/x",
               "protocol": "https",
               "host": [
-                "echo-travels",
-                "{{apps_domain}}"
+                "{{echo_host}}"
               ],
               "path": [
                 "x"
@@ -847,11 +830,10 @@
               }
             ],
             "url": {
-              "raw": "https://echo-travels.{{apps_domain}}/x",
+              "raw": "https://{{echo_host}}/x",
               "protocol": "https",
               "host": [
-                "echo-travels",
-                "{{apps_domain}}"
+                "{{echo_host}}"
               ],
               "path": [
                 "x"
@@ -883,11 +865,10 @@
               }
             ],
             "url": {
-              "raw": "https://echo-travels.{{apps_domain}}/x",
+              "raw": "https://{{echo_host}}/x",
               "protocol": "https",
               "host": [
-                "echo-travels",
-                "{{apps_domain}}"
+                "{{echo_host}}"
               ],
               "path": [
                 "x"
@@ -909,7 +890,7 @@
                   "  (e, r) => {",
                   "    const tok = r.json().access_token;",
                   "    pm.environment.set('token_acme', tok);",
-                  "    const alvo = pm.variables.replaceIn('https://echo-travels.{{apps_domain}}/x');",
+                  "    const alvo = pm.variables.replaceIn('https://{{echo_host}}/x');",
                   "    const cab = {Authorization: 'Bearer ' + tok};",
                   "    function bate(n, done) { if (n === 0) return done();",
                   "      pm.sendRequest({url: alvo, method: 'GET', header: cab}, () => bate(n - 1, done)); }",
