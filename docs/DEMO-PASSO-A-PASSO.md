@@ -395,6 +395,100 @@ por plano** — a rajada é o que a plateia vê, a cota é o que está no contra
 
 ---
 
+## Passo 3b — O certificado e o DNS também são policy *(3 min, extra)*
+
+```bash
+bash scripts/demo.sh borda
+```
+
+Não entra no roteiro padrão e não muda estado. A posição natural é **entre o
+passo 3 e o 4**: o 3 mostrou que policy tem precedência declarada, este mostra
+que há mais policies do que as duas que a plateia acabou de ver.
+
+**O que aparece**
+
+```
+TIPO        NOME                  ACCEPTED   ENFORCED
+TLSPolicy   prod-web-tls-policy   True       True
+DNSPolicy   prod-web-dnspolicy    True       True
+
+NOME           PRONTO   SEGREDO   VENCE
+prod-web-api   True     api-tls   2026-12-02T13:36:49Z
+
+api.travels.<sandbox> -> <balanceador do Gateway>
+```
+
+**O que explicar.** Os atos 1 a 4 respondem *quem entra, quanto passa e quanto
+custa*, que é conversa de API management. Este responde à outra metade, e fala
+com quem **opera** a borda em vez de consumi-la.
+
+A `TLSPolicy` tem oito linhas: o emissor e o Gateway. Nenhum nome de
+certificado, nenhum hostname — ela os descobre dos listeners. O que ela produziu
+sozinha é um `Certificate` com data de validade e renovação automática, emitido
+por uma autoridade **pública**, não um self-signed de laboratório.
+
+A `DNSPolicy` é a irmã: publica o endereço do Gateway no provedor de DNS, e quem
+confere é o mundo — o `dig` resolve para o balanceador, não para um registro que
+alguém criou à mão e vai esquecer de apagar.
+
+> *"Seis policies, um alvo. Autenticação, limite, plano, telemetria, certificado
+> e DNS — todas mirando o mesmo Gateway, todas com status próprio, nenhuma
+> escondida num campo de anotação."*
+
+É a frase que fecha a tese: uma plataforma de API governa a borda inteira, não
+só o que passa por ela.
+
+> **Onde o ato não roda.** Num cluster sem `TLSPolicy`/`DNSPolicy` aplicadas
+> — o provisionamento do repositório usa o wildcard que o cluster já tem, pela
+> armadilha 6 — as duas primeiras linhas saem vazias. Ali o ato vira conversa
+> sobre o que *poderia* estar declarado, e é melhor cortá-lo.
+
+---
+
+## Passo 4b — O que acontece quando a policy cai *(4 min, extra, MUDA ESTADO)*
+
+```bash
+bash scripts/demo.sh degrada
+```
+
+A pergunta vem sozinha depois do passo 2, e até 2026-09-17 era respondida só de
+boca. Posição natural: **depois do passo 4**, ou na hora em que alguém
+perguntar.
+
+**O que aparece** — a mesma rajada, duas vezes:
+
+```
+Limitador de pe    200 200 200 429 429 429 429 429 429 429 429 429 429 429
+Limitador em zero  200 200 200 200 200 200 200 200 200 200 200 200 200 200
+```
+
+**O que explicar.** O rate limit **falha aberto**: sem quem contar, o gateway
+serve em vez de recusar. Perde-se a contagem, não a venda. A autenticação faz o
+**oposto**, e de propósito: sem o Authorino a requisição é recusada — perde-se a
+venda, não o controle de acesso.
+
+> *"Um gateway que falha fechado no rate limit transforma um incidente de
+> telemetria em indisponibilidade. Este falha aberto, e isso é uma decisão de
+> produto, não um descuido."*
+
+Os dois modos estão certos porque respondem a perguntas diferentes: *quem é
+você* não admite dúvida, *quantas vezes você já veio* admite.
+
+**Por que o passo mede em vez de ler.** No RHCL 1.2 o comportamento de falha
+vive dentro do `WasmPlugin`, não numa config do Envoy: não há `failure_mode_allow`
+em lugar nenhum do `config_dump` (conferido em 2026-09-17). O contador é a única
+prova honesta, e é por isso que este passo derruba o Limitador de verdade.
+
+> **Não derrube o Authorino no palco** para mostrar o espelho. O efeito é a demo
+> inteira parar de responder, e o caminho de volta passa por um rollout no meio
+> do ato.
+
+O revert está em `trap` e roda nos dois caminhos de saída, inclusive `Ctrl-C`.
+A cota do dia não se perde: o contador é do Redis do próprio Limitador, e ele
+volta com o que tinha.
+
+---
+
 ## Passo 5 — O caminho todo é rastreável *(3 min)*
 
 ```bash

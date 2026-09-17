@@ -55,7 +55,28 @@ AUTO="${AUTO:-0}"
 MESH_SECS="${MESH_SECS:-240}"
 SOAK_SECS="${SOAK_SECS:-180}"
 
-STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 falha reset pos)
+# ---------------------------------------------------------------------------
+# COPIA DELIBERADA de scripts/preflight.sh (job anti-drift guarda as tres).
+# Ate 2026-09-17 este script tinha 'overlays/rhcl-1.4' escrito a mao em dois
+# lugares -- inclusive no 'pos', que REAPLICA o overlay. Num sandbox 1.2 isso
+# reescreveria o hostname da HTTPRoute para o cluster de referencia do 1.4 e
+# derrubaria a demo no passo que existe para conserta-la.
+_overlay() {
+  local v
+  v="$(oc get csv -A --no-headers 2>/dev/null | grep -i 'rhcl-operator' \
+        | awk '{print $2}' | head -1 | sed 's/.*\.v//')"
+  case "$v" in
+    1.4*|1.5*|1.6*|2.*) printf 'overlays/rhcl-1.4' ;;
+    1.2*|1.3*)          printf 'overlays/provisioned' ;;
+    # Sem CSV legivel (RBAC restrito, operator instalado fora do OLM) o palpite
+    # seguro e o ambiente atual: errar para o 1.4 estraga menos que mandar
+    # aplicar o overlay do sandbox expirado.
+    *)                  printf 'overlays/rhcl-1.4' ;;
+  esac
+}
+OVERLAY="$(_overlay)"
+
+STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda degrada falha reset pos)
 # O default e o nucleo da tese. Ato 6 e 7 sao opcionais e longos; 'aquece',
 # 'falha' e 'reset' mudam estado e nunca devem entrar sem alguem pedir.
 STEPS_DEFAULT=(ato1 ato2 ato3 ato4 ato5)
@@ -82,6 +103,11 @@ O roteiro (o default, sem argumento, e ato1..ato5 — ~20 min):
   ato5     O caminho todo e rastreavel          (3 min)
   ato6     A policy nasce com o servico — RHDH  (8 min, opcional)
   ato7     A borda nao e a unica fronteira      (8 min, opcional)
+
+Atos extras, fora do default (cada um roda sozinho):
+
+  borda    O certificado e o DNS tambem sao policy   (3 min, entre 3 e 4)
+  degrada  O que acontece quando a policy cai        (4 min, MUDA ESTADO)
 
 Depois:
 
@@ -550,6 +576,111 @@ done"
   _say  "O RHCL respondeu quem entra, quanto pode e quanto custa. O Service Mesh respondeu quem fala com quem, em qual versao, e o que acontece quando quebra. Nenhuma linha de aplicacao mudou em nenhum dos dois."
 }
 
+step_borda() {
+  _title "Ato borda — o certificado e o DNS tambem sao policy" "3 min"
+  _why "Os atos 1 a 4 respondem quem entra, quanto passa e quanto custa. Esta e"
+  _why "a outra metade do que o RHCL governa na borda, e a que fala com quem"
+  _why "opera a plataforma em vez de consumi-la."
+  _why ""
+  _why "Posicao no roteiro: entre o Ato 3 e o Ato 4. O 3 mostrou que policy tem"
+  _why "precedencia declarada; este mostra que ha mais policies do que as duas"
+  _why "que a plateia acabou de ver."
+  _pause || return 0
+  _do oc get tlspolicy,dnspolicy -n ingress-gateway \
+      -o custom-columns='TIPO:.kind,NOME:.metadata.name,ACCEPTED:.status.conditions[?(@.type=="Accepted")].status,ENFORCED:.status.conditions[?(@.type=="Enforced")].status'
+  echo
+  _look "duas policies que ninguem citou ate agora, e as duas Enforced"
+  echo
+  _why "Elas miram o MESMO Gateway das outras. Nao ha um segundo produto, um"
+  _why "segundo operador nem um ticket de infraestrutura no meio."
+  _pause || return 0
+  _do_sh "oc get tlspolicy -n ingress-gateway -o jsonpath='{.items[0].spec}' | python3 -m json.tool"
+  _look "oito linhas: o emissor e o Gateway. Nenhum nome de certificado, nenhum"
+  _look "hostname — a policy os descobre dos listeners."
+  echo
+  _why "E o que ela produziu sozinha:"
+  _pause || return 0
+  _do oc get certificate -n ingress-gateway \
+      -o custom-columns='NOME:.metadata.name,PRONTO:.status.conditions[?(@.type=="Ready")].status,SEGREDO:.spec.secretName,VENCE:.status.notAfter'
+  echo
+  _look "um Certificate que ninguem escreveu, com data de validade e renovacao"
+  _say  "Isto e uma autoridade certificadora publica, nao um self-signed de laboratorio. A policy fala ACME, e o certificado se renova sozinho antes de vencer."
+  echo
+  _why "A DNSPolicy e a irma: ela publica o endereco do Gateway no provedor de"
+  _why "DNS — aqui um provedor externo, via a credencial referenciada no spec."
+  _why "Quem confere e o mundo:"
+  _pause || return 0
+  _do_sh "host=\$(oc get httproute travel-agency -n travel-agency -o jsonpath='{.spec.hostnames[0]}'); printf '%s -> ' \"\$host\"; (command -v dig >/dev/null && dig +short \"\$host\" | head -2 | tr '\n' ' ') || nslookup \"\$host\" 2>/dev/null | tail -2; echo"
+  echo
+  _look "o nome resolve para o balanceador do Gateway, e nao para um registro"
+  _look "que alguem criou a mao e vai esquecer de apagar"
+  echo
+  _say  "Seis policies, um alvo. Autenticacao, limite, plano, telemetria, certificado e DNS — todas mirando o mesmo Gateway, todas com status proprio, nenhuma escondida num campo de anotacao."
+  _why ""
+  _why "E a frase que fecha a tese: uma plataforma de API governa a borda"
+  _why "inteira, nao so o que passa por ela."
+}
+
+step_degrada() {
+  _title "Ato degrada — o que acontece quando a policy cai" "4 min, MUDA ESTADO"
+  _why "Esta e a pergunta que vem sozinha depois do Ato 2, e ate agora era"
+  _why "respondida so de boca. Aqui ela e respondida com o cluster."
+  _why ""
+  _why "O que se mede: o rate limit falha ABERTO. Com o Limitador fora, a"
+  _why "requisicao passa em vez de ser recusada. Perde-se a contagem, nao a"
+  _why "venda. A autenticacao faz o OPOSTO, e de proposito -- mas nao se derruba"
+  _why "o Authorino no palco: o efeito e a demo inteira parar de responder."
+  _why ""
+  _why "Por que MEDIR e nao ler: no RHCL 1.2 o comportamento de falha vive"
+  _why "dentro do WasmPlugin, nao numa config do Envoy. Nao ha campo para"
+  _why "mostrar (conferido em 2026-09-17). O contador e a unica prova honesta."
+  _warn "Isto MUDA ESTADO: o Limitador e escalado para zero e volta no fim do"
+  _warn "passo, inclusive com Ctrl-C. A cota do dia nao se perde -- o contador e"
+  _warn "no Redis do proprio Limitador, e ele volta com o que tinha."
+  _pause || return 0
+
+  local api free; api="$(_api_host)"; free="$(_key_of free)"
+  [[ -n "$free" ]] || { _warn "sem chave do tier free; pulando"; return 0; }
+
+  _why "1. Com o Limitador de pe: o tier free corta na quarta."
+  _do_as "14 requisicoes com a chave free" \
+    bash -c "for i in \$(seq 14); do curl -s -o /dev/null -w '%{http_code} ' 'https://${api}/travels?APIKEY=${free}'; done; echo"
+  echo
+  _look "os 429 aparecem — o limite esta sendo aplicado"
+  echo
+
+  # Revert nos DOIS caminhos, como no passo 'falha': sair no meio deixando o
+  # Limitador em zero derruba o Ato 2 do proximo ensaio, e o preflight avisa
+  # disso de um jeito que parece outro problema ('nao consegui ler os
+  # contadores').
+  _revert_lim() { oc scale deploy/limitador-limitador -n kuadrant-system --replicas=1 >/dev/null 2>&1 || true; }
+  trap '_revert_lim; printf "\n  revertido.\n"; exit 130' INT
+  trap '_revert_lim; trap - INT RETURN' RETURN
+
+  _why "2. Agora o Limitador sai do ar."
+  _pause || return 0
+  _do oc scale deploy/limitador-limitador -n kuadrant-system --replicas=0
+  _do_sh "oc wait --for=delete pod -l app=limitador -n kuadrant-system --timeout=60s 2>/dev/null; sleep 5; oc get pods -n kuadrant-system -l app=limitador --no-headers 2>/dev/null | wc -l | xargs printf 'pods do limitador: %s\n'"
+  echo
+  _why "3. A MESMA rajada, com o contador inalcancavel:"
+  _do_as "14 requisicoes com a chave free" \
+    bash -c "for i in \$(seq 14); do curl -s -o /dev/null -w '%{http_code} ' 'https://${api}/travels?APIKEY=${free}'; done; echo"
+  echo
+  _look "as 14 passam: sem quem contar, o gateway serve em vez de recusar"
+  _say  "Um gateway que falha fechado no rate limit transforma um incidente de telemetria em indisponibilidade. Este falha aberto, e isso e uma decisao de produto, nao um descuido."
+  echo
+  _why "A autenticacao e o espelho: sem o Authorino, a requisicao e recusada."
+  _why "Perde-se a venda, nao o controle de acesso. Os dois modos estao certos"
+  _why "porque respondem a perguntas diferentes -- 'quem e voce' nao admite"
+  _why "duvida, 'quantas vezes voce ja veio' admite."
+  echo
+  _log "restaurando o Limitador"
+  _do oc scale deploy/limitador-limitador -n kuadrant-system --replicas=1
+  _do_sh "oc rollout status deploy/limitador-limitador -n kuadrant-system --timeout=120s"
+  echo
+  _look "de volta. Confirme com: bash scripts/demo.sh ato2"
+}
+
 step_falha() {
   _title "Cenario de falha — degradacao graciosa" "3 min, opcional"
   _why "Derruba o discounts inteiro e mostra a API na borda continuando a"
@@ -588,7 +719,7 @@ step_reset() {
   _look "confirme com: bash scripts/demo.sh ato2"
   _log  "voltar ao estado 'plano', sem tiers, para reapresentar do zero:"
   _log  "  oc delete planpolicy travels-plans -n travel-agency"
-  _log  "  oc apply -k \$(bash scripts/preflight.sh core >/dev/null && echo overlays/rhcl-1.4)"
+  _log  "  oc apply -k ${OVERLAY}"
 }
 
 # ---------------------------------------------------------------------------
@@ -655,7 +786,7 @@ step_pos() {
   if [[ "$rlp" != "0" || "$plan" == "0" ]]; then
     _warn "camada de demo fora do lugar (RLP plana presente, ou PlanPolicy ausente)"
     _log  "reaplicando o overlay desta release"
-    _do oc apply -k overlays/rhcl-1.4
+    _do oc apply -k "$OVERLAY"
     mudou=1
   else
     _ok "camada de demo intacta (PlanPolicy no comando, RLP plana fora)"

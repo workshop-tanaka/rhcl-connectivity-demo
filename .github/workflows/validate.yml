@@ -109,7 +109,7 @@ jobs:
               # a recomendar o overlay da outra release, que reescreve o hostname da
               # HTTPRoute E readiciona a RateLimitPolicy plana: o conserto sugerido
               # causa falha pior que a original.
-              ("_overlay", ["scripts/preflight.sh", "scripts/traffic.sh"]),
+              ("_overlay", ["scripts/preflight.sh", "scripts/traffic.sh", "scripts/demo.sh"]),
               # _discover_rhdh_ns decide QUAL portal recebe a configuracao da demo.
               # Ja divergiu uma vez (2026-08-24, sync-survey.sh sem a guarda do
               # namespace alheio) e ninguem viu, porque a diferenca so aparece em
