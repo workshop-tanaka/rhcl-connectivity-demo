@@ -603,50 +603,6 @@ conta faz o trabalho e colhe a árvore.
 
 ---
 
-## Passo 7b — A promoção acontecendo, ao vivo *(3 min, extra, MUDA ESTADO)*
-
-```bash
-bash scripts/demo.sh canario
-```
-
-O passo 7 mostra um canário **parado** em 90/10: prova que a divisão existe e
-que ela é decisão de plataforma. Este mostra a divisão **se movendo** — 10, 25,
-50, 75, 100 — que é como uma promoção acontece de verdade.
-
-**Abra o painel antes de começar.** No dashboard `rhcl-evidencia`, o medidor
-*Peso efetivo do canário* sobe junto com os passos. É a única tela da demo que
-se mexe enquanto o apresentador fala.
-
-> *"Promover uma versão não é um deploy: é uma linha de peso num YAML. O binário
-> da v2 já estava no ar desde o primeiro passo — o que mudou foi quanto do
-> tráfego chega nele."*
-
-**De onde veio, e o que foi corrigido.** A ideia é do módulo 2 do workshop
-(`app-connectivity-workshop/scripts`, `m2/canary-rollout.sh`). Aquele script
-**termina em `v2=100` e não volta** — e o `VirtualService` que ele altera é o
-mesmo que `base/mesh/virtualservice-discounts.yaml` declara.
-
-Consequência, medida neste cluster em **2026-09-18**: rodar o script do
-workshop antes do passo 7 deixa o ato medindo `0/100` enquanto a narração
-promete `90/10`. O `preflight` apenas **avisa**, porque não tem como saber se a
-mudança foi deliberada:
-
-```
-! pesos do canary: '0 100' (o roteiro conta 90/10)
-```
-
-Aqui o revert está em `trap` e roda nos dois caminhos de saída, inclusive
-`Ctrl-C`. Se mesmo assim algo ficar para trás, uma linha resolve:
-
-```bash
-oc apply -f base/mesh/virtualservice-discounts.yaml
-```
-
-> **Ordem importa.** Se for rodar o módulo 2 do workshop na mesma sessão, rode-o
-> **depois** do passo 7, nunca antes. São dois roteiros sobre o mesmo objeto.
-
----
-
 ## Passo 6 — A policy nasce com o serviço *(8 min, opcional)*
 
 ```bash
@@ -789,6 +745,51 @@ em vermelho. **Não use isso para demonstrar retry ou timeout**: os dois testes
 óbvios falham em silêncio (armadilha 12).
 
 ---
+
+## Passo 7b — A promoção acontecendo, ao vivo *(3 min, extra, MUDA ESTADO)*
+
+```bash
+bash scripts/demo.sh canario
+```
+
+O passo 7 mostra um canário **parado** em 90/10: prova que a divisão existe e
+que ela é decisão de plataforma. Este mostra a divisão **se movendo** — 10, 25,
+50, 75, 100 — que é como uma promoção acontece de verdade.
+
+**Abra o painel antes de começar.** No dashboard `rhcl-evidencia`, o medidor
+*Peso efetivo do canário* sobe junto com os passos. É a única tela da demo que
+se mexe enquanto o apresentador fala.
+
+> *"Promover uma versão não é um deploy: é uma linha de peso num YAML. O binário
+> da v2 já estava no ar desde o primeiro passo — o que mudou foi quanto do
+> tráfego chega nele."*
+
+**De onde veio, e o que foi corrigido.** A ideia é do módulo 2 do workshop
+(`app-connectivity-workshop/scripts`, `m2/canary-rollout.sh`). Aquele script
+**termina em `v2=100` e não volta** — e o `VirtualService` que ele altera é o
+mesmo que `base/mesh/virtualservice-discounts.yaml` declara.
+
+Consequência, medida neste cluster em **2026-09-18**: rodar o script do
+workshop antes do passo 7 deixa o ato medindo `0/100` enquanto a narração
+promete `90/10`. O `preflight` apenas **avisa**, porque não tem como saber se a
+mudança foi deliberada:
+
+```
+! pesos do canary: '0 100' (o roteiro conta 90/10)
+```
+
+Aqui o revert está em `trap` e roda nos dois caminhos de saída, inclusive
+`Ctrl-C`. Se mesmo assim algo ficar para trás, uma linha resolve:
+
+```bash
+oc apply -f base/mesh/virtualservice-discounts.yaml
+```
+
+> **Ordem importa.** Se for rodar o módulo 2 do workshop na mesma sessão, rode-o
+> **depois** do passo 7, nunca antes. São dois roteiros sobre o mesmo objeto.
+
+---
+
 
 ## Depois
 
