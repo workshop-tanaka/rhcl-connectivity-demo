@@ -73,6 +73,47 @@ tráfego rodando em segundo plano por 4 minutos. Nenhum dos dois altera policy.
 
 ---
 
+## A ordem importa — o que cada passo pressupõe
+
+Os passos rodam soltos (`bash scripts/demo.sh ato5`), e isso é bom: numa
+plateia que pergunta, a demo raramente segue a numeração. O risco é outro: um
+passo que **lê** o que outro **produziu** sai com painel vazio e sem erro
+nenhum. A tabela separa os dois tipos de dependência, porque a resposta é
+diferente. A **narrativa** só pede uma frase de contexto; os **dados** e o
+**estado** pedem que outra coisa tenha rodado antes.
+
+| Passo | Dados / estado que precisa | Narrativa | Se faltar |
+| --- | --- | --- | --- |
+| 1 | nada | — | — |
+| 2 | cota do dia com folga; 11 s desde a última rajada; se rodou `aquece`, o reset já veio junto | depois do 1 | tier herda o 429 do anterior, ou três linhas de 429 |
+| 3 | nada (lê status de policy) | cita "os tiers do 2" | — |
+| 3b `borda` | nada | entre o 3 e o 4 | — |
+| **4** | **passo 2 ou `aquece` nos últimos 15 min** — ele só lê | depois do 3 | Grafana vazio, `authorized_calls` sem série, **sem erro** |
+| 4b `degrada` | Limitador de pé (é o que cai e volta) | depois do 2 | — |
+| 5 | nada — gera o próprio fan-out | — | — |
+| 5b `trace` | passo 5 (ou `traffic.sh mesh`) na última hora, para o 3º movimento | depois do 4 | "sem trace do travels na janela" no 3º movimento; os dois primeiros funcionam |
+| 6 | RHDH e GitLab no cluster | depois do 2 | o passo se pula sozinho |
+| 7 | **estado base do Service Mesh**: mTLS `STRICT`, `discounts` em 90/10, sem fault | depois do 1 | sonda devolve 403 em vez de `exit=56`; split mede 0/100 |
+| 7b `canario` | `discounts` em 90/10 (ponto de partida e de retorno) | depois do 7 | o medidor começa fora de 10 % |
+| 7c `resiliencia` | DestinationRule base; pods v1 e v2 | depois do 7 (usa a AuthorizationPolicy dele) | — |
+| `falha` | `discounts` sem fault | Kiali do 5 aberto | — |
+
+Cada passo imprime o próprio bloco `◇ antes / estado / livre` logo abaixo do
+título, e dois deles **conferem** em vez de só avisar: o 4 consulta o Thanos
+(`sum(increase(authorized_calls[15m]))`) e diz quantas chamadas há; o 7, o
+7b, o 7c e o `falha` comparam o Service Mesh com o que `base/mesh/` declara e,
+se algo estiver fora, apontam `bash scripts/demo.sh pos`, que restaura tudo
+de uma vez. A checagem só avisa: o tráfego pode ter vindo do Postman ou de um
+`soak` em outro terminal, e um aviso errado no palco custa mais que um painel
+vazio.
+
+Quem **deixa** estado para trás: `canario`, `falha` e `resiliencia` revertem
+sozinhos no fim e no Ctrl-C; `degrada` reinicia o Limitador; `aquece` queima
+cota e a devolve com o reset embutido. Um `kill -9` no meio de qualquer um
+deles é o único caminho que não reverte, e é para isso que `pos` existe.
+
+---
+
 ## Antes da plateia entrar
 
 ### T-1 dia — a demo está de pé?
@@ -140,6 +181,8 @@ bash scripts/acessos.sh --mask      # senhas ocultas, para gravação
 bash scripts/demo.sh ato1
 ```
 
+**Pressupõe:** nada. Roda sozinho, a qualquer hora.
+
 <details><summary>comando a comando</summary>
 
 ```bash
@@ -181,6 +224,11 @@ produto não dá acesso ao outro. Assinatura é por produto, não por gateway.
 ```bash
 bash scripts/demo.sh ato2
 ```
+
+**Pressupõe:** cota do dia com folga (`bash scripts/traffic.sh metrics`) e 11 s
+desde a última rajada. Nenhum passo antes — mas **é ele que produz o que o
+passo 4 lê**: sem `ato2` (ou `aquece`) nos 15 min anteriores, o Grafana do 4
+sai vazio.
 
 <details><summary>comando a comando</summary>
 
@@ -232,6 +280,9 @@ Products**, o `travels-api` traz os tiers com limite e cota — descobertos do
 ```bash
 bash scripts/demo.sh ato3
 ```
+
+**Pressupõe:** nada — só lê status de policy. A narração cita "os tiers do
+passo 2", mas nenhum comando depende dele.
 
 <details><summary>comando a comando</summary>
 
@@ -347,6 +398,11 @@ policy declarativa de 30 linhas virou tudo isso; ninguém escreveu nada à mão.
 bash scripts/demo.sh ato4
 ```
 
+**Pressupõe: o passo 2 (ou `aquece`) nos últimos 15 min.** Este passo só lê.
+Sem tráfego com chave, o painel sai vazio e nada avisa — por isso o script
+consulta o Thanos ao começar e imprime quantas chamadas autorizadas há na
+janela; zero é o sinal de rodar o `ato2` antes.
+
 <details><summary>comando a comando</summary>
 
 ```bash
@@ -401,6 +457,8 @@ por plano** — a rajada é o que a plateia vê, a cota é o que está no contra
 bash scripts/demo.sh borda
 ```
 
+**Pressupõe:** nada. A posição entre o 3 e o 4 é narrativa, não técnica.
+
 Não entra no roteiro padrão e não muda estado. A posição natural é **entre o
 passo 3 e o 4**: o 3 mostrou que policy tem precedência declarada, este mostra
 que há mais policies do que as duas que a plateia acabou de ver.
@@ -451,6 +509,10 @@ só o que passa por ela.
 bash scripts/demo.sh degrada
 ```
 
+**Pressupõe:** o Limitador de pé (é o que cai e volta). Gera as próprias
+rajadas; a narração pressupõe que a plateia viu o 429 do passo 2. Depois dele,
+o `ato2` é a confirmação de que tudo voltou.
+
 A pergunta vem sozinha depois do passo 2, e até 2026-09-17 era respondida só de
 boca. Posição natural: **depois do passo 4**, ou na hora em que alguém
 perguntar.
@@ -494,6 +556,9 @@ volta com o que tinha.
 ```bash
 bash scripts/demo.sh ato5
 ```
+
+**Pressupõe:** nada — gera o próprio tráfego de fan-out, e não precisa do
+passo 2. O que ele gera, o passo 5b aproveita.
 
 <details><summary>comando a comando</summary>
 
@@ -541,6 +606,10 @@ que o resto do tráfego.
 ```bash
 bash scripts/demo.sh trace
 ```
+
+**Pressupõe:** o passo 5 (ou `bash scripts/traffic.sh mesh`) na última hora,
+para o terceiro movimento, que procura traces de fan-out do `travels`. Os dois
+primeiros geram as próprias chamadas. A narração pressupõe o passo 4.
 
 Não muda estado. Posição natural: **logo depois do passo 4**, enquanto a métrica
 ainda está na cabeça de todos, ou como aprofundamento do passo 5.
@@ -609,6 +678,8 @@ conta faz o trabalho e colhe a árvore.
 bash scripts/demo.sh ato6
 ```
 
+**Pressupõe:** RHDH e GitLab no cluster; nenhum passo antes.
+
 Responde à objeção que sempre vem depois do passo 2: *"ok, mas quem escreve esse
 YAML?"*. Abra o **RHDH**.
 
@@ -672,6 +743,12 @@ bash scripts/provision.sh gitops    # instala o Argo e o ApplicationSet
 ```bash
 bash scripts/demo.sh ato7
 ```
+
+**Pressupõe: o estado base do Service Mesh** — mTLS `STRICT`, `discounts` em
+90/10, sem fault injection. Nenhum passo antes; mas 7b, 7c e `falha` mexem
+nesse estado e o devolvem ao sair, e um Ctrl-C no meio deles não. O script
+confere os três ao começar e aponta `bash scripts/demo.sh pos` se algo
+estiver fora.
 
 <details><summary>comando a comando</summary>
 
@@ -752,6 +829,10 @@ em vermelho. **Não use isso para demonstrar retry ou timeout**: os dois testes
 bash scripts/demo.sh canario
 ```
 
+**Pressupõe:** o passo 7 na narrativa (ele mostra o 90/10 parado; este o põe
+em movimento). Tecnicamente roda sozinho, desde que o `discounts` esteja em
+90/10 — que é o ponto de partida e o de retorno, e o script confere.
+
 O passo 7 mostra um canário **parado** em 90/10: prova que a divisão existe e
 que ela é decisão de plataforma. Este mostra a divisão **se movendo** — 10, 25,
 50, 75, 100 — que é como uma promoção acontece de verdade.
@@ -796,6 +877,10 @@ oc apply -f base/mesh/virtualservice-discounts.yaml
 ```bash
 bash scripts/demo.sh resiliencia
 ```
+
+**Pressupõe:** o passo 7 na narrativa — a carga sai do `cars` porque a
+AuthorizationPolicy dele só aceita os vendedores. Tecnicamente roda sozinho:
+precisa da DestinationRule como `base/mesh/` declara e dos pods v1 e v2.
 
 Responde a pergunta que vem depois do passo 7: *"e quando o serviço do outro
 lado começa a falhar?"*. O Service Mesh tem duas respostas, e as duas são

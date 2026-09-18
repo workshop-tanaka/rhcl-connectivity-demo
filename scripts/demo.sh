@@ -159,6 +159,19 @@ Depois:
   pos      pos-sessao: procura o que a demo deixou para tras, ajusta, e
            revalida. E o que se roda DEPOIS de apresentar, nao antes.
 
+A ordem importa — o que cada passo pressupoe (cada passo imprime isto ao comecar):
+
+  ato2     cota do dia (se rodou 'aquece', o reset ja esta embutido);
+           11s desde a ultima rajada, senao herda o 429 do tier anterior
+  ato4     ato2 ou aquece nos ultimos 15 min — ele so LE; sem trafego com
+           chave o Grafana sai vazio, sem erro
+  trace    melhor depois do ato5: o 3o movimento procura traces de fan-out
+  ato7     estado base do Service Mesh (STRICT, 90/10, sem fault) — o que
+           canario/falha/resiliencia deixam ao reverter, e 'pos' restaura
+  canario  parte de 90/10 (o estado que o ato7 mede); narrativa depois do 7
+  resiliencia  narrativa depois do 7 (usa a AuthorizationPolicy dele)
+  os demais rodam sozinhos: ato1, ato3, ato5, borda, degrada, ato6, falha
+
 Cada passo pausa antes de executar (Enter segue, 'p' pula, Ctrl-C sai).
 EOF
 }
@@ -201,6 +214,52 @@ _say()  { printf '  %s“%s”%s\n' "$_CYA" "$1" "$_RST"; }
 _why()  { printf '  %s%s%s\n' "$_DIM" "$1" "$_RST"; }
 # O que olhar na saida que acabou de rolar. Vem DEPOIS do comando.
 _look() { printf '  %s→ %s%s\n' "$_GRN" "$1" "$_RST"; }
+# O que este passo PRESSUPOE -- e a primeira coisa impressa depois do titulo.
+# Existe porque os passos rodam soltos ('demo.sh ato5'), e um ato que le
+# dados de outro sai com painel vazio sem erro nenhum. Sao dois tipos, e o
+# rotulo diz qual:
+#   antes:   o ato que precisa ter rodado (dados ou narrativa)
+#   estado:  o que o cluster precisa ter, independente de ato
+#   livre:   roda sozinho, a qualquer hora
+_pre()    { printf '  %s◇ antes:  %s%s\n' "$_YEL" "$1" "$_RST"; }
+_estado() { printf '  %s◇ estado: %s%s\n' "$_YEL" "$1" "$_RST"; }
+_livre()  { printf '  %s◇ livre:  %s%s\n' "$_DIM" "${1:-roda sozinho, a qualquer hora}" "$_RST"; }
+
+# Checagens baratas do que um passo pressupoe. So AVISAM: quem apresenta pode
+# ter feito o trafego por outro caminho (Postman, soak num terminal 2), e um
+# aviso errado no palco custa mais que um painel vazio.
+_checa_trafego_recente() { # ato4: houve chamada autorizada nos ultimos 15 min?
+  local th tok n
+  th="$(_route thanos-querier openshift-monitoring)"; tok="$(oc whoami -t 2>/dev/null)"
+  [[ -n "$th" && -n "$tok" ]] || return 0
+  n="$(curl -sk --max-time 8 -H "Authorization: Bearer ${tok}" "https://${th}/api/v1/query" \
+        --data-urlencode 'query=sum(increase(authorized_calls[15m]))' 2>/dev/null \
+      | python3 -c 'import sys,json
+r=json.load(sys.stdin).get("data",{}).get("result",[])
+print(int(float(r[0]["value"][1])) if r else 0)' 2>/dev/null)"
+  [[ -n "$n" ]] || return 0
+  if [[ "$n" -eq 0 ]]; then
+    _warn "nenhuma chamada autorizada nos ultimos 15 min — o Grafana vai mostrar painel vazio"
+    _warn "rode antes: bash scripts/demo.sh ato2   (ou aquece, para series continuas)"
+  else
+    _ok "trafego recente: ${n} chamadas autorizadas nos ultimos 15 min"
+  fi
+}
+_checa_mesh_base() { # ato7/canario/resiliencia/falha: o estado que base/mesh declara
+  local mode w1 w2 fault ruim=0
+  mode="$(oc get peerauthentication travel-agency-mtls -n travel-agency -o jsonpath='{.spec.mtls.mode}' 2>/dev/null)"
+  w1="$(oc get virtualservice discounts -n travel-agency -o jsonpath='{.spec.http[0].route[0].weight}' 2>/dev/null)"
+  w2="$(oc get virtualservice discounts -n travel-agency -o jsonpath='{.spec.http[0].route[1].weight}' 2>/dev/null)"
+  fault="$(oc get virtualservice discounts -n travel-agency -o jsonpath='{.spec.http[*].fault}' 2>/dev/null)"
+  [[ "$mode" == "STRICT" ]]        || { _warn "mTLS em '${mode:-ausente}' (esperado STRICT): a sonda devolve 403 em vez de exit=56"; ruim=1; }
+  [[ "$w1/$w2" == "90/10" ]]       || { _warn "VirtualService do discounts em ${w1:-?}/${w2:-?} (esperado 90/10): o script do workshop ou um Ctrl-C deixou isto"; ruim=1; }
+  [[ -z "$fault" ]]                || { _warn "fault injection ainda ativa no discounts"; ruim=1; }
+  if [[ $ruim -eq 1 ]]; then
+    _warn "corrige tudo de uma vez: bash scripts/demo.sh pos"
+  else
+    _ok "estado base do Service Mesh: STRICT, 90/10, sem fault"
+  fi
+}
 
 # Imprime o comando como se tivesse sido digitado — a plateia tem de conseguir
 # ler. Argumento com espaco ou chave (jsonpath) volta a ganhar aspas, senao o
@@ -370,6 +429,7 @@ step_check() {
 
 step_aquece() {
   _title "Preparacao — aquecimento" "~$(( SOAK_SECS / 60 + 1 )) min"
+  _pre  "nenhum. Ele e um SUBSTITUTO do ato2 como fonte de dados do Ato 4, e o reset no fim protege o ato2"
   _why "Sem trafego de fundo o Grafana do Ato 4 mostra linha achatada. O soak"
   _why "resolve isso — e queima cota, porque faz round-robin entre os tiers e"
   _why "cada plano tem cota DIARIA alem da janela de 10s."
@@ -393,6 +453,7 @@ step_aquece() {
 # ---------------------------------------------------------------------------
 step_ato1() {
   _title "Ato 1 — A API esta fechada por padrao" "2 min"
+  _livre
   _say  "Esta e a API de viagens que ja rodava. Vou chamar sem credencial nenhuma."
   _pause || return 0
   _do bash "scripts/traffic.sh" anon
@@ -422,6 +483,9 @@ step_ato1() {
 
 step_ato2() {
   _title "Ato 2 — Nem todo cliente e igual" "5 min"
+  _estado "cota do dia com folga (bash scripts/traffic.sh metrics); se rodou 'aquece', o reset ja veio junto"
+  _estado "11s desde a ultima rajada — repetido em seguida, um tier herda o 429 do anterior"
+  _pre    "nenhum ato. Mas e ELE que produz o que o Ato 4 le: sem ato2 (ou aquece), o Grafana do 4 sai vazio"
   _say  "Mesma rota, mesma aplicacao, mesmo path. Tres chaves diferentes, tres resultados."
   _why  "Leva ~45s: o script espera 11s entre as rajadas de proposito, para a"
   _why  "janela de 10s do contador anterior fechar. Sem isso um tier herdaria o"
@@ -449,6 +513,7 @@ step_ato2() {
 
 step_ato3() {
   _title "Ato 3 — Precedencia de policies e explicita" "4 min"
+  _livre "so le status de policy; a narracao cita 'os tiers do Ato 2', mas nada aqui depende dele"
   _why "O par aqui e Gateway contra rota. As policies que miram o prod-web valem"
   _why "para toda rota anexada, e CEDEM onde a rota declara a sua. No RHCL 1.4"
   _why "esse e o par certo: a RateLimitPolicy plana da rota sai do render, porque"
@@ -486,6 +551,8 @@ step_ato3() {
 
 step_ato4() {
   _title "Ato 4 — Isso vira numero de negocio" "4 min"
+  _pre  "Ato 2 (ou aquece) nos ultimos 15 min. Este ato so LE: sem trafego com chave, o painel sai vazio e nada avisa"
+  _checa_trafego_recente
   _say  "Ate aqui a demo foi codigo de status. Agora e a pergunta que a area comercial faz."
   _pause || return 0
   _do bash "scripts/traffic.sh" metrics
@@ -511,6 +578,7 @@ step_ato4() {
 
 step_ato5() {
   _title "Ato 5 — O caminho todo e rastreavel" "3 min"
+  _livre "gera o proprio trafego de fan-out; nao precisa do Ato 2. O que ele gera, o passo 'trace' aproveita"
   _why "O trafego de /travels NAO atravessa o Service Mesh: a resposta e local ao"
   _why "travels e o grafo para em 'prod-web -> travels', o que na tela se le como"
   _why "coleta quebrada. Quem provoca o fan-out e /travels/<cidade>, com o header"
@@ -552,6 +620,7 @@ GRAFO
 
 step_ato6() {
   _title "Ato 6 — A policy nasce com o servico (RHDH)" "8 min, opcional"
+  _estado "RHDH e GitLab no cluster (o preflight avisa); nenhum ato anterior e necessario"
   _why "Este ato responde a objecao que sempre vem depois do Ato 2: 'ok, mas quem"
   _why "escreve esse YAML?'. A resposta e um golden path — o portal gera o"
   _why "servico COM as policies, e a mudanca vai por pull request."
@@ -613,6 +682,9 @@ step_ato6() {
 
 step_ato7() {
   _title "Ato 7 — A borda nao e a unica fronteira" "8 min, opcional"
+  _estado "o que base/mesh declara: mTLS STRICT, discounts em 90/10, sem fault injection"
+  _pre    "nenhum ato — mas canario, falha e resiliencia mexem neste estado e o devolvem ao sair; um Ctrl-C no meio deles nao"
+  _checa_mesh_base
   _why "Este ato e do Service Mesh, nao do RHCL, e existe porque a pergunta vem"
   _why "sozinha depois do Ato 1: 'entao a chave de API protege tudo?'. Nao"
   _why "protege — ela abre a porta da rua. E o argumento fecha porque e o MESMO"
@@ -666,6 +738,7 @@ done"
 
 step_borda() {
   _title "Ato borda — o certificado e o DNS tambem sao policy" "3 min"
+  _livre "so le policies e o DNS; a posicao entre o 3 e o 4 e narrativa, nao tecnica"
   _why "Os atos 1 a 4 respondem quem entra, quanto passa e quanto custa. Esta e"
   _why "a outra metade do que o RHCL governa na borda, e a que fala com quem"
   _why "opera a plataforma em vez de consumi-la."
@@ -711,6 +784,8 @@ step_borda() {
 
 step_degrada() {
   _title "Ato degrada — o que acontece quando a policy cai" "4 min, MUDA ESTADO"
+  _livre "gera as proprias rajadas; a narracao pressupoe que a plateia viu o 429 do Ato 2"
+  _estado "Limitador de pe (e o que vai cair e voltar). Depois dele, o ato2 e a confirmacao"
   _why "Esta e a pergunta que vem sozinha depois do Ato 2, e ate agora era"
   _why "respondida so de boca. Aqui ela e respondida com o cluster."
   _why ""
@@ -784,6 +859,8 @@ _tempo_api() { # imprime a URL base da API de traces, ou vazio
 
 step_trace() {
   _title "Ato trace — o que um contador nao consegue responder" "4 min"
+  _pre    "Ato 5 (ou bash scripts/traffic.sh mesh) na ultima hora: o 3o movimento procura traces de fan-out do travels; sem eles ele diz 'sem trace na janela'"
+  _livre  "os movimentos 1 e 2 geram as proprias chamadas; a narracao pressupoe o Ato 4"
   _why "O Ato 4 mostrou a metrica: quantas requisicoes, de qual plano, quantas"
   _why "recusadas. A metrica AGREGA -- ela soma requisicoes diferentes num numero"
   _why "so. O trace CORRELACIONA: amarra os pedacos de UMA requisicao."
@@ -909,6 +986,9 @@ _tail_versoes() { # liga os dois tails; PIDs ficam em _TAILS
 
 step_canario() {
   _title "Ato canario — a promocao acontecendo, ao vivo" "3 min, MUDA ESTADO"
+  _pre    "Ato 7 na narrativa (ele mostra o 90/10 parado; este o poe em movimento). Tecnicamente roda sozinho"
+  _estado "discounts em 90/10, sem fault — e o ponto de partida e o de retorno"
+  _checa_mesh_base
   _why "O Ato 7 mostra um canary PARADO em 90/10: prova que a divisao existe e"
   _why "que ela e decisao de plataforma. Este mostra a divisao SE MOVENDO --"
   _why "10, 25, 50, 75, 100 -- que e como uma promocao acontece de verdade."
@@ -975,6 +1055,9 @@ step_canario() {
 
 step_resiliencia() {
   _title "Ato resiliencia — o disjuntor, e o que NAO da para demonstrar" "5 min, OPCIONAL, MUDA ESTADO"
+  _pre    "Ato 7 na narrativa: a carga sai do 'cars' porque a AuthorizationPolicy dele so aceita os vendedores. Tecnicamente roda sozinho"
+  _estado "DestinationRule do discounts como base/mesh declara (sem trafficPolicy); pods v1 e v2 de pe"
+  _checa_mesh_base
   _why "Este ato responde a pergunta que vem depois do Ato 7: 'e quando o"
   _why "servico do outro lado comeca a falhar?'. O Service Mesh tem duas"
   _why "respostas, e as duas sao visiveis -- mas nao pelo codigo HTTP, e sim"
@@ -1058,6 +1141,9 @@ for x in sorted(r, key=lambda y: -float(y['value'][1]))[:6]:
 
 step_falha() {
   _title "Cenario de falha — degradacao graciosa" "3 min, opcional"
+  _livre "a deixa e o Kiali do Ato 5 aberto, mas nada depende dele"
+  _estado "discounts sem fault injection (este passo a poe e a tira)"
+  _checa_mesh_base
   _why "Derruba o discounts inteiro e mostra a API na borda continuando a"
   _why "responder 200, com o catalogo completo e sem desconto. Boa deixa para o"
   _why "Kiali em vermelho."
