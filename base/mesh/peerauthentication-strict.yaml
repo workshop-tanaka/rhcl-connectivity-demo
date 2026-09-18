@@ -15,9 +15,9 @@
 #     por construcao. O Ato 4 nao perde metrica.
 #   - as probes do kubelet. Vem do no, fora do Service Mesh, e o Istio as reescreve
 #     para a 15021.
-#   - as chamadas para travel-db (MySQL dos quatro backends). STRICT governa o
-#     que ENTRA em travel-agency; a saida para outro namespace segue o
-#     auto-mTLS. travel-db tambem esta injetado.
+#   - as chamadas ao mysqldb (MySQL dos quatro backends). Ele mora no PROPRIO
+#     travel-agency desde 2026-08-31 -- o namespace travel-db aposentou-se --,
+#     entao STRICT governa tambem esse salto.
 #
 # PARA DEMONSTRAR: no Kiali, Graph -> Display -> Security. As arestas ganham
 # cadeado. Sem esta policy o cadeado tambem aparece (auto-mTLS ja cifra por

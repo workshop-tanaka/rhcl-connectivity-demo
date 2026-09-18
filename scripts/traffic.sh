@@ -266,8 +266,9 @@ mode_soak() {
 # quando na verdade a coleta esta certa e o trafego e que nao fan-outa.
 #
 # Quem provoca o fan-out e /travels/<cidade>: travels chama flights, hotels,
-# cars e insurances; cada um desses chama discounts (v1 e v2) e o mysqldb em
-# travel-db. Uma requisicao vira a topologia inteira do ato.
+# cars e insurances; cada um desses chama discounts (v1 e v2) e o mysqldb --
+# que mora em travel-agency desde 2026-08-31. Uma requisicao vira a topologia
+# inteira do ato.
 #
 # Usa SO a chave gold, de proposito, por dois motivos:
 #   - 429 e recusado NA BORDA e nunca entra no Service Mesh. Trafego de um tier
@@ -329,7 +330,7 @@ except Exception: pass' 2>/dev/null)
     _log "tier ${_BLD}gold${_RST} (30/10s, 5000/dia) a ~${rate} req/s por ${dur}s"
   fi
   _log "cada requisicao atravessa: prod-web -> travels -> {flights,hotels,cars,insurances}"
-  _log "                           -> discounts (v1/v2) -> mysqldb.travel-db"
+  _log "                           -> discounts (v1/v2) -> mysqldb.travel-agency"
 
   # Primeira chamada fria descartada: a conexao inicial de cada servico com o
   # discounts as vezes estoura o timeout e o campo volta 'null' na resposta.
@@ -377,7 +378,8 @@ except Exception: pass' 2>/dev/null)
     _warn "cheque a cota do gold: bash scripts/traffic.sh metrics"
   fi
   _log "Kiali: console -> Service Mesh -> Traffic Graph, namespaces"
-  _log "       ingress-gateway + travel-agency + travel-db, janela 'Last 5m'"
+  _log "       ingress-gateway + travel-agency, janela 'Last 5m' (sem travel-db:"
+  _log "       o namespace nao existe mais e o Kiali responde 403 para o grafo todo)"
   _log "o grafo leva ~1min para encher: PodMonitor raspa a cada 30s."
 }
 

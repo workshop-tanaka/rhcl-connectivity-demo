@@ -455,7 +455,7 @@ _graf_url() {
   local v; v="$(oc get clusterversion -o jsonpath='{.items[0].status.desired.version}' 2>/dev/null)"
   case "$v" in
     4.1[0-8].*|4.[0-9].*)
-      [[ -n "$k" ]] && { printf 'https://%s/console/graph/namespaces?namespaces=ingress-gateway%%2Ctravel-agency%%2Ctravel-db&duration=300' "$k"; return; } ;;
+      [[ -n "$k" ]] && { printf 'https://%s/console/graph/namespaces?namespaces=ingress-gateway%%2Ctravel-agency&duration=300' "$k"; return; } ;;
   esac
   printf '%s/ossmconsole/graph' "$c"
 }
@@ -677,14 +677,16 @@ step_ato5() {
     *kiali*) _why "Kiali direto: neste console o plugin de Service Mesh estoura na"
              _why "renderizacao (React #306) -- o grafo e o mesmo." ;;
   esac
-  _why "namespaces ingress-gateway + travel-agency + travel-db, janela Last 5m."
+  _why "namespaces ingress-gateway + travel-agency, janela Last 5m. NAO acrescente"
+  _why "travel-db: o namespace aposentou-se em 2026-08-31 e o Kiali responde 403"
+  _why "'namespace is not accessible' -- o grafo inteiro some (medido em 2026-09-18)."
   _why "O grafo fecha assim:"
   cat <<'GRAFO'
       prod-web (ingress-gateway)
         └─ travels ─┬─ flights ────┬─ discounts (v1, v2)
                     ├─ hotels ─────┤
                     ├─ cars ───────┤
-                    └─ insurances ─┴─ mysqldb (travel-db)
+                    └─ insurances ─┴─ mysqldb
 GRAFO
   echo
   printf '  %sTraces%s        %s\n' "$_BLD" "$_RST" "$(_console)/observe/traces"
