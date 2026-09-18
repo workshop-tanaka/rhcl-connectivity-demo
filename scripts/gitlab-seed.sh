@@ -815,6 +815,7 @@ ESPELHO = [
     "docs/DEMO-PASSO-A-PASSO.md",
     "docs/RUNBOOK.md",
     "docs/PROVISIONING-1.4.md",
+    "docs/AMBIENTE-1.2-WORKSHOP.md",
     "docs/CATALOGO.md",
     "docs/SAMPLES.md",
     # As paginas por componente (docs/componentes/) nasceram em 2026-08-31:
