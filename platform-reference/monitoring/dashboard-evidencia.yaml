@@ -18,6 +18,21 @@
 # mostra destination_workload='unknown', e esse 'unknown' e o argumento do ato
 # inteiro numa linha de tabela.
 #
+# NUMERO INTEIRO, E NUMERO GRANDE.
+#
+# 1. round() em toda contagem. increase() EXTRAPOLA: ele ajusta o valor para a
+#    janela inteira mesmo quando o contador so existe em parte dela, e devolve
+#    12.413793103448278 para 12 recusas reais (medido em 2026-09-18). No palco
+#    um numero quebrado onde a plateia contou inteiros levanta a pergunta
+#    errada. 'limited_calls - limited_calls offset 15m' devolve 12 tambem, mas
+#    round(increase(...)) e mais simples e aguenta reinicio de contador.
+#
+# 2. Paineis de NUMERO, nao de curva. A pergunta do palco e "quantas foram",
+#    nao "como variou": o stat mostra 12 em corpo grande, legivel do fundo da
+#    sala. Curva exige a plateia interpretar eixo, e o roteiro nao da tempo.
+#    As tabelas sobrevivem onde ha DUAS dimensoes (codigo + destino), porque ali
+#    o par e a informacao.
+#
 # CONTAGEM, NAO TAXA. Os paineis de serie usam increase() e nao rate(), e a
 # unidade e 'short' e nao 'reqps'. Medido em 2026-09-18, na mesma rajada do
 # Ato 2: rate devolve 0,122 req/s e increase devolve 22. A plateia entende 22
@@ -112,7 +127,7 @@ spec:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "sum by (response_code, destination_workload) (increase(istio_requests_total{response_code=\"401\"}[15m]))",
+              "expr": "sum by (response_code, destination_workload) (round(increase(istio_requests_total{response_code=\"401\"}[15m])))",
               "legendFormat": "{{response_code}} -> {{destination_workload}}",
               "refId": "A",
               "instant": true
@@ -145,7 +160,8 @@ spec:
                     "value": null
                   }
                 ]
-              }
+              },
+              "decimals": 0
             },
             "overrides": []
           },
@@ -158,11 +174,11 @@ spec:
           }
         },
         {
-          "type": "timeseries",
-          "title": "Recusas por codigo, ao longo do tempo",
+          "type": "stat",
+          "title": "Recusas por codigo",
           "description": "Quantidade de recusas nos ultimos 2 minutos, nao taxa por segundo: a plateia entende '22 recusas', nao '0,122 por segundo' -- e o roteiro fala em contagem o tempo todo. 401 sem credencial, 403 quando a identidade existe mas nao vale para o produto, 429 quando o plano estourou.",
           "gridPos": {
-            "h": 8,
+            "h": 7,
             "w": 12,
             "x": 12,
             "y": 1
@@ -177,38 +193,45 @@ spec:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "sum by (response_code) (increase(istio_requests_total{response_code=~\"401|403|429\"}[2m]))",
+              "expr": "sum by (response_code) (round(increase(istio_requests_total{response_code=~\"401|403|429\"}[2m])))",
               "legendFormat": "{{response_code}}",
-              "refId": "A"
+              "refId": "A",
+              "instant": true
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "custom": {
-                "lineWidth": 2,
-                "fillOpacity": 12,
-                "showPoints": "never"
-              },
               "unit": "short",
+              "decimals": 0,
               "color": {
                 "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
               }
             },
             "overrides": []
           },
           "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "right",
+            "reduceOptions": {
               "calcs": [
-                "lastNotNull",
-                "max"
-              ]
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
             },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
+            "orientation": "horizontal",
+            "textMode": "value_and_name",
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center"
           }
         },
         {
@@ -224,11 +247,11 @@ spec:
           "panels": []
         },
         {
-          "type": "table",
+          "type": "stat",
           "title": "Servidas por plano (15 min)",
           "description": "O label 'plan' vem do TelemetryPolicy, nao do Limitador. Sem ele a metrica responde 'quantos 429 houve'; com ele responde 'o tier free esta saturando'.",
           "gridPos": {
-            "h": 8,
+            "h": 7,
             "w": 12,
             "x": 0,
             "y": 10
@@ -243,31 +266,20 @@ spec:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "sum by (plan) (increase(authorized_calls[15m]))",
+              "expr": "sum by (plan) (round(increase(authorized_calls[15m])))",
               "legendFormat": "{{plan}}",
               "refId": "A",
               "instant": true
             }
           ],
-          "transformations": [
-            {
-              "id": "organize",
-              "options": {
-                "excludeByName": {
-                  "Time": true
-                }
-              }
-            }
-          ],
           "fieldConfig": {
             "defaults": {
-              "custom": {
-                "align": "left"
-              },
               "unit": "short",
+              "decimals": 0,
               "color": {
-                "mode": "thresholds"
+                "mode": "palette-classic"
               },
+              "mappings": [],
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -281,19 +293,26 @@ spec:
             "overrides": []
           },
           "options": {
-            "showHeader": true,
-            "cellHeight": "lg",
-            "footer": {
-              "show": false
-            }
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "horizontal",
+            "textMode": "value_and_name",
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center"
           }
         },
         {
-          "type": "table",
+          "type": "stat",
           "title": "Limitadas por plano (15 min)",
           "description": "O 429 quebrado por tier. Se o free aparece sozinho aqui, o corte esta funcionando como o PlanPolicy declara.",
           "gridPos": {
-            "h": 8,
+            "h": 7,
             "w": 12,
             "x": 12,
             "y": 10
@@ -308,31 +327,20 @@ spec:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "sum by (plan) (increase(limited_calls[15m]))",
+              "expr": "sum by (plan) (round(increase(limited_calls[15m])))",
               "legendFormat": "{{plan}}",
               "refId": "A",
               "instant": true
             }
           ],
-          "transformations": [
-            {
-              "id": "organize",
-              "options": {
-                "excludeByName": {
-                  "Time": true
-                }
-              }
-            }
-          ],
           "fieldConfig": {
             "defaults": {
-              "custom": {
-                "align": "left"
-              },
               "unit": "short",
+              "decimals": 0,
               "color": {
-                "mode": "thresholds"
+                "mode": "palette-classic"
               },
+              "mappings": [],
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -346,11 +354,18 @@ spec:
             "overrides": []
           },
           "options": {
-            "showHeader": true,
-            "cellHeight": "lg",
-            "footer": {
-              "show": false
-            }
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "horizontal",
+            "textMode": "value_and_name",
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center"
           }
         },
         {
@@ -385,7 +400,7 @@ spec:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "sum by (partner) (increase(istio_requests_total{destination_workload=\"travels-v1\"}[15m]))",
+              "expr": "sum by (partner) (round(increase(istio_requests_total{destination_workload=\"travels-v1\"}[15m])))",
               "legendFormat": "{{partner}}",
               "refId": "A",
               "instant": true
@@ -418,7 +433,8 @@ spec:
                     "value": null
                   }
                 ]
-              }
+              },
+              "decimals": 0
             },
             "overrides": []
           },
@@ -462,7 +478,7 @@ spec:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "sum by (destination_version) (increase(istio_requests_total{destination_service_name=\"discounts\"}[5m]))",
+              "expr": "sum by (destination_version) (round(increase(istio_requests_total{destination_service_name=\"discounts\"}[5m])))",
               "legendFormat": "{{destination_version}}",
               "refId": "A",
               "instant": true
@@ -495,7 +511,8 @@ spec:
                     "value": null
                   }
                 ]
-              }
+              },
+              "decimals": 0
             },
             "overrides": []
           },
@@ -508,11 +525,11 @@ spec:
           }
         },
         {
-          "type": "timeseries",
-          "title": "Chamadas ao discounts por versao",
+          "type": "stat",
+          "title": "Chamadas ao discounts por versao (2 min)",
           "description": "Quantidade de chamadas nos ultimos 2 minutos. Se as duas linhas somem, o fan-out parou: quase sempre e a lista de destinos vazia (o banco do outro lado do Skupper). Ver docs/AMBIENTE-1.2-WORKSHOP.md.",
           "gridPos": {
-            "h": 8,
+            "h": 7,
             "w": 12,
             "x": 12,
             "y": 28
@@ -527,38 +544,45 @@ spec:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "sum by (destination_version) (increase(istio_requests_total{destination_service_name=\"discounts\"}[2m]))",
+              "expr": "sum by (destination_version) (round(increase(istio_requests_total{destination_service_name=\"discounts\"}[2m])))",
               "legendFormat": "{{destination_version}}",
-              "refId": "A"
+              "refId": "A",
+              "instant": true
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "custom": {
-                "lineWidth": 2,
-                "fillOpacity": 12,
-                "showPoints": "never"
-              },
               "unit": "short",
+              "decimals": 0,
               "color": {
                 "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
               }
             },
             "overrides": []
           },
           "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "right",
+            "reduceOptions": {
               "calcs": [
-                "lastNotNull",
-                "max"
-              ]
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
             },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
+            "orientation": "horizontal",
+            "textMode": "value_and_name",
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center"
           }
         }
       ]
