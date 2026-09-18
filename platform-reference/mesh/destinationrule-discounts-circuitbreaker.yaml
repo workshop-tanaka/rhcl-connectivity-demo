@@ -1,0 +1,53 @@
+# ===========================================================================
+# Circuit breaker no discounts — SOBREPOSICAO TEMPORARIA, nao camada de demo.
+#
+# Mora em platform-reference/ e NAO entra em kustomization nenhum de proposito:
+# e material do ato 'resiliencia', aplicado e revertido dentro do passo. A
+# camada de demo declara o mesmo DestinationRule SEM trafficPolicy
+# (base/mesh/destinationrule-discounts.yaml), e e esse arquivo que o revert
+# reaplica.
+#
+# OS NUMEROS SAO ABSURDOS DE PROPOSITO. maxConnections: 1 com
+# http1MaxPendingRequests: 1 nao e configuracao de producao -- e o que faz o
+# disjuntor abrir em SEGUNDOS, com 40 requisicoes concorrentes, no tempo de um
+# ato. Em producao estes numeros saem de medicao de carga, e dizer isso em voz
+# alta evita a pergunta "voces recomendam 1 conexao?".
+#
+# O QUE CADA METADE PRODUZ, medido em 2026-09-18. A prova esta no response_flag
+# do Envoy, nao no codigo HTTP -- os dois sao 503:
+#
+#   connectionPool     -> 503 com flag UO  (upstream overflow: recusou por fila)
+#   outlierDetection   -> 503 com flag UH  (no healthy upstream: EJETOU o pod)
+#
+# O UH e o mais vendavel dos dois: o Envoy tirou a instancia de circulacao
+# sozinho, por baseEjectionTime, depois de contar erros consecutivos. Isso e
+# resiliencia acontecendo, nao simulada.
+# ===========================================================================
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: discounts
+  namespace: travel-agency
+  annotations:
+    rhcl.demo/nota: "sobreposicao temporaria do ato 'resiliencia' -- o estado normal e base/mesh/destinationrule-discounts.yaml"
+spec:
+  host: discounts.travel-agency.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 1
+      http:
+        http1MaxPendingRequests: 1
+        maxRequestsPerConnection: 1
+    outlierDetection:
+      consecutive5xxErrors: 1
+      interval: 10s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 100
+  subsets:
+    - name: v1
+      labels:
+        version: v1
+    - name: v2
+      labels:
+        version: v2

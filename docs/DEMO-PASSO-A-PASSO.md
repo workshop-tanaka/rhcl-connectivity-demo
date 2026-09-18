@@ -791,6 +791,59 @@ oc apply -f base/mesh/virtualservice-discounts.yaml
 ---
 
 
+## Passo 7c — O disjuntor, e o que NÃO dá para demonstrar *(5 min, extra, MUDA ESTADO)*
+
+```bash
+bash scripts/demo.sh resiliencia
+```
+
+Responde a pergunta que vem depois do passo 7: *"e quando o serviço do outro
+lado começa a falhar?"*. O Service Mesh tem duas respostas, e as duas são
+visíveis — **mas não pelo código HTTP, e sim pelo `response_flag` do Envoy**,
+porque os dois modos devolvem 503.
+
+**O que aparece**, medido em 2026-09-18:
+
+```
+CODIGO FLAG    QUANTAS   O QUE E
+200    -          4230   resposta normal
+503    UH          231   no healthy upstream -> outlierDetection EJETOU o pod
+503    UO            5   upstream overflow  -> connectionPool recusou por fila
+```
+
+**O que explicar.** Duas defesas diferentes com o mesmo código de erro. Quem só
+olha o HTTP vê "503 e deu ruim"; quem olha o flag sabe se foi fila cheia ou
+instância ejetada — e são decisões de plataforma opostas. O `UH` é o que mais
+rende: o Envoy tirou a instância de circulação sozinho, depois de contar erros
+consecutivos, e a devolve quando `baseEjectionTime` passa.
+
+**Os números do manifesto são absurdos de propósito.** Uma conexão e uma
+pendente não é configuração de produção — é o que faz o disjuntor abrir no
+tempo de um ato. Diga isso em voz alta, ou vem a pergunta *"vocês recomendam
+uma conexão?"*. O manifesto mora em
+[platform-reference/mesh/destinationrule-discounts-circuitbreaker.yaml](../platform-reference/mesh/destinationrule-discounts-circuitbreaker.yaml)
+e fica **fora** de qualquer kustomization: é sobreposição temporária, aplicada e
+revertida dentro do passo.
+
+**A carga sai do `cars`, não do `travels`.** A `AuthorizationPolicy` do passo 7
+nega o `travels`, e um 403 no meio da leitura confundiria com o outro ato.
+
+**O quinto movimento é o honesto.** Timeout e retry estão configurados na rota
+e são legítimos de produção — mas **não se demonstram com fault injection**, e
+a armadilha 12 do runbook tem os números: `delay 5s` com `timeout 3s` devolve
+200 em 5,03 s, porque o atraso acontece antes da chamada upstream; `abort 503`
+em 50% derruba 55%, porque é *local reply* e o `retryOn` não vê um 5xx de
+servidor. Dizer isso separa quem entende o produto de quem repete tutorial.
+
+> *"Fault injection provoca o cenário; ela não prova o retry. Muito tutorial
+> encadeia as duas coisas como se compusessem, e no cliente isso vira uma
+> promessa que o ambiente não cumpre."*
+
+O revert está em `trap` e roda nos dois caminhos de saída. A ejeção do pod
+expira sozinha em 30 s.
+
+---
+
 ## Depois
 
 ```bash

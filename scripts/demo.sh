@@ -115,7 +115,7 @@ _guard_overlay() { # _guard_overlay <caminho-do-overlay> -> 0 se seguro aplicar
   return 1
 }
 
-STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda degrada trace canario falha reset pos)
+STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda degrada trace canario resiliencia falha reset pos)
 # O default e o nucleo da tese. Ato 6 e 7 sao opcionais e longos; 'aquece',
 # 'falha' e 'reset' mudam estado e nunca devem entrar sem alguem pedir.
 STEPS_DEFAULT=(ato1 ato2 ato3 ato4 ato5)
@@ -150,6 +150,7 @@ Atos extras, fora do default (cada um roda sozinho):
   trace    O que um contador nao responde            (4 min, depois do 4 ou 5)
   canario  A promocao acontecendo, ao vivo           (3 min, MUDA ESTADO)
              LOGS=1 acrescenta o log colorido das duas versoes
+  resiliencia  O disjuntor, e o que NAO da para demonstrar  (5 min, MUDA ESTADO)
 
 Depois:
 
@@ -970,6 +971,89 @@ step_canario() {
   _mata_tails
   _log "revertendo para 90/10 (o estado que o Ato 7 mede)"
   _do oc apply -f "base/mesh/virtualservice-discounts.yaml"
+}
+
+step_resiliencia() {
+  _title "Ato resiliencia — o disjuntor, e o que NAO da para demonstrar" "5 min, OPCIONAL, MUDA ESTADO"
+  _why "Este ato responde a pergunta que vem depois do Ato 7: 'e quando o"
+  _why "servico do outro lado comeca a falhar?'. O Service Mesh tem duas"
+  _why "respostas, e as duas sao visiveis -- mas nao pelo codigo HTTP, e sim"
+  _why "pelo response_flag do Envoy, porque os dois modos devolvem 503."
+  _why ""
+  _why "  connectionPool    -> flag UO  (upstream overflow: recusou por fila)"
+  _why "  outlierDetection  -> flag UH  (no healthy upstream: EJETOU o pod)"
+  _why ""
+  _why "O UH e o que mais rende: o Envoy tirou a instancia de circulacao sozinho,"
+  _why "depois de contar erros consecutivos, e a devolve quando o tempo passa."
+  _warn "Isto MUDA ESTADO: sobrepoe o DestinationRule do discounts. O revert roda"
+  _warn "no fim e tambem com Ctrl-C."
+  _warn "Os numeros do manifesto sao ABSURDOS de proposito (1 conexao, 1 pendente)"
+  _warn "-- e o que faz o disjuntor abrir no tempo de um ato. Diga isso em voz alta."
+  _pause || return 0
+
+  _revert_dr() { oc apply -f "${_here}/base/mesh/destinationrule-discounts.yaml" >/dev/null 2>&1 || true; }
+  trap '_revert_dr; printf "\n  DestinationRule revertida.\n"; exit 130' INT
+  trap '_revert_dr; trap - INT RETURN' RETURN
+
+  _why "1. Antes: o discounts atende normalmente."
+  local pod; pod="$(oc get pod -n travel-agency -l app=cars -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
+  [[ -n "$pod" ]] || { _warn "sem pod do cars; pulando"; return 0; }
+  # De DENTRO do mesh e com a SA que a AuthorizationPolicy do Ato 7 aceita --
+  # do 'travels' viria 403, que e o outro ato e confundiria a leitura.
+  _do_as "20 chamadas ao discounts, a partir do cars" \
+    bash -c "oc exec -n travel-agency ${pod} -c cars -- sh -c 'for i in \$(seq 20); do curl -s -o /dev/null -w \"%{http_code} \" http://discounts.travel-agency:8000/discounts/cars; done; echo'"
+  echo
+  _why "2. Agora o disjuntor entra, com limites de uma conexao e uma pendente."
+  _pause || return 0
+  _do oc apply -f "platform-reference/mesh/destinationrule-discounts-circuitbreaker.yaml"
+  sleep 12
+  _why "3. A MESMA chamada, agora em paralelo -- e e a concorrencia que abre o"
+  _why "   disjuntor, nao o volume."
+  _do_as "40 chamadas CONCORRENTES ao discounts" \
+    bash -c "oc exec -n travel-agency ${pod} -c cars -- sh -c 'for i in \$(seq 40); do (curl -s -o /dev/null -w \"%{http_code} \" http://discounts.travel-agency:8000/discounts/cars &); done; sleep 6; echo'"
+  echo
+  _look "os 503 sao o disjuntor recusando -- e o codigo nao diz qual dos dois modos"
+  echo
+  _why "4. A prova de QUAL mecanismo disparou esta no flag do Envoy. A coleta"
+  _why "   leva ~30s; fale sobre o que acabou de acontecer."
+  sleep 32
+  local th tok; th="$(_route thanos-querier openshift-monitoring)"; tok="$(oc whoami -t 2>/dev/null)"
+  _do_as "os response_flags do discounts, nos ultimos 5 min" \
+    bash -c "curl -sk --max-time 25 -H 'Authorization: Bearer ${tok}' 'https://${th}/api/v1/query' --data-urlencode 'query=sum by (response_code, response_flags) (round(increase(istio_requests_total{destination_service_name=\"discounts\"}[5m])))' 2>/dev/null | python3 -c \"
+import sys, json
+r = json.load(sys.stdin).get('data', {}).get('result', [])
+nome = {'UO': 'upstream overflow  -> connectionPool recusou por fila',
+        'UH': 'no healthy upstream -> outlierDetection EJETOU o pod',
+        '-':  'resposta normal'}
+print('  %-6s %-6s %8s   %s' % ('CODIGO', 'FLAG', 'QUANTAS', 'O QUE E'))
+for x in sorted(r, key=lambda y: -float(y['value'][1]))[:6]:
+    m = x['metric']; f = m.get('response_flags') or '-'
+    print('  %-6s %-6s %8s   %s' % (m.get('response_code'), f, round(float(x['value'][1])), nome.get(f, '')))
+\""
+  echo
+  _say  "Duas defesas diferentes, com o mesmo codigo de erro. Quem so olha o HTTP ve '503 e deu ruim'; quem olha o flag sabe se foi fila cheia ou instancia ejetada -- e sao decisoes de plataforma opostas."
+  echo
+
+  _why "5. E agora a parte honesta, que quase nenhum material conta."
+  _pause || return 0
+  _do oc get virtualservice discounts -n travel-agency \
+      -o jsonpath='{.spec.http[0].timeout}{"  retries="}{.spec.http[0].retries.attempts}{"\n"}'
+  _why "   Timeout e retry estao configurados ali, e sao legitimos de producao."
+  _why "   Mas NAO se demonstram com fault injection, e isto foi medido:"
+  _why ""
+  _why "     delay 5s  com timeout 3s   ->  HTTP 200 em 5,03s"
+  _why "     abort 503 em 50%           ->  11 de 20 falharam (~55%)"
+  _why ""
+  _why "   O delay acontece ANTES da chamada upstream, no filtro de falha, e nao"
+  _why "   entra na conta do timeout. E o abort e um local reply: o Envoy gera a"
+  _why "   resposta ele mesmo, sem upstream, entao retryOn nao ve um 5xx de"
+  _why "   servidor. Exercitar os dois de verdade exige um upstream lento ou"
+  _why "   instavel de verdade, que esta app nao oferece."
+  _say  "Fault injection provoca o cenario; ela nao prova o retry. Muito tutorial encadeia as duas coisas como se compusessem, e no cliente isso vira uma promessa que o ambiente nao cumpre."
+  echo
+  _log "revertendo a DestinationRule"
+  _do oc apply -f "base/mesh/destinationrule-discounts.yaml"
+  _log "a ejecao expira sozinha em baseEjectionTime (30s)"
 }
 
 step_falha() {
