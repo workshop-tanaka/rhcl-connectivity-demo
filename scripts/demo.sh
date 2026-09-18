@@ -93,6 +93,28 @@ _overlay() {
 }
 OVERLAY="$(_overlay)"
 
+_guard_overlay() { # _guard_overlay <caminho-do-overlay> -> 0 se seguro aplicar
+  # A trava que evita a falha mais cara: aplicar um overlay cujo hostname nao e
+  # o deste cluster reescreve a HTTPRoute e a demo morre no Ato 1 sem dizer por
+  # que. Aconteceu em 2026-09-17, no proprio passo 'pos', que existe para
+  # CONSERTAR a demo -- e o preflight passou de verde a quatro falhas.
+  #
+  # A comparacao e contra o que a HTTPRoute JA TEM no cluster, e nao contra o
+  # dominio de apps: a versao antiga desta trava exigia que o host terminasse
+  # no dominio de apps, o que reprova um overlay CORRETO onde a borda e ELB +
+  # DNSPolicy e o host mora fora de .apps (sandbox do workshop).
+  local ovl="$1" rendered host atual
+  rendered="$(oc kustomize "$ovl" 2>&1)" || { printf 'nao renderiza: %s' "$rendered"; return 1; }
+  host="$(printf '%s' "$rendered" | awk '/^  hostnames:/{getline; gsub(/^ *- */,""); print; exit}')"
+  atual="$(oc get httproute travel-agency -n travel-agency -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null)"
+  [[ -z "$host" ]] && { printf 'o overlay nao declara hostname'; return 1; }
+  # Sem rota no cluster (instalacao do zero) nao ha com o que comparar: passa.
+  [[ -z "$atual" ]] && return 0
+  [[ "$host" == "$atual" ]] && return 0
+  printf 'o overlay aponta para %s e a rota deste cluster e %s' "$host" "$atual"
+  return 1
+}
+
 STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda degrada trace falha reset pos)
 # O default e o nucleo da tese. Ato 6 e 7 sao opcionais e longos; 'aquece',
 # 'falha' e 'reset' mudam estado e nunca devem entrar sem alguem pedir.
@@ -916,9 +938,18 @@ step_pos() {
   plan="$(oc get planpolicy travels-plans -n travel-agency --no-headers 2>/dev/null | wc -l | tr -d ' ')"
   if [[ "$rlp" != "0" || "$plan" == "0" ]]; then
     _warn "camada de demo fora do lugar (RLP plana presente, ou PlanPolicy ausente)"
-    _log  "reaplicando o overlay desta release"
-    _do oc apply -k "$OVERLAY"
-    mudou=1
+    local _porque
+    if _porque="$(_guard_overlay "$OVERLAY")"; then
+      _log  "reaplicando ${OVERLAY}"
+      _do oc apply -k "$OVERLAY"
+      mudou=1
+    else
+      _warn "NAO reapliquei: ${_porque}"
+      _why  "  Reaplicar aqui trocaria o hostname da HTTPRoute e derrubaria a"
+      _why  "  demo -- exatamente o oposto do que este passo existe para fazer."
+      _why  "  Gere a camada deste cluster e reaplique a mao:"
+      _why  "    bash scripts/new-env.sh && oc apply -k overlays/<slug>"
+    fi
   else
     _ok "camada de demo intacta (PlanPolicy no comando, RLP plana fora)"
   fi

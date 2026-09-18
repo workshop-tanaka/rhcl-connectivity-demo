@@ -110,6 +110,12 @@ jobs:
               # HTTPRoute E readiciona a RateLimitPolicy plana: o conserto sugerido
               # causa falha pior que a original.
               ("_overlay", ["scripts/preflight.sh", "scripts/traffic.sh", "scripts/demo.sh"]),
+              # _guard_overlay e a trava que compara o hostname do render com a
+              # rota que ESTE cluster tem. Divergir entre as copias significa um
+              # dos dois caminhos de apply sem trava -- e foi por um apply sem
+              # trava que o 'pos' reescreveu a HTTPRoute para um sandbox morto
+              # em 2026-09-17.
+              ("_guard_overlay", ["scripts/demo.sh", "scripts/provision.sh"]),
               # _discover_rhdh_ns decide QUAL portal recebe a configuracao da demo.
               # Ja divergiu uma vez (2026-08-24, sync-survey.sh sem a guarda do
               # namespace alheio) e ninguem viu, porque a diferenca so aparece em

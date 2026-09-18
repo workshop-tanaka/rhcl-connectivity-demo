@@ -354,6 +354,28 @@ printf '  etapas  : %s\n' "${STAGES[*]}"
 # ===========================================================================
 # 1. operadores
 # ===========================================================================
+_guard_overlay() { # _guard_overlay <caminho-do-overlay> -> 0 se seguro aplicar
+  # A trava que evita a falha mais cara: aplicar um overlay cujo hostname nao e
+  # o deste cluster reescreve a HTTPRoute e a demo morre no Ato 1 sem dizer por
+  # que. Aconteceu em 2026-09-17, no proprio passo 'pos', que existe para
+  # CONSERTAR a demo -- e o preflight passou de verde a quatro falhas.
+  #
+  # A comparacao e contra o que a HTTPRoute JA TEM no cluster, e nao contra o
+  # dominio de apps: a versao antiga desta trava exigia que o host terminasse
+  # no dominio de apps, o que reprova um overlay CORRETO onde a borda e ELB +
+  # DNSPolicy e o host mora fora de .apps (sandbox do workshop).
+  local ovl="$1" rendered host atual
+  rendered="$(oc kustomize "$ovl" 2>&1)" || { printf 'nao renderiza: %s' "$rendered"; return 1; }
+  host="$(printf '%s' "$rendered" | awk '/^  hostnames:/{getline; gsub(/^ *- */,""); print; exit}')"
+  atual="$(oc get httproute travel-agency -n travel-agency -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null)"
+  [[ -z "$host" ]] && { printf 'o overlay nao declara hostname'; return 1; }
+  # Sem rota no cluster (instalacao do zero) nao ha com o que comparar: passa.
+  [[ -z "$atual" ]] && return 0
+  [[ "$host" == "$atual" ]] && return 0
+  printf 'o overlay aponta para %s e a rota deste cluster e %s' "$host" "$atual"
+  return 1
+}
+
 st_operators() {
   _sec "operadores"
   _apply platform-reference/operators/subscriptions.yaml
@@ -822,16 +844,14 @@ st_demo() {
   # Aplicar o overlay de outro cluster reescreve a HTTPRoute para um hostname
   # que nao resolve aqui, e a demo morre no Ato 1 sem dizer por que. Render e
   # comparacao custam 1 segundo.
-  local rendered host
-  rendered="$(oc kustomize "${_here}/${OVERLAY}" 2>&1)" || _die "o overlay nao renderiza:\n${rendered}"
-  host="$(printf '%s' "$rendered" | awk '/^  hostnames:/{getline; gsub(/^ *- */,""); print; exit}')"
-  if [[ "$host" != *"$DOMAIN" ]]; then
-    _die "o overlay ${OVERLAY} aponta para '${host}', que nao e deste cluster (${DOMAIN}).
+  local _porque
+  if ! _porque="$(_guard_overlay "${_here}/${OVERLAY}")"; then
+    _die "${_porque}.
       Gere a camada deste cluster e reexecute:
         bash scripts/new-env.sh
         OVERLAY=overlays/<slug> bash scripts/provision.sh demo"
   fi
-  _ok "hostname do overlay confere: ${host}"
+  _ok "hostname do overlay confere com a rota deste cluster"
 
   _run oc apply -k "${_here}/${OVERLAY}" >/dev/null && _ok "camada de demo aplicada"
 }
