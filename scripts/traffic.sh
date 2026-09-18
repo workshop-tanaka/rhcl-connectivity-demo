@@ -61,7 +61,24 @@ DURATION="${DURATION:-0}"
 # A release sai do CSV do operator, que e a mesma fonte que decide o regime de
 # precedencia -- se um dia divergirem, e sinal de que o overlay esta errado.
 _overlay() {
-  local v
+  # O overlay do CLUSTER vence o generico da release quando existe: e ele que
+  # carrega o hostname DESTE cluster. Ate 2026-09-17 esta funcao devolvia so o
+  # generico, e num sandbox 1.2 isso apontava para overlays/provisioned --
+  # cujo hostname e o de um sandbox EXPIRADO. O passo 'pos' do demo.sh REAPLICA
+  # o overlay que esta funcao indica: ele reescreveu a HTTPRoute para um
+  # dominio que nao existe, o 401 da borda virou 404 e o PlanPolicy caiu --
+  # no unico passo do roteiro que existe para CONSERTAR a demo.
+  local raiz dom slug v
+  raiz="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
+  # Segunda tentativa pelo cwd: cobre o caso de a funcao ser copiada para fora
+  # de scripts/ -- onde o BASH_SOURCE aponta para outro lugar e a busca pelo
+  # overlay do cluster falharia em silencio, devolvendo o generico.
+  [[ -d "${raiz}/overlays" ]] || raiz="$PWD"
+  dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
+  slug="$(printf '%s' "${dom:-}" | sed 's/^apps\.//' | cut -d. -f1)"
+  if [[ -n "$slug" && -d "${raiz}/overlays/${slug}" ]]; then
+    printf 'overlays/%s' "$slug"; return
+  fi
   v="$(oc get csv -A --no-headers 2>/dev/null | grep -i 'rhcl-operator' \
         | awk '{print $2}' | head -1 | sed 's/.*\.v//')"
   case "$v" in
