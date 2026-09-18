@@ -98,8 +98,8 @@ diferente. A **narrativa** só pede uma frase de contexto; os **dados** e o
 | 7c `resiliencia` | DestinationRule base; pods v1 e v2 | depois do 7 (usa a AuthorizationPolicy dele) | — |
 | `falha` | `discounts` sem fault | Kiali do 5 aberto | — |
 
-Cada passo imprime o próprio bloco `◇ antes / estado / livre` logo abaixo do
-título, e dois deles **conferem** em vez de só avisar: o 4 consulta o Thanos
+O rótulo vai no próprio título do passo (`DEPOIS DO ATO2`), e uma linha
+`◇ depende:` abaixo dele diz o porquê; passo sem a linha roda sozinho. Dois deles **conferem** em vez de só avisar: o 4 consulta o Thanos
 (`sum(increase(authorized_calls[15m]))`) e diz quantas chamadas há; o 7, o
 7b, o 7c e o `falha` comparam o Service Mesh com o que `base/mesh/` declara e,
 se algo estiver fora, apontam `bash scripts/demo.sh pos`, que restaura tudo
@@ -219,7 +219,7 @@ produto não dá acesso ao outro. Assinatura é por produto, não por gateway.
 
 ---
 
-## Passo 2 — Nem todo cliente é igual *(5 min)*
+## Passo 2 — Nem todo cliente é igual *(5 min · alimenta o passo 4)*
 
 ```bash
 bash scripts/demo.sh ato2
@@ -392,7 +392,7 @@ policy declarativa de 30 linhas virou tudo isso; ninguém escreveu nada à mão.
 
 ---
 
-## Passo 4 — Isso vira número de negócio *(4 min)*
+## Passo 4 — Isso vira número de negócio *(4 min · **depois do passo 2**)*
 
 ```bash
 bash scripts/demo.sh ato4
@@ -451,7 +451,7 @@ por plano** — a rajada é o que a plateia vê, a cota é o que está no contra
 
 ---
 
-## Passo 3b — O certificado e o DNS também são policy *(3 min, extra)*
+## Passo 3b — O certificado e o DNS também são policy *(3 min, extra · entre o 3 e o 4)*
 
 ```bash
 bash scripts/demo.sh borda
@@ -503,7 +503,7 @@ só o que passa por ela.
 
 ---
 
-## Passo 4b — O que acontece quando a policy cai *(4 min, extra, MUDA ESTADO)*
+## Passo 4b — O que acontece quando a policy cai *(4 min, extra, MUDA ESTADO · depois do passo 2)*
 
 ```bash
 bash scripts/demo.sh degrada
@@ -601,7 +601,7 @@ que o resto do tráfego.
 
 ---
 
-## Passo 5b — O que um contador não responde *(4 min, extra)*
+## Passo 5b — O que um contador não responde *(4 min, extra · **depois do passo 5**)*
 
 ```bash
 bash scripts/demo.sh trace
@@ -738,7 +738,7 @@ bash scripts/provision.sh gitops    # instala o Argo e o ApplicationSet
 
 ---
 
-## Passo 7 — A borda não é a única fronteira *(8 min, opcional)*
+## Passo 7 — A borda não é a única fronteira *(8 min, opcional · mesh no estado base)*
 
 ```bash
 bash scripts/demo.sh ato7
@@ -823,7 +823,7 @@ em vermelho. **Não use isso para demonstrar retry ou timeout**: os dois testes
 
 ---
 
-## Passo 7b — A promoção acontecendo, ao vivo *(3 min, extra, MUDA ESTADO)*
+## Passo 7b — A promoção acontecendo, ao vivo *(3 min, extra, MUDA ESTADO · **depois do passo 7**)*
 
 ```bash
 bash scripts/demo.sh canario
@@ -872,7 +872,7 @@ oc apply -f base/mesh/virtualservice-discounts.yaml
 ---
 
 
-## Passo 7c — O disjuntor, e o que NÃO dá para demonstrar *(5 min, extra, MUDA ESTADO)*
+## Passo 7c — O disjuntor, e o que NÃO dá para demonstrar *(5 min, extra, MUDA ESTADO · **depois do passo 7**)*
 
 ```bash
 bash scripts/demo.sh resiliencia
