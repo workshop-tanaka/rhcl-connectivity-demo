@@ -1,0 +1,554 @@
+# ===========================================================================
+# Dashboard 'Evidencia dos atos'.
+#
+# POR QUE ISTO EXISTE: a evidencia de cada ato estava so no Explore do Grafana,
+# e o Explore exige papel Editor. Este Grafana permite acesso ANONIMO sem
+# declarar papel, e o default do Grafana nesse caso e Viewer -- que NAO tem
+# Explore. A tela nao da erro: ela redireciona para a home, e quem chega ali
+# conclui que a funcionalidade nao existe (medido em 2026-09-18).
+#
+# Dashboard, ao contrario, Viewer enxerga. Entao a evidencia que dependia de
+# login vira uma tela que qualquer um abre -- inclusive a plateia, se o link
+# for projetado.
+#
+# As consultas NAO sao ilustrativas: cada uma foi executada contra o Thanos
+# deste cluster antes de entrar aqui. A do Ato 1 chegou a ser escrita errada --
+# filtrando por destination_workload=travels-v1, que e exatamente onde o 401
+# NAO aparece, porque a requisicao nunca chega ao destino. A versao correta
+# mostra destination_workload='unknown', e esse 'unknown' e o argumento do ato
+# inteiro numa linha de tabela.
+#
+# Datasource explicito por '${datasource}', pelo mesmo motivo do
+# dashboard-negocio-planos: painel sem datasource declarado usa o DEFAULT, e
+# em cluster com mais de um default o painel abre 'No data' no palco.
+# ===========================================================================
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: rhcl-evidencia
+  namespace: monitoring
+  labels:
+    rhcl.demo/camada: monitoring
+spec:
+  folder: Negocio
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  json: |
+    {
+      "title": "Evidencia dos atos",
+      "uid": "rhcl-evidencia",
+      "tags": [
+        "rhcl",
+        "demo",
+        "evidencia"
+      ],
+      "timezone": "browser",
+      "refresh": "30s",
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {
+              "text": "Thanos",
+              "value": "thanos",
+              "selected": true
+            },
+            "options": [],
+            "refresh": 1,
+            "hide": 0,
+            "includeAll": false,
+            "multi": false
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "row",
+          "title": "Ato 1 — a borda recusa, e a aplicacao nem e acordada",
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "type": "table",
+          "title": "401 na borda: quem foi o destino?",
+          "description": "A prova do Ato 1. O destino sai 'unknown' porque NAO HOUVE destino: a recusa aconteceu no gateway e a aplicacao nunca foi chamada. Filtrar por destination_workload=travels-v1 nao mostra o 401 -- e e justamente esse o ponto.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 1
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (response_code, destination_workload) (increase(istio_requests_total{response_code=\"401\"}[15m]))",
+              "legendFormat": "{{response_code}} -> {{destination_workload}}",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "left"
+              },
+              "unit": "short",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "lg",
+            "footer": {
+              "show": false
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Recusas por codigo, ao longo do tempo",
+          "description": "401 sem credencial, 403 quando a identidade existe mas nao vale para o produto, 429 quando o plano estourou.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 1
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (response_code) (rate(istio_requests_total{response_code=~\"401|403|429\"}[2m]))",
+              "legendFormat": "{{response_code}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              },
+              "unit": "reqps",
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "title": "Atos 2 e 4 — o plano comercial vira numero",
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 9
+          },
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "type": "table",
+          "title": "Servidas por plano (15 min)",
+          "description": "O label 'plan' vem do TelemetryPolicy, nao do Limitador. Sem ele a metrica responde 'quantos 429 houve'; com ele responde 'o tier free esta saturando'.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 10
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (plan) (increase(authorized_calls[15m]))",
+              "legendFormat": "{{plan}}",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "left"
+              },
+              "unit": "short",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "lg",
+            "footer": {
+              "show": false
+            }
+          }
+        },
+        {
+          "type": "table",
+          "title": "Limitadas por plano (15 min)",
+          "description": "O 429 quebrado por tier. Se o free aparece sozinho aqui, o corte esta funcionando como o PlanPolicy declara.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 10
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (plan) (increase(limited_calls[15m]))",
+              "legendFormat": "{{plan}}",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "left"
+              },
+              "unit": "short",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "lg",
+            "footer": {
+              "show": false
+            }
+          }
+        },
+        {
+          "type": "row",
+          "title": "Evidencia de ensaio — o trafego de teste e filtravel",
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 18
+          },
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "type": "table",
+          "title": "Consumo por parceiro (15 min)",
+          "description": "As chaves teste-* carregam a identidade 'sistema-teste', de proposito: o que o Postman ou um ensaio geram vira uma linha propria e nao se mistura com os parceiros da historia.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 19
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (partner) (increase(istio_requests_total{destination_workload=\"travels-v1\"}[15m]))",
+              "legendFormat": "{{partner}}",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "left"
+              },
+              "unit": "short",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "lg",
+            "footer": {
+              "show": false
+            }
+          }
+        },
+        {
+          "type": "row",
+          "title": "Ato 7 — versao e decisao de plataforma",
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 27
+          },
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "type": "table",
+          "title": "Divisao entre v1 e v2 no discounts (5 min)",
+          "description": "Os pesos vem da VirtualService, nao do codigo: v1 e v2 sao a mesma imagem. A divisao so existe aqui e no grafo -- nunca na resposta da API.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 28
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (destination_version) (increase(istio_requests_total{destination_service_name=\"discounts\"}[5m]))",
+              "legendFormat": "{{destination_version}}",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "left"
+              },
+              "unit": "short",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "lg",
+            "footer": {
+              "show": false
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Chamadas ao discounts por versao",
+          "description": "Se as duas linhas somem, o fan-out parou: quase sempre e a lista de destinos vazia (o banco do outro lado do Skupper). Ver docs/AMBIENTE-1.2-WORKSHOP.md.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 28
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (destination_version) (rate(istio_requests_total{destination_service_name=\"discounts\"}[2m]))",
+              "legendFormat": "{{destination_version}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              },
+              "unit": "reqps",
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        }
+      ]
+    }
