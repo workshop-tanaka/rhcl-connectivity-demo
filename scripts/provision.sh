@@ -22,6 +22,7 @@
 #   DOMAIN=apps.<cluster>     dominio de apps (default: ingresses.config/cluster)
 #   API_HOST / ECHO_HOST      hostnames (default: api-travels.$DOMAIN / echo-travels.$DOMAIN)
 #   OPTIONAL=0                nao instala os operadores opcionais
+#   CUSTOM_CONSOLE=0          'consoles' sem o build da Kuadrant Console customizada
 #   TIMEOUT=600               segundos por espera
 #
 # Pre-requisitos: oc autenticado com cluster-admin, python3.
@@ -888,6 +889,12 @@ st_consoles() {
   # NAO substitui o plugin oficial acima -- convive com ele, rotulada de
   # '(customizada)' no displayName e no cabecalho do proprio manifesto.
   # Build de Git para a ImageStream local; so na primeira vez.
+  # CUSTOM_CONSOLE=0 pula este bloco inteiro: e o que o workshop (Field
+  # Content) usa -- la o Kiali e os PodMonitors desta etapa sao necessarios,
+  # e um build de minutos de uma console de comunidade nao e (2026-09-18).
+  if [[ "${CUSTOM_CONSOLE:-1}" != "1" ]]; then
+    _log "CUSTOM_CONSOLE=0 — console customizada fora; o plugin oficial basta"
+  else
   _apply platform-reference/consoles/kuadrant-console-custom.yaml
   if [[ $DRY_RUN -eq 0 ]]; then
     if oc get istag kuadrant-console:latest -n kuadrant-console >/dev/null 2>&1; then
@@ -900,6 +907,7 @@ st_consoles() {
     fi
     _enable_console_plugin kuadrant-console
     _warn "console CUSTOMIZADA habilitada (gateway-smashes/kuadrant-console) -- comunidade, sem suporte; o plugin oficial continua ativo"
+  fi
   fi
   else
     _warn "ConsolePlugin kuadrant-console-plugin ainda nao existe — o operator do RHCL nao terminou de subir"
