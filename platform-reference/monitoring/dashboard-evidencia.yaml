@@ -18,6 +18,12 @@
 # mostra destination_workload='unknown', e esse 'unknown' e o argumento do ato
 # inteiro numa linha de tabela.
 #
+# ROTULO 'A.n' NO TITULO. No palco o apresentador diz "vamos ao Ato 2" e a
+# plateia precisa achar o painel sem procurar. Titulo que so descreve a metrica
+# ('Servidas por plano') obriga quem assiste a mapear metrica -> ato de cabeca,
+# e quem apresenta a dizer "aquele ali embaixo". O prefixo resolve, e sobrevive
+# a reordenacao dos paineis.
+#
 # NUMERO INTEIRO, E NUMERO GRANDE.
 #
 # 1. round() em toda contagem. increase() EXTRAPOLA: ele ajusta o valor para a
@@ -74,7 +80,7 @@ spec:
       dashboards: grafana
   json: |
     {
-      "title": "Evidencia dos atos",
+      "title": "Evidencia dos atos (A.1 a A.7)",
       "uid": "rhcl-evidencia",
       "tags": [
         "rhcl",
@@ -109,7 +115,7 @@ spec:
       "panels": [
         {
           "type": "row",
-          "title": "Ato 1 — a borda recusa, e a aplicacao nem e acordada",
+          "title": "A.1 — a borda recusa, e a aplicacao nem e acordada",
           "gridPos": {
             "h": 1,
             "w": 24,
@@ -121,7 +127,7 @@ spec:
         },
         {
           "type": "table",
-          "title": "401 na borda: quem foi o destino?",
+          "title": "A.1 · 401 na borda: quem foi o destino?",
           "description": "A prova do Ato 1. O destino sai 'unknown' porque NAO HOUVE destino: a recusa aconteceu no gateway e a aplicacao nunca foi chamada. Filtrar por destination_workload=travels-v1 nao mostra o 401 -- e e justamente esse o ponto.",
           "gridPos": {
             "h": 8,
@@ -187,7 +193,7 @@ spec:
         },
         {
           "type": "bargauge",
-          "title": "Recusas por codigo",
+          "title": "A.1 · Recusas por codigo (2 min)",
           "description": "Quantidade de recusas nos ultimos 2 minutos, nao taxa por segundo: a plateia entende '22 recusas', nao '0,122 por segundo' -- e o roteiro fala em contagem o tempo todo. 401 sem credencial, 403 quando a identidade existe mas nao vale para o produto, 429 quando o plano estourou.",
           "gridPos": {
             "h": 7,
@@ -252,7 +258,7 @@ spec:
         },
         {
           "type": "row",
-          "title": "Atos 2 e 4 — o plano comercial vira numero",
+          "title": "A.2 e A.4 — o plano comercial vira numero",
           "gridPos": {
             "h": 1,
             "w": 24,
@@ -264,7 +270,7 @@ spec:
         },
         {
           "type": "bargauge",
-          "title": "Servidas por plano (15 min)",
+          "title": "A.2 · Servidas por plano (15 min)",
           "description": "O label 'plan' vem do TelemetryPolicy, nao do Limitador. Sem ele a metrica responde 'quantos 429 houve'; com ele responde 'o tier free esta saturando'.",
           "gridPos": {
             "h": 7,
@@ -329,7 +335,7 @@ spec:
         },
         {
           "type": "bargauge",
-          "title": "Limitadas por plano (15 min)",
+          "title": "A.2 · Limitadas por plano (15 min)",
           "description": "O 429 quebrado por tier. Se o free aparece sozinho aqui, o corte esta funcionando como o PlanPolicy declara.",
           "gridPos": {
             "h": 7,
@@ -394,7 +400,7 @@ spec:
         },
         {
           "type": "row",
-          "title": "Evidencia de ensaio — o trafego de teste e filtravel",
+          "title": "A.4 — evidencia de ensaio: o trafego de teste e filtravel",
           "gridPos": {
             "h": 1,
             "w": 24,
@@ -406,7 +412,7 @@ spec:
         },
         {
           "type": "bargauge",
-          "title": "Consumo por parceiro (15 min)",
+          "title": "A.4 · Consumo por parceiro (15 min)",
           "description": "As chaves teste-* carregam a identidade 'sistema-teste', de proposito: o que o Postman ou um ensaio geram vira uma linha propria e nao se mistura com os parceiros da historia.",
           "gridPos": {
             "h": 7,
@@ -471,7 +477,7 @@ spec:
         },
         {
           "type": "row",
-          "title": "Ato 7 — versao e decisao de plataforma",
+          "title": "A.7 — versao e decisao de plataforma",
           "gridPos": {
             "h": 1,
             "w": 24,
@@ -483,7 +489,7 @@ spec:
         },
         {
           "type": "bargauge",
-          "title": "Divisao entre v1 e v2 no discounts (5 min)",
+          "title": "A.7 · Divisao entre v1 e v2 no discounts (5 min)",
           "description": "Os pesos vem da VirtualService, nao do codigo: v1 e v2 sao a mesma imagem. A divisao so existe aqui e no grafo -- nunca na resposta da API.",
           "gridPos": {
             "h": 7,
@@ -548,7 +554,7 @@ spec:
         },
         {
           "type": "gauge",
-          "title": "Peso efetivo do canario (v2)",
+          "title": "A.7 · Peso efetivo do canario (v2)",
           "description": "O que a VirtualService DECLARA e 10%. Isto e o que o trafego real mediu na janela. E o numero que o Ato 7 promete e que ninguem consegue ver na resposta da API -- v1 e v2 sao a mesma imagem, a divisao so existe aqui e no grafo.",
           "gridPos": {
             "h": 7,

@@ -149,6 +149,7 @@ Atos extras, fora do default (cada um roda sozinho):
   degrada  O que acontece quando a policy cai        (4 min, MUDA ESTADO)
   trace    O que um contador nao responde            (4 min, depois do 4 ou 5)
   canario  A promocao acontecendo, ao vivo           (3 min, MUDA ESTADO)
+             LOGS=1 acrescenta o log colorido das duas versoes
 
 Depois:
 
@@ -835,6 +836,31 @@ for n in sorted(c):
   _log  "a tela: $(_tempo_api | sed 's#/api.*##')  -- servico prod-web-istio.ingress-gateway"
 }
 
+# Segue os logs das DUAS versoes do discounts, coloridos, num terminal so.
+# Ideia do m2/canary-monitoring.sh do workshop; aqui ele e o par visual do
+# passo 'canario': o painel mostra o agregado subindo, o log mostra as
+# requisicoes individuais trocando de pod. Para quem duvida que o trafego se
+# dividiu mesmo, ver o log da v2 acelerar enquanto o da v1 esvazia convence
+# mais que um numero.
+#
+# PIDs em VARIAVEL GLOBAL, nunca por '$(...)': a substituicao de comando espera
+# o stdout FECHAR, e um 'oc logs -f' em background herda esse stdout e nunca o
+# fecha -- o passo trava para sempre, sem saida nenhuma. Mordeu em 2026-09-18,
+# e o sintoma e o pior possivel: nao ha erro, so silencio.
+_TAILS=""
+_tail_versoes() { # liga os dois tails; PIDs ficam em _TAILS
+  local ns=travel-agency p1 p2
+  p1="$(oc get pod -n "$ns" -l app=discounts,version=v1 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
+  p2="$(oc get pod -n "$ns" -l app=discounts,version=v2 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
+  [[ -n "$p1" && -n "$p2" ]] || return 1
+  oc logs -n "$ns" -f "$p1" -c discounts --tail=0 2>/dev/null \
+    | sed -u "s/^/$(printf '\033[0;32m')[v1] /;s/$/$(printf '\033[0m')/" &
+  _TAILS="$!"
+  oc logs -n "$ns" -f "$p2" -c discounts --tail=0 2>/dev/null \
+    | sed -u "s/^/$(printf '\033[1;33m')[v2] /;s/$/$(printf '\033[0m')/" &
+  _TAILS="$_TAILS $!"
+}
+
 step_canario() {
   _title "Ato canario — a promocao acontecendo, ao vivo" "3 min, MUDA ESTADO"
   _why "O Ato 7 mostra um canary PARADO em 90/10: prova que a divisao existe e"
@@ -849,6 +875,8 @@ step_canario() {
   _why "neste cluster em 2026-09-18, e o preflight so AVISA, porque nao tem como"
   _why "saber se a mudanca foi de proposito."
   _warn "Isto MUDA ESTADO. O revert roda no fim e tambem com Ctrl-C."
+  _log  "LOGS=1 acrescenta a segunda tela: as requisicoes caindo em cada pod,"
+  _log  "  verde para v1 e amarelo para v2 -- LOGS=1 bash scripts/demo.sh canario"
   _log  "abra o painel 'Peso efetivo do canario' antes de comecar:"
   _log  "  https://$(_route grafana-route monitoring)/d/rhcl-evidencia"
   _why  "  O medidor sobe junto com os passos. E a unica tela da demo que se"
@@ -859,10 +887,25 @@ step_canario() {
   # do proximo ensaio mede o numero errado -- exatamente o que o script do
   # workshop faz, e o motivo deste passo existir.
   _revert_canary() { oc apply -f "${_here}/base/mesh/virtualservice-discounts.yaml" >/dev/null 2>&1 || true; }
-  trap '_revert_canary; printf "\n  revertido para 90/10.\n"; exit 130' INT
-  trap '_revert_canary; trap - INT RETURN' RETURN
+  trap '_mata_tails; _revert_canary; printf "\n  revertido para 90/10.\n"; exit 130' INT
+  trap '_mata_tails; _revert_canary; trap - INT RETURN' RETURN
 
   local api gold; api="$(_api_host)"; gold="$(_key_of gold)"
+
+  # LOGS=1 acrescenta a segunda tela: as requisicoes caindo em cada pod,
+  # coloridas. Fora do default porque o log do discounts e verboso e, projetado
+  # junto com o resto, tira a atencao do medidor -- que e o ponto do passo.
+  _TAILS=""
+  if [[ "${LOGS:-0}" == "1" ]]; then
+    _tail_versoes || _warn "nao achei os dois pods do discounts; seguindo sem log"
+    if [[ -n "$_TAILS" ]]; then
+      _log "logs das duas versoes ligados (verde = v1, amarelo = v2)"
+      _why "  Olhe o amarelo acelerar e o verde esvaziar a cada passo."
+      sleep 2
+    fi
+  fi
+  _mata_tails() { [[ -n "$_TAILS" ]] && kill $_TAILS 2>/dev/null; _TAILS=""; true; }
+
   local v2
   for v2 in 10 25 50 75 100; do
     local v1=$((100 - v2))
@@ -879,6 +922,7 @@ step_canario() {
   _why "codigo. E quem opera a plataforma, no mesmo arquivo onde estao o timeout"
   _why "e o retry -- base/mesh/virtualservice-discounts.yaml."
   echo
+  _mata_tails
   _log "revertendo para 90/10 (o estado que o Ato 7 mede)"
   _do oc apply -f "base/mesh/virtualservice-discounts.yaml"
 }
