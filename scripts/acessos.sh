@@ -325,6 +325,45 @@ if $TODAS; then
 fi
 
 # ---------------------------------------------------------------------------
+# hosts do AMBIENTE (RHDP), que nao sao rota do cluster
+# ---------------------------------------------------------------------------
+# Num ambiente do Red Hat Demo Platform o lab guide publica o proprio dado num
+# ConfigMap -- 'showroom-userdata' -- e e ali que moram as credenciais das
+# MAQUINAS: o bastion e, quando o cenario tem um, o RHEL que hospeda o que nao
+# roda no cluster. Aqui e o MySQL do travel-agency, alcancado por Skupper.
+#
+# Isto entra no acessos.sh, e nao num arquivo, pelo mesmo motivo que todo o
+# resto: o dado ja existe no cluster, com o ciclo de vida do cluster. Copiar
+# para um ACESSOS.md e criar uma segunda verdade que envelhece sozinha -- e a
+# senha de um ambiente que morreu continua legivel no disco de quem a copiou.
+#
+# Some junto com o cluster, que e exatamente o que se quer de uma senha de lab.
+# '-A' com nome nao funciona ('a resource cannot be retrieved by name across
+# all namespaces'): descobre-se o namespace primeiro, que muda a cada ambiente.
+_ud_ns="$(oc get cm -A --no-headers 2>/dev/null | awk '$2=="showroom-userdata"{print $1; exit}')"
+_ud=""
+[[ -n "$_ud_ns" ]] && _ud="$(oc get cm showroom-userdata -n "$_ud_ns" -o jsonpath='{.data.user_data\.yml}' 2>/dev/null)"
+if [[ -n "$_ud" ]]; then
+  _ud_get() { # _ud_get <chave> -> valor, sem as aspas
+    printf '%s' "$_ud" | sed -n "s/^\"$1\": *\"\(.*\)\"$/\1/p" | head -1
+  }
+  _rhel_host="$(_ud_get rhel_hostname)"; [[ -z "$_rhel_host" ]] && _rhel_host="$(_ud_get rhel_targethost)"
+  if [[ -n "$_rhel_host" ]]; then
+    _row "Maquinas do ambiente" "RHEL (host do MySQL via Skupper)" \
+         "ssh $(_ud_get rhel_ssh_username)@${_rhel_host}" \
+         "$(_ud_get rhel_ssh_username)" "$(_ud_get rhel_ssh_password)" \
+         "a chave de provisionamento tambem esta no ConfigMap (rhel_ssh_provision_key)"
+  fi
+  _bast="$(_ud_get ocp_cluster_bastion_public_hostname)"
+  if [[ -n "$_bast" && "$_bast" != "test_hostname" ]]; then
+    _row "Maquinas do ambiente" "bastion do cluster" \
+         "ssh $(_ud_get ocp_cluster_bastion_ssh_user_name)@${_bast}" \
+         "$(_ud_get ocp_cluster_bastion_ssh_user_name)" \
+         "$(_ud_get ocp_cluster_bastion_ssh_password)" ""
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # saída
 # ---------------------------------------------------------------------------
 _p() { # senha, respeitando --mask
