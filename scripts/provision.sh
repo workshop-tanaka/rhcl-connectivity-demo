@@ -923,8 +923,14 @@ st_consoles() {
     # e DESLIGA as metricas em runtime, com a tela culpando a configuracao. A
     # chave TEM de ser 'additional-ca-bundle.pem'.
     if [[ $DRY_RUN -eq 0 ]]; then
-      local ca have
-      ca="$(oc get cm kiali-cabundle-openshift -n istio-system -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null)"
+      local ca have _t=0
+      # O operator do Kiali cria o cabundle-openshift segundos DEPOIS do CR.
+      # Num provisionamento corrido (o Job do workshop, 2026-09-18) a etapa
+      # chegava aqui antes dele, avisava, e o Kiali ficava sem metrica ate
+      # alguem reexecutar. Espera com teto; o aviso abaixo continua valendo.
+      until ca="$(oc get cm kiali-cabundle-openshift -n istio-system -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null)"; [[ -n "$ca" || $_t -ge 180 ]]; do
+        sleep 10; _t=$((_t + 10))
+      done
       if [[ -z "$ca" ]]; then
         _warn "ConfigMap kiali-cabundle-openshift ainda nao existe — reexecute esta etapa quando o operator do Kiali tiver reconciliado"
       else
