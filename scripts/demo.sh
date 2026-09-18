@@ -440,9 +440,17 @@ _traces_url() {
   if oc get crd uiplugins.observability.openshift.io >/dev/null 2>&1; then
     printf '%s/observe/traces' "$c"; return
   fi
+  # Sem o COO, a rota do Tempo. E a RAIZ NAO SERVE: no TempoMonolithic com
+  # multitenancy (o nosso), ela e o gateway do observatorium e responde um
+  # JSON listando caminhos -- quem abre no navegador ve
+  #   {"paths":["/api/traces/v1/{tenant}/*","/openapi.yaml","/{tenant}"]}
+  # e conclui que a tela nao existe. A UI do Jaeger mora em /<tenant>, que
+  # pede login do OpenShift e entao abre. Medido em 2026-09-18.
   local t
   t="$(_route tempo-tempo-jaegerui tracing-system)"
-  [[ -z "$t" ]] && t="$(_route tracing-ui tracing-system)"
+  [[ -n "$t" ]] && { printf 'https://%s/%s' "$t" "${TEMPO_TENANT:-dev}"; return; }
+  # O TempoStack sem multitenancy publica 'tracing-ui', e ai a raiz E a UI.
+  t="$(_route tracing-ui tracing-system)"
   [[ -n "$t" ]] && printf 'https://%s' "$t" || printf '%s/observe/traces' "$c"
 }
 
@@ -689,7 +697,7 @@ step_ato5() {
                     └─ insurances ─┴─ mysqldb
 GRAFO
   echo
-  printf '  %sTraces%s        %s\n' "$_BLD" "$_RST" "$(_console)/observe/traces"
+  printf '  %sTraces%s        %s\n' "$_BLD" "$_RST" "$(_traces_url)"
   _why "instancia 'tempo' (namespace tracing-system), servico"
   _why "prod-web-istio.ingress-gateway. Abra um trace: a decisao do gateway e a"
   _why "chamada de aplicacao no mesmo timeline. As duas chamadas gRPC de auth e"
@@ -1036,7 +1044,7 @@ for n in sorted(c):
   _why "E a razao de mostrar isto em vez de esconder: quem compra esperando"
   _why "arvore completa descobre na primeira semana e sente que foi vendido."
   _why "Quem conhece a conta faz o trabalho, e colhe a arvore."
-  _log  "a tela: $(_tempo_api | sed 's#/api.*##')  -- servico prod-web-istio.ingress-gateway"
+  _log  "a tela: $(_traces_url)  -- servico prod-web-istio.ingress-gateway"
 }
 
 # Segue os logs das DUAS versoes do discounts, coloridos, num terminal so.
