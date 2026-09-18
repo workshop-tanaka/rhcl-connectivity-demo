@@ -181,6 +181,14 @@ O que **precisa de conferência**:
 | `selfHeal` da Application `tracing-system` | foi **desligado** para a troca acima sobreviver. Se alguém religar, a imagem quebrada volta |
 | Cota diária do Limitador | o contador é do Redis do próprio Limitador |
 | Traces no Tempo | a janela é curta; gere tráfego antes de abrir a tela |
+| **A lista de destinos do `travels`** | vem de um MySQL que mora em **outro site**, alcançado por Skupper. Medido em 2026-09-18, depois do primeiro religamento: o túnel subiu, `Site` e `Listener` ficaram `Ready`, e o tráfego passou com **`octets=0`** — o banco do outro lado não estava de pé. A lista voltou `[]` |
+
+> **A quebra mais cara não aparece em `oc get pods`.** Com a lista vazia, a
+> borda continua perfeita: 401 sem chave, 429 no tier free, planos medindo
+> 3/10/14. Os Atos 1 a 4 passam inteiros. O que morre é o **fan-out** — e com
+> ele o Ato 5 (o grafo para em `prod-web → travels`) e o Ato 7 (o canário não
+> tem o que medir). O `preflight` ganhou a checagem em 2026-09-18, depois de
+> fechar em `[OK] demo pode ser apresentada` com os dois atos quebrados.
 
 Roteiro de religação, em ordem:
 

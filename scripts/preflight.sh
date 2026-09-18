@@ -400,6 +400,30 @@ if [[ -n "$HOST" ]]; then
   else
     _bad "não achei chave do tier free" "oc apply -k ${OVERLAY}"
   fi
+
+  # O FAN-OUT, que ate 2026-09-18 ninguem checava -- e o buraco custou caro:
+  # neste cluster o preflight fechou em '[OK] demo pode ser apresentada' com os
+  # Atos 5 e 7 quebrados. Os dois dependem de /travels/<cidade> disparar as
+  # chamadas aos quatro vendedores, e isso exige que a lista de destinos tenha
+  # dados. A borda continua respondendo 401 e 429 com a lista VAZIA: os Atos 1
+  # a 4 passam, e o grafo do Service Mesh para em 'prod-web -> travels'.
+  #
+  # Aqui a lista vem de um MySQL que mora em OUTRO site, alcancado por Skupper:
+  # o tunel sobe, o listener fica Ready, e o trafego passa com octets=0 quando o
+  # banco do outro lado nao esta de pe. Nada disso aparece em 'oc get pods'.
+  _gold="$(oc get secrets -n kuadrant-system -l 'app=partner,kuadrant.io/plan-id=gold' \
+             -o jsonpath='{.items[0].data.api_key}' 2>/dev/null | base64 -d 2>/dev/null)"
+  if [[ -n "$_gold" ]]; then
+    _dest="$(curl -sk --max-time 15 "${URL}?APIKEY=${_gold}" -H 'user: theonlyuser' 2>/dev/null)"
+    if [[ "$_dest" == "[]" ]]; then
+      _bad "a lista de destinos voltou VAZIA — sem fan-out, os Atos 5 e 7 nao acontecem" \
+           "a app depende do banco; onde ele vem por Skupper, confira o outro site: oc get site,listener -n travel-db e 'octets=' no log do skupper-router"
+    elif [[ -z "$_dest" ]]; then
+      _warn "nao consegui ler a lista de destinos" "curl -k ${URL}?APIKEY=<gold>"
+    else
+      _ok "lista de destinos com dado — o fan-out dos Atos 5 e 7 tem de onde sair"
+    fi
+  fi
 fi
 
 [[ "$MODE" == "core" ]] && { printf '\n'; [[ "$FAIL" == "0" ]] && { printf '%s[OK]%s núcleo pronto (%d avisos).\n' "$_GRN" "$_RST" "$WARN"; exit 0; } || { printf '%s[X]%s %d falha(s).\n' "$_RED" "$_RST" "$FAIL"; exit 1; }; }
