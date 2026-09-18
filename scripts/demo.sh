@@ -115,7 +115,7 @@ _guard_overlay() { # _guard_overlay <caminho-do-overlay> -> 0 se seguro aplicar
   return 1
 }
 
-STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda degrada trace falha reset pos)
+STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda degrada trace canario falha reset pos)
 # O default e o nucleo da tese. Ato 6 e 7 sao opcionais e longos; 'aquece',
 # 'falha' e 'reset' mudam estado e nunca devem entrar sem alguem pedir.
 STEPS_DEFAULT=(ato1 ato2 ato3 ato4 ato5)
@@ -148,6 +148,7 @@ Atos extras, fora do default (cada um roda sozinho):
   borda    O certificado e o DNS tambem sao policy   (3 min, entre 3 e 4)
   degrada  O que acontece quando a policy cai        (4 min, MUDA ESTADO)
   trace    O que um contador nao responde            (4 min, depois do 4 ou 5)
+  canario  A promocao acontecendo, ao vivo           (3 min, MUDA ESTADO)
 
 Depois:
 
@@ -832,6 +833,54 @@ for n in sorted(c):
   _why "arvore completa descobre na primeira semana e sente que foi vendido."
   _why "Quem conhece a conta faz o trabalho, e colhe a arvore."
   _log  "a tela: $(_tempo_api | sed 's#/api.*##')  -- servico prod-web-istio.ingress-gateway"
+}
+
+step_canario() {
+  _title "Ato canario — a promocao acontecendo, ao vivo" "3 min, MUDA ESTADO"
+  _why "O Ato 7 mostra um canary PARADO em 90/10: prova que a divisao existe e"
+  _why "que ela e decisao de plataforma. Este mostra a divisao SE MOVENDO --"
+  _why "10, 25, 50, 75, 100 -- que e como uma promocao acontece de verdade."
+  _why ""
+  _why "A ideia vem do modulo 2 do workshop (app-connectivity-workshop/scripts,"
+  _why "m2/canary-rollout.sh). A diferenca esta no fim: aquele script TERMINA em"
+  _why "v2=100 e nao volta, e o VirtualService que ele patcha e o mesmo que o"
+  _why "nosso Ato 7 declara em base/mesh/. Rodar o do workshop antes do Ato 7"
+  _why "deixa o ato medindo 0/100 enquanto a narracao promete 90/10 -- aconteceu"
+  _why "neste cluster em 2026-09-18, e o preflight so AVISA, porque nao tem como"
+  _why "saber se a mudanca foi de proposito."
+  _warn "Isto MUDA ESTADO. O revert roda no fim e tambem com Ctrl-C."
+  _log  "abra o painel 'Peso efetivo do canario' antes de comecar:"
+  _log  "  https://$(_route grafana-route monitoring)/d/rhcl-evidencia"
+  _why  "  O medidor sobe junto com os passos. E a unica tela da demo que se"
+  _why  "  mexe enquanto o apresentador fala."
+  _pause || return 0
+
+  # O revert nos DOIS caminhos: sair no meio deixa o canary em 100% e o Ato 7
+  # do proximo ensaio mede o numero errado -- exatamente o que o script do
+  # workshop faz, e o motivo deste passo existir.
+  _revert_canary() { oc apply -f "${_here}/base/mesh/virtualservice-discounts.yaml" >/dev/null 2>&1 || true; }
+  trap '_revert_canary; printf "\n  revertido para 90/10.\n"; exit 130' INT
+  trap '_revert_canary; trap - INT RETURN' RETURN
+
+  local api gold; api="$(_api_host)"; gold="$(_key_of gold)"
+  local v2
+  for v2 in 10 25 50 75 100; do
+    local v1=$((100 - v2))
+    _do_sh "oc -n travel-agency patch virtualservice discounts --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/http/0/route/0/weight\",\"value\":${v1}},{\"op\":\"replace\",\"path\":\"/spec/http/0/route/1/weight\",\"value\":${v2}}]'"
+    # trafego durante o passo, senao o painel nao tem o que mostrar
+    _do_as "trafego para o passo ${v1}/${v2}" \
+      bash -c "for i in \$(seq 12); do curl -s -o /dev/null 'https://${api}/travels/Rome?APIKEY=${gold}' -H 'user: theonlyuser'; done; echo '  ${v1}% para v1, ${v2}% para v2'"
+  done
+  echo
+  _look "cinco passos, e o medidor do Grafana subiu junto com eles"
+  _say  "Promover uma versao nao e um deploy: e uma linha de peso num YAML. O binario da v2 ja estava no ar desde o primeiro passo -- o que mudou foi quanto do trafego chega nele."
+  echo
+  _why "E a pergunta que fecha: quem decide esse numero? Nao e quem escreveu o"
+  _why "codigo. E quem opera a plataforma, no mesmo arquivo onde estao o timeout"
+  _why "e o retry -- base/mesh/virtualservice-discounts.yaml."
+  echo
+  _log "revertendo para 90/10 (o estado que o Ato 7 mede)"
+  _do oc apply -f "base/mesh/virtualservice-discounts.yaml"
 }
 
 step_falha() {
