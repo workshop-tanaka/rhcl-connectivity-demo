@@ -281,6 +281,47 @@ _route() { # host de uma route, vazio se nao existir
 # ---------------------------------------------------------------------------
 # preparacao
 # ---------------------------------------------------------------------------
+# A URL do grafo de trafego, com plano B automatico.
+#
+# A aba do console (ossmconsole) e a preferida: ela fecha o argumento de "e o
+# console que o cliente ja abre". Mas o plugin declara aceitar QUALQUER versao
+# de console ('*') e nao verifica nada -- entao num console antigo ele CARREGA
+# e estoura na renderizacao, com 'Minified React error #306'. Medido em
+# 2026-09-17, console 4.17 com plugin da linha 2.22.
+#
+# O Kiali standalone serve o MESMO grafo e nao depende do console. Aqui o
+# caminho e /console/graph/namespaces -- '/graph/namespaces' da 404.
+# A URL dos traces, com plano B automatico -- mesmo padrao do grafo.
+#
+# A aba Observe -> Traces do console so existe com o Cluster Observability
+# Operator instalado, e ela exige multitenancy no Tempo (armadilha 13). Sem os
+# dois, a aba nao aparece e quem clica cai na home sem erro nenhum. O Tempo
+# serve a mesma consulta pela propria rota.
+_traces_url() {
+  local c; c="$(_console)"
+  if oc get crd uiplugins.observability.openshift.io >/dev/null 2>&1; then
+    printf '%s/observe/traces' "$c"; return
+  fi
+  local t
+  t="$(_route tempo-tempo-jaegerui tracing-system)"
+  [[ -z "$t" ]] && t="$(_route tracing-ui tracing-system)"
+  [[ -n "$t" ]] && printf 'https://%s' "$t" || printf '%s/observe/traces' "$c"
+}
+
+_graf_url() {
+  local c k
+  c="$(_console)"
+  k="$(_route kiali istio-system)"
+  # Sem forma barata de saber se o plugin renderiza: a checagem e no navegador.
+  # Entao a regra e a versao do console, que e o que decide.
+  local v; v="$(oc get clusterversion -o jsonpath='{.items[0].status.desired.version}' 2>/dev/null)"
+  case "$v" in
+    4.1[0-8].*|4.[0-9].*)
+      [[ -n "$k" ]] && { printf 'https://%s/console/graph/namespaces?namespaces=ingress-gateway%%2Ctravel-agency%%2Ctravel-db&duration=300' "$k"; return; } ;;
+  esac
+  printf '%s/ossmconsole/graph' "$c"
+}
+
 step_telas() {
   _title "Preparacao — as telas" "2 min"
   _why "Uma aba por ato, e tres delas moram no mesmo console do OpenShift — que"
@@ -299,10 +340,10 @@ step_telas() {
   echo
   printf '  %sAba 1 — Grafana, dashboard "Planos comerciais"%s\n' "$_BLD" "$_RST"
   printf '    %s\n' "${g:+https://$g}"
-  printf '  %sAba 2 — console: Policy Topology (Ato 3), Traffic Graph e Traces (Ato 5)%s\n' "$_BLD" "$_RST"
+  printf '  %sAba 2 — Policy Topology (Ato 3), Traffic Graph e Traces (Ato 5)%s\n' "$_BLD" "$_RST"
   printf '    %s\n' "${c}/kuadrant/policy-topology"
-  printf '    %s\n' "${c}/ossmconsole/graph"
-  printf '    %s\n' "${c}/observe/traces"
+  printf '    %s\n' "$(_graf_url)"
+  printf '    %s\n' "$(_traces_url)"
   printf '  %sAba 3 — API Catalog do console (Ato 2): produtos, chaves, aprovacoes%s\n' "$_BLD" "$_RST"
   printf '    %s\n' "${c}/kuadrant/apiproducts"
   printf '  %sAba 4 — RHDH (so no Ato 6)%s\n' "$_BLD" "$_RST"
@@ -484,7 +525,11 @@ step_ato5() {
     _log "a coleta leva ~1 min (PodMonitor a 30s) — fale enquanto isso"
   fi
   echo
-  printf '  %sTraffic Graph%s  %s\n' "$_BLD" "$_RST" "$(_console)/ossmconsole/graph"
+  printf '  %sTraffic Graph%s  %s\n' "$_BLD" "$_RST" "$(_graf_url)"
+  case "$(_graf_url)" in
+    *kiali*) _why "Kiali direto: neste console o plugin de Service Mesh estoura na"
+             _why "renderizacao (React #306) -- o grafo e o mesmo." ;;
+  esac
   _why "namespaces ingress-gateway + travel-agency + travel-db, janela Last 5m."
   _why "O grafo fecha assim:"
   cat <<'GRAFO'
