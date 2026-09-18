@@ -1020,6 +1020,11 @@ st_dashboards() {
   _apply platform-reference/monitoring/prometheusrule-devportal.yaml
 
   _apply platform-reference/monitoring/dashboard-negocio-planos.yaml     # o do Ato 4
+  # A evidencia de cada ato numa tela so. Existe porque o Explore do Grafana
+  # exige papel Editor, e num Grafana com acesso anonimo o visitante e Viewer:
+  # a tela nao da erro, redireciona para a home, e quem chega ali conclui que
+  # nao existe (2026-09-18). Dashboard, Viewer enxerga.
+  _apply platform-reference/monitoring/dashboard-evidencia.yaml          # a evidencia de todos
   _apply platform-reference/monitoring/dashboard-negocio-parceiros.yaml # consumo por parceiro
   _apply platform-reference/monitoring/dashboard-negocio-chaves.yaml # demanda de chave (Ato 6)
   _apply platform-reference/monitoring/dashboard-plataforma-postura.yaml   # o que esta valendo agora
