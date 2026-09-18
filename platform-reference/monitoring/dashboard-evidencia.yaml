@@ -18,6 +18,17 @@
 # mostra destination_workload='unknown', e esse 'unknown' e o argumento do ato
 # inteiro numa linha de tabela.
 #
+# CONTAGEM, NAO TAXA. Os paineis de serie usam increase() e nao rate(), e a
+# unidade e 'short' e nao 'reqps'. Medido em 2026-09-18, na mesma rajada do
+# Ato 2: rate devolve 0,122 req/s e increase devolve 22. A plateia entende 22
+# recusas; ninguem entende 0,122 por segundo -- e o roteiro fala em contagem o
+# tempo todo ("3 servidas, 11 limitadas"), entao o painel em taxa CONTRADIZ a
+# narracao.
+#
+# A janela de 2 min e deliberada: o roteiro pausa entre movimentos, e com 1 min
+# o painel zera enquanto o apresentador fala, o que se le como "parou de
+# funcionar".
+#
 # Datasource explicito por '${datasource}', pelo mesmo motivo do
 # dashboard-negocio-planos: painel sem datasource declarado usa o DEFAULT, e
 # em cluster com mais de um default o painel abre 'No data' no palco.
@@ -149,7 +160,7 @@ spec:
         {
           "type": "timeseries",
           "title": "Recusas por codigo, ao longo do tempo",
-          "description": "401 sem credencial, 403 quando a identidade existe mas nao vale para o produto, 429 quando o plano estourou.",
+          "description": "Quantidade de recusas nos ultimos 2 minutos, nao taxa por segundo: a plateia entende '22 recusas', nao '0,122 por segundo' -- e o roteiro fala em contagem o tempo todo. 401 sem credencial, 403 quando a identidade existe mas nao vale para o produto, 429 quando o plano estourou.",
           "gridPos": {
             "h": 8,
             "w": 12,
@@ -166,7 +177,7 @@ spec:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "sum by (response_code) (rate(istio_requests_total{response_code=~\"401|403|429\"}[2m]))",
+              "expr": "sum by (response_code) (increase(istio_requests_total{response_code=~\"401|403|429\"}[2m]))",
               "legendFormat": "{{response_code}}",
               "refId": "A"
             }
@@ -178,7 +189,7 @@ spec:
                 "fillOpacity": 12,
                 "showPoints": "never"
               },
-              "unit": "reqps",
+              "unit": "short",
               "color": {
                 "mode": "palette-classic"
               }
@@ -499,7 +510,7 @@ spec:
         {
           "type": "timeseries",
           "title": "Chamadas ao discounts por versao",
-          "description": "Se as duas linhas somem, o fan-out parou: quase sempre e a lista de destinos vazia (o banco do outro lado do Skupper). Ver docs/AMBIENTE-1.2-WORKSHOP.md.",
+          "description": "Quantidade de chamadas nos ultimos 2 minutos. Se as duas linhas somem, o fan-out parou: quase sempre e a lista de destinos vazia (o banco do outro lado do Skupper). Ver docs/AMBIENTE-1.2-WORKSHOP.md.",
           "gridPos": {
             "h": 8,
             "w": 12,
@@ -516,7 +527,7 @@ spec:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "sum by (destination_version) (rate(istio_requests_total{destination_service_name=\"discounts\"}[2m]))",
+              "expr": "sum by (destination_version) (increase(istio_requests_total{destination_service_name=\"discounts\"}[2m]))",
               "legendFormat": "{{destination_version}}",
               "refId": "A"
             }
@@ -528,7 +539,7 @@ spec:
                 "fillOpacity": 12,
                 "showPoints": "never"
               },
-              "unit": "reqps",
+              "unit": "short",
               "color": {
                 "mode": "palette-classic"
               }
