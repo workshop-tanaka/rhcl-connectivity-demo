@@ -27,7 +27,19 @@
 #    errada. 'limited_calls - limited_calls offset 15m' devolve 12 tambem, mas
 #    round(increase(...)) e mais simples e aguenta reinicio de contador.
 #
-# 2. Paineis de NUMERO, nao de curva. A pergunta do palco e "quantas foram",
+# 2. BARRA, nao curva e nao numero solto. A pergunta do palco e comparativa --
+#    "qual plano saturou", "quanto foi para v2" --, e barra responde isso pela
+#    PROPORCAO, antes de alguem ler o numero: a do free cheia ao lado da do gold
+#    vazia e o argumento do Ato 2 inteiro, sem comparar digitos de cabeca. O
+#    numero continua escrito na barra, entao nao se perde nada.
+#
+#    Curva exige interpretar eixo e o roteiro nao da tempo. Numero solto obriga
+#    a plateia a comparar mentalmente 12, 4 e 0.
+#
+#    TABELA sobrevive onde ha DUAS dimensoes (codigo + destino), porque ali o
+#    par e a informacao: '401 -> unknown' nao vira barra.
+#
+# (nota historica) Paineis de NUMERO, nao de curva. A pergunta do palco e "quantas foram",
 #    nao "como variou": o stat mostra 12 em corpo grande, legivel do fundo da
 #    sala. Curva exige a plateia interpretar eixo, e o roteiro nao da tempo.
 #    As tabelas sobrevivem onde ha DUAS dimensoes (codigo + destino), porque ali
@@ -174,7 +186,7 @@ spec:
           }
         },
         {
-          "type": "stat",
+          "type": "bargauge",
           "title": "Recusas por codigo",
           "description": "Quantidade de recusas nos ultimos 2 minutos, nao taxa por segundo: a plateia entende '22 recusas', nao '0,122 por segundo' -- e o roteiro fala em contagem o tempo todo. 401 sem credencial, 403 quando a identidade existe mas nao vale para o produto, 429 quando o plano estourou.",
           "gridPos": {
@@ -203,6 +215,7 @@ spec:
             "defaults": {
               "unit": "short",
               "decimals": 0,
+              "min": 0,
               "color": {
                 "mode": "palette-classic"
               },
@@ -220,6 +233,11 @@ spec:
             "overrides": []
           },
           "options": {
+            "displayMode": "gradient",
+            "orientation": "horizontal",
+            "showUnfilled": true,
+            "valueMode": "color",
+            "sizing": "auto",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
@@ -227,11 +245,9 @@ spec:
               "fields": "",
               "values": false
             },
-            "orientation": "horizontal",
-            "textMode": "value_and_name",
-            "colorMode": "value",
-            "graphMode": "none",
-            "justifyMode": "center"
+            "minVizWidth": 8,
+            "minVizHeight": 16,
+            "namePlacement": "left"
           }
         },
         {
@@ -247,7 +263,7 @@ spec:
           "panels": []
         },
         {
-          "type": "stat",
+          "type": "bargauge",
           "title": "Servidas por plano (15 min)",
           "description": "O label 'plan' vem do TelemetryPolicy, nao do Limitador. Sem ele a metrica responde 'quantos 429 houve'; com ele responde 'o tier free esta saturando'.",
           "gridPos": {
@@ -276,6 +292,7 @@ spec:
             "defaults": {
               "unit": "short",
               "decimals": 0,
+              "min": 0,
               "color": {
                 "mode": "palette-classic"
               },
@@ -293,6 +310,11 @@ spec:
             "overrides": []
           },
           "options": {
+            "displayMode": "gradient",
+            "orientation": "horizontal",
+            "showUnfilled": true,
+            "valueMode": "color",
+            "sizing": "auto",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
@@ -300,15 +322,13 @@ spec:
               "fields": "",
               "values": false
             },
-            "orientation": "horizontal",
-            "textMode": "value_and_name",
-            "colorMode": "value",
-            "graphMode": "none",
-            "justifyMode": "center"
+            "minVizWidth": 8,
+            "minVizHeight": 16,
+            "namePlacement": "left"
           }
         },
         {
-          "type": "stat",
+          "type": "bargauge",
           "title": "Limitadas por plano (15 min)",
           "description": "O 429 quebrado por tier. Se o free aparece sozinho aqui, o corte esta funcionando como o PlanPolicy declara.",
           "gridPos": {
@@ -337,6 +357,7 @@ spec:
             "defaults": {
               "unit": "short",
               "decimals": 0,
+              "min": 0,
               "color": {
                 "mode": "palette-classic"
               },
@@ -354,6 +375,11 @@ spec:
             "overrides": []
           },
           "options": {
+            "displayMode": "gradient",
+            "orientation": "horizontal",
+            "showUnfilled": true,
+            "valueMode": "color",
+            "sizing": "auto",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
@@ -361,11 +387,9 @@ spec:
               "fields": "",
               "values": false
             },
-            "orientation": "horizontal",
-            "textMode": "value_and_name",
-            "colorMode": "value",
-            "graphMode": "none",
-            "justifyMode": "center"
+            "minVizWidth": 8,
+            "minVizHeight": 16,
+            "namePlacement": "left"
           }
         },
         {
@@ -381,11 +405,11 @@ spec:
           "panels": []
         },
         {
-          "type": "table",
+          "type": "bargauge",
           "title": "Consumo por parceiro (15 min)",
           "description": "As chaves teste-* carregam a identidade 'sistema-teste', de proposito: o que o Postman ou um ensaio geram vira uma linha propria e nao se mistura com os parceiros da historia.",
           "gridPos": {
-            "h": 8,
+            "h": 7,
             "w": 12,
             "x": 0,
             "y": 19
@@ -406,25 +430,15 @@ spec:
               "instant": true
             }
           ],
-          "transformations": [
-            {
-              "id": "organize",
-              "options": {
-                "excludeByName": {
-                  "Time": true
-                }
-              }
-            }
-          ],
           "fieldConfig": {
             "defaults": {
-              "custom": {
-                "align": "left"
-              },
               "unit": "short",
+              "decimals": 0,
+              "min": 0,
               "color": {
-                "mode": "thresholds"
+                "mode": "palette-classic"
               },
+              "mappings": [],
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -433,17 +447,26 @@ spec:
                     "value": null
                   }
                 ]
-              },
-              "decimals": 0
+              }
             },
             "overrides": []
           },
           "options": {
-            "showHeader": true,
-            "cellHeight": "lg",
-            "footer": {
-              "show": false
-            }
+            "displayMode": "gradient",
+            "orientation": "horizontal",
+            "showUnfilled": true,
+            "valueMode": "color",
+            "sizing": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "minVizWidth": 8,
+            "minVizHeight": 16,
+            "namePlacement": "left"
           }
         },
         {
@@ -459,11 +482,11 @@ spec:
           "panels": []
         },
         {
-          "type": "table",
+          "type": "bargauge",
           "title": "Divisao entre v1 e v2 no discounts (5 min)",
           "description": "Os pesos vem da VirtualService, nao do codigo: v1 e v2 sao a mesma imagem. A divisao so existe aqui e no grafo -- nunca na resposta da API.",
           "gridPos": {
-            "h": 8,
+            "h": 7,
             "w": 12,
             "x": 0,
             "y": 28
@@ -484,76 +507,11 @@ spec:
               "instant": true
             }
           ],
-          "transformations": [
-            {
-              "id": "organize",
-              "options": {
-                "excludeByName": {
-                  "Time": true
-                }
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "custom": {
-                "align": "left"
-              },
-              "unit": "short",
-              "color": {
-                "mode": "thresholds"
-              },
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "text",
-                    "value": null
-                  }
-                ]
-              },
-              "decimals": 0
-            },
-            "overrides": []
-          },
-          "options": {
-            "showHeader": true,
-            "cellHeight": "lg",
-            "footer": {
-              "show": false
-            }
-          }
-        },
-        {
-          "type": "stat",
-          "title": "Chamadas ao discounts por versao (2 min)",
-          "description": "Quantidade de chamadas nos ultimos 2 minutos. Se as duas linhas somem, o fan-out parou: quase sempre e a lista de destinos vazia (o banco do outro lado do Skupper). Ver docs/AMBIENTE-1.2-WORKSHOP.md.",
-          "gridPos": {
-            "h": 7,
-            "w": 12,
-            "x": 12,
-            "y": 28
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "expr": "sum by (destination_version) (round(increase(istio_requests_total{destination_service_name=\"discounts\"}[2m])))",
-              "legendFormat": "{{destination_version}}",
-              "refId": "A",
-              "instant": true
-            }
-          ],
           "fieldConfig": {
             "defaults": {
               "unit": "short",
               "decimals": 0,
+              "min": 0,
               "color": {
                 "mode": "palette-classic"
               },
@@ -571,6 +529,11 @@ spec:
             "overrides": []
           },
           "options": {
+            "displayMode": "gradient",
+            "orientation": "horizontal",
+            "showUnfilled": true,
+            "valueMode": "color",
+            "sizing": "auto",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
@@ -578,11 +541,77 @@ spec:
               "fields": "",
               "values": false
             },
-            "orientation": "horizontal",
-            "textMode": "value_and_name",
-            "colorMode": "value",
-            "graphMode": "none",
-            "justifyMode": "center"
+            "minVizWidth": 8,
+            "minVizHeight": 16,
+            "namePlacement": "left"
+          }
+        },
+        {
+          "type": "gauge",
+          "title": "Peso efetivo do canario (v2)",
+          "description": "O que a VirtualService DECLARA e 10%. Isto e o que o trafego real mediu na janela. E o numero que o Ato 7 promete e que ninguem consegue ver na resposta da API -- v1 e v2 sao a mesma imagem, a divisao so existe aqui e no grafo.",
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 28
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "100 * sum(rate(istio_requests_total{destination_service_name=\"discounts\",destination_version=\"v2\"}[10m])) / sum(rate(istio_requests_total{destination_service_name=\"discounts\"}[10m]))",
+              "legendFormat": "v2",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "decimals": 1,
+              "min": 0,
+              "max": 100,
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "orange",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 5
+                  },
+                  {
+                    "color": "orange",
+                    "value": 20
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true
           }
         }
       ]
