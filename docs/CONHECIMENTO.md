@@ -571,6 +571,52 @@ Vale para qualquer objeto **cluster-scoped** que o repositório aplique:
 ClusterRole, ClusterRoleBinding, CRD, IngressClass, GatewayClass. Namespace
 protege; escopo de cluster, não. Prefixar com `rhcl-` é a regra.
 
+### 5.13 Namespace inexistente no grafo do Kiali derruba o grafo INTEIRO
+
+O link do Traffic Graph pedia três namespaces —
+`ingress-gateway,travel-agency,travel-db` — e o `travel-db` **aposentou-se na
+unificação de 2026-08-31**: o `mysqldb` mora em `travel-agency` desde então.
+O Kiali não ignora o que falta nem desenha o que existe:
+
+```
+GET /api/namespaces/graph?namespaces=ingress-gateway,travel-agency,travel-db
+403 {"error":"Requested namespace [travel-db] is not accessible."}
+```
+
+A mesma consulta sem ele devolve `200` com 7 nós. Ou seja: **a tela central do
+Ato 5 não abria desde agosto**, e nada avisava — o passo `telas` imprimia a
+URL, e ninguém testou o que ela devolvia. Medido no cluster-nsvz5 em
+2026-09-18.
+
+A lição é maior que o Kiali: **URL impressa por script é código que ninguém
+testa**. Quando um recurso sai do cluster, os links que o citam continuam lá,
+sintaticamente perfeitos. Vale conferir com `curl` as URLs que o `telas`
+imprime sempre que a topologia mudar.
+
+### 5.14 O que pode ser embutido no Showroom, e o que nunca vai poder
+
+O painel direito do Showroom é um **iframe**. Três telas da demo recusam
+frame, por cabeçalho próprio (medido com `curl -I` em 2026-09-18):
+
+| Tela | Cabeçalho |
+| --- | --- |
+| console do OpenShift | `x-frame-options: DENY` |
+| Grafana | `x-frame-options: deny` |
+| Kiali | `x-frame-options: DENY` |
+| Tempo | *(nenhum — aceita)* |
+
+O navegador bloqueia **sem mensagem**: a aba abre em branco, e quem monta o
+lab conclui que errou o caminho. Não há configuração do outro lado que
+afrouxe isso, e não se deve procurar — o cabeçalho existe contra
+clickjacking. As telas de fora entram por **link que abre em aba nova**, e no
+painel ficam só o terminal e o Tempo.
+
+No AsciiDoc isso é o sufixo `^` da macro: `{grafana_url}/d/x[texto^]`. E a
+macro com `[texto]` é obrigatória por outro motivo — sem ela, o autolink
+engole o travessão ` -- ` (que vira *thin space* + *em dash*, sem espaço
+ASCII que termine a URL) e a palavra seguinte, e o link nasce apontando para
+um lugar que não existe.
+
 ---
 
 ## 6. Estrutura do repositório
