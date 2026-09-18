@@ -115,7 +115,7 @@ _guard_overlay() { # _guard_overlay <caminho-do-overlay> -> 0 se seguro aplicar
   return 1
 }
 
-STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda degrada trace canario resiliencia falha reset pos)
+STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda degrada trace canario resiliencia falha mesh_base reset pos)
 # O default e o nucleo da tese. Ato 6 e 7 sao opcionais e longos; 'aquece',
 # 'falha' e 'reset' mudam estado e nunca devem entrar sem alguem pedir.
 STEPS_DEFAULT=(ato1 ato2 ato3 ato4 ato5)
@@ -155,6 +155,8 @@ Atos extras, fora do default (cada um roda sozinho):
 Depois:
 
   falha    fault injection no discounts e o revert (opcional, muda estado)
+  mesh_base  devolve VirtualService, DestinationRule e mTLS ao que base/mesh
+           declara (~5s) -- e o pre-ato que ato7/canario/resiliencia oferecem
   reset    zera as cotas para reapresentar
   pos      pos-sessao: procura o que a demo deixou para tras, ajusta, e
            revalida. E o que se roda DEPOIS de apresentar, nao antes.
@@ -171,8 +173,19 @@ A ordem importa — o que cada passo pressupoe (cada passo imprime isto ao comec
   canario  parte de 90/10 (o estado que o ato7 mede); narrativa depois do 7
   resiliencia  narrativa depois do 7 (usa a AuthorizationPolicy dele)
   os demais rodam sozinhos: ato1, ato3, ato5, borda, degrada, ato6, falha
+  Quando falta, o passo PERGUNTA se roda o pre-ato (ato2, ato5 ou mesh_base)
+  e volta; com --auto ele so avisa -- relance com o pre-ato na frente.
+
+Para quem cada ato fala (a persona que reconhece o problema):
+
+  ato1 seguranca/plataforma   ato2 produto/negocio     ato3 plataforma
+  ato4 negocio/operacao       ato5 operacao/dev        ato6 desenvolvedor
+  ato7 seguranca/plataforma   borda operacao           degrada operacao (SRE)
+  trace operacao/dev          canario dev/plataforma   resiliencia operacao (SRE)
 
 Cada passo pausa antes de executar (Enter segue, 'p' pula, Ctrl-C sai).
+Na pausa, o nome de um passo ('ato5', 'trace', ou so '5') e um DESVIO: roda
+aquele passo inteiro e volta a mesma pausa -- para a pergunta fora de ordem.
 EOF
 }
 
@@ -221,11 +234,17 @@ _look() { printf '  %s→ %s%s\n' "$_GRN" "$1" "$_RST"; }
 # Uma linha por passo, e so nos passos que dependem de algo: o rotulo curto
 # vai no titulo ('DEPOIS DO ATO2'), a linha diz o porque. Passo sem a linha
 # roda sozinho.
-_pre() { printf '  %s◇ depende: %s%s\n' "$_YEL" "$1" "$_RST"; }
+_pre()  { printf '  %s◇ depende: %s%s\n' "$_YEL" "$1" "$_RST"; }
+# Para quem o ato fala: a persona que reconhece o problema na primeira frase.
+# Serve para montar o roteiro pela plateia, nao pela numeracao -- uma sala de
+# desenvolvedores nao precisa do 'borda', uma de operacao nao precisa do 6.
+_quem() { printf '  %s◇ persona: %s%s\n' "$_DIM" "$1" "$_RST"; }
 
-# Checagens baratas do que um passo pressupoe. So AVISAM: quem apresenta pode
-# ter feito o trafego por outro caminho (Postman, soak num terminal 2), e um
-# aviso errado no palco custa mais que um painel vazio.
+# Checagens baratas do que um passo pressupoe. Devolvem 1 quando falta, e
+# quem chama OFERECE o pre-ato (_oferece_pre) em vez de so avisar. Nunca
+# rodam o pre-ato sozinhas: quem apresenta pode ter feito o trafego por outro
+# caminho (Postman, soak num terminal 2), e um passo de 45s que ninguem pediu,
+# no meio de uma fala, custa mais que um painel vazio.
 _checa_trafego_recente() { # ato4: houve chamada autorizada nos ultimos 15 min?
   local th tok n
   th="$(_route thanos-querier openshift-monitoring)"; tok="$(oc whoami -t 2>/dev/null)"
@@ -238,10 +257,9 @@ print(int(float(r[0]["value"][1])) if r else 0)' 2>/dev/null)"
   [[ -n "$n" ]] || return 0
   if [[ "$n" -eq 0 ]]; then
     _warn "nenhuma chamada autorizada nos ultimos 15 min — o Grafana vai mostrar painel vazio"
-    _warn "rode antes: bash scripts/demo.sh ato2   (ou aquece, para series continuas)"
-  else
-    _ok "trafego recente: ${n} chamadas autorizadas nos ultimos 15 min"
+    return 1
   fi
+  _ok "trafego recente: ${n} chamadas autorizadas nos ultimos 15 min"
 }
 _checa_mesh_base() { # ato7/canario/resiliencia/falha: o estado que base/mesh declara
   local mode w1 w2 fault ruim=0
@@ -252,11 +270,54 @@ _checa_mesh_base() { # ato7/canario/resiliencia/falha: o estado que base/mesh de
   [[ "$mode" == "STRICT" ]]        || { _warn "mTLS em '${mode:-ausente}' (esperado STRICT): a sonda devolve 403 em vez de exit=56"; ruim=1; }
   [[ "$w1/$w2" == "90/10" ]]       || { _warn "VirtualService do discounts em ${w1:-?}/${w2:-?} (esperado 90/10): o script do workshop ou um Ctrl-C deixou isto"; ruim=1; }
   [[ -z "$fault" ]]                || { _warn "fault injection ainda ativa no discounts"; ruim=1; }
-  if [[ $ruim -eq 1 ]]; then
-    _warn "corrige tudo de uma vez: bash scripts/demo.sh pos"
-  else
-    _ok "estado base do Service Mesh: STRICT, 90/10, sem fault"
+  [[ $ruim -eq 0 ]] || return 1
+  _ok "estado base do Service Mesh: STRICT, 90/10, sem fault"
+}
+_checa_traces_fanout() { # trace: ha trace do travels (fan-out) na ultima hora?
+  local base tok n
+  base="$(_tempo_api)"; [[ -n "$base" ]] || return 0
+  tok="$(oc whoami -t 2>/dev/null)"
+  n="$(curl -sk --max-time 15 -H "Authorization: Bearer ${tok}" \
+        "${base}/traces?service=travels.travel-agency&lookback=1h&limit=5" 2>/dev/null \
+      | python3 -c 'import sys,json; print(len(json.load(sys.stdin).get("data") or []))' 2>/dev/null)"
+  [[ -n "$n" ]] || return 0
+  if [[ "$n" -eq 0 ]]; then
+    _warn "nenhum trace do travels na ultima hora — o 3o movimento nao tem o que mostrar"
+    return 1
   fi
+  _ok "traces do travels na ultima hora: ${n}+ (a janela do 3o movimento tem o que ler)"
+}
+
+# O pre-ato do estado do mesh, leve: os tres objetos que os atos mexem, de
+# volta ao que base/mesh declara. E o subconjunto do 'pos' que cabe num
+# palco -- o 'pos' inteiro roda o preflight (~45s) e e para depois da sessao.
+step_mesh_base() {
+  _log "restaurando o estado base do Service Mesh"
+  _do oc apply -f "base/mesh/virtualservice-discounts.yaml"
+  _do oc apply -f "base/mesh/destinationrule-discounts.yaml"
+  _do oc patch peerauthentication travel-agency-mtls -n travel-agency \
+      --type=merge -p '{"spec":{"mtls":{"mode":"STRICT"}}}'
+}
+
+# Pergunta se roda o pre-ato agora. Tres saidas:
+#   terminal     pergunta em /dev/tty; 's' roda step_<pre> e volta ao passo
+#   --auto       nao pergunta -- quem conduz (o Claude, um script) decide e
+#                relanca com o pre-ato na frente: 'demo.sh ato2 ato4'
+#   --dry-run    so imprime
+_oferece_pre() { # _oferece_pre <passo-pre> <o que ele resolve>
+  local pre="$1" motivo="$2" k
+  _why "  pre-ato: ${pre} — ${motivo}"
+  if [[ $DRY_RUN -eq 1 ]]; then return 0; fi
+  if [[ $AUTO -eq 1 || ! -t 0 || ! -e /dev/tty ]]; then
+    _warn "sem terminal para perguntar: rode 'bash scripts/demo.sh ${pre} <este passo>' se quiser o pre-ato"
+    return 0
+  fi
+  printf '  %srodar o pre-ato "%s" agora e voltar a este passo? [s/N]%s ' "$_YEL" "$pre" "$_RST"
+  read -r k </dev/tty || true
+  echo
+  [[ "$k" == "s" || "$k" == "S" ]] || { _log "seguindo sem o pre-ato"; return 0; }
+  "step_${pre}"
+  printf '\n  %s— de volta ao passo —%s\n\n' "$_DIM" "$_RST"
 }
 
 # Imprime o comando como se tivesse sido digitado — a plateia tem de conseguir
@@ -294,15 +355,34 @@ _do_as() { local show="$1"; shift; printf '\n  %s$ %s%s\n\n' "$_BLD" "$show" "$_
 # log de uma pergunta que ninguem fez. Com ela, execucao nao-interativa corre
 # limpa e a pausa continua valendo no terminal, inclusive com a saida
 # redirecionada.
+#
+# DESVIO: a pausa tambem aceita o nome de um passo ('ato5', 'trace', ou so o
+# numero '5'). A plateia pergunta fora de ordem -- "e o trace disso?" no meio
+# do Ato 2 -- e o jeito de responder e mostrar, nao prometer "ja chego la". O
+# desvio roda o passo pedido inteiro e VOLTA a esta mesma pausa, com o passo
+# de origem no prompt, para nao perder o fio. '?' lista os passos.
+_PASSO=""  # o passo em curso, para o prompt do desvio
 _pause() {
   [[ $AUTO -eq 1 || $DRY_RUN -eq 1 ]] && return 0
   [[ -t 0 && -e /dev/tty ]] || return 0
-  local k
-  printf '  %s[Enter] executa   [p] pula   [Ctrl-C] sai%s ' "$_DIM" "$_RST"
+  local k alvo origem
+  printf '  %s[Enter] executa   [p] pula   [<passo>] desvio e volta   [?] passos   [Ctrl-C] sai%s ' "$_DIM" "$_RST"
   read -r k </dev/tty || true
   echo
-  [[ "$k" == "p" || "$k" == "P" ]] && return 1
-  return 0
+  case "$k" in
+    "")  return 0 ;;
+    p|P) return 1 ;;
+    "?") printf '  %spassos: %s%s\n\n' "$_DIM" "${STEPS_ALL[*]}" "$_RST"; _pause; return $? ;;
+  esac
+  alvo="$k"; [[ "$alvo" =~ ^[1-7]$ ]] && alvo="ato${alvo}"
+  if [[ " ${STEPS_ALL[*]} " != *" ${alvo} "* ]]; then
+    printf '  %snao conheco o passo "%s" (? lista)%s\n\n' "$_YEL" "$k" "$_RST"; _pause; return $?
+  fi
+  origem="$_PASSO"
+  printf '\n  %s▶ desvio: %s  (ao terminar, volta ao %s)%s\n' "$_YEL$_BLD" "$alvo" "${origem:-passo atual}" "$_RST"
+  _PASSO="$alvo"; "step_${alvo}"; _PASSO="$origem"
+  printf '\n  %s◀ de volta ao %s — no ponto onde parou%s\n\n' "$_YEL$_BLD" "${origem:-passo}" "$_RST"
+  _pause; return $?
 }
 
 # ---------------------------------------------------------------------------
@@ -451,6 +531,7 @@ step_aquece() {
 # ---------------------------------------------------------------------------
 step_ato1() {
   _title "Ato 1 — A API esta fechada por padrao" "2 min"
+  _quem "Seguranca e Engenheiro de Plataforma — e tambem o Desenvolvedor, que nao escreveu uma linha disto"
   _say  "Esta e a API de viagens que ja rodava. Vou chamar sem credencial nenhuma."
   _pause || return 0
   _do bash "scripts/traffic.sh" anon
@@ -480,6 +561,7 @@ step_ato1() {
 
 step_ato2() {
   _title "Ato 2 — Nem todo cliente e igual" "5 min · alimenta o ato4"
+  _quem "Produto/Negocio (o plano e vocabulario comercial) e Engenheiro de Plataforma (quem o declara)"
   _pre "nenhum — mas o ato4 le o trafego DESTE; 11s desde a ultima rajada"
   _say  "Mesma rota, mesma aplicacao, mesmo path. Tres chaves diferentes, tres resultados."
   _why  "Leva ~45s: o script espera 11s entre as rajadas de proposito, para a"
@@ -508,6 +590,7 @@ step_ato2() {
 
 step_ato3() {
   _title "Ato 3 — Precedencia de policies e explicita" "4 min"
+  _quem "Engenheiro de Plataforma — quem responde "qual policy venceu?" sem arqueologia"
   _why "O par aqui e Gateway contra rota. As policies que miram o prod-web valem"
   _why "para toda rota anexada, e CEDEM onde a rota declara a sua. No RHCL 1.4"
   _why "esse e o par certo: a RateLimitPolicy plana da rota sai do render, porque"
@@ -545,8 +628,9 @@ step_ato3() {
 
 step_ato4() {
   _title "Ato 4 — Isso vira numero de negocio" "4 min · DEPOIS DO ATO2"
+  _quem "Negocio (a pergunta e dele) e Operacao (quem mantem a cadeia que responde)"
   _pre "ato2 (ou aquece) nos ultimos 15 min — este so LE; sem isso o Grafana sai vazio"
-  _checa_trafego_recente
+  _checa_trafego_recente || _oferece_pre ato2 "gera as tres rajadas que este painel le (~45s)"
   _say  "Ate aqui a demo foi codigo de status. Agora e a pergunta que a area comercial faz."
   _pause || return 0
   _do bash "scripts/traffic.sh" metrics
@@ -572,6 +656,7 @@ step_ato4() {
 
 step_ato5() {
   _title "Ato 5 — O caminho todo e rastreavel" "3 min"
+  _quem "Operacao/SRE e Desenvolvedor — a mesma tela serve a incidente e a debug"
   _why "O trafego de /travels NAO atravessa o Service Mesh: a resposta e local ao"
   _why "travels e o grafo para em 'prod-web -> travels', o que na tela se le como"
   _why "coleta quebrada. Quem provoca o fan-out e /travels/<cidade>, com o header"
@@ -613,6 +698,7 @@ GRAFO
 
 step_ato6() {
   _title "Ato 6 — A policy nasce com o servico (RHDH)" "8 min, opcional"
+  _quem "Desenvolvedor — o golden path e a resposta a "quem escreve esse YAML?""
   _why "Este ato responde a objecao que sempre vem depois do Ato 2: 'ok, mas quem"
   _why "escreve esse YAML?'. A resposta e um golden path — o portal gera o"
   _why "servico COM as policies, e a mudanca vai por pull request."
@@ -674,8 +760,9 @@ step_ato6() {
 
 step_ato7() {
   _title "Ato 7 — A borda nao e a unica fronteira" "8 min, opcional · mesh no estado base"
+  _quem "Seguranca e Engenheiro de Plataforma — identidade de servico, nao de cliente"
   _pre "nenhum ato; precisa do mesh no estado base (STRICT, 90/10, sem fault) — canario/falha/resiliencia o devolvem ao sair"
-  _checa_mesh_base
+  _checa_mesh_base || _oferece_pre mesh_base "devolve VirtualService, DestinationRule e mTLS ao que base/mesh declara (~5s)"
   _why "Este ato e do Service Mesh, nao do RHCL, e existe porque a pergunta vem"
   _why "sozinha depois do Ato 1: 'entao a chave de API protege tudo?'. Nao"
   _why "protege — ela abre a porta da rua. E o argumento fecha porque e o MESMO"
@@ -729,6 +816,7 @@ done"
 
 step_borda() {
   _title "Ato borda — o certificado e o DNS tambem sao policy" "3 min · entre o ato3 e o ato4"
+  _quem "Operacao — quem hoje renova certificado e cria registro DNS a mao"
   _why "Os atos 1 a 4 respondem quem entra, quanto passa e quanto custa. Esta e"
   _why "a outra metade do que o RHCL governa na borda, e a que fala com quem"
   _why "opera a plataforma em vez de consumi-la."
@@ -774,6 +862,7 @@ step_borda() {
 
 step_degrada() {
   _title "Ato degrada — o que acontece quando a policy cai" "4 min, MUDA ESTADO · depois do ato2 (narrativa)"
+  _quem "Operacao/SRE — a pergunta "e se o componente cair?" e dele"
   _why "Esta e a pergunta que vem sozinha depois do Ato 2, e ate agora era"
   _why "respondida so de boca. Aqui ela e respondida com o cluster."
   _why ""
@@ -847,7 +936,9 @@ _tempo_api() { # imprime a URL base da API de traces, ou vazio
 
 step_trace() {
   _title "Ato trace — o que um contador nao consegue responder" "4 min · DEPOIS DO ATO5"
+  _quem "Operacao/SRE (o custo medido) e Desenvolvedor (as tres linhas de propagacao sao dele)"
   _pre "ato5 na ultima hora — o 3o movimento procura os traces de fan-out dele"
+  _checa_traces_fanout || _oferece_pre ato5 "dispara o trafego de fan-out em segundo plano (os traces levam ~1 min para indexar)"
   _why "O Ato 4 mostrou a metrica: quantas requisicoes, de qual plano, quantas"
   _why "recusadas. A metrica AGREGA -- ela soma requisicoes diferentes num numero"
   _why "so. O trace CORRELACIONA: amarra os pedacos de UMA requisicao."
@@ -973,8 +1064,9 @@ _tail_versoes() { # liga os dois tails; PIDs ficam em _TAILS
 
 step_canario() {
   _title "Ato canario — a promocao acontecendo, ao vivo" "3 min, MUDA ESTADO · DEPOIS DO ATO7"
+  _quem "Desenvolvedor e Engenheiro de Plataforma — quem promove, e quem decide o peso"
   _pre "ato7 (narrativa: ele mostra o 90/10 parado); discounts em 90/10"
-  _checa_mesh_base
+  _checa_mesh_base || _oferece_pre mesh_base "devolve VirtualService, DestinationRule e mTLS ao que base/mesh declara (~5s)"
   _why "O Ato 7 mostra um canary PARADO em 90/10: prova que a divisao existe e"
   _why "que ela e decisao de plataforma. Este mostra a divisao SE MOVENDO --"
   _why "10, 25, 50, 75, 100 -- que e como uma promocao acontece de verdade."
@@ -1041,8 +1133,9 @@ step_canario() {
 
 step_resiliencia() {
   _title "Ato resiliencia — o disjuntor, e o que NAO da para demonstrar" "5 min, OPCIONAL, MUDA ESTADO · DEPOIS DO ATO7"
+  _quem "Operacao/SRE — flags do Envoy, ejecao, e o que fault injection nao prova"
   _pre "ato7 (narrativa: a carga sai do cars por causa da AuthorizationPolicy dele)"
-  _checa_mesh_base
+  _checa_mesh_base || _oferece_pre mesh_base "devolve VirtualService, DestinationRule e mTLS ao que base/mesh declara (~5s)"
   _why "Este ato responde a pergunta que vem depois do Ato 7: 'e quando o"
   _why "servico do outro lado comeca a falhar?'. O Service Mesh tem duas"
   _why "respostas, e as duas sao visiveis -- mas nao pelo codigo HTTP, e sim"
@@ -1126,7 +1219,8 @@ for x in sorted(r, key=lambda y: -float(y['value'][1]))[:6]:
 
 step_falha() {
   _title "Cenario de falha — degradacao graciosa" "3 min, opcional"
-  _checa_mesh_base
+  _quem "Operacao/SRE e Produto — a API degrada em vez de cair"
+  _checa_mesh_base || _oferece_pre mesh_base "devolve VirtualService, DestinationRule e mTLS ao que base/mesh declara (~5s)"
   _why "Derruba o discounts inteiro e mostra a API na borda continuando a"
   _why "responder 200, com o catalogo completo e sem desconto. Boa deixa para o"
   _why "Kiali em vermelho."
@@ -1303,6 +1397,7 @@ printf '  %spassos:  %s%s\n' "$_DIM" "${STEPS[*]}" "$_RST"
 [[ $DRY_RUN -eq 1 ]] && printf '  %s(dry-run: nada sera executado)%s\n' "$_YEL" "$_RST"
 
 for s in "${STEPS[@]}"; do
+  _PASSO="$s"
   "step_${s}"
 done
 

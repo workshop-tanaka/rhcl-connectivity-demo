@@ -32,6 +32,14 @@ Ele narra o passo, **mostra o comando na tela antes de executar** (a plateia
 precisa ver o que foi digitado), roda, e diz o que olhar na saída. Entre um
 movimento e outro ele pausa: `Enter` segue, `p` pula, `Ctrl-C` sai.
 
+**O desvio.** Na mesma pausa, o nome de um passo (`ato5`, `trace`, ou só `5`)
+roda aquele passo inteiro e **volta à pausa de onde saiu**, com o passo de
+origem no prompt. É para a pergunta fora de ordem — "e o trace disso?" no meio
+do Ato 2 — que se responde mostrando, não prometendo "já chego lá". O passo
+desviado imprime o próprio `◇ depende:` e, se faltar algo, pergunta pelo
+pré-ato como sempre. `?` lista os passos. Conduzido pelo Claude Code, o desvio
+é simplesmente `/demo ato5`.
+
 O driver não decide se a demo está de pé — isso é o `preflight.sh`, que o passo
 `check` chama. E não substitui o runbook: ele executa, o runbook explica.
 
@@ -82,30 +90,39 @@ nenhum. A tabela separa os dois tipos de dependência, porque a resposta é
 diferente. A **narrativa** só pede uma frase de contexto; os **dados** e o
 **estado** pedem que outra coisa tenha rodado antes.
 
-| Passo | Dados / estado que precisa | Narrativa | Se faltar |
-| --- | --- | --- | --- |
-| 1 | nada | — | — |
-| 2 | cota do dia com folga; 11 s desde a última rajada; se rodou `aquece`, o reset já veio junto | depois do 1 | tier herda o 429 do anterior, ou três linhas de 429 |
-| 3 | nada (lê status de policy) | cita "os tiers do 2" | — |
-| 3b `borda` | nada | entre o 3 e o 4 | — |
-| **4** | **passo 2 ou `aquece` nos últimos 15 min** — ele só lê | depois do 3 | Grafana vazio, `authorized_calls` sem série, **sem erro** |
-| 4b `degrada` | Limitador de pé (é o que cai e volta) | depois do 2 | — |
-| 5 | nada — gera o próprio fan-out | — | — |
-| 5b `trace` | passo 5 (ou `traffic.sh mesh`) na última hora, para o 3º movimento | depois do 4 | "sem trace do travels na janela" no 3º movimento; os dois primeiros funcionam |
-| 6 | RHDH e GitLab no cluster | depois do 2 | o passo se pula sozinho |
-| 7 | **estado base do Service Mesh**: mTLS `STRICT`, `discounts` em 90/10, sem fault | depois do 1 | sonda devolve 403 em vez de `exit=56`; split mede 0/100 |
-| 7b `canario` | `discounts` em 90/10 (ponto de partida e de retorno) | depois do 7 | o medidor começa fora de 10 % |
-| 7c `resiliencia` | DestinationRule base; pods v1 e v2 | depois do 7 (usa a AuthorizationPolicy dele) | — |
-| `falha` | `discounts` sem fault | Kiali do 5 aberto | — |
+| Passo | Dados / estado que precisa | Narrativa | Se faltar | Persona |
+| --- | --- | --- | --- | --- |
+| 1 | nada | — | — | Segurança · Plataforma |
+| 2 | cota do dia com folga; 11 s desde a última rajada; se rodou `aquece`, o reset já veio junto | depois do 1 | tier herda o 429 do anterior, ou três linhas de 429 | Produto · Plataforma |
+| 3 | nada (lê status de policy) | cita "os tiers do 2" | — | Plataforma |
+| 3b `borda` | nada | entre o 3 e o 4 | — | Operação |
+| **4** | **passo 2 ou `aquece` nos últimos 15 min** — ele só lê | depois do 3 | Grafana vazio, `authorized_calls` sem série, **sem erro** | Negócio · Operação |
+| 4b `degrada` | Limitador de pé (é o que cai e volta) | depois do 2 | — | Operação/SRE |
+| 5 | nada — gera o próprio fan-out | — | — | Operação · Dev |
+| 5b `trace` | passo 5 (ou `traffic.sh mesh`) na última hora, para o 3º movimento | depois do 4 | "sem trace do travels na janela" no 3º movimento; os dois primeiros funcionam | Operação · Dev |
+| 6 | RHDH e GitLab no cluster | depois do 2 | o passo se pula sozinho | Desenvolvedor |
+| 7 | **estado base do Service Mesh**: mTLS `STRICT`, `discounts` em 90/10, sem fault | depois do 1 | sonda devolve 403 em vez de `exit=56`; split mede 0/100 | Segurança · Plataforma |
+| 7b `canario` | `discounts` em 90/10 (ponto de partida e de retorno) | depois do 7 | o medidor começa fora de 10 % | Dev · Plataforma |
+| 7c `resiliencia` | DestinationRule base; pods v1 e v2 | depois do 7 (usa a AuthorizationPolicy dele) | — | Operação/SRE |
+| `falha` | `discounts` sem fault | Kiali do 5 aberto | — | Operação/SRE · Produto |
 
 O rótulo vai no próprio título do passo (`DEPOIS DO ATO2`), e uma linha
-`◇ depende:` abaixo dele diz o porquê; passo sem a linha roda sozinho. Dois deles **conferem** em vez de só avisar: o 4 consulta o Thanos
-(`sum(increase(authorized_calls[15m]))`) e diz quantas chamadas há; o 7, o
-7b, o 7c e o `falha` comparam o Service Mesh com o que `base/mesh/` declara e,
-se algo estiver fora, apontam `bash scripts/demo.sh pos`, que restaura tudo
-de uma vez. A checagem só avisa: o tráfego pode ter vindo do Postman ou de um
-`soak` em outro terminal, e um aviso errado no palco custa mais que um painel
-vazio.
+`◇ depende:` abaixo dele diz o porquê; passo sem a linha roda sozinho. Três
+deles **conferem** em vez de só avisar — o 4 consulta o Thanos
+(`sum(increase(authorized_calls[15m]))`), o 5b procura traces do `travels` na
+última hora no Tempo, e o 7, 7b, 7c e `falha` comparam o Service Mesh com o
+que `base/mesh/` declara. Quando falta, o passo **pergunta** se roda o pré-ato
+agora (`ato2`, `ato5` ou `mesh_base`, que devolve VirtualService,
+DestinationRule e mTLS ao estado base em ~5 s) e volta ao passo em seguida.
+Com `--auto` ele só avisa, e quem conduz relança com o pré-ato na frente:
+`bash scripts/demo.sh ato2 ato4`. Nunca roda sozinho: o tráfego pode ter vindo
+do Postman ou de um `soak` em outro terminal, e um passo de 45 s que ninguém
+pediu, no meio de uma fala, custa mais que um painel vazio.
+
+A coluna **Persona** diz para quem o ato fala — quem reconhece o problema na
+primeira frase. Serve para montar o roteiro pela plateia, não pela numeração:
+uma sala de desenvolvedores dispensa o 3b; uma de operação dispensa o 6. Cada
+passo imprime a sua em `◇ persona:`.
 
 Quem **deixa** estado para trás: `canario`, `falha` e `resiliencia` revertem
 sozinhos no fim e no Ctrl-C; `degrada` reinicia o Limitador; `aquece` queima
