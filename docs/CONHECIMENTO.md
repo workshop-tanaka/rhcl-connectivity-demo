@@ -600,6 +600,7 @@ protege; escopo de cluster, não. Prefixar com `rhcl-` é a regra.
 | `demo.sh` | conduz a apresentação, passo a passo | teleprompter |
 | `provision.sh` | monta a plataforma num cluster novo | idempotente, tem `--dry-run` |
 | `new-env.sh` | cria `env/` + overlay para cluster novo | |
+| `lab-ssh.sh` | SSH nas máquinas do lab (RHEL, bastion) com a credencial lida do ConfigMap `showroom-userdata` — a chave vai para arquivo temporário e é apagada na saída | `rhel`, `bastion`, `--print` |
 | `capture.sh` | captura o estado vivo como manifests | **ver aviso abaixo** |
 | `acessos.sh` | monta a folha de acessos do cluster | gera `ACESSOS.md`, não commitar |
 

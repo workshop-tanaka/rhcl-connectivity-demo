@@ -195,10 +195,34 @@ Roteiro de religação, em ordem:
 ```bash
 oc login ...                          # a sessão não sobrevive
 bash scripts/preflight.sh             # o veredito antes de qualquer coisa
-oc get deploy minio -n tracing-system -o jsonpath='{.spec.template.spec.containers[0].image}'
+bash scripts/lab-ssh.sh rhel 'podman start travels-mysqldb'   # o banco, se caiu
 bash scripts/traffic.sh tiers         # confirma os três planos
+bash scripts/traffic.sh mesh-split    # confirma o fan-out (Atos 5 e 7)
 bash scripts/demo.sh trace            # confirma a cadeia de tracing inteira
 ```
+
+### 7.1 O banco: um container que ninguém manda subir
+
+Medido em 2026-09-18, no primeiro religamento. O MySQL roda no host RHEL num
+container **rootless** do `lab-user` chamado `travels-mysqldb`
+(`quay.io/kiali/demo_travels_mysqldb:v1`), publicado ao cluster por um
+`connector` do Skupper com a chave `appconn` na porta 3306. O roteador do
+Skupper volta sozinho — tem unidade de usuário em
+`~/.config/systemd/user/skupper-default.service` — mas **o banco não**: nada o
+reinicia, e ele fica `Exited (0)` depois de um desligamento.
+
+Daí o modo de falha ser tão enganoso: o túnel sobe, `Site` e `Listener` ficam
+`Ready`, `Matched=True`, e o tráfego passa com `octets=0`.
+
+```bash
+bash scripts/lab-ssh.sh rhel 'podman ps -a'                   # ver o estado
+bash scripts/lab-ssh.sh rhel 'podman start travels-mysqldb'   # subir
+```
+
+> **Procure sem `sudo`.** O lab criou tudo rootless; `sudo podman ps -a` mostra
+> lista vazia e sugere que o container nunca existiu. Foi o que custou os
+> primeiros minutos do diagnóstico. O `~/.bash_history` do `lab-user` tem o
+> desenho inteiro, incluindo o `skupper connector create` original.
 
 ---
 
