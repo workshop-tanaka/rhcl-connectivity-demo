@@ -146,6 +146,40 @@ cmd_status() {
     fi
   fi
 
+  # O Argo e o repontamento: os Applications do travel-agency vem do espelho
+  # no GitLab, onde MYSQL_SERVICE aponta para o banco de DENTRO. Repontar para
+  # o tunel deixa o Application OutOfSync -- e um 'Sync' manual desfaz o ato 8
+  # em segundos. Eles nascem SEM auto-sync de proposito, entao nada acontece
+  # sozinho; este aviso existe para quem tem o Argo aberto na tela ao lado.
+  local _oos
+  _oos="$(oc get applications -n openshift-gitops -o json 2>/dev/null | python3 -c '
+import sys, json
+try: d = json.load(sys.stdin)
+except Exception: sys.exit()
+for a in d.get("items", []):
+    if not a["metadata"]["name"].startswith("travel-"): continue
+    if a.get("status", {}).get("sync", {}).get("status") != "OutOfSync": continue
+    au = (a["spec"].get("syncPolicy") or {}).get("automated")
+    print(a["metadata"]["name"] + ("  AUTO-SYNC LIGADO" if au else ""))
+' 2>/dev/null)"
+  if [[ -n "$_oos" ]]; then
+    printf '\n  %sArgo CD%s\n' "$_BLD" "$_RST"
+    # separados: so quem tem auto-sync e ameaca de verdade
+    local _auto _manual
+    _auto="$(grep 'AUTO-SYNC LIGADO' <<<"$_oos" | awk '{print $1}')"
+    _manual="$(grep -v 'AUTO-SYNC LIGADO' <<<"$_oos" | grep -v '^$')"
+    if [[ -n "$_manual" ]]; then
+      _log "OutOfSync, sem auto-sync (esperado: o Git tem o banco de dentro):"
+      printf '%s\n' "$_manual" | sed 's/^/      /'
+      _log "  nada acontece sozinho; um 'Sync' manual reverte, e 'aponta' restaura"
+    fi
+    if [[ -n "$_auto" ]]; then
+      _warn "com AUTO-SYNC e OutOfSync -- o Argo vai desfazer o repontamento:"
+      printf '%s\n' "$_auto" | sed 's/^/      /'
+      _warn "  desligue o auto-sync nesses, ou o Ato 8 cai sozinho"
+    fi
+  fi
+
   local r; r="$(oc get route -n "$NS_LOCAL" -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.host}{"\n"}{end}' 2>/dev/null | grep observer | awk '{print $2}')"
   [[ -n "$r" ]] && printf '\n  %sconsole%s  https://%s\n\n' "$_BLD" "$_RST" "$r"
 }
