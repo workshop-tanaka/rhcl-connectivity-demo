@@ -617,6 +617,58 @@ engole o travessão ` -- ` (que vira *thin space* + *em dash*, sem espaço
 ASCII que termine a URL) e a palavra seguinte, e o link nasce apontando para
 um lugar que não existe.
 
+### 5.15 O Gateway API tem PAPÉIS, e o RBAC os torna reais
+
+A especificação não define só recursos: define papéis, e o RHCL herda os três.
+O que o repositório modela:
+
+| Papel na spec | Aqui | Governa |
+| --- | --- | --- |
+| Infrastructure Provider | quem instala o operator | `GatewayClass` |
+| **Cluster Operator** | `plat-eng` | o `Gateway` e as policies que miram o **gateway** |
+| **Application Developer** | `app-dev` | a `HTTPRoute` e as policies que miram **essa rota** |
+
+`app-dev` tem RBAC recortado de verdade (`platform-reference/identity/`), e a
+matriz vem do apiserver, não de convenção:
+
+```
+editar a AuthPolicy do GATEWAY .......... app-dev no   plat-eng yes
+ver o Gateway a que se anexa ............ app-dev yes  plat-eng yes
+criar a policy da PRÓPRIA rota .......... app-dev yes  plat-eng yes
+```
+
+A leitura do Gateway **é obrigatória**: sem ela o desenvolvedor não descobre o
+nome para o `parentRefs`, e o modelo vira "abra um ticket para a plataforma" —
+exatamente o que o Gateway API existe para eliminar. E a delegação não é
+combinado verbal: está escrita em `allowedRoutes.namespaces.from: All`.
+
+### 5.16 Uma rota nova no `prod-web` nasce NEGADA, não aberta
+
+Medido em 2026-09-18 construindo o ato `ingenuo`. Uma API publicada por `Route`
+direta responde `200` a qualquer um. A **mesma** API, anexada ao `prod-web` por
+`HTTPRoute`, responde `403` — porque o Gateway carrega `prod-web-deny-all`, e
+toda rota anexada herda esse teto.
+
+Isso corrige o entendimento do Ato 1: a API de viagens não está fechada porque
+plataformas fecham coisas. Está fechada porque **alguém escreveu o deny-all**.
+
+E a policy da rota sobrepõe o teto — o próprio `prod-web-deny-all` passa a
+dizer, no status, quem o venceu:
+
+```
+AuthPolicy is overridden by [echo-ingenuo/echo-ingenuo-authpolicy  travel-agency/travel-agency-authpolicy]
+```
+
+Duas coisas que custaram diagnóstico ao montar isso:
+
+- **A porta do Service precisa do nome `http`.** O Istio deduz o protocolo do
+  nome; sem ele trata como TCP opaco e a borda devolve `503` com a `HTTPRoute`
+  `Accepted=True` e o endpoint no lugar.
+- **O `predicate` do `PlanPolicy` é obrigatório e é CEL.** Escreva-o com o
+  fallback para *annotation*: uma chave cunhada pelo developer portal traz o
+  plano em annotation, não em label, e sem o fallback ela entra **sem limite**
+  (armadilha 11).
+
 ---
 
 ## 6. Estrutura do repositório
