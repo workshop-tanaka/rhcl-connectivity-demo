@@ -115,7 +115,7 @@ _guard_overlay() { # _guard_overlay <caminho-do-overlay> -> 0 se seguro aplicar
   return 1
 }
 
-STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda papeis ingenuo degrada trace canario resiliencia interconnect falha mesh_base reset pos)
+STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda papeis ingenuo auditoria degrada trace canario resiliencia interconnect falha mesh_base reset pos)
 # O default e o nucleo da tese. Ato 6 e 7 sao opcionais e longos; 'aquece',
 # 'falha' e 'reset' mudam estado e nunca devem entrar sem alguem pedir.
 STEPS_DEFAULT=(ato1 ato2 ato3 ato4 ato5)
@@ -155,6 +155,9 @@ Atos extras, fora do default (cada um roda sozinho):
              quatro momentos: sem criterio, zero trust, liberacao seletiva e
              limite -- e a sobreposicao de policies acontecendo na sua rota
   papeis   Quem pode o que -- as duas personas do Gateway API (6 min)
+  auditoria  Quatro perguntas, quatro fontes             (6 min, depois do 3b)
+             o audit log, os managedFields, o Argo e a metrica -- e o que
+             cada um NAO sabe
              login real como app-dev, sem perder a sua sessao
   interconnect A dependencia que nao mora aqui           (5 min, depois do 7)
                  o banco em outro site, por Service Interconnect, com a console
@@ -189,7 +192,7 @@ Para quem cada ato fala (a persona que reconhece o problema):
   ato4 negocio/operacao       ato5 operacao/dev        ato6 desenvolvedor
   ato7 seguranca/plataforma   borda operacao           degrada operacao (SRE)
   interconnect arquitetura/operacao   papeis plataforma/desenvolvedor
-  ingenuo desenvolvedor
+  ingenuo desenvolvedor   auditoria seguranca/compliance
   trace operacao/dev          canario dev/plataforma   resiliencia operacao (SRE)
 
 Cada passo pausa antes de executar (Enter segue, 'p' pula, Ctrl-C sai).
@@ -1127,6 +1130,35 @@ step_ingenuo() {
   else
     _warn "RHDH ausente -- 'bash rhdh/install.sh' para fechar o ato pelo portal"
   fi
+}
+
+step_auditoria() {
+  _title "Ato auditoria — quatro perguntas, quatro fontes" "6 min"
+  _quem "Seguranca, Compliance e Operacao -- e quem vai responder a auditoria de verdade"
+  _pre "os atos 3b (o Forbidden) e 2 (as chamadas); sem eles nao ha rastro para auditar"
+  _why "Auditoria costuma ser demonstrada com um exemplo inventado. Aqui as"
+  _why "quatro perguntas incidem sobre o que VOCE acabou de fazer neste"
+  _why "cluster -- o Forbidden que levou como app-dev, a policy que alterou, a"
+  _why "chamada que emitiu."
+  _why ""
+  _why "E o ponto do ato nao e que existe log: e que sao QUATRO fontes"
+  _why "diferentes, e nenhuma responde a pergunta da outra."
+  _pause || return 0
+  _do bash "scripts/auditoria.sh"
+  echo
+  _why "Repare na divisao de trabalho:"
+  _why ""
+  _why "  audit log      quem TENTOU, e se o cluster deixou"
+  _why "  managedFields  qual controlador escreveu cada campo, e quando"
+  _why "  Argo CD        qual revisao do git esta no ar, e quem a aplicou"
+  _why "  metricas       quem EXERCEU o que a configuracao permite"
+  _why ""
+  _why "O audit log sabe que alguem mudou a policy as 14h03. Ele NAO sabe por"
+  _why "que. O git sabe: a mensagem do commit, a revisao do merge request, o"
+  _why "nome de quem aprovou. Por isso o Ato 6 termina onde termina."
+  _say  "Quando a auditoria perguntar 'quem liberou esse acesso, e com autorizacao de quem?', o cluster responde a primeira metade e o repositorio responde a segunda. Configuracao que so existe no cluster responde metade da pergunta."
+  echo
+  _log "so uma das quatro: bash scripts/auditoria.sh [negadas|config|argo|consumo]"
 }
 
 step_borda() {
