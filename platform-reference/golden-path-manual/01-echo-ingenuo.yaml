@@ -1,0 +1,81 @@
+# O caminho ingenuo: o minimo que faz uma API responder 200.
+#
+# NAO E EXEMPLO DE BOA PRATICA -- e o contrario. Este arquivo existe para o
+# participante ver funcionando e, logo depois, descobrir tudo o que falta.
+# O template do golden path gera 17 manifests; aqui sao 3.
+#
+# Aplicado no modulo do golden path, pelo proprio participante, como app-dev.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: echo-ingenuo
+  labels:
+    # Sem istio-injection: mais uma coisa que ele nao sabia que precisava.
+    rhcl.demo/proposito: caminho-ingenuo
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo
+  namespace: echo-ingenuo
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: echo }
+  template:
+    metadata:
+      labels: { app: echo }
+    spec:
+      containers:
+        - name: echo
+          image: registry.access.redhat.com/ubi9/httpd-24:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: conteudo
+              mountPath: /var/www/html
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 200m, memory: 256Mi }
+      volumes:
+        - name: conteudo
+          configMap:
+            name: echo-conteudo
+---
+# Conteudo minimo: sem isto o httpd devolve 403 (nao ha index, e listar
+# diretorio e proibido) -- e um 403 no meio deste ato confundiria com negacao
+# de acesso, que e exatamente o que ele quer mostrar que NAO existe aqui.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: echo-conteudo
+  namespace: echo-ingenuo
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
+data:
+  index.html: |
+    {"servico":"echo-ingenuo","autenticacao":"nenhuma","limite":"nenhum"}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: echo-ingenuo
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
+spec:
+  selector: { app: echo }
+  ports:
+    # O NOME da porta nao e cosmetico: o Istio deduz o protocolo dele. Sem
+    # 'http' (ou http2/grpc) ele trata a porta como TCP opaco, e o Gateway
+    # HTTP nao consegue rotear -- a borda devolve 503 com a rota Accepted=True
+    # e o endpoint no lugar. Medido em 2026-09-18, e custou o diagnostico.
+    - name: http
+      port: 8000
+      targetPort: 8080

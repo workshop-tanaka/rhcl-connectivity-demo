@@ -1,0 +1,22 @@
+# A rota. Repare no parentRefs: ela se anexa ao prod-web, o Gateway que a
+# PLATAFORMA declarou -- porque 'allowedRoutes.namespaces.from: All' permite,
+# e porque o app-dev nao poderia criar um Gateway proprio nem se quisesse.
+#
+# O hostname e substituido na hora: nenhum manifesto do repo carrega hostname.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: echo-ingenuo
+  namespace: echo-ingenuo
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
+spec:
+  parentRefs:
+    - name: prod-web
+      namespace: ingress-gateway
+  hostnames:
+    - __HOST__
+  rules:
+    - backendRefs:
+        - name: echo
+          port: 8000

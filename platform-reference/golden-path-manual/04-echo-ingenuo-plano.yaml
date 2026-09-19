@@ -1,0 +1,31 @@
+# MOMENTO 4 -- do "quem entra" para o "quanto pode".
+#
+# A AuthPolicy respondeu QUEM. Esta responde QUANTO, e por tier -- que e
+# vocabulario comercial, nao tecnico. Mesma rota, outro tipo de policy.
+#
+# O 'predicate' e obrigatorio e e CEL: ele diz como encontrar o plano do
+# chamador na identidade que o Authorino resolveu. A forma abaixo le o label
+# 'kuadrant.io/plan-id' do Secret da chave, e cai para a annotation quando o
+# Secret veio do developer portal -- que cunha o plano em annotation, nao em
+# label (armadilha 11 do RUNBOOK). Sem o fallback, uma chave aprovada pelo
+# portal entra sem limite nenhum.
+apiVersion: extensions.kuadrant.io/v1alpha1
+kind: PlanPolicy
+metadata:
+  name: echo-ingenuo-plans
+  namespace: echo-ingenuo
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: echo-ingenuo
+  plans:
+    - tier: experimental
+      predicate: '(has(auth.identity.metadata.labels) && "kuadrant.io/plan-id" in auth.identity.metadata.labels ? auth.identity.metadata.labels["kuadrant.io/plan-id"] : (has(auth.identity.metadata.annotations) && "secret.kuadrant.io/plan-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] : "")) == "experimental"'
+      limits:
+        daily: 500
+        custom:
+          - limit: 3
+            window: 10s

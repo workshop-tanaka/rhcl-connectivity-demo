@@ -115,7 +115,7 @@ _guard_overlay() { # _guard_overlay <caminho-do-overlay> -> 0 se seguro aplicar
   return 1
 }
 
-STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda papeis degrada trace canario resiliencia interconnect falha mesh_base reset pos)
+STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda papeis ingenuo degrada trace canario resiliencia interconnect falha mesh_base reset pos)
 # O default e o nucleo da tese. Ato 6 e 7 sao opcionais e longos; 'aquece',
 # 'falha' e 'reset' mudam estado e nunca devem entrar sem alguem pedir.
 STEPS_DEFAULT=(ato1 ato2 ato3 ato4 ato5)
@@ -151,6 +151,9 @@ Atos extras, fora do default (cada um roda sozinho):
   canario  A promocao acontecendo, ao vivo           (3 min, MUDA ESTADO)
              LOGS=1 acrescenta o log colorido das duas versoes
   resiliencia  O disjuntor, e o que NAO da para demonstrar  (5 min, MUDA ESTADO)
+  ingenuo  De aberto a governado, um passo por vez    (10 min, antes do 6)
+             quatro momentos: sem criterio, zero trust, liberacao seletiva e
+             limite -- e a sobreposicao de policies acontecendo na sua rota
   papeis   Quem pode o que -- as duas personas do Gateway API (6 min)
              login real como app-dev, sem perder a sua sessao
   interconnect A dependencia que nao mora aqui           (5 min, depois do 7)
@@ -186,6 +189,7 @@ Para quem cada ato fala (a persona que reconhece o problema):
   ato4 negocio/operacao       ato5 operacao/dev        ato6 desenvolvedor
   ato7 seguranca/plataforma   borda operacao           degrada operacao (SRE)
   interconnect arquitetura/operacao   papeis plataforma/desenvolvedor
+  ingenuo desenvolvedor
   trace operacao/dev          canario dev/plataforma   resiliencia operacao (SRE)
 
 Cada passo pausa antes de executar (Enter segue, 'p' pula, Ctrl-C sai).
@@ -1003,6 +1007,126 @@ step_papeis() {
   _say  "Precedencia sem privilegio. O desenvolvedor governa o que e dele e nao alcanca o que nao e, e ninguem precisou escrever um processo para isso -- o cluster e quem recusa."
   echo
   _log "sua sessao nunca mudou: $(oc whoami)"
+}
+
+# Chama o Gateway por dentro, com o SNI correto. De fora nao da: o Gateway e
+# ClusterIP (nao ha LoadBalancer aqui) e so os hostnames com Route existem.
+# Dentro, o --resolve entrega o SNI que o listener espera.
+_ingenuo_curl() { # _ingenuo_curl <host> <ip> <sufixo-da-url> [quantas]
+  local h="$1" ip="$2" q="${3:-}" n="${4:-1}"
+  oc run "probe-$RANDOM" -n default --rm -i --restart=Never --image=registry.access.redhat.com/ubi9/ubi-minimal -- \
+    sh -c "for i in \$(seq $n); do curl -sk -m 10 -o /dev/null -w '%{http_code} ' --resolve ${h}:443:${ip} 'https://${h}/${q}'; done; echo" 2>/dev/null | grep -E '^[0-9]{3}'
+}
+
+step_ingenuo() {
+  _title "Ato ingenuo — de aberto a governado, um passo por vez" "10 min, MUDA ESTADO"
+  _quem "Desenvolvedor -- e o Engenheiro de Plataforma, que escreveu o teto"
+  _pre "Ato 1 (o que este aprofunda), Ato 3 (precedencia) e 3b (personas)"
+  _why "Voce vai publicar uma API do jeito natural e ver quatro estados dela,"
+  _why "em ordem: sem criterio nenhum, negada a todos, liberada com criterio,"
+  _why "e com limite. Cada passo e UMA policy -- e o terceiro mostra a"
+  _why "sobreposicao acontecendo na sua propria rota."
+  _warn "MUDA ESTADO: cria o namespace echo-ingenuo. O passo o remove no fim."
+  _pause || return 0
+
+  local api host ip
+  api="$(_api_host)"; host="echo-ingenuo.${api#*.}"
+  ip="$(oc get svc prod-web-istio -n ingress-gateway -o jsonpath='{.spec.clusterIP}' 2>/dev/null)"
+
+  printf '\n  %sMOMENTO 1 — qualquer um acessa, sem criterio nenhum%s\n' "$_BLD" "$_RST"
+  _why "O caminho que quase todo servico segue no primeiro dia: sobe o pod,"
+  _why "expoe o Service, publica uma Route. Pronto, esta no ar."
+  _do oc apply -f platform-reference/golden-path-manual/01-echo-ingenuo.yaml
+  [[ $DRY_RUN -eq 0 ]] && oc rollout status deploy/echo -n echo-ingenuo --timeout=180s >/dev/null 2>&1
+  _do_sh "oc create route edge echo-solto -n echo-ingenuo --service=echo --port=http --dry-run=client -o yaml | oc apply -f - >/dev/null"
+  if [[ $DRY_RUN -eq 0 ]]; then
+    local solto; solto="$(_route echo-solto echo-ingenuo)"
+    sleep 6
+    _do_as "curl https://${solto}/" bash -c "curl -sk -m 12 -o /dev/null -w '  HTTP %{http_code}\n' 'https://${solto}/'"
+  fi
+  _look "200. Sem chave, sem limite, sem registro de quem chamou."
+  _say  "Esta API esta publicada na internet da empresa. Nao ha nada de errado com o YAML: ele esta certo, e e exatamente por isso que passa em revisao."
+
+  printf '\n  %sMOMENTO 2 — zero trust: ninguem passa%s\n' "$_BLD" "$_RST"
+  _why "Agora a mesma API entra pela porta da plataforma -- uma HTTPRoute"
+  _why "anexada ao Gateway prod-web, em vez da Route solta."
+  _pause || return 0
+  if [[ $DRY_RUN -eq 0 ]]; then
+    sed "s|__HOST__|${host}|" platform-reference/golden-path-manual/02-echo-ingenuo-rota.yaml | oc apply -f - >/dev/null
+    _ok "HTTPRoute anexada ao prod-web (host ${host})"
+    sleep 10
+    printf '  sem chave: '; _ingenuo_curl "$host" "$ip" "" 1
+  else
+    _cmd "aplicar a HTTPRoute com host ${host}"
+  fi
+  _look "403 -- e a API e sua, e voce nao escreveu nenhuma negativa"
+  echo
+  _why "O Gateway carrega a AuthPolicy 'prod-web-deny-all', do Engenheiro de"
+  _why "Plataforma. Toda rota anexada herda esse teto. O padrao da plataforma"
+  _why "nao e 'aberto ate alguem fechar' -- e o contrario."
+  _say  "Isto muda o Ato 1. A API de viagens nao esta fechada porque plataformas fecham coisas: esta fechada porque alguem escreveu um deny-all no Gateway. E esse alguem acabou de impedir que a sua fosse ao ar sem ninguem olhando."
+
+  printf '\n  %sMOMENTO 3 — liberacao seletiva, e a sobreposicao acontecendo%s\n' "$_BLD" "$_RST"
+  _why "Uma chave, e uma AuthPolicy que mira a SUA ROTA -- nao o Gateway."
+  _pause || return 0
+  _do oc apply -f platform-reference/golden-path-manual/03-echo-ingenuo-chave.yaml
+  if [[ $DRY_RUN -eq 0 ]]; then
+    sleep 15
+    printf '  sem chave: '; _ingenuo_curl "$host" "$ip" "" 1
+    printf '  com chave: '; _ingenuo_curl "$host" "$ip" "?APIKEY=chave-do-echo-ingenuo" 1
+  fi
+  _look "401 sem chave, 200 com chave. A sua policy venceu o deny-all do Gateway."
+  echo
+  _do_sh "oc get authpolicy prod-web-deny-all -n ingress-gateway -o jsonpath='{.status.conditions[?(@.type==\"Enforced\")].message}{\"\\n\"}' | head -c 220; echo"
+  _look "o proprio teto declara que cedeu, e NOMEIA quem o sobrepos"
+  _why  "Dois alvos diferentes: o deny-all mira o Gateway (kind: Gateway), a"
+  _why  "sua mira a rota (kind: HTTPRoute). O mais especifico prevalece, e o"
+  _why  "cluster registra isso num campo de status -- e o Ato 3, agora na sua"
+  _why  "API, provocado por voce."
+
+  printf '\n  %sMOMENTO 4 — quem entra ja esta resolvido; falta quanto pode%s\n' "$_BLD" "$_RST"
+  _pause || return 0
+  _do oc apply -f platform-reference/golden-path-manual/04-echo-ingenuo-plano.yaml
+  if [[ $DRY_RUN -eq 0 ]]; then
+    sleep 25
+    printf '  seis chamadas seguidas (limite 3 em 10s): '; _ingenuo_curl "$host" "$ip" "?APIKEY=chave-do-echo-ingenuo" 6
+  fi
+  _look "200 200 200 429 429 429 -- o tier 'experimental' cortou na quarta"
+
+  printf '\n  %sE o que AINDA falta%s\n' "$_BLD" "$_RST"
+  _pause || return 0
+  _do bash "scripts/ingenuo-checklist.sh" "echo-ingenuo"
+  _why "Quatro policies depois, a API ainda nao tem telemetria por plano, nem"
+  _why "mTLS, nem identidade de servico, nem canario, nem pipeline, nem esta"
+  _why "no catalogo. E nada disso falhou: simplesmente nao existe."
+
+  printf '\n  %sO que o template geraria, para a MESMA API%s\n' "$_BLD" "$_RST"
+  _do_sh "ls rhdh/templates/rhcl-api-com-cadeia/skeleton/manifests/ | sed 's/^/    /'"
+  _look "dezessete manifests. Voce escreveu quatro, e levou dez minutos."
+  echo
+  _why "E ha uma diferenca que nao aparece em 'oc get': o que voce fez existe"
+  _why "SO no cluster. Ninguem sabe quem criou, quando, nem por que. Nao ha"
+  _why "revisao, nao ha historico, e a proxima mudanca sera outro 'oc apply'"
+  _why "de alguem numa terca-feira."
+  _why ""
+  _why "Pelo template, os mesmos objetos nascem num repositorio: com autor,"
+  _why "data e merge request. O Argo aplica. Mudar uma policy vira um PR que"
+  _why "alguem revisa -- e o que estava no cluster passa a ser consequencia do"
+  _why "que esta no git, nao o contrario."
+  _say  "O golden path nao economiza digitacao. Ele torna impossivel um servico nascer sem isso, e transforma configuracao em algo que tem dono, data e revisao. E essa a diferenca entre uma convencao escrita num wiki e uma plataforma."
+
+  printf '\n  %sLimpando, e refazendo do jeito certo%s\n' "$_BLD" "$_RST"
+  _pause || return 0
+  _do oc delete namespace echo-ingenuo --wait=false
+  _do_sh "oc delete secret apikey-echo-ingenuo -n kuadrant-system --ignore-not-found >/dev/null; echo '  chave removida'"
+  local portal; portal="$(_route backstage-developer-hub rhdh-rhcl)"
+  [[ -z "$portal" ]] && portal="$(_route backstage-developer-hub rhdh)"
+  if [[ -n "$portal" ]]; then
+    _log "agora pelo portal: https://${portal}"
+    _log "  Create -> '5. API como produto' -> mesmo nome, e compare o que nasce"
+  else
+    _warn "RHDH ausente -- 'bash rhdh/install.sh' para fechar o ato pelo portal"
+  fi
 }
 
 step_borda() {
