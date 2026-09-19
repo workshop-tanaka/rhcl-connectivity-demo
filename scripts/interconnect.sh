@@ -40,54 +40,115 @@ command -v oc >/dev/null || _die "oc nao encontrado"
 oc whoami >/dev/null 2>&1 || _die "sem sessao no cluster — oc login"
 
 # ---------------------------------------------------------------- link
-# O AccessToken e montado com python porque a CA e um PEM multi-linha: em
-# shell ela vira uma linha so e o CR nasce invalido.
+# POR QUE NAO USAMOS AccessGrant/AccessToken AQUI.
+#
+# O caminho "oficial" para ligar dois sites e o par AccessGrant (emitido por um
+# lado) + AccessToken (resgatado pelo outro). Ele existe para o caso em que os
+# dois lados sao de ORGANIZACOES diferentes: o token e um convite de uso unico
+# que se manda por outro canal.
+#
+# Mas o grant precisa publicar uma URL, e quem a publica e o Service
+# 'skupper-grant-server' do operador -- que nasce do tipo LoadBalancer. Num
+# cluster sem LoadBalancer (BareMetal, SNO, o item do Field Content) ele fica
+# com EXTERNAL-IP <none> para sempre, o AccessGrant nunca sai de
+# 'Resolved=False Pending', e o link nunca sobe. Medido em 2026-09-19, depois
+# de o mesmo desenho ter funcionado na vespera: o que mudou foi o controlador
+# reconciliar e perder o endereco que tinha deduzido antes.
+#
+# Aqui os dois sites sao NOSSOS, entao nao ha convite a trocar: emitimos um
+# certificado de cliente assinado pela CA do site, copiamos o Secret para o
+# outro namespace e criamos o Link apontando para a Route do inter-router.
+# Deterministico, sem LoadBalancer, e reproduzivel.
 cmd_link() {
-  oc get accessgrant "$GRANT" -n "$NS_LOCAL" >/dev/null 2>&1 \
-    || _die "AccessGrant ${GRANT} ausente em ${NS_LOCAL}. Aplique platform-reference/interconnect/06-accessgrant.yaml"
+  local ca="skupper-site-ca" cert="link-para-${NS_REMOTO}"
 
-  local t=0 url=""
-  while (( t < 120 )); do
-    url="$(oc get accessgrant "$GRANT" -n "$NS_LOCAL" -o jsonpath='{.status.url}' 2>/dev/null)"
-    [[ -n "$url" ]] && break
-    sleep 5; t=$((t+5))
-  done
-  [[ -n "$url" ]] || _die "o grant nao publicou url em 120s — confira 'oc describe accessgrant ${GRANT} -n ${NS_LOCAL}'"
-  _log "grant pronto: ${url%%\?*}"
+  oc get site cluster -n "$NS_LOCAL" >/dev/null 2>&1 \
+    || _die "Site 'cluster' ausente em ${NS_LOCAL}. Aplique platform-reference/interconnect/02-sites.yaml"
 
-  local tmp; tmp="$(mktemp -t skupper-token)"
-  trap 'rm -f "$tmp"' EXIT
-  NS_LOCAL="$NS_LOCAL" NS_REMOTO="$NS_REMOTO" GRANT="$GRANT" SAIDA="$tmp" python3 -c '
-import json, os, subprocess, sys
-g = json.loads(subprocess.run(
-    ["oc","get","accessgrant",os.environ["GRANT"],"-n",os.environ["NS_LOCAL"],"-o","json"],
-    capture_output=True, text=True).stdout)["status"]
-ca = "\n".join("    " + l for l in g["ca"].strip().split("\n"))
-open(os.environ["SAIDA"], "w").write(f"""apiVersion: skupper.io/v2alpha1
-kind: AccessToken
+  # 1. a CA do site precisa existir -- ela nasce com o Site
+  local t=0
+  until oc get secret "$ca" -n "$NS_LOCAL" >/dev/null 2>&1 || (( t >= 120 )); do sleep 5; t=$((t+5)); done
+  oc get secret "$ca" -n "$NS_LOCAL" >/dev/null 2>&1 || _die "a CA ${ca} nao apareceu em ${NS_LOCAL}"
+
+  # 2. certificado de CLIENTE, assinado por ela
+  _log "emitindo certificado de cliente para o site remoto"
+  oc apply -f - >/dev/null <<EOF
+apiVersion: skupper.io/v2alpha1
+kind: Certificate
 metadata:
-  name: do-cluster
-  namespace: {os.environ["NS_REMOTO"]}
+  name: ${cert}
+  namespace: ${NS_LOCAL}
 spec:
-  url: {g["url"]}
-  code: {g["code"]}
-  ca: |
-{ca}
-""")
-' || _die "falha ao montar o AccessToken"
+  ca: ${ca}
+  client: true
+  subject: ${NS_REMOTO}
+EOF
+  t=0
+  until oc get secret "$cert" -n "$NS_LOCAL" >/dev/null 2>&1 || (( t >= 120 )); do sleep 5; t=$((t+5)); done
+  oc get secret "$cert" -n "$NS_LOCAL" >/dev/null 2>&1 || _die "o Secret ${cert} nao foi gerado"
 
-  oc apply -f "$tmp" >/dev/null || _die "falha ao aplicar o AccessToken"
-  _ok "token resgatado em ${NS_REMOTO} (o arquivo foi apagado)"
+  # 3. copiar para o outro namespace, sem os campos que nao viajam
+  _log "copiando a credencial para ${NS_REMOTO}"
+  oc get secret "$cert" -n "$NS_LOCAL" -o json \
+    | CERT="$cert" NS="$NS_REMOTO" python3 -c '
+import json, os, sys
+d = json.load(sys.stdin)
+# so o essencial viaja: nome, namespace e os dados. uid, resourceVersion e
+# ownerReferences do outro namespace fariam o apply falhar.
+d["metadata"] = {"name": os.environ["CERT"], "namespace": os.environ["NS"]}
+d.pop("status", None)
+print(json.dumps(d))
+' | oc apply -f - >/dev/null || _die "falha ao copiar a credencial"
+
+  # 4. POR ONDE o remoto conecta -- e aqui mora a armadilha mais cara deste
+  #    script. O certificado que o router apresenta traz como SAN apenas
+  #
+  #      DNS:skupper-router, DNS:skupper-router.<namespace>
+  #
+  #    O hostname da Route so entra ali se o SecuredAccess RESOLVER, e num
+  #    cluster sem LoadBalancer ele fica em 'Resolved=False Pending' -- a Route
+  #    existe, o TCP conecta, e o TLS morre em
+  #      SSL routines::certificate verify failed
+  #    que se le como credencial errada, quando o problema e o NOME.
+  #
+  #    Com os dois sites no MESMO cluster (o caso desta etapa), o Service
+  #    interno esta no SAN e resolve tudo. Um site de VERDADE, fora do cluster,
+  #    exige o SecuredAccess resolvido -- e ai o endereco e o da Route.
+  local host port
+  if oc get svc skupper-router -n "$NS_LOCAL" >/dev/null 2>&1; then
+    host="skupper-router.${NS_LOCAL}"; port="55671"
+    _log "ligando pelo Service interno ${host}:${port} (os dois sites no mesmo cluster)"
+  else
+    host="$(oc get route skupper-router-inter-router -n "$NS_LOCAL" -o jsonpath='{.spec.host}' 2>/dev/null)"
+    port="443"
+    [[ -n "$host" ]] || _die "sem Service nem Route do inter-router em ${NS_LOCAL}"
+    _log "ligando pela Route ${host}:${port}"
+  fi
+
+  # 5. o Link, no lado que CONECTA
+  oc apply -f - >/dev/null <<EOF
+apiVersion: skupper.io/v2alpha1
+kind: Link
+metadata:
+  name: para-o-cluster
+  namespace: ${NS_REMOTO}
+spec:
+  tlsCredentials: ${cert}
+  endpoints:
+    - name: inter-router
+      host: ${host}
+      port: "${port}"
+EOF
 
   _log "esperando o link ficar operacional"
   t=0
   while (( t < 180 )); do
-    local st
-    st="$(oc get link -n "$NS_REMOTO" -o jsonpath='{.items[0].status.conditions[?(@.type=="Operational")].status}' 2>/dev/null)"
-    [[ "$st" == "True" ]] && { _ok "link operacional"; return 0; }
+    if [[ "$(oc get link para-o-cluster -n "$NS_REMOTO" -o jsonpath='{.status.conditions[?(@.type=="Operational")].status}' 2>/dev/null)" == "True" ]]; then
+      _ok "link operacional"; return 0
+    fi
     sleep 10; t=$((t+10))
   done
-  _warn "o link nao ficou Operational em 180s — 'oc get link -n ${NS_REMOTO} -o yaml'"
+  _warn "o link nao ficou Operational em 180s -- 'oc get link -n ${NS_REMOTO} -o yaml'"
   return 1
 }
 

@@ -43,6 +43,64 @@ rota, não entra em VPN. É ele que liga para cá, com mTLS mútuo.
 chart do operador quebra em `<.Values.auth.strategy>: can't evaluate field
 strategy in type interface {}` e o CR fica `ReleaseFailed` sem dizer por quê.
 
+## Por que o link NÃO usa AccessGrant/AccessToken
+
+O caminho "oficial" para ligar dois sites é o par `AccessGrant` (emitido por um
+lado) + `AccessToken` (resgatado pelo outro). Ele existe para quando os dois
+lados são de **organizações diferentes**: o token é um convite de uso único,
+mandado por outro canal.
+
+Aqui os dois sites são nossos, e o grant tem um problema neste ambiente: quem
+publica a URL dele é o Service `skupper-grant-server` do operador, que nasce do
+tipo **LoadBalancer**. Num cluster sem LoadBalancer — BareMetal, SNO, o item do
+Field Content — ele fica com `EXTERNAL-IP <none>` para sempre, o `AccessGrant`
+não sai de `Resolved=False Pending`, e o link nunca sobe.
+
+Então `interconnect.sh link` emite um `Certificate` de cliente assinado pela CA
+do site, copia o Secret para o outro namespace e cria o `Link` direto.
+Determinístico, sem LoadBalancer, reproduzível.
+
+### A armadilha do SAN, que custou o diagnóstico mais longo
+
+O certificado que o router apresenta traz como *Subject Alternative Name*
+**apenas**:
+
+```
+DNS:skupper-router, DNS:skupper-router.<namespace>
+```
+
+O hostname da `Route` só entra ali se o `SecuredAccess` **resolver** — e ele
+depende do mesmo LoadBalancer. Resultado: a Route existe, o TCP conecta, e o
+TLS morre em
+
+```
+SSL routines::certificate verify failed
+```
+
+que **se lê como credencial errada**, quando o problema é o **nome**. Duas
+horas de diagnóstico em 2026-09-19 até olhar os SANs.
+
+Com os dois sites no mesmo cluster, o Service interno (`skupper-router.<ns>`)
+está no SAN e resolve tudo. Um site de verdade, numa VM, exige o
+`SecuredAccess` resolvido — e aí o endereço é o da Route.
+
+## O provisionamento DESFAZ o repontamento
+
+`provision.sh platform` reaplica `platform-reference/workloads/travel-agency/`,
+onde `MYSQL_SERVICE` aponta para o banco **de dentro** — e o `mysqldb.yaml`
+volta com `replicas: 1`. Toda execução do provisionamento, inclusive a do Job
+do workshop a cada sync, desliga o Service Interconnect **em silêncio**: a
+aplicação continua servindo dados, agora do banco local.
+
+O sintoma é o contador em zero com tudo `Ready`. Para voltar:
+
+```bash
+bash scripts/interconnect.sh aponta
+oc scale deploy/mysqldb -n travel-agency --replicas=0
+```
+
+Medido em 2026-09-19, depois de o Job rodar algumas vezes durante a noite.
+
 ## O modo de falha que não aparece em `oc get pods`
 
 Registrado no §7 depois de custar um diagnóstico inteiro: quando o banco do
