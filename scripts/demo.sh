@@ -115,7 +115,7 @@ _guard_overlay() { # _guard_overlay <caminho-do-overlay> -> 0 se seguro aplicar
   return 1
 }
 
-STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda degrada trace canario resiliencia interconnect falha mesh_base reset pos)
+STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda papeis degrada trace canario resiliencia interconnect falha mesh_base reset pos)
 # O default e o nucleo da tese. Ato 6 e 7 sao opcionais e longos; 'aquece',
 # 'falha' e 'reset' mudam estado e nunca devem entrar sem alguem pedir.
 STEPS_DEFAULT=(ato1 ato2 ato3 ato4 ato5)
@@ -151,6 +151,8 @@ Atos extras, fora do default (cada um roda sozinho):
   canario  A promocao acontecendo, ao vivo           (3 min, MUDA ESTADO)
              LOGS=1 acrescenta o log colorido das duas versoes
   resiliencia  O disjuntor, e o que NAO da para demonstrar  (5 min, MUDA ESTADO)
+  papeis   Quem pode o que -- as duas personas do Gateway API (6 min)
+             login real como app-dev, sem perder a sua sessao
   interconnect A dependencia que nao mora aqui           (5 min, depois do 7)
                  o banco em outro site, por Service Interconnect, com a console
 
@@ -183,7 +185,7 @@ Para quem cada ato fala (a persona que reconhece o problema):
   ato1 seguranca/plataforma   ato2 produto/negocio     ato3 plataforma
   ato4 negocio/operacao       ato5 operacao/dev        ato6 desenvolvedor
   ato7 seguranca/plataforma   borda operacao           degrada operacao (SRE)
-  interconnect arquitetura/operacao
+  interconnect arquitetura/operacao   papeis plataforma/desenvolvedor
   trace operacao/dev          canario dev/plataforma   resiliencia operacao (SRE)
 
 Cada passo pausa antes de executar (Enter segue, 'p' pula, Ctrl-C sai).
@@ -890,6 +892,117 @@ step_interconnect() {
   _say  "Tres fronteiras, tres produtos, um argumento so: conectividade e politica declarada, nao configuracao espalhada. A borda com o Connectivity Link, o leste-oeste com o Service Mesh, e o que esta fora com o Service Interconnect."
   echo
   _log  "para voltar ao banco de dentro do cluster: bash scripts/interconnect.sh local"
+}
+
+# A persona SEM perder a sessao de quem apresenta: o 'oc login' vai para um
+# KUBECONFIG proprio, num arquivo temporario. Sem isso, o passo derrubaria a
+# sessao de admin no meio do roteiro -- e recupera-la custa o tempo que a
+# plateia nao tem (mordeu em 2026-09-18, por um 'oc logout' distraido).
+_KC_DEV=""
+_dev_login() {
+  local senha="${PERSONA_PASSWORD:-redhat123}"
+  _KC_DEV="$(mktemp -t kubeconfig-app-dev)"
+  KUBECONFIG="$_KC_DEV" oc login -u app-dev -p "$senha" \
+    --server="$(oc whoami --show-server)" --insecure-skip-tls-verify=true >/dev/null 2>&1
+}
+_dev() { KUBECONFIG="$_KC_DEV" oc "$@"; }
+_dev_fim() { [[ -n "$_KC_DEV" ]] && rm -f "$_KC_DEV"; _KC_DEV=""; }
+
+# A matriz de permissoes das duas personas, perguntada ao apiserver. Fica em
+# funcao, e nao inline no ato: com heredoc dentro de heredoc os escapes ficam
+# ilegiveis e um deles quebrou na primeira execucao (2026-09-18).
+_papeis_matriz() {
+  printf '  %-46s %-9s %s\n' 'ACAO' 'app-dev' 'plat-eng'
+  printf '  %-46s %-9s %s\n' '----------------------------------------------' '-------' '--------'
+  local d c a p
+  while IFS='|' read -r d c; do
+    [[ -z "$d" ]] && continue
+    a="$(oc auth can-i $c --as=app-dev 2>/dev/null || true)"
+    p="$(oc auth can-i $c --as=plat-eng 2>/dev/null || true)"
+    printf '  %-46s %-9s %s\n' "$d" "${a:-no}" "${p:-no}"
+  done <<'MATRIZ'
+editar a AuthPolicy do GATEWAY|patch authpolicy -n ingress-gateway
+editar a RateLimitPolicy do GATEWAY|patch ratelimitpolicy -n ingress-gateway
+mudar o proprio Gateway|patch gateway -n ingress-gateway
+VER o Gateway a que se anexa|get gateway -n ingress-gateway
+criar a propria HTTPRoute|create httproute -n travel-agency
+criar a policy da PROPRIA rota|create authpolicy -n travel-agency
+ler segredos da plataforma|get secrets -n kuadrant-system
+MATRIZ
+}
+
+step_papeis() {
+  _title "Ato papeis — quem pode o que, e por que isso e o produto" "6 min"
+  _quem "Engenheiro de Plataforma e Desenvolvedor -- os dois papeis que o Gateway API nomeia"
+  _pre "nenhum ato; precisa das personas (bash scripts/setup-identity.sh realm)"
+  _why "A especificacao do Gateway API define tres papeis, e o RHCL herda os"
+  _why "tres. Dois deles aparecem aqui:"
+  _why ""
+  _why "  Cluster Operator      o Gateway e as policies que miram o GATEWAY"
+  _why "  (plat-eng)            -- o teto: deny-all, limite baixo, TLS, DNS"
+  _why ""
+  _why "  Application Developer a HTTPRoute do proprio servico e as policies"
+  _why "  (app-dev)             que miram essa ROTA"
+  _why ""
+  _why "O Ato 3 mostrou a precedencia num campo de status. Aqui ela deixa de ser"
+  _why "afirmacao: quem responde e o apiserver."
+  _pause || return 0
+
+  printf '\n  %s1. A matriz, perguntada ao proprio cluster%s\n' "$_BLD" "$_RST"
+  _cmd "oc auth can-i <acao> --as=app-dev   # e --as=plat-eng, lado a lado"
+  [[ $DRY_RUN -eq 0 ]] && _papeis_matriz
+  _look "o desenvolvedor NAO toca no teto, mas declara a policy da rota dele"
+  _say  "Repare na linha do meio: ele pode VER o Gateway. Sem isso ele nao descobre o nome para o parentRefs, e o modelo viraria abrir um ticket para a plataforma -- que e exatamente o que o Gateway API existe para eliminar."
+
+  printf '\n  %s2. Agora de verdade: entramos COMO o desenvolvedor%s\n' "$_BLD" "$_RST"
+  _why "Login real pelo Keycloak, que e o provedor de identidade deste cluster."
+  _why "A sessao vai para um KUBECONFIG proprio -- a sua continua intacta."
+  _pause || return 0
+  if ! _dev_login; then
+    _warn "nao consegui logar como app-dev -- as personas existem?"
+    _warn "  bash scripts/setup-identity.sh realm   (senha: PERSONA_PASSWORD)"
+    return 0
+  fi
+  _cmd oc whoami
+  [[ $DRY_RUN -eq 0 ]] && printf '    %s\n' "$(_dev whoami)"
+  _ok "somos o app-dev nesta sessao"
+
+  printf '\n  %s3. O teto da plataforma, visto de baixo%s\n' "$_BLD" "$_RST"
+  _cmd oc patch authpolicy prod-web-deny-all -n ingress-gateway --type=merge -p '{...}'
+  if [[ $DRY_RUN -eq 0 ]]; then
+    _dev patch authpolicy prod-web-deny-all -n ingress-gateway --type=merge \
+      -p '{"metadata":{"annotations":{"teste":"1"}}}' 2>&1 | head -2
+  fi
+  _look "Forbidden, com o nome do usuario na mensagem. Nao e convencao de"
+  _look "equipe nem revisao de codigo: e o apiserver recusando."
+
+  printf '\n  %s4. O que ele PODE -- e e aqui que o modelo se fecha%s\n' "$_BLD" "$_RST"
+  _pause || return 0
+  _cmd oc get gateway prod-web -n ingress-gateway
+  [[ $DRY_RUN -eq 0 ]] && _dev get gateway prod-web -n ingress-gateway \
+      -o custom-columns='NOME:.metadata.name,CLASSE:.spec.gatewayClassName,PROGRAMADO:.status.conditions[?(@.type=="Programmed")].status' --no-headers 2>&1
+  _look "ve o Gateway, nao muda o Gateway"
+  echo
+  _cmd oc patch planpolicy travels-plans -n travel-agency --type=merge -p '{...}'
+  if [[ $DRY_RUN -eq 0 ]]; then
+    _dev patch planpolicy travels-plans -n travel-agency --type=merge \
+      -p '{"metadata":{"annotations":{"rhcl.demo/tocado-por":"app-dev"}}}' 2>&1 | head -1
+    _dev annotate planpolicy travels-plans -n travel-agency rhcl.demo/tocado-por- >/dev/null 2>&1
+  fi
+  _look "a policy comercial da rota dele: pode. E ela PREVALECE sobre a do"
+  _look "gateway -- foi o que o Ato 3 mostrou no status."
+  echo
+  _why "E a delegacao nao e combinado verbal. Esta escrita no proprio Gateway:"
+  _do oc get gateway prod-web -n ingress-gateway \
+      -o jsonpath='{.spec.listeners[0].allowedRoutes.namespaces.from}{"\n"}'
+  _look "All -- o operador da plataforma declarou que qualquer namespace pode"
+  _look "anexar rota. O desenvolvedor publica sem pedir nada a ninguem."
+
+  _dev_fim
+  echo
+  _say  "Precedencia sem privilegio. O desenvolvedor governa o que e dele e nao alcanca o que nao e, e ninguem precisou escrever um processo para isso -- o cluster e quem recusa."
+  echo
+  _log "sua sessao nunca mudou: $(oc whoami)"
 }
 
 step_borda() {
