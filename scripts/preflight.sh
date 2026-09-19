@@ -1414,10 +1414,16 @@ if oc get crd sites.skupper.io >/dev/null 2>&1 && \
 
   for _s in $(oc get site -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null); do
     _ns="${_s%%/*}"; _nm="${_s##*/}"
+    # Ready=False NÃO reprova, e isto é deliberado: num cluster sem
+    # LoadBalancer o SecuredAccess do router fica Pending para sempre, o Site
+    # herda Ready=False — e o túnel funciona perfeitamente assim, porque os
+    # dois sites se ligam pelo Service interno. Reprovar aqui seria reprovar um
+    # ambiente que serve 45 destinos. Quem manda é o contador, mais abaixo.
     if [[ "$(oc get site "$_nm" -n "$_ns" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)" == "True" ]]; then
       _ok "site ${_s} pronto"
     else
-      _bad "site ${_s} não está Ready" "oc describe site ${_nm} -n ${_ns}"
+      _warn "site ${_s} com Ready=False (normal sem LoadBalancer)" \
+            "o que decide é o contador do túnel, abaixo"
     fi
   done
 
