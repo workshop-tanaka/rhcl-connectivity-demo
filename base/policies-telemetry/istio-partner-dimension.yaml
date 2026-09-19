@@ -52,6 +52,8 @@
 apiVersion: telemetry.istio.io/v1
 kind: Telemetry
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   name: partner-dimension
   namespace: ingress-gateway
 spec:

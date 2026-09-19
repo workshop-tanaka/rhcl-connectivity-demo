@@ -1,0 +1,31 @@
+# Red Hat Service Interconnect (Skupper 2.x).
+#
+# stable-2 = 2.2.2-rh-1, a mais nova da linha. O sandbox940 rodava 2.0.1, que
+# vive no canal stable-2.0 -- a API Site/Connector/Listener e a mesma, entao
+# a troca de canal e a unica diferenca se um dia for preciso fidelidade.
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: skupper-operator
+  namespace: openshift-operators
+spec:
+  channel: stable-2
+  installPlanApproval: Automatic
+  name: skupper-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+---
+# A console da rede de servicos. Operador separado, de proposito: quem nao
+# quiser a tela nao instala.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: skupper-netobs-operator
+  namespace: openshift-operators
+spec:
+  channel: stable-2
+  installPlanApproval: Automatic
+  name: skupper-netobs-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace

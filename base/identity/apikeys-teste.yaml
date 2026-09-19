@@ -26,6 +26,7 @@ metadata:
     # exigido pelo AuthConfig que o devportal aumenta -- sem ele, 401 eterno
     devportal.kuadrant.io/apiproduct: travels-api
   annotations:
+    rhcl.demo/autor: Sandro Tanaka
     kuadrant.io/partner-name: "Sistema de Teste"
     secret.kuadrant.io/user-id: sistema-teste
 type: Opaque
@@ -45,6 +46,7 @@ metadata:
     # exigido pelo AuthConfig que o devportal aumenta -- sem ele, 401 eterno
     devportal.kuadrant.io/apiproduct: travels-api
   annotations:
+    rhcl.demo/autor: Sandro Tanaka
     kuadrant.io/partner-name: "Sistema de Teste"
     secret.kuadrant.io/user-id: sistema-teste
 type: Opaque
@@ -64,6 +66,7 @@ metadata:
     # exigido pelo AuthConfig que o devportal aumenta -- sem ele, 401 eterno
     devportal.kuadrant.io/apiproduct: travels-api
   annotations:
+    rhcl.demo/autor: Sandro Tanaka
     kuadrant.io/partner-name: "Sistema de Teste"
     secret.kuadrant.io/user-id: sistema-teste
 type: Opaque

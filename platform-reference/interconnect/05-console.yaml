@@ -1,0 +1,17 @@
+# A console da rede de servicos. Ela NAO e o Kiali: o Kiali desenha o que
+# passa pelo Service Mesh dentro do cluster; esta desenha os SITES, o link
+# entre eles e os servicos publicados por routingKey.
+#
+# 'auth' e um OBJETO. Com 'auth: none' o chart do operador quebra em
+#   <.Values.auth.strategy>: can't evaluate field strategy in type interface {}
+# e o CR fica ReleaseFailed sem dizer por que (medido em 2026-09-18).
+apiVersion: observability.skupper.io/v2alpha1
+kind: NetworkObserver
+metadata:
+  name: rede-de-servicos
+  namespace: travel-db
+spec:
+  auth:
+    strategy: openshift   # entra com o login do OpenShift, como o console
+  route:
+    enabled: true

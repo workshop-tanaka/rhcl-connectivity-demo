@@ -115,7 +115,7 @@ _guard_overlay() { # _guard_overlay <caminho-do-overlay> -> 0 se seguro aplicar
   return 1
 }
 
-STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda degrada trace canario resiliencia falha mesh_base reset pos)
+STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda degrada trace canario resiliencia interconnect falha mesh_base reset pos)
 # O default e o nucleo da tese. Ato 6 e 7 sao opcionais e longos; 'aquece',
 # 'falha' e 'reset' mudam estado e nunca devem entrar sem alguem pedir.
 STEPS_DEFAULT=(ato1 ato2 ato3 ato4 ato5)
@@ -151,6 +151,8 @@ Atos extras, fora do default (cada um roda sozinho):
   canario  A promocao acontecendo, ao vivo           (3 min, MUDA ESTADO)
              LOGS=1 acrescenta o log colorido das duas versoes
   resiliencia  O disjuntor, e o que NAO da para demonstrar  (5 min, MUDA ESTADO)
+  interconnect A dependencia que nao mora aqui           (5 min, depois do 7)
+                 o banco em outro site, por Service Interconnect, com a console
 
 Depois:
 
@@ -181,6 +183,7 @@ Para quem cada ato fala (a persona que reconhece o problema):
   ato1 seguranca/plataforma   ato2 produto/negocio     ato3 plataforma
   ato4 negocio/operacao       ato5 operacao/dev        ato6 desenvolvedor
   ato7 seguranca/plataforma   borda operacao           degrada operacao (SRE)
+  interconnect arquitetura/operacao
   trace operacao/dev          canario dev/plataforma   resiliencia operacao (SRE)
 
 Cada passo pausa antes de executar (Enter segue, 'p' pula, Ctrl-C sai).
@@ -824,6 +827,71 @@ done"
   _say  "O RHCL respondeu quem entra, quanto pode e quanto custa. O Service Mesh respondeu quem fala com quem, em qual versao, e o que acontece quando quebra. Nenhuma linha de aplicacao mudou em nenhum dos dois."
 }
 
+step_interconnect() {
+  _title "Ato interconnect — a dependencia que nao mora aqui" "5 min, OPCIONAL"
+  _quem "Arquitetura e Operacao -- e quem diz 'esse banco nao vai para o Kubernetes'"
+  _pre "nenhum ato; precisa da etapa 'interconnect' provisionada (bash scripts/interconnect.sh status)"
+  _why "O RHCL governou a BORDA: quem entra, quanto passa, quanto custa. O"
+  _why "Service Mesh governou o LESTE-OESTE: quem fala com quem, em qual versao."
+  _why "Falta a fronteira que nenhum dos dois cobre -- o que esta FORA do"
+  _why "cluster. E quase sempre e o banco, que ninguem quer mover."
+  _pause || return 0
+
+  printf '\n  %s1. O banco nao esta aqui%s\n' "$_BLD" "$_RST"
+  _do oc get pods -n travel-agency -l app=mysqldb
+  _look "nenhum pod: o MySQL do fan-out nao roda neste namespace"
+  echo
+  _do oc get endpoints mysqldb -n travel-db
+  _look "um Service com endereco do roteador, nao de um pod da aplicacao --"
+  _look "quem responde do outro lado nao e deste cluster"
+  echo
+  _say  "A aplicacao consulta 'mysqldb.travel-db:3306' e recebe dados. Nao ha pod de banco em lugar nenhum daqui."
+
+  printf '\n  %s2. Quem ligou para quem%s\n' "$_BLD" "$_RST"
+  _why "Esta e a linha que fecha o argumento com quem cuida de rede:"
+  _pause || return 0
+  _do_sh "oc logs -n travel-db-remoto deploy/skupper-router -c router 2>/dev/null | grep -m1 'Connection Opened' | cut -c1-200"
+  _look "dir=out -- conexao de SAIDA do lado do banco, TLSv1.3, auth=EXTERNAL"
+  _why  "O site remoto nao abre porta, nao publica rota, nao entra em VPN e nao"
+  _why  "aparece em firewall de entrada. E ele que liga para o cluster, e os dois"
+  _why  "se autenticam por certificado mutuo."
+  _say  "Isto e o oposto de abrir o banco para a rede. A superficie de entrada do lado dele continua sendo zero."
+
+  printf '\n  %s3. E a aplicacao, o que mudou?%s\n' "$_BLD" "$_RST"
+  _pause || return 0
+  _do_sh "oc get deploy flights-v1 -n travel-agency -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name==\"MYSQL_SERVICE\")].value}{\"\\n\"}'"
+  _look "uma variavel de ambiente. E so isso."
+  _why  "Nenhuma biblioteca de cliente, nenhum agente, nenhum sidecar novo, nenhum"
+  _why  "certificado no codigo. Para o processo, 'mysqldb.travel-db' e um Service"
+  _why  "de Kubernetes como qualquer outro."
+
+  printf '\n  %s4. A prova de que passa trafego -- e nao so de que esta Ready%s\n' "$_BLD" "$_RST"
+  _why "Aqui mora a licao mais cara deste projeto. Com o banco do outro lado"
+  _why "parado, TUDO fica verde: Site Ready, Listener Ready, Connector Matched."
+  _why "E o contador nao sai do zero. A borda continua perfeita -- 401 sem chave,"
+  _why "429 no free, planos medindo 3/10/14 -- e os Atos 1 a 4 passam inteiros."
+  _pause || return 0
+  _do bash "scripts/interconnect.sh" status
+  _look "'in' e 'thru' sobem a cada requisicao. Zero com tudo Ready e o sintoma"
+  _look "de que o outro lado morreu -- e nenhum 'oc get pods' daqui mostra isso."
+
+  printf '\n  %s5. A rede de servicos, desenhada%s\n' "$_BLD" "$_RST"
+  local c; c="$(_route rede-de-servicos-network-observer travel-db)"
+  if [[ -n "$c" ]]; then
+    printf '  %sConsole%s  https://%s\n' "$_BLD" "$_RST" "$c"
+    _why "Entra com o login do OpenShift. NAO e o Kiali: o Kiali desenha o que"
+    _why "passa pelo Service Mesh DENTRO do cluster; esta desenha os dois sites,"
+    _why "o link entre eles e os servicos publicados pela chave 'appconn'."
+    _why "Sao duas perguntas diferentes, e cada tela responde a sua."
+  else
+    _warn "console do Service Interconnect ausente — 'bash scripts/provision.sh interconnect'"
+  fi
+  echo
+  _say  "Tres fronteiras, tres produtos, um argumento so: conectividade e politica declarada, nao configuracao espalhada. A borda com o Connectivity Link, o leste-oeste com o Service Mesh, e o que esta fora com o Service Interconnect."
+  echo
+  _log  "para voltar ao banco de dentro do cluster: bash scripts/interconnect.sh local"
+}
+
 step_borda() {
   _title "Ato borda — o certificado e o DNS tambem sao policy" "3 min · entre o ato3 e o ato4"
   _quem "Operacao — quem hoje renova certificado e cria registro DNS a mao"
@@ -1402,6 +1470,7 @@ step_pos() {
 
 # ---------------------------------------------------------------------------
 printf '\n%s  demo — Red Hat Connectivity Link%s\n' "$_BLD" "$_RST"
+printf '  %sidealizado e construido por Sandro Tanaka%s\n' "$_DIM" "$_RST"
 printf '  %scluster: %s%s\n' "$_DIM" "$(oc whoami --show-server 2>/dev/null)" "$_RST"
 printf '  %spassos:  %s%s\n' "$_DIM" "${STEPS[*]}" "$_RST"
 [[ $DRY_RUN -eq 1 ]] && printf '  %s(dry-run: nada sera executado)%s\n' "$_YEL" "$_RST"

@@ -13,6 +13,8 @@
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   name: bookings-grpc-authpolicy
   namespace: travel-agency
 spec:
@@ -92,6 +94,8 @@ spec:
 apiVersion: kuadrant.io/v1
 kind: RateLimitPolicy
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   name: bookings-grpc-ratelimit
   namespace: travel-agency
 spec:

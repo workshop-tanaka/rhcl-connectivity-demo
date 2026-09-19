@@ -3,6 +3,8 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   # 'app: travels' nao e usado por nenhum controlador do Kuadrant -- serve ao
   # portal: e por este label que o RHDH liga esta policy ao componente
   # travels (backstage.io/kubernetes-label-selector) e a mostra na aba

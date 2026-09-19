@@ -34,6 +34,7 @@ metadata:
     authorino.kuadrant.io/managed-by: authorino
     kuadrant.io/plan-id: gold
   annotations:
+    rhcl.demo/autor: Sandro Tanaka
     kuadrant.io/partner-name: "Globex Travel"
 type: Opaque
 stringData:
@@ -49,6 +50,7 @@ metadata:
     authorino.kuadrant.io/managed-by: authorino
     kuadrant.io/plan-id: silver
   annotations:
+    rhcl.demo/autor: Sandro Tanaka
     kuadrant.io/partner-name: "Initech Voyages"
 type: Opaque
 stringData:
@@ -64,6 +66,7 @@ metadata:
     authorino.kuadrant.io/managed-by: authorino
     kuadrant.io/plan-id: free
   annotations:
+    rhcl.demo/autor: Sandro Tanaka
     kuadrant.io/partner-name: "ACME Trips (avaliacao)"
 type: Opaque
 stringData:
@@ -75,6 +78,8 @@ stringData:
 apiVersion: v1
 kind: Secret
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   name: apikey-blue
   namespace: kuadrant-system
   labels:

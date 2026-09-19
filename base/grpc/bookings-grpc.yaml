@@ -24,6 +24,8 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   name: bookings-grpc-v1
   namespace: travel-agency
   labels:
@@ -58,6 +60,8 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   name: bookings-grpc
   namespace: travel-agency
   labels:

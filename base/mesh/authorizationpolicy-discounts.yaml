@@ -33,6 +33,8 @@
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   name: discounts-only-sellers
   namespace: travel-agency
 spec:

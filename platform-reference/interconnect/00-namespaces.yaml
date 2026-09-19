@@ -1,0 +1,22 @@
+# travel-db renasce -- mas com outro papel. Ate 2026-08-31 ele hospedava o
+# MySQL; agora hospeda o SITE do cluster: o router do Skupper, o Listener e a
+# console. O banco esta do outro lado.
+#
+# SEM istio-injection nos dois, de proposito: o router do Skupper fala um
+# protocolo proprio entre sites, e um sidecar no meio o intercepta.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: travel-db
+  labels:
+    rhcl.demo/papel: interconnect-site-local
+---
+# O "outro site". Aqui ele e um namespace fazendo o papel do host RHEL do
+# sandbox940; trocar por uma VM muda so onde o Connector e declarado.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: travel-db-remoto
+  labels:
+    rhcl.demo/papel: interconnect-site-remoto

@@ -1,6 +1,8 @@
 apiVersion: kuadrant.io/v1
 kind: RateLimitPolicy
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   name: ingress-gateway-rlp-lowlimits
   namespace: ingress-gateway
 spec:

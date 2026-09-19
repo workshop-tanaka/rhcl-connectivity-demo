@@ -1,0 +1,27 @@
+# O par que publica o banco. 'appconn' e a routingKey ORIGINAL do sandbox940:
+# e o nome pelo qual os dois lados se acham na rede de servicos. Nao ha DNS
+# nem rota entre eles -- so essa chave.
+---
+# No lado do banco: o que exportar.
+apiVersion: skupper.io/v2alpha1
+kind: Connector
+metadata:
+  name: mysqldb
+  namespace: travel-db-remoto
+spec:
+  routingKey: appconn
+  port: 3306
+  selector: app=mysqldb
+---
+# No lado do cluster: o Skupper cria um Service 'mysqldb' em travel-db. Para
+# a aplicacao e um Service como outro qualquer -- e por isso NENHUMA linha
+# dela muda: MYSQL_SERVICE=mysqldb.travel-db:3306 e variavel de ambiente.
+apiVersion: skupper.io/v2alpha1
+kind: Listener
+metadata:
+  name: mysqldb
+  namespace: travel-db
+spec:
+  routingKey: appconn
+  port: 3306
+  host: mysqldb

@@ -1,0 +1,12 @@
+# O convite. Nasce no CLUSTER e e resgatado pelo outro lado com um
+# AccessToken, que NAO se versiona: ele carrega um codigo de uso unico e a CA
+# do momento. Quem o monta e 'scripts/interconnect.sh link', lendo o status
+# deste grant.
+apiVersion: skupper.io/v2alpha1
+kind: AccessGrant
+metadata:
+  name: para-o-remoto
+  namespace: travel-db
+spec:
+  redemptionsAllowed: 10
+  expirationWindow: 24h

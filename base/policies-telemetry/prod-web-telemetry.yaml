@@ -54,6 +54,8 @@
 apiVersion: extensions.kuadrant.io/v1alpha1
 kind: TelemetryPolicy
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   name: prod-web-telemetry
   namespace: ingress-gateway
 spec:

@@ -1,0 +1,18 @@
+# Os dois sites. Quem OFERECE o acesso e o cluster (linkAccess); quem CONECTA
+# e o remoto -- e essa direcao e o argumento do ato: o lado do banco nao abre
+# porta, nao publica rota, nao entra em VPN.
+---
+apiVersion: skupper.io/v2alpha1
+kind: Site
+metadata:
+  name: cluster
+  namespace: travel-db
+spec:
+  linkAccess: default
+---
+apiVersion: skupper.io/v2alpha1
+kind: Site
+metadata:
+  name: remoto
+  namespace: travel-db-remoto
+spec: {}

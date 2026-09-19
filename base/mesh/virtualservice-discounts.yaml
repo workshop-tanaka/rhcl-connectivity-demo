@@ -39,6 +39,8 @@
 apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   name: discounts
   namespace: travel-agency
 spec:

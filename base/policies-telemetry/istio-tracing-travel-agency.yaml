@@ -18,6 +18,8 @@
 apiVersion: telemetry.istio.io/v1
 kind: Telemetry
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   name: tracing-default
   namespace: travel-agency
 spec:

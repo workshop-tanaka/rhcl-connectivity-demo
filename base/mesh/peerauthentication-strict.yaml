@@ -30,6 +30,8 @@
 apiVersion: security.istio.io/v1
 kind: PeerAuthentication
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   name: travel-agency-mtls
   namespace: travel-agency
 spec:

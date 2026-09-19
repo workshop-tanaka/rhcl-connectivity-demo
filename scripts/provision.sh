@@ -56,7 +56,7 @@ PR="${_here}/platform-reference"
 TIMEOUT="${TIMEOUT:-600}"
 DRY_RUN=0
 
-STAGES_ALL=(operators gitlab mesh platform gateway devportal demo pacotes consoles tracing dashboards gitops cicd registry entrega security identity credenciais samples)
+STAGES_ALL=(operators gitlab mesh platform gateway devportal demo pacotes consoles tracing dashboards gitops interconnect cicd registry entrega security identity credenciais samples)
 
 _usage() {
   cat <<EOF
@@ -87,6 +87,9 @@ Etapas, na ordem em que dependem umas das outras:
               dashboards
   gitops      OpenShift GitOps + o ApplicationSet que descobre os repos do
               golden path pelo topic 'rhcl-golden-path' (Ato 6)
+  interconnect  o MySQL do fan-out sai do cluster e passa a ser alcancado por
+              uma rede de servicos do Skupper -- a terceira fronteira, com a
+              console propria. FORA do provisionamento padrao
 
     cicd        OpenShift Pipelines (Tekton) e a pipeline que valida as
                 policies -- o que da conteudo a aba CI do portal --, mais o
@@ -1343,6 +1346,62 @@ st_pacotes() {
 
 # ===========================================================================
 # 11. cicd (Tekton)
+# ===========================================================================
+# 11b. service interconnect (a terceira fronteira)
+# ===========================================================================
+# O MySQL do fan-out sai do cluster e passa a ser alcancado por uma rede de
+# servicos do Skupper. E o desenho do sandbox940, reconstruido -- inclusive a
+# routingKey 'appconn'. Ver platform-reference/interconnect/README.md.
+#
+# NAO entra no provisionamento padrao: e uma fronteira a mais para manter, e
+# os Atos 1 a 5 e 7 nao dependem dela. Rode 'provision.sh interconnect'.
+st_interconnect() {
+  _sec "service interconnect"
+  _apply platform-reference/interconnect/01-subscriptions.yaml
+  _wait_csv openshift-operators skupper-operator
+  _wait_crd sites.skupper.io
+  _wait_crd connectors.skupper.io
+  _wait_csv openshift-operators skupper-netobs-operator 0
+
+  _apply platform-reference/interconnect/00-namespaces.yaml
+
+  # O banco do "outro site" e o MESMO manifesto do workload, com o namespace
+  # trocado -- duplicar o arquivo criaria duas verdades sobre a imagem, o
+  # Secret e o seed.
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "aplicar workloads/travel-db/ em travel-db-remoto (sed do namespace)"
+  else
+    sed 's/namespace: travel-agency/namespace: travel-db-remoto/' \
+      "${PR}/workloads/travel-db/00-seed-enrich.yaml" | oc apply -f - >/dev/null
+    sed 's/namespace: travel-agency/namespace: travel-db-remoto/' \
+      "${PR}/workloads/travel-db/mysqldb.yaml" | oc apply -f - >/dev/null \
+      && _ok "banco do outro site aplicado em travel-db-remoto"
+    _rollout mysqldb travel-db-remoto || true
+  fi
+
+  _apply platform-reference/interconnect/02-sites.yaml
+  _apply platform-reference/interconnect/06-accessgrant.yaml
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "bash scripts/interconnect.sh link"
+  else
+    bash "${_here}/scripts/interconnect.sh" link || _warn "o link nao subiu -- 'bash scripts/interconnect.sh status'"
+  fi
+  _apply platform-reference/interconnect/04-servico.yaml
+  _apply platform-reference/interconnect/05-console.yaml
+
+  # Repontar e DESLIGAR o banco de dentro: com os dois no ar, a aplicacao
+  # continuaria servindo mesmo com o tunel morto, e o ato perderia a prova.
+  if [[ $DRY_RUN -eq 1 ]]; then
+    _cmd "bash scripts/interconnect.sh aponta; oc scale deploy/mysqldb -n travel-agency --replicas=0"
+  else
+    bash "${_here}/scripts/interconnect.sh" aponta
+    _run oc scale deploy/mysqldb -n travel-agency --replicas=0 >/dev/null \
+      && _ok "banco de dentro do cluster desligado (o de fora e quem serve agora)"
+  fi
+  _log "confira com: bash scripts/interconnect.sh status"
+  _log "para voltar atras: bash scripts/interconnect.sh local"
+}
+
 # ===========================================================================
 # NAO fazia parte do desenho original: entrou em 2026-08-28 para dar conteudo a
 # aba CI do portal. Sem o operador, o plugin Tekton instala e a aba nasce vazia

@@ -13,6 +13,8 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: GRPCRoute
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   name: bookings-grpc
   namespace: travel-agency
 spec:

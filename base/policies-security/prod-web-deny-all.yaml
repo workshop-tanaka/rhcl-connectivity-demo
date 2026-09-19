@@ -25,6 +25,8 @@
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   name: prod-web-deny-all
   namespace: ingress-gateway
 spec:

@@ -74,6 +74,9 @@ _overlay() {
 }
 OVERLAY="$(_overlay)"
 
+printf '\n  %sRed Hat Connectivity Link — verificacao do ambiente%s\n' "$_BLD" "$_RST"
+printf '  %sidealizado e construido por Sandro Tanaka%s\n' "$_DIM" "$_RST"
+
 # ---------------------------------------------------------------------------
 _sec "acesso ao cluster"
 if ! command -v oc >/dev/null; then

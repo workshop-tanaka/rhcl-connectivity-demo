@@ -19,6 +19,8 @@
 apiVersion: kuadrant.io/v1
 kind: RateLimitPolicy
 metadata:
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
   name: ratelimit-policy-travels
   namespace: travel-agency
 spec:
