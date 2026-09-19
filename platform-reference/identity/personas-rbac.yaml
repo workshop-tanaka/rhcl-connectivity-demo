@@ -71,3 +71,95 @@ subjects:
   - kind: User
     name: acme-trips
     apiGroup: rbac.authorization.k8s.io
+
+---
+# ===========================================================================
+# app-dev -- O DESENVOLVEDOR DE APLICACAO, e o unico papel aqui com RBAC
+# RECORTADO DE VERDADE.
+#
+# A especificacao do Gateway API define tres papeis, e o RHCL herda os tres:
+#
+#   Infrastructure Provider  instala o operador, cria a GatewayClass
+#   Cluster Operator         o Gateway, e as policies que miram o GATEWAY
+#     (aqui: plat-eng)       -- AuthPolicy de borda, RateLimitPolicy teto,
+#                               TLSPolicy, DNSPolicy
+#   Application Developer    a HTTPRoute do proprio servico, e as policies
+#     (aqui: app-dev)        que miram essa ROTA
+#
+# A delegacao nao e convencao: esta escrita no Gateway, em
+# 'allowedRoutes.namespaces.from: All'. O operador da plataforma declarou que
+# qualquer namespace pode anexar rota ao prod-web -- e e por isso que o
+# desenvolvedor nao precisa pedir nada a ninguem para publicar a sua.
+#
+# O QUE ESTE RBAC PROVA, e que o Ato 3 ate aqui so afirmava: o app-dev NAO
+# consegue tocar na policy do gateway (Forbidden de verdade, do apiserver),
+# mas a policy DELE prevalece sobre a do gateway na rota dele. Precedencia
+# sem privilegio -- que e o ponto inteiro do modelo.
+#
+# Aplicado por: provision.sh identity
+# ===========================================================================
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: app-dev-dono-da-rota
+  namespace: travel-agency
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
+rules:
+  # A rota e as policies que miram a rota.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes", "grpcroutes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["kuadrant.io", "extensions.kuadrant.io"]
+    resources: ["authpolicies", "ratelimitpolicies", "planpolicies", "telemetrypolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # O proprio workload, para poder publicar e depurar o que e dele.
+  - apiGroups: ["", "apps"]
+    resources: ["pods", "pods/log", "services", "deployments", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: app-dev-em-travel-agency
+  namespace: travel-agency
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: app-dev-dono-da-rota
+subjects:
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: app-dev
+---
+# Ver o Gateway a que se anexa, SEM poder muda-lo. Sem esta leitura o
+# desenvolvedor nao descobre o nome para o parentRefs -- e o modelo viraria
+# "abra um ticket para a plataforma", que e exatamente o que o Gateway API
+# existe para eliminar.
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: rhcl-gateway-somente-leitura
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
+rules:
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways", "gatewayclasses"]
+    verbs: ["get", "list", "watch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: rhcl-app-dev-ve-o-gateway
+  annotations:
+    rhcl.demo/autor: Sandro Tanaka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rhcl-gateway-somente-leitura
+subjects:
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: app-dev

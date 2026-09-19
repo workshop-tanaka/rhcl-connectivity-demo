@@ -311,11 +311,12 @@ print(json.dumps({"username":os.environ["U"],"email":os.environ["M"],
   fi
 done <<'PERSONAS'
 plat-eng|Plataforma|RHCL|plataforma@example.invalid|admins
+app-dev|Desenvolvedor|da Aplicacao|app-dev@example.invalid|users
 globex-travel|Globex|Travel|globex@example.invalid|users
 initech-voyages|Initech|Voyages|initech@example.invalid|users
 acme-trips|ACME|Trips|acme@example.invalid|users
 sistema-teste|Sistema|de Teste|sistema-teste@example.invalid|users
-tanaka|Sandro|Tanaka|tanaka@example.invalid|admins|KC_TANAKA_PASSWORD
+tanaka|Sandro|Tanaka|tanaka@redhat.com|admins|KC_TANAKA_PASSWORD
 PERSONAS
 
 # clients
