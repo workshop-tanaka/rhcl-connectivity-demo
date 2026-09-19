@@ -1396,6 +1396,69 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Service Interconnect (Ato 8). Só roda se houver site -- o ato é opcional e a
+# maioria dos clusters não o tem.
+#
+# O QUE ESTE BLOCO EXISTE PARA PEGAR: com o banco do outro lado parado, TODOS
+# os status ficam verdes (Site Ready, Listener Ready, Connector Matched) e o
+# túnel não passa um byte. A borda segue perfeita e os Atos 1 a 4 passam
+# inteiros -- só o fan-out morre. Custou um diagnóstico inteiro no sandbox940
+# (docs/AMBIENTE-1.2-WORKSHOP.md §7) e por isso a checagem é do CONTADOR, não
+# do status.
+if oc get crd sites.skupper.io >/dev/null 2>&1 && \
+   [[ -n "$(oc get site -A --no-headers 2>/dev/null | head -1)" ]]; then
+  _sec "Service Interconnect (Ato 8)"
+
+  _ic_ns="$(oc get listener -A --no-headers 2>/dev/null | awk '$2=="mysqldb"{print $1; exit}')"
+  [[ -n "$_ic_ns" ]] || _ic_ns="travel-db"
+
+  for _s in $(oc get site -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+    _ns="${_s%%/*}"; _nm="${_s##*/}"
+    if [[ "$(oc get site "$_nm" -n "$_ns" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)" == "True" ]]; then
+      _ok "site ${_s} pronto"
+    else
+      _bad "site ${_s} não está Ready" "oc describe site ${_nm} -n ${_ns}"
+    fi
+  done
+
+  _lk="$(oc get link -A -o jsonpath='{.items[0].status.conditions[?(@.type=="Operational")].status}' 2>/dev/null)"
+  [[ "$_lk" == "True" ]] && _ok "link entre os sites operacional" \
+    || _bad "o link entre os sites não está Operational" "oc get link -A -o yaml | grep -A5 conditions"
+
+  # O contador. É a única coisa aqui que distingue 'configurado' de 'passando'.
+  _ic_linha="$(oc exec -n "$_ic_ns" deploy/skupper-router -c router -- skstat -a 2>/dev/null \
+                 | grep -E '^\s+mobile\s+appconn')"
+  if [[ -z "$_ic_linha" ]]; then
+    _warn "endereço 'appconn' ausente no router — Connector e Listener já casaram?" \
+          "oc get connector,listener -A"
+  else
+    _ic_in="$(awk '{print $(NF-2)}' <<<"$_ic_linha")"
+    if [[ "$_ic_in" == "0" ]]; then
+      _bad "o túnel está de pé e NÃO passou byte nenhum (in=0)" \
+           "é o sintoma do banco parado do outro lado: oc get pods -n travel-db-remoto"
+    else
+      _ok "túnel carregando tráfego (in=${_ic_in})"
+    fi
+  fi
+
+  # E a prova final: a aplicação recebe DADOS, não só 200. Mesma chave e mesma
+  # rota que a seção de tráfego usa.
+  _ic_gold="$(oc get secrets -n kuadrant-system -l 'app=partner,kuadrant.io/plan-id=gold' \
+                -o jsonpath='{.items[0].data.api_key}' 2>/dev/null | base64 -d)"
+  if [[ -n "${HOST:-}" && -n "$_ic_gold" ]]; then
+    _ic_n="$(curl -sk --max-time 12 "https://${HOST}/travels?APIKEY=${_ic_gold}" 2>/dev/null \
+             | python3 -c 'import sys,json
+try: print(len(json.load(sys.stdin)))
+except Exception: print(0)' 2>/dev/null)"
+    if [[ "${_ic_n:-0}" -gt 0 ]]; then
+      _ok "a aplicação serve ${_ic_n} destinos vindos do outro site"
+    else
+      _bad "a lista de destinos voltou vazia" "o banco do outro lado caiu: oc get pods -n travel-db-remoto"
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 _sec "governança (ownership dos recursos)"
 
 # Este bloco existe por causa do cluster 1.2, onde o Argo governava metade dos
