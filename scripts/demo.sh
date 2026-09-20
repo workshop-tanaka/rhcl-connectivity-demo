@@ -115,7 +115,7 @@ _guard_overlay() { # _guard_overlay <caminho-do-overlay> -> 0 se seguro aplicar
   return 1
 }
 
-STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda papeis exposta auditoria degrada trace canario resiliencia interconnect falha mesh_base reset pos)
+STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda papeis exposta negado auditoria degrada trace canario resiliencia interconnect falha mesh_base reset pos)
 # O default e o nucleo da tese. Ato 6 e 7 sao opcionais e longos; 'aquece',
 # 'falha' e 'reset' mudam estado e nunca devem entrar sem alguem pedir.
 STEPS_DEFAULT=(ato1 ato2 ato3 ato4 ato5)
@@ -155,6 +155,10 @@ Atos extras, fora do default (cada um roda sozinho):
              quatro momentos: sem criterio, zero trust, liberacao seletiva e
              limite -- e a sobreposicao de policies acontecendo na sua rota
   papeis   Quem pode o que -- as duas personas do Gateway API (6 min)
+  negado   Onde a requisicao morreu                   (8 min, roda sozinho)
+             seis estacoes com a assinatura de cada uma, e o que cada sintoma
+             ja permite DESCARTAR. Tem modo desafio: sorteia uma e voce
+             diagnostica. Nao muda estado.
   auditoria  Quatro perguntas, quatro fontes             (6 min, depois do 3b)
              o audit log, os managedFields, o Argo e a metrica -- e o que
              cada um NAO sabe
@@ -193,6 +197,7 @@ Para quem cada ato fala (a persona que reconhece o problema):
   ato7 seguranca/plataforma   borda operacao           degrada operacao (SRE)
   interconnect arquitetura/operacao   papeis plataforma/desenvolvedor
   exposta desenvolvedor   auditoria seguranca/compliance
+  negado operacao/suporte
   trace operacao/dev          canario dev/plataforma   resiliencia operacao (SRE)
 
 Cada passo pausa antes de executar (Enter segue, 'p' pula, Ctrl-C sai).
@@ -1130,6 +1135,27 @@ step_exposta() {
   else
     _warn "RHDH ausente -- 'bash rhdh/install.sh' para fechar o ato pelo portal"
   fi
+}
+
+step_negado() {
+  _title "Ato negado — onde a requisicao morreu" "8 min"
+  _quem "Operacao e Suporte -- e quem atende o cliente que diz 'nao consigo acessar'"
+  _why "Seis lugares onde uma chamada pode morrer, e a assinatura de cada um."
+  _why "Nao e um passo para assistir: cada estacao pede uma APOSTA antes de"
+  _why "rodar, e a aposta errada ensina mais que a saida certa lida calada."
+  _why ""
+  _why "O valor nao e adivinhar onde parou. E DESCARTAR onde nao parou -- um"
+  _why "401 ja prova que o nome resolveu, o endereco esta publicado, a API"
+  _why "esta de pe e a regra esta valendo. Metade do quadro cai num cabecalho."
+  _why ""
+  _why "Nao muda estado: as seis recusas ou ja existem no ambiente, ou nascem"
+  _why "de uma chamada mal formada. A unica marca e a cota que a estacao 4"
+  _why "consome do plano gratuito."
+  _pause || return 0
+  _do bash "scripts/negado.sh"
+  echo
+  _log "uma estacao so: bash scripts/negado.sh 3"
+  _log "o desafio (sorteia uma, voce diagnostica): bash scripts/negado.sh desafio"
 }
 
 step_auditoria() {
