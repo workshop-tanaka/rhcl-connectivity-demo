@@ -424,7 +424,15 @@ def semeia(pid, caminho_proj, desejado, mensagem, remover=(), podar=None):
 
 camadas = (arquivos_de(os.path.join(ROOT_REPO, "base"),     "base")
          + arquivos_de(os.path.join(ROOT_REPO, "env"),      "env")
-         + arquivos_de(os.path.join(ROOT_REPO, "overlays"), "overlays"))
+         + arquivos_de(os.path.join(ROOT_REPO, "overlays"), "overlays")
+         # postman/ nao e camada de kustomize, e entra aqui por um motivo de
+         # logistica: quem faz o workshop precisa BAIXAR a colecao para a
+         # propria maquina, e o unico navegador que ele tem aberto e o deste
+         # GitLab. O terminal do Showroom ja tem o arquivo, mas dali nao sai.
+         # O '*.local.*' fica de fora pelo .gitignore do repo -- e ele que
+         # carrega as chaves reais, geradas por scripts/postman-env.sh.
+         + [(rel, f) for rel, f in arquivos_de(os.path.join(ROOT_REPO, "postman"), "postman")
+            if ".local." not in rel])
 # Exatamente os caminhos que o script ANTIGO criava na raiz: o conteudo de
 # base/ sem prefixo. Calculado, e nao escrito a mao, para nao apagar nada que
 # nao tenha vindo dele.
