@@ -644,7 +644,7 @@ combinado verbal: está escrita em `allowedRoutes.namespaces.from: All`.
 
 ### 5.16 Uma rota nova no `prod-web` nasce NEGADA, não aberta
 
-Medido em 2026-09-18 construindo o ato `ingenuo`. Uma API publicada por `Route`
+Medido em 2026-09-18 construindo o ato `exposta`. Uma API publicada por `Route`
 direta responde `200` a qualquer um. A **mesma** API, anexada ao `prod-web` por
 `HTTPRoute`, responde `403` — porque o Gateway carrega `prod-web-deny-all`, e
 toda rota anexada herda esse teto.
@@ -656,7 +656,7 @@ E a policy da rota sobrepõe o teto — o próprio `prod-web-deny-all` passa a
 dizer, no status, quem o venceu:
 
 ```
-AuthPolicy is overridden by [echo-ingenuo/echo-ingenuo-authpolicy  travel-agency/travel-agency-authpolicy]
+AuthPolicy is overridden by [echo-exposta/echo-exposta-authpolicy  travel-agency/travel-agency-authpolicy]
 ```
 
 Duas coisas que custaram diagnóstico ao montar isso:

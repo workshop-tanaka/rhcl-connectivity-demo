@@ -115,7 +115,7 @@ _guard_overlay() { # _guard_overlay <caminho-do-overlay> -> 0 se seguro aplicar
   return 1
 }
 
-STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda papeis ingenuo auditoria degrada trace canario resiliencia interconnect falha mesh_base reset pos)
+STEPS_ALL=(telas check aquece ato1 ato2 ato3 ato4 ato5 ato6 ato7 borda papeis exposta auditoria degrada trace canario resiliencia interconnect falha mesh_base reset pos)
 # O default e o nucleo da tese. Ato 6 e 7 sao opcionais e longos; 'aquece',
 # 'falha' e 'reset' mudam estado e nunca devem entrar sem alguem pedir.
 STEPS_DEFAULT=(ato1 ato2 ato3 ato4 ato5)
@@ -151,7 +151,7 @@ Atos extras, fora do default (cada um roda sozinho):
   canario  A promocao acontecendo, ao vivo           (3 min, MUDA ESTADO)
              LOGS=1 acrescenta o log colorido das duas versoes
   resiliencia  O disjuntor, e o que NAO da para demonstrar  (5 min, MUDA ESTADO)
-  ingenuo  De aberto a governado, um passo por vez    (10 min, antes do 6)
+  exposta  De aberta a governada, um passo por vez    (10 min, antes do 6)
              quatro momentos: sem criterio, zero trust, liberacao seletiva e
              limite -- e a sobreposicao de policies acontecendo na sua rota
   papeis   Quem pode o que -- as duas personas do Gateway API (6 min)
@@ -192,7 +192,7 @@ Para quem cada ato fala (a persona que reconhece o problema):
   ato4 negocio/operacao       ato5 operacao/dev        ato6 desenvolvedor
   ato7 seguranca/plataforma   borda operacao           degrada operacao (SRE)
   interconnect arquitetura/operacao   papeis plataforma/desenvolvedor
-  ingenuo desenvolvedor   auditoria seguranca/compliance
+  exposta desenvolvedor   auditoria seguranca/compliance
   trace operacao/dev          canario dev/plataforma   resiliencia operacao (SRE)
 
 Cada passo pausa antes de executar (Enter segue, 'p' pula, Ctrl-C sai).
@@ -1015,35 +1015,35 @@ step_papeis() {
 # Chama o Gateway por dentro, com o SNI correto. De fora nao da: o Gateway e
 # ClusterIP (nao ha LoadBalancer aqui) e so os hostnames com Route existem.
 # Dentro, o --resolve entrega o SNI que o listener espera.
-_ingenuo_curl() { # _ingenuo_curl <host> <ip> <sufixo-da-url> [quantas]
+_exposta_curl() { # _exposta_curl <host> <ip> <sufixo-da-url> [quantas]
   local h="$1" ip="$2" q="${3:-}" n="${4:-1}"
   oc run "probe-$RANDOM" -n default --rm -i --restart=Never --image=registry.access.redhat.com/ubi9/ubi-minimal -- \
     sh -c "for i in \$(seq $n); do curl -sk -m 10 -o /dev/null -w '%{http_code} ' --resolve ${h}:443:${ip} 'https://${h}/${q}'; done; echo" 2>/dev/null | grep -E '^[0-9]{3}'
 }
 
-step_ingenuo() {
-  _title "Ato ingenuo — de aberto a governado, um passo por vez" "10 min, MUDA ESTADO"
+step_exposta() {
+  _title "Ato exposta — de aberta a governada, um passo por vez" "10 min, MUDA ESTADO"
   _quem "Desenvolvedor -- e o Engenheiro de Plataforma, que escreveu o teto"
   _pre "Ato 1 (o que este aprofunda), Ato 3 (precedencia) e 3b (personas)"
   _why "Voce vai publicar uma API do jeito natural e ver quatro estados dela,"
   _why "em ordem: sem criterio nenhum, negada a todos, liberada com criterio,"
   _why "e com limite. Cada passo e UMA policy -- e o terceiro mostra a"
   _why "sobreposicao acontecendo na sua propria rota."
-  _warn "MUDA ESTADO: cria o namespace echo-ingenuo. O passo o remove no fim."
+  _warn "MUDA ESTADO: cria o namespace echo-exposta. O passo o remove no fim."
   _pause || return 0
 
   local api host ip
-  api="$(_api_host)"; host="echo-ingenuo.${api#*.}"
+  api="$(_api_host)"; host="echo-exposta.${api#*.}"
   ip="$(oc get svc prod-web-istio -n ingress-gateway -o jsonpath='{.spec.clusterIP}' 2>/dev/null)"
 
   printf '\n  %sMOMENTO 1 — qualquer um acessa, sem criterio nenhum%s\n' "$_BLD" "$_RST"
   _why "O caminho que quase todo servico segue no primeiro dia: sobe o pod,"
   _why "expoe o Service, publica uma Route. Pronto, esta no ar."
-  _do oc apply -f platform-reference/golden-path-manual/01-echo-ingenuo.yaml
-  [[ $DRY_RUN -eq 0 ]] && oc rollout status deploy/echo -n echo-ingenuo --timeout=180s >/dev/null 2>&1
-  _do_sh "oc create route edge echo-solto -n echo-ingenuo --service=echo --port=http --dry-run=client -o yaml | oc apply -f - >/dev/null"
+  _do oc apply -f platform-reference/golden-path-manual/01-echo-exposta.yaml
+  [[ $DRY_RUN -eq 0 ]] && oc rollout status deploy/echo -n echo-exposta --timeout=180s >/dev/null 2>&1
+  _do_sh "oc create route edge echo-solto -n echo-exposta --service=echo --port=http --dry-run=client -o yaml | oc apply -f - >/dev/null"
   if [[ $DRY_RUN -eq 0 ]]; then
-    local solto; solto="$(_route echo-solto echo-ingenuo)"
+    local solto; solto="$(_route echo-solto echo-exposta)"
     sleep 6
     _do_as "curl https://${solto}/" bash -c "curl -sk -m 12 -o /dev/null -w '  HTTP %{http_code}\n' 'https://${solto}/'"
   fi
@@ -1055,10 +1055,10 @@ step_ingenuo() {
   _why "anexada ao Gateway prod-web, em vez da Route solta."
   _pause || return 0
   if [[ $DRY_RUN -eq 0 ]]; then
-    sed "s|__HOST__|${host}|" platform-reference/golden-path-manual/02-echo-ingenuo-rota.yaml | oc apply -f - >/dev/null
+    sed "s|__HOST__|${host}|" platform-reference/golden-path-manual/02-echo-exposta-rota.yaml | oc apply -f - >/dev/null
     _ok "HTTPRoute anexada ao prod-web (host ${host})"
     sleep 10
-    printf '  sem chave: '; _ingenuo_curl "$host" "$ip" "" 1
+    printf '  sem chave: '; _exposta_curl "$host" "$ip" "" 1
   else
     _cmd "aplicar a HTTPRoute com host ${host}"
   fi
@@ -1072,11 +1072,11 @@ step_ingenuo() {
   printf '\n  %sMOMENTO 3 — liberacao seletiva, e a sobreposicao acontecendo%s\n' "$_BLD" "$_RST"
   _why "Uma chave, e uma AuthPolicy que mira a SUA ROTA -- nao o Gateway."
   _pause || return 0
-  _do oc apply -f platform-reference/golden-path-manual/03-echo-ingenuo-chave.yaml
+  _do oc apply -f platform-reference/golden-path-manual/03-echo-exposta-chave.yaml
   if [[ $DRY_RUN -eq 0 ]]; then
     sleep 15
-    printf '  sem chave: '; _ingenuo_curl "$host" "$ip" "" 1
-    printf '  com chave: '; _ingenuo_curl "$host" "$ip" "?APIKEY=chave-do-echo-ingenuo" 1
+    printf '  sem chave: '; _exposta_curl "$host" "$ip" "" 1
+    printf '  com chave: '; _exposta_curl "$host" "$ip" "?APIKEY=chave-do-echo-exposta" 1
   fi
   _look "401 sem chave, 200 com chave. A sua policy venceu o deny-all do Gateway."
   echo
@@ -1089,16 +1089,16 @@ step_ingenuo() {
 
   printf '\n  %sMOMENTO 4 — quem entra ja esta resolvido; falta quanto pode%s\n' "$_BLD" "$_RST"
   _pause || return 0
-  _do oc apply -f platform-reference/golden-path-manual/04-echo-ingenuo-plano.yaml
+  _do oc apply -f platform-reference/golden-path-manual/04-echo-exposta-plano.yaml
   if [[ $DRY_RUN -eq 0 ]]; then
     sleep 25
-    printf '  seis chamadas seguidas (limite 3 em 10s): '; _ingenuo_curl "$host" "$ip" "?APIKEY=chave-do-echo-ingenuo" 6
+    printf '  seis chamadas seguidas (limite 3 em 10s): '; _exposta_curl "$host" "$ip" "?APIKEY=chave-do-echo-exposta" 6
   fi
   _look "200 200 200 429 429 429 -- o tier 'experimental' cortou na quarta"
 
   printf '\n  %sE o que AINDA falta%s\n' "$_BLD" "$_RST"
   _pause || return 0
-  _do bash "scripts/ingenuo-checklist.sh" "echo-ingenuo"
+  _do bash "scripts/exposta-checklist.sh" "echo-exposta"
   _why "Quatro policies depois, a API ainda nao tem telemetria por plano, nem"
   _why "mTLS, nem identidade de servico, nem canario, nem pipeline, nem esta"
   _why "no catalogo. E nada disso falhou: simplesmente nao existe."
@@ -1120,8 +1120,8 @@ step_ingenuo() {
 
   printf '\n  %sLimpando, e refazendo do jeito certo%s\n' "$_BLD" "$_RST"
   _pause || return 0
-  _do oc delete namespace echo-ingenuo --wait=false
-  _do_sh "oc delete secret apikey-echo-ingenuo -n kuadrant-system --ignore-not-found >/dev/null; echo '  chave removida'"
+  _do oc delete namespace echo-exposta --wait=false
+  _do_sh "oc delete secret apikey-echo-exposta -n kuadrant-system --ignore-not-found >/dev/null; echo '  chave removida'"
   local portal; portal="$(_route backstage-developer-hub rhdh-rhcl)"
   [[ -z "$portal" ]] && portal="$(_route backstage-developer-hub rhdh)"
   if [[ -n "$portal" ]]; then

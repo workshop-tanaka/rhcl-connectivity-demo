@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# ingenuo-checklist.sh — o que falta na API que o participante acabou de criar.
+# exposta-checklist.sh — o que falta na API que o participante acabou de criar.
 #
-# Existe separado do demo.sh porque a mesma lista serve ao ato 'ingenuo' e a
+# Existe separado do demo.sh porque a mesma lista serve ao ato 'exposta' e a
 # quem quiser conferir qualquer namespace depois. E porque montar isto inline,
 # com heredoc dentro de heredoc, ja quebrou uma vez (2026-09-18).
 #
-# Uso: bash scripts/ingenuo-checklist.sh <namespace>
+# Uso: bash scripts/exposta-checklist.sh <namespace>
 set -uo pipefail
-NS="${1:-echo-ingenuo}"
+NS="${1:-echo-exposta}"
 if [[ -t 1 ]]; then _GRN=$'\033[0;32m'; _RED=$'\033[0;31m'; _DIM=$'\033[2m'; _RST=$'\033[0m'
 else _GRN=""; _RED=""; _DIM=""; _RST=""; fi
 

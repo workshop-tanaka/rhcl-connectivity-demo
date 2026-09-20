@@ -1,15 +1,15 @@
 # MOMENTO 3 -- a primeira policy do desenvolvedor.
 #
-# Uma chave, um Secret. O label 'app: echo-ingenuo' e o que a AuthPolicy
+# Uma chave, um Secret. O label 'app: echo-exposta' e o que a AuthPolicy
 # procura; sem ele a chave existe e nao vale nada.
 apiVersion: v1
 kind: Secret
 metadata:
-  name: apikey-echo-ingenuo
+  name: apikey-echo-exposta
   namespace: kuadrant-system
   labels:
     authorino.kuadrant.io/managed-by: authorino
-    app: echo-ingenuo
+    app: echo-exposta
     # O plano da chave. Sem este label o PlanPolicy do momento 4 nao tem em
     # que tier encaixar o chamador, e o limite nunca se aplica.
     kuadrant.io/plan-id: experimental
@@ -17,7 +17,7 @@ metadata:
     secret.kuadrant.io/user-id: "quem-testou"
     rhcl.demo/autor: Sandro Tanaka
 stringData:
-  api_key: chave-do-echo-ingenuo
+  api_key: chave-do-echo-exposta
 type: Opaque
 ---
 # A AuthPolicy que mira a ROTA -- e que SOBREPOE o deny-all do Gateway.
@@ -28,15 +28,15 @@ type: Opaque
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata:
-  name: echo-ingenuo-authpolicy
-  namespace: echo-ingenuo
+  name: echo-exposta-authpolicy
+  namespace: echo-exposta
   annotations:
     rhcl.demo/autor: Sandro Tanaka
 spec:
   targetRef:
     group: gateway.networking.k8s.io
     kind: HTTPRoute
-    name: echo-ingenuo
+    name: echo-exposta
   rules:
     authentication:
       api-key-authn:
@@ -44,7 +44,7 @@ spec:
           allNamespaces: true
           selector:
             matchLabels:
-              app: echo-ingenuo
+              app: echo-exposta
         credentials:
           queryString:
             name: APIKEY

@@ -1,4 +1,4 @@
-# O caminho ingênuo — o material do "antes"
+# A API exposta — o material do "antes"
 
 Este diretório existe para o participante **errar de propósito**, e é o único
 lugar do repositório onde isso é o objetivo.
@@ -7,7 +7,7 @@ No módulo do golden path ele cria uma API do jeito que um desenvolvedor cria
 naturalmente: um Deployment, um Service, uma HTTPRoute. Testa, recebe `200`, e
 tudo parece pronto. Então vêm quatro perguntas que o `200` não responde:
 
-| pergunta | o que o caminho ingênuo tem |
+| pergunta | o que a API exposta tem |
 | --- | --- |
 | quem pode chamar isto? | **ninguém controla** — não há AuthPolicy |
 | quanto pode chamar? | **ilimitado** — não há PlanPolicy |

@@ -1,4 +1,4 @@
-# O caminho ingenuo: o minimo que faz uma API responder 200.
+# A API exposta: o minimo que faz uma API responder 200.
 #
 # NAO E EXEMPLO DE BOA PRATICA -- e o contrario. Este arquivo existe para o
 # participante ver funcionando e, logo depois, descobrir tudo o que falta.
@@ -9,10 +9,10 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: echo-ingenuo
+  name: echo-exposta
   labels:
     # Sem istio-injection: mais uma coisa que ele nao sabia que precisava.
-    rhcl.demo/proposito: caminho-ingenuo
+    rhcl.demo/proposito: api-exposta
   annotations:
     rhcl.demo/autor: Sandro Tanaka
 ---
@@ -20,7 +20,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: echo
-  namespace: echo-ingenuo
+  namespace: echo-exposta
   annotations:
     rhcl.demo/autor: Sandro Tanaka
 spec:
@@ -55,18 +55,18 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: echo-conteudo
-  namespace: echo-ingenuo
+  namespace: echo-exposta
   annotations:
     rhcl.demo/autor: Sandro Tanaka
 data:
   index.html: |
-    {"servico":"echo-ingenuo","autenticacao":"nenhuma","limite":"nenhum"}
+    {"servico":"echo-exposta","autenticacao":"nenhuma","limite":"nenhum"}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: echo
-  namespace: echo-ingenuo
+  namespace: echo-exposta
   annotations:
     rhcl.demo/autor: Sandro Tanaka
 spec:

@@ -12,15 +12,15 @@
 apiVersion: extensions.kuadrant.io/v1alpha1
 kind: PlanPolicy
 metadata:
-  name: echo-ingenuo-plans
-  namespace: echo-ingenuo
+  name: echo-exposta-plans
+  namespace: echo-exposta
   annotations:
     rhcl.demo/autor: Sandro Tanaka
 spec:
   targetRef:
     group: gateway.networking.k8s.io
     kind: HTTPRoute
-    name: echo-ingenuo
+    name: echo-exposta
   plans:
     - tier: experimental
       predicate: '(has(auth.identity.metadata.labels) && "kuadrant.io/plan-id" in auth.identity.metadata.labels ? auth.identity.metadata.labels["kuadrant.io/plan-id"] : (has(auth.identity.metadata.annotations) && "secret.kuadrant.io/plan-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] : "")) == "experimental"'
