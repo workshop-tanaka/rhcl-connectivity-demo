@@ -702,6 +702,29 @@ st_platform() {
   # Atos 1-4, que medem codigo de status, continuam passando.
   _apply platform-reference/workloads/travel-db
 
+  # E AQUI ESTA A PARTE QUE FALTAVA, e ela custou o Ato 8 varias vezes.
+  #
+  # Os manifestos acima trazem MYSQL_SERVICE=mysqldb.travel-agency e o mysqldb
+  # com replicas=1 -- que e o certo num cluster SEM interconnect. Num cluster
+  # COM o tunel de pe, reaplicá-los desfaz o repontamento que o st_interconnect
+  # fez, e o Ato 8 passa a provar um tunel que nao esta no caminho de dados.
+  #
+  # Nao da erro em lugar nenhum: a aplicacao continua servindo 45 destinos,
+  # so que do banco de dentro. Ate 2026-09-20 o proprio preflight aprovava --
+  # ele contava destinos, e destino havia.
+  #
+  # Entao: se ha tunel, restaura o estado que o interconnect estabeleceu.
+  if oc get listener mysqldb -n travel-db >/dev/null 2>&1; then
+    _log "tunel de Service Interconnect detectado -- restaurando o repontamento"
+    if [[ $DRY_RUN -eq 1 ]]; then
+      _cmd "bash scripts/interconnect.sh aponta; oc scale deploy/mysqldb -n travel-agency --replicas=0"
+    else
+      bash "${_here}/scripts/interconnect.sh" aponta
+      _run oc scale deploy/mysqldb -n travel-agency --replicas=0 >/dev/null \
+        && _ok "banco de dentro desligado de novo -- quem serve e o do outro site"
+    fi
+  fi
+
   _vcs_topology
 
   # O mesmo Secret precisa existir em travel-agency, de onde os 4 backends o
