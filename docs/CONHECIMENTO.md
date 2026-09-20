@@ -671,6 +671,66 @@ Duas coisas que custaram diagnóstico ao montar isso:
 
 ---
 
+### 5.17 TLSPolicy num gateway que compartilha Secret sobrescreve o vizinho
+
+Medido em 2026-09-20, e o estrago foi real antes de eu entender a causa.
+
+Os dois gateways deste cluster — `prod-web` e `echo-web` — apontam para o
+**mesmo** Secret `api-tls`, que alguém copiou à mão do curinga do ingress
+(`openshift-ingress/cert-manager-ingress-cert`). O Secret não tem label, não
+tem `Certificate` dono, e não gira quando o original gira.
+
+Aplicar uma `TLSPolicy` no `echo-web` faz o RHCL criar um `Certificate` para
+`echo-travels.<dominio>` **com `secretName: api-tls`** — o mesmo Secret. O
+cert-manager emite e sobrescreve. A partir daí o gateway serve um certificado
+de `echo-travels` também para `api-travels`, e o `api-travels` passa a falhar
+em qualquer cliente que valide TLS.
+
+**Por que ninguém percebe:** todo script deste repositório usa `curl -sk`. Com
+`-k` a chamada responde 200 e o preflight passa. A falha só aparece em cliente
+estrito — ou no navegador do participante.
+
+    curl -s  https://api-travels...  ->  exit 60 (certificate verify failed)
+    curl -sk https://api-travels...  ->  200
+
+**Antes de aplicar TLSPolicy, conferir de quem é o Secret:**
+
+    oc get gateway -A -o jsonpath='{range .items[*]}{.metadata.name}: {range .spec.listeners[*]}{.tls.certificateRefs[0].name} {end}{"\n"}{end}'
+
+Dois gateways com o mesmo nome de Secret = a policy de um vai reescrever o do
+outro. O caminho certo é um Secret por gateway.
+
+### 5.18 O desafio ACME deixa registro que MATA o curinga do próprio nome
+
+Consequência da 5.17, e é a mais difícil de diagnosticar das duas.
+
+A emissão por DNS-01 cria `_acme-challenge.<nome>.<dominio>` TXT. Quando o
+`Certificate` é removido antes da limpeza — ou quando o webhook do ddns
+simplesmente não limpa, que foi o caso — o TXT **fica**.
+
+E aí entra a RFC 4592: a existência de qualquer nome ABAIXO de `<nome>` torna
+`<nome>` um *empty non-terminal*, e o servidor **para de sintetizar o curinga
+para ele**. O nome deixa de resolver, embora nada tenha sido apagado.
+
+Medido, com controles:
+
+    echo-travels        A=nenhum          tem _acme-challenge: sim
+    teste-tls           A=nenhum          tem _acme-challenge: sim
+    api-travels         A=150.240.37.56   tem _acme-challenge: nao
+    nunca-existiu       A=150.240.37.56   tem _acme-challenge: nao
+
+Um nome que NUNCA existiu resolve; os dois que tiveram desafio, não. Dentro do
+cluster o DNS interno continua resolvendo — só o externo quebra, o que faz a
+falha parecer intermitente.
+
+**Reemitir NÃO limpa** — tentei, e passou de dois TXT para três. A remoção é
+por `nsupdate` com a chave TSIG de `cert-manager-tsig-creds`, apagando o RRset
+nomeado. Nesta zona apagar é a operação segura: nome sem registro explícito
+volta a resolver pelo curinga.
+
+**O que isso custa no roteiro:** o `ato1` chama o echo e passa a imprimir `000`
+onde a narração do script diz `401`.
+
 ## 6. Estrutura do repositório
 
 | Caminho | Conteúdo |

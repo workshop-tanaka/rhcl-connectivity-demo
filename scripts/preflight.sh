@@ -1465,6 +1465,43 @@ except Exception: print(0)' 2>/dev/null)"
 fi
 
 # ---------------------------------------------------------------------------
+# Portais de parceiro — opcionais, e por isso o namespace ausente nao reprova.
+#
+# O QUE ESTE BLOCO PEGA, e e a falha mais provavel deles: a chave de cada
+# portal e gravada no Deployment NO MOMENTO em que scripts/portais.sh roda.
+# Reprovisionar o ambiente troca as chaves, os portais ficam com credencial
+# velha -- e o Angular mostra "an error has occurred" SEM dizer qual. Quem
+# abre a tela no meio do workshop descobre na pior hora.
+#
+# Por isso a checagem nao olha o pod: ela chama o /api/getcities de cada um,
+# que e o caminho inteiro (portal -> Gateway -> AuthPolicy -> aplicacao ->
+# banco no outro site). Se voltarem destinos, tudo entre as duas pontas esta
+# de pe.
+if oc get namespace parceiros >/dev/null 2>&1; then
+  _sec "portais de parceiro (a vitrine da API)"
+  _pt_n=0
+  for _pt in $(oc get route -n parceiros -o jsonpath='{range .items[*]}{.metadata.name}={.spec.host}{"\n"}{end}' 2>/dev/null); do
+    _pt_nome="${_pt%%=*}"; _pt_host="${_pt#*=}"
+    [[ -n "$_pt_host" ]] || continue
+    _pt_n=$((_pt_n+1))
+    _pt_plano="$(oc get route "$_pt_nome" -n parceiros -o jsonpath='{.metadata.annotations.rhcl\.demo/plano}' 2>/dev/null)"
+    _pt_json="$(curl -sk --max-time 25 "https://${_pt_host}/api/getcities" 2>/dev/null)"
+    _pt_dest="$(printf '%s' "$_pt_json" | python3 -c '
+import sys, json
+try: d = json.load(sys.stdin); print(len(d) if isinstance(d, list) else 0)
+except Exception: print(0)' 2>/dev/null)"
+    if [[ "${_pt_dest:-0}" -gt 0 ]]; then
+      _ok "${_pt_nome} (plano ${_pt_plano:-?}) serve ${_pt_dest} destinos"
+    else
+      _bad "${_pt_nome} (plano ${_pt_plano:-?}) nao consegue chamar a API" \
+           "a chave dele provavelmente envelheceu: bash scripts/portais.sh"
+    fi
+  done
+  [[ "$_pt_n" -gt 0 ]] || _warn "namespace parceiros existe mas sem portal publicado" \
+                                "bash scripts/portais.sh"
+fi
+
+# ---------------------------------------------------------------------------
 _sec "governança (ownership dos recursos)"
 
 # Este bloco existe por causa do cluster 1.2, onde o Argo governava metade dos
