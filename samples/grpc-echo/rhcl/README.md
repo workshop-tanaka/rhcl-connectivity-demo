@@ -27,13 +27,26 @@ Tudo o mais é idêntico. E não há porta nem Gateway novos.
 
 ## O que sabidamente não funciona
 
-**A `RateLimitPolicy` provavelmente não vai morder.** Não é receio genérico: é
-a repetição de uma medição feita neste cluster em 2026-08-28 com a policy irmã
-de [base/grpc/](../../../base/grpc/bookings-grpc-policies.yaml), de desenho
-idêntico — `Accepted=True`, `Enforced=True`, limite correto no Limitador, e
-**oito chamadas passando num teto de cinco**. No mesmo minuto, a
-`RateLimitPolicy` de HTTP funcionava. É específico de `GRPCRoute`. A
-`AuthPolicy` no mesmo `GRPCRoute` funciona nos dois sentidos.
+**A `RateLimitPolicy` não morde.** Deixou de ser previsão: foi remedido em
+2026-09-20, no cluster-nsvz5, com **RHCL 1.4.3** — a versão corrente, não a de
+agosto. O resultado é o mesmo, e desta vez com a policy de
+[base/grpc/](../../../base/grpc/bookings-grpc-policies.yaml) aplicada de
+verdade:
+
+| | |
+| --- | --- |
+| `AuthPolicy` | `Accepted=True`, `Enforced=True` |
+| `RateLimitPolicy` | `Accepted=True`, `Enforced=True` |
+| limite declarado | 5 em 60s |
+| sem chave | `code = Unauthenticated` — **a AuthPolicy morde** |
+| com chave, 8 chamadas seguidas | **as oito passaram** — o limite não morde |
+
+No mesmo cluster e no mesmo minuto, a `RateLimitPolicy` de HTTP corta no
+quarto request. É específico de `GRPCRoute`.
+
+O arquivo fica porque está correto — omiti-lo ensinaria que gRPC não se limita,
+o que é falso. E a assimetria é, ela mesma, o conteúdo: **autenticação e limite
+não vêm no mesmo pacote**, e quem só lê o `Enforced=True` acredita que vêm.
 
 O arquivo fica porque está correto — omiti-lo ensinaria que gRPC não se limita,
 o que é falso.

@@ -22,7 +22,11 @@ spec:
     - name: prod-web
       namespace: ingress-gateway
   hostnames:
-    - grpc-travels.apps.cluster-cxr7d.dyn.redhatworkshops.io
+    # __DOMAIN__ e substituido por quem aplica (provision.sh / o snippet do
+    # README). Ate 2026-09-20 este arquivo trazia o dominio de um cluster
+    # ANTIGO cravado: aplicado noutro cluster, a GRPCRoute nascia Accepted com
+    # um hostname que nao resolve, e a falha so aparecia no primeiro grpcurl.
+    - grpc-travels.__DOMAIN__
   # UMA regra, sem match por metodo -- e a escolha custou uma investigacao.
   #
   # A versao anterior tinha duas regras (uma para helloworld.Greeter, outra para
