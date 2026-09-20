@@ -124,11 +124,11 @@ _usage() {
   cat <<EOF
 Uso: bash scripts/demo.sh [--dry-run] [--auto] [--list] [passo...]
 
-Preparacao (antes da plateia entrar):
+Preparacao (antes de comecar):
 
   telas    URLs de cada aba que o roteiro abre, resolvidas deste cluster.
            Nao muda nada — so imprime onde clicar.
-  check    preflight.sh: o veredito de se a demo pode ser apresentada.
+  check    preflight.sh: o veredito de se o ambiente esta inteiro.
   aquece   ${SOAK_SECS}s de trafego de fundo e DEPOIS zera os contadores. A ordem
            e contraintuitiva e importa: o soak popula os graficos do Ato 4, e o
            reset devolve a cota que ele queimou. Invertida, o Ato 2 morre.
@@ -171,9 +171,9 @@ Depois:
   falha    fault injection no discounts e o revert (opcional, muda estado)
   mesh_base  devolve VirtualService, DestinationRule e mTLS ao que base/mesh
            declara (~5s) -- e o pre-ato que ato7/canario/resiliencia oferecem
-  reset    zera as cotas para reapresentar
+  reset    zera as cotas para repetir os passos
   pos      pos-sessao: procura o que a demo deixou para tras, ajusta, e
-           revalida. E o que se roda DEPOIS de apresentar, nao antes.
+           revalida. E o que se roda DEPOIS da sessao, nao antes.
 
 A ordem importa — o que cada passo pressupoe (cada passo imprime isto ao comecar):
 
@@ -489,7 +489,7 @@ step_telas() {
   _title "Preparacao — as telas" "2 min"
   _why "Uma aba por ato, e tres delas moram no mesmo console do OpenShift — que"
   _why "e o console que o time do cliente ja abre todo dia. Vale dizer isso em"
-  _why "voz alta no Ato 5: nenhuma ferramenta nova entrou na conversa."
+  _why "no Ato 5: nenhuma ferramenta nova entrou na conversa."
   echo
   local c g k t r
   c="$(_console)"; g="$(_route grafana-route monitoring)"
@@ -523,7 +523,7 @@ step_check() {
   _title "Preparacao — o veredito" "1 min"
   _why "O preflight percorre a cadeia inteira na ordem do roteiro e cada falha"
   _why "vem com a correcao ao lado. Rode SEMPRE — o sandbox expira, o cluster e"
-  _why "recriado, e descobrir isso com a plateia na sala custa a demo inteira."
+  _why "recriado, e descobrir isso no meio do roteiro custa o resto dele."
   _pause || return 0
   _do bash "scripts/preflight.sh"
   echo
@@ -547,7 +547,7 @@ step_aquece() {
   _log "agora o reset, que devolve a cota consumida acima"
   _do bash "scripts/traffic.sh" reset
   echo
-  _look "para deixar trafego rodando DURANTE a apresentacao, num Terminal 2:"
+  _look "para deixar trafego rodando em paralelo, no Terminal 2:"
   _look "  bash scripts/traffic.sh soak     (e rode 'reset' logo antes do Ato 2)"
 }
 
@@ -557,7 +557,7 @@ step_aquece() {
 step_ato1() {
   _title "Ato 1 — A API esta fechada por padrao" "2 min"
   _quem "Seguranca e Engenheiro de Plataforma — e tambem o Desenvolvedor, que nao escreveu uma linha disto"
-  _say  "Esta e a API de viagens que ja rodava. Vou chamar sem credencial nenhuma."
+  _say  "Esta e a API de viagens que ja rodava. A chamada a seguir vai sem credencial nenhuma."
   _pause || return 0
   _do bash "scripts/traffic.sh" anon
   echo
@@ -613,7 +613,7 @@ step_ato2() {
   _look "abra agora base/policies-plans/travels-plans.yaml no editor — e onde"
   _look "'free/silver/gold', que e vocabulario comercial, vira configuracao"
   echo
-  _log  "a mesma coisa em tela, melhor para a plateia: console -> Connectivity Link -> API Keys"
+  _log  "a mesma coisa em tela: console -> Connectivity Link -> API Keys"
   _warn "NAO aprove nada em 'API Key Approvals'. Os pedidos estao Pending de"
   _warn "proposito — aprovar cunha um Secret com o plano em annotation em vez de"
   _warn "label (armadilha 11 do runbook). O predicado hoje tem fallback e aguenta,"
@@ -681,7 +681,7 @@ step_ato4() {
   echo
   _log  "no Grafana, o dashboard do ato e 'Planos comerciais' (rhcl-negocio-planos)"
   _why  "Os quatro primeiros paineis sao a rajada; o quinto e a cota diaria"
-  _why  "consumida por plano — a rajada e o que a plateia ve, a cota e o que esta"
+  _why  "consumida por plano — a rajada e o que se ve na hora, a cota e o que esta"
   _why  "no contrato. Os dashboards de fabrica agregam sem quebrar por plano: sao"
   _why  "anteriores ao TelemetryPolicy. Nao prometa tier neles."
 }
@@ -727,7 +727,7 @@ GRAFO
   _why "chamada de aplicacao no mesmo timeline. As duas chamadas gRPC de auth e"
   _why "rate limit aparecem ali — e a resposta para 'quanto custa em latencia'."
   echo
-  _say  "Esta e a terceira tela do console na mesma apresentacao: Policy Topology, Traffic Graph e Traces. Nenhuma ferramenta nova entrou na conversa."
+  _say  "Esta e a terceira tela do mesmo console: Policy Topology, Traffic Graph e Traces. Nenhuma ferramenta nova entrou na conversa."
 }
 
 step_ato6() {
@@ -745,7 +745,7 @@ step_ato6() {
   echo
   printf '  %sPortal%s  https://%s\n' "$_BLD" "$_RST" "$r"
   echo
-    _say  "Antes de navegar, diga de onde vem cada aba. O portal mistura tres"
+    _say  "Vale saber de onde vem cada aba antes de navegar. O portal mistura tres"
     _say  "procedencias, e o cliente nao tem como distinguir sozinho:"
     _why "   sem marca       entregue pela Red Hat -- na imagem do RHDH (Kubernetes,"
     _why "                   Topology) ou compilada por ela no rhdh-plugin-export-"
@@ -1203,7 +1203,7 @@ step_borda() {
   _why ""
   _why "Posicao no roteiro: entre o Ato 3 e o Ato 4. O 3 mostrou que policy tem"
   _why "precedencia declarada; este mostra que ha mais policies do que as duas"
-  _why "que a plateia acabou de ver."
+  _why "que acabou de acontecer."
   _pause || return 0
   _do oc get tlspolicy,dnspolicy -n ingress-gateway \
       -o custom-columns='TIPO:.kind,NOME:.metadata.name,ACCEPTED:.status.conditions[?(@.type=="Accepted")].status,ENFORCED:.status.conditions[?(@.type=="Enforced")].status'
@@ -1249,7 +1249,7 @@ step_degrada() {
   _why "O que se mede: o rate limit falha ABERTO. Com o Limitador fora, a"
   _why "requisicao passa em vez de ser recusada. Perde-se a contagem, nao a"
   _why "venda. A autenticacao faz o OPOSTO, e de proposito -- mas nao se derruba"
-  _why "o Authorino no palco: o efeito e a demo inteira parar de responder."
+  _why "o Authorino aqui: o efeito e tudo parar de responder de uma vez."
   _why ""
   _why "Por que MEDIR e nao ler: no RHCL 1.2 o comportamento de falha vive"
   _why "dentro do WasmPlugin, nao numa config do Envoy. Nao ha campo para"
@@ -1529,7 +1529,7 @@ step_resiliencia() {
   _warn "Isto MUDA ESTADO: sobrepoe o DestinationRule do discounts. O revert roda"
   _warn "no fim e tambem com Ctrl-C."
   _warn "Os numeros do manifesto sao ABSURDOS de proposito (1 conexao, 1 pendente)"
-  _warn "-- e o que faz o circuit breaker abrir no tempo de um ato. Diga isso em voz alta."
+  _warn "-- e o que faz o circuit breaker abrir no tempo de um exercicio."
   _pause || return 0
 
   _revert_dr() { oc apply -f "${_here}/base/mesh/destinationrule-discounts.yaml" >/dev/null 2>&1 || true; }

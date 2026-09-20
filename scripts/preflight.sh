@@ -1682,8 +1682,8 @@ printf '\n'
 if [[ "$FAIL" == "0" && "$WARN" == "0" ]]; then
   printf '%s[OK]%s demo pronta.\n' "$_GRN" "$_RST"
 elif [[ "$FAIL" == "0" ]]; then
-  printf '%s[OK]%s demo pode ser apresentada — %d aviso(s) acima degradam algum ato.\n' "$_GRN" "$_RST" "$WARN"
+  printf '%s[OK]%s o ambiente esta inteiro — %d aviso(s) acima degradam algum passo.\n' "$_GRN" "$_RST" "$WARN"
 else
-  printf '%s[X]%s %d falha(s) e %d aviso(s). Corrija antes de apresentar.\n' "$_RED" "$_RST" "$FAIL" "$WARN"
+  printf '%s[X]%s %d falha(s) e %d aviso(s). Corrija antes de comecar.\n' "$_RED" "$_RST" "$FAIL" "$WARN"
   exit 1
 fi
