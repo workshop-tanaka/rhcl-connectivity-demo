@@ -1273,14 +1273,18 @@ step_degrada() {
   # Limitador em zero derruba o Ato 2 do proximo ensaio, e o preflight avisa
   # disso de um jeito que parece outro problema ('nao consegui ler os
   # contadores').
-  _revert_lim() { oc scale deploy/limitador-limitador -n kuadrant-system --replicas=1 >/dev/null 2>&1 || true; }
+  # PELO CR: o Deployment pertence a 'Limitador/limitador' e o operador o
+  # reconcilia de volta em segundos. Medido em 2026-09-20 -- 'oc scale deploy'
+  # sobe o pod de novo sozinho, e a rajada seguinte volta a levar 429, que e o
+  # OPOSTO do que este passo quer provar.
+  _revert_lim() { oc patch limitador limitador -n kuadrant-system --type=merge -p '{"spec":{"replicas":1}}' >/dev/null 2>&1 || true; }
   trap '_revert_lim; printf "\n  revertido.\n"; exit 130' INT
   trap '_revert_lim; trap - INT RETURN' RETURN
 
   _why "2. Agora o Limitador sai do ar."
   _pause || return 0
-  _do oc scale deploy/limitador-limitador -n kuadrant-system --replicas=0
-  _do_sh "oc wait --for=delete pod -l app=limitador -n kuadrant-system --timeout=60s 2>/dev/null; sleep 5; oc get pods -n kuadrant-system -l app=limitador --no-headers 2>/dev/null | wc -l | xargs printf 'pods do limitador: %s\n'"
+  _do oc patch limitador limitador -n kuadrant-system --type=merge -p '{"spec":{"replicas":0}}'
+  _do_sh "oc wait --for=delete pod -l app.kubernetes.io/component=limitador -n kuadrant-system --timeout=120s 2>/dev/null; sleep 5; oc get pods -n kuadrant-system -l app.kubernetes.io/component=limitador --no-headers 2>/dev/null | wc -l | xargs printf 'pods do limitador: %s\n'"
   echo
   _why "3. A MESMA rajada, com o contador inalcancavel:"
   _do_as "14 requisicoes com a chave free" \
@@ -1295,7 +1299,7 @@ step_degrada() {
   _why "duvida, 'quantas vezes voce ja veio' admite."
   echo
   _log "restaurando o Limitador"
-  _do oc scale deploy/limitador-limitador -n kuadrant-system --replicas=1
+  _do oc patch limitador limitador -n kuadrant-system --type=merge -p '{"spec":{"replicas":1}}'
   _do_sh "oc rollout status deploy/limitador-limitador -n kuadrant-system --timeout=120s"
   echo
   _look "de volta. Confirme com: bash scripts/demo.sh ato2"
