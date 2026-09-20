@@ -424,15 +424,7 @@ def semeia(pid, caminho_proj, desejado, mensagem, remover=(), podar=None):
 
 camadas = (arquivos_de(os.path.join(ROOT_REPO, "base"),     "base")
          + arquivos_de(os.path.join(ROOT_REPO, "env"),      "env")
-         + arquivos_de(os.path.join(ROOT_REPO, "overlays"), "overlays")
-         # postman/ nao e camada de kustomize, e entra aqui por um motivo de
-         # logistica: quem faz o workshop precisa BAIXAR a colecao para a
-         # propria maquina, e o unico navegador que ele tem aberto e o deste
-         # GitLab. O terminal do Showroom ja tem o arquivo, mas dali nao sai.
-         # O '*.local.*' fica de fora pelo .gitignore do repo -- e ele que
-         # carrega as chaves reais, geradas por scripts/postman-env.sh.
-         + [(rel, f) for rel, f in arquivos_de(os.path.join(ROOT_REPO, "postman"), "postman")
-            if ".local." not in rel])
+         + arquivos_de(os.path.join(ROOT_REPO, "overlays"), "overlays"))
 # Exatamente os caminhos que o script ANTIGO criava na raiz: o conteudo de
 # base/ sem prefixo. Calculado, e nao escrito a mao, para nao apagar nada que
 # nao tenha vindo dele.
@@ -809,6 +801,18 @@ if samples_id:
 # aqui. E o ponto de substituicao que nao existia quando eles eram lidos do
 # GitHub -- e a razao de o allowedHosts ter ficado fixo por um commit.
 ESPELHO = [
+    # A colecao do Postman, e ela entra por LOGISTICA, nao por arquitetura:
+    # quem faz o workshop precisa BAIXAR o arquivo para a propria maquina, e o
+    # unico navegador que ele tem aberto e o deste GitLab. O terminal do
+    # Showroom ja tem o arquivo desde o clone, mas dali ele nao sai -- 30 KB
+    # nao se copia de um terminal em aba de navegador.
+    #
+    # ARQUIVO EXPLICITO, e nao o diretorio: postman/ tambem guarda o
+    # '*.local.*' que scripts/postman-env.sh escreve com as CHAVES REAIS do
+    # cluster. Este projeto e PUBLICO (ver o comentario do ESPELHO_DIRS), entao
+    # um os.walk aqui vazaria as chaves. A colecao e agnostica de hostname e
+    # nao tem segredo dentro.
+    "postman/rhcl-demo.postman_collection.json",
     "mkdocs.yml",              # raiz do TechDocs
     "devfile.yaml",            # o que o Dev Spaces abre
     # ESTA LISTA E O NAV DO mkdocs.yml, E TEM DE ACOMPANHA-LO. Entrada no nav
