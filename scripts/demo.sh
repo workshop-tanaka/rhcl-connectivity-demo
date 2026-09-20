@@ -569,19 +569,26 @@ step_ato1() {
   _why "gateway, por causa do AuthPolicy em base/policies-security/."
   _say  "A equipe de aplicacao nao escreveu isso. A plataforma escreveu, e vale para qualquer rota que passe por aqui."
 
-  # Segundo produto no mesmo gateway: prova que a fronteira e por produto, e nao
+  # Segundo produto no mesmo gateway: prova que a fronteira e por PRODUTO, e nao
   # 'tem chave / nao tem chave'. So roda se o echo-api estiver no cluster.
+  #
+  # O ECHO NAO USA CHAVE DE API, e esta narracao dizia que usava ate 2026-09-20.
+  # Ele e governado por OIDCPolicy: sem token o gateway responde 302 para o
+  # Keycloak, nao 401. A chave do travels nao e recusada -- ela e IGNORADA,
+  # porque nao e a credencial que este produto aceita.
   local eh; eh="$(_echo_host)"
   [[ -n "$eh" ]] || return 0
   echo
-  _why "Ha um segundo produto no mesmo gateway — o echo-api. A chave do travels"
-  _why "nao abre ele: o selector do AuthPolicy do echo exige tambem o label de"
-  _why "produto, entao assinar um produto nao da acesso ao outro."
+  _why "Ha um segundo produto no mesmo gateway — o echo-api. Ele nao usa chave"
+  _why "de API: e governado por OIDCPolicy, entao a credencial dele e um token"
+  _why "de identidade. Mandar a chave do travels nao abre nada."
   _pause || return 0
   local gold; gold="$(_key_of gold)"
   _do_as "curl -s -o /dev/null -w '%{http_code}\\n' \"https://${eh}/?APIKEY=<chave gold do travels>\"" \
     curl -s -o /dev/null -w '%{http_code}\n' "https://${eh}/?APIKEY=${gold}"
-  _look "401 — a chave e valida, mas nao para este produto"
+  _look "302 — o gateway manda logar no Keycloak; a chave do travels e ignorada"
+  _why "Dois produtos, o mesmo gateway, mecanismos de credencial diferentes."
+  _why "A fronteira e por PRODUTO, e nao 'tem chave / nao tem chave'."
 }
 
 step_ato2() {

@@ -1457,11 +1457,48 @@ if oc get crd sites.skupper.io >/dev/null 2>&1 && \
 try: print(len(json.load(sys.stdin)))
 except Exception: print(0)' 2>/dev/null)"
     if [[ "${_ic_n:-0}" -gt 0 ]]; then
-      _ok "a aplicação serve ${_ic_n} destinos vindos do outro site"
+      _ok "a aplicação serve ${_ic_n} destinos"
     else
       _bad "a lista de destinos voltou vazia" "o banco do outro lado caiu: oc get pods -n travel-db-remoto"
     fi
+
+  # ESTE BLOCO EXISTE PORQUE O DE CIMA MENTIA. Contar destinos prova que ALGUM
+  # banco respondeu -- nao que foi o do outro site. Em 2026-09-20 o ambiente
+  # passou horas com o mysqldb LOCAL no ar e os backends apontados para ele: a
+  # linha acima dizia "vindos do outro site" com um ✓, e era falso.
+  #
+  # O caminho se prova em duas metades, e as duas tem de bater:
+  #   1. para onde os backends apontam (MYSQL_SERVICE)
+  #   2. se o banco de dentro esta desligado -- com os dois no ar, a aplicacao
+  #      serviria igual com o tunel morto, e o ato perderia a prova
+  _ic_fora=0; _ic_dentro=0
+  for _ic_d in cars-v1 flights-v1 hotels-v1 insurances-v1; do
+    _ic_alvo="$(oc get deploy "$_ic_d" -n travel-agency \
+      -o jsonpath='{range .spec.template.spec.containers[0].env[?(@.name=="MYSQL_SERVICE")]}{.value}{end}' 2>/dev/null)"
+    case "$_ic_alvo" in
+      *travel-db*)     _ic_fora=$((_ic_fora+1)) ;;
+      *travel-agency*) _ic_dentro=$((_ic_dentro+1)) ;;
+    esac
+  done
+  if [[ "$_ic_fora" -eq 4 ]]; then
+    _ok "os quatro backends consomem o banco do OUTRO site (mysqldb.travel-db)"
+  elif [[ "$_ic_dentro" -gt 0 ]]; then
+    _bad "${_ic_dentro} backend(s) ainda apontam para o banco DENTRO do cluster" \
+         "o Argo desfez o repontamento: bash scripts/interconnect.sh aponta"
+  else
+    _warn "nao consegui ler MYSQL_SERVICE dos backends" "oc get deploy -n travel-agency -o yaml | grep MYSQL_SERVICE"
   fi
+
+  _ic_rep="$(oc get deploy mysqldb -n travel-agency -o jsonpath='{.spec.replicas}' 2>/dev/null)"
+  if [[ -z "$_ic_rep" ]]; then
+    _ok "nao ha banco dentro do cluster"
+  elif [[ "$_ic_rep" == "0" ]]; then
+    _ok "banco de dentro desligado -- quem serve e o do outro site"
+  else
+    _bad "o banco de dentro do cluster esta NO AR (${_ic_rep} replica)" \
+         "com os dois no ar a aplicacao serve mesmo com o tunel morto: oc scale deploy/mysqldb -n travel-agency --replicas=0"
+  fi
+fi
 fi
 
 # ---------------------------------------------------------------------------
