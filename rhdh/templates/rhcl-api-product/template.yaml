@@ -330,8 +330,10 @@ spec:
         content: |
           O repositorio esta criado. Conforme o modo escolhido:
 
-          - **applicationset**: nada a fazer. O ApplicationSet do cluster
-            descobre o topic `rhcl-golden-path` no proximo ciclo (~3 min).
+          - **applicationset**: nada a fazer. O ApplicationSet rhcl-golden-path
+            varre o subgrupo `rhcl/apis` e adota todo projeto com um diretorio
+            `manifests/`. Requeue de 180s, entao ate ~3 min. NAO ha topic a
+            marcar: quem seleciona e o subgrupo, que o RepoUrlPicker ja tranca.
           - **application**: `oc apply -f gitops/application.yaml`
           - **manual**: `oc apply -k manifests/`
 
