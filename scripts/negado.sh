@@ -19,8 +19,8 @@
 # As seis estacoes, medidas neste cluster em 2026-09-20:
 #
 #   1  o nome nao resolveu .... exit=6, sem HTTP    antes de sair da maquina
-#   2  sem endereco publicado . 503                 ainda na porta do cluster
-#   3  credencial recusada .... 401 + o motivo      a porta da API decidiu
+#   2  sem Route publicada .... 503                 parou no router do OpenShift
+#   3  credencial recusada .... 401 + o motivo      a AuthPolicy do Gateway
 #   4  cota estourada ......... 429 mudo            o plano contratado decidiu
 #   5  recusa interna ......... 403 RBAC            um servico recusou o outro
 #   6  a regra nao valia ...... Enforced=False      o que voce leu nao decide
@@ -81,7 +81,7 @@ e1() {
 
 # ------------------------------------------------------------------- 2
 e2() {
-  _est 2 "resolveu, mas nao ha endereco publicado"
+  _est 2 "resolveu, mas nao ha Route publicada"
   _aposta "Agora o nome resolve -- e a resposta e 503. A aplicacao caiu?"
   _cmd "curl https://nao-existe-rota.${DOM}/"
   local http; http="$(curl -sk -m 20 -o /dev/null -w '%{http_code}' "https://nao-existe-rota.${DOM}/" 2>/dev/null)"
@@ -116,19 +116,20 @@ e3() {
   _nota "  credential not found ............. o cliente nao mandou credencial"
   _nota "  the API Key provided is invalid .. mandou, e ela nao vale"
   _nota ""
-  _nota "E ha mais: o cabecalho www-authenticate traz realm=\"api-key-authn\"."
-  _nota "Esse e o NOME DA REGRA que recusou, dentro da configuracao de seguranca"
-  _nota "da API. Voce descobre em qual regra o cliente caiu sem abrir arquivo"
-  _nota "nenhum -- e sem ter acesso ao cluster."
+  _nota "E ha mais: o www-authenticate traz realm=\"api-key-authn\", que e o nome"
+  _nota "do bloco de authentication dentro da AuthPolicy. Voce descobre em qual"
+  _nota "regra o cliente caiu sem abrir um YAML e sem acesso ao cluster."
   _nota ""
-  _nota "O QUE DESCARTAR: muita coisa. O 401 PROVA que o nome resolveu, que o"
-  _nota "endereco esta publicado, que a porta da API esta de pe e que a regra de"
-  _nota "seguranca esta valendo. Metade do quadro cai com um cabecalho."
+  _nota "O QUE DESCARTAR: muita coisa. O 401 PROVA cinco etapas de uma vez --"
+  _nota "o DNS resolveu, a chamada chegou ao cluster, existe Route para aquele"
+  _nota "host, o Gateway esta de pe, e a AuthPolicy foi encontrada e APLICADA."
+  _nota "Metade do quadro cai com um cabecalho."
   _nota ""
-  _nota "Repare tambem no que NAO acontece: um caminho inexistente tambem"
-  _nota "responde 401, e nao 404. A regra de seguranca decide ANTES de a"
-  _nota "aplicacao entrar na conversa -- ela nunca e acordada para dizer 'nao"
-  _nota "tenho essa pagina'."
+  _nota "Repare tambem no que NAO acontece: um path inexistente tambem responde"
+  _nota "401, e nao 404. A HTTPRoute casa PathPrefix '/', entao a AuthPolicy"
+  _nota "decide antes de a aplicacao entrar na conversa -- ela nunca e acordada"
+  _nota "para dizer 'nao tenho esse path'. E deliberado: uma API fechada nao"
+  _nota "deve revelar que paths existem para quem nao se identificou."
 }
 
 # ------------------------------------------------------------------- 4
@@ -160,7 +161,7 @@ e4() {
 
 # ------------------------------------------------------------------- 5
 e5() {
-  _est 5 "passou pela porta da API, e um servico recusou o outro"
+  _est 5 "passou pelo Gateway, e um servico recusou o outro"
   _aposta "A chamada de fora responde 200. Uma parte da tela fica vazia."
   local p; p="$(oc get pods -n travel-agency -l app=travels --no-headers 2>/dev/null | awk 'NR==1{print $1}')"
   [[ -n "$p" ]] || { _warn "sem o servico travels de pe; pulando"; return 0; }
@@ -176,7 +177,7 @@ e5() {
   _nota ""
   _nota "Mesmo destino, respostas diferentes -- e a diferenca e QUEM chamou."
   _nota ""
-  _nota "Quem recusou nao foi a aplicacao nem a porta da API: foi um componente"
+  _nota "Quem recusou nao foi a aplicacao nem o Gateway: foi o sidecar -- o proxy"
   _nota "que acompanha cada servico e inspeciona o que entra e sai dele. Ele"
   _nota "verifica a identidade de quem chama antes de deixar passar. A frase"
   _nota "'RBAC: access denied' no corpo e a assinatura dessa recusa."
@@ -186,7 +187,7 @@ e5() {
   _nota "servico do outro lado."
   _nota ""
   _nota "O QUE DESCARTAR: toda a entrada. Um 403 sem x-ext-auth-reason nao veio"
-  _nota "da porta da API -- veio de dentro."
+  _nota "do Gateway -- veio de dentro, do sidecar."
 }
 
 # ------------------------------------------------------------------- 6
@@ -223,17 +224,17 @@ tabela() {
   | o que voce ve             | onde parou                | ja pode descartar        |
   +---------------------------+---------------------------+--------------------------+
   | exit=6, sem codigo HTTP   | 1 o nome nao resolveu     | tudo do lado do servidor |
-  | 503 sem x-ext-auth-reason | 2 endereco nao publicado  | API, regras, aplicacao   |
-  | 401 + x-ext-auth-reason   | 3 credencial recusada     | DNS, endereco, API de pe |
+  | 503 sem x-ext-auth-reason | 2 sem Route publicada     | Gateway, policies, app   |
+  | 401 + x-ext-auth-reason   | 3 AuthPolicy recusou      | DNS, Route, Gateway      |
   | 429 sem cabecalho nenhum  | 4 cota do plano           | a credencial e valida    |
-  | 403 RBAC: access denied   | 5 recusa entre servicos   | toda a entrada           |
-  | comportamento != config   | 6 regra substituida       | confirme ANTES do resto  |
+  | 403 RBAC: access denied   | 5 sidecar recusou         | toda a borda             |
+  | comportamento != config   | 6 policy sobreposta       | confirme ANTES do resto  |
   +---------------------------+---------------------------+--------------------------+
 
   As duas perguntas que resolvem a maioria dos chamados:
 
     1. "me mande os cabecalhos da resposta"   -> separa 1,2,3,4 e 5 na hora
-    2. "a regra que voce leu esta valendo?"   -> separa a estacao 6, que
+    2. "a policy que voce leu esta Enforced?" -> separa a estacao 6, que
        contradiz a configuracao e por isso engana mais
 
   O que esta plataforma NAO responde hoje (medido em 2026-09-20, nao suposto):
@@ -267,7 +268,7 @@ desafio() {
        printf '    → HTTP=%s  corpo: %s\n' \
          "$(oc exec -n travel-agency "$p" -c travels -- curl -s -m 6 -o /dev/null -w '%{http_code}' http://discounts:8000/ 2>/dev/null)" \
          "$(oc exec -n travel-agency "$p" -c travels -- curl -s -m 6 http://discounts:8000/ 2>/dev/null | head -c 40)" ;;
-    6) _cmd "o status de uma regra de seguranca"
+    6) _cmd "o status de uma AuthPolicy"
        oc get authpolicy prod-web-deny-all -n ingress-gateway \
          -o jsonpath='{range .status.conditions[*]}    → {.type}={.status}  {.message}{"\n"}{end}' 2>/dev/null | cut -c1-140 ;;
   esac
