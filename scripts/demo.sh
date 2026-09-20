@@ -150,7 +150,7 @@ Atos extras, fora do default (cada um roda sozinho):
   trace    O que um contador nao responde            (4 min, depois do 4 ou 5)
   canario  A promocao acontecendo, ao vivo           (3 min, MUDA ESTADO)
              LOGS=1 acrescenta o log colorido das duas versoes
-  resiliencia  O disjuntor, e o que NAO da para demonstrar  (5 min, MUDA ESTADO)
+  resiliencia  O circuit breaker, e o que NAO da para demonstrar  (5 min, MUDA ESTADO)
   exposta  De aberta a governada, um passo por vez    (10 min, antes do 6)
              quatro momentos: sem criterio, zero trust, liberacao seletiva e
              limite -- e a sobreposicao de policies acontecendo na sua rota
@@ -1505,7 +1505,7 @@ step_canario() {
 }
 
 step_resiliencia() {
-  _title "Ato resiliencia — o disjuntor, e o que NAO da para demonstrar" "5 min, OPCIONAL, MUDA ESTADO · DEPOIS DO ATO7"
+  _title "Ato resiliencia — o circuit breaker, e o que NAO da para demonstrar" "5 min, OPCIONAL, MUDA ESTADO · DEPOIS DO ATO7"
   _quem "Operacao/SRE — flags do Envoy, ejecao, e o que fault injection nao prova"
   _pre "ato7 (narrativa: a carga sai do cars por causa da AuthorizationPolicy dele)"
   _checa_mesh_base || _oferece_pre mesh_base "devolve VirtualService, DestinationRule e mTLS ao que base/mesh declara (~5s)"
@@ -1522,7 +1522,7 @@ step_resiliencia() {
   _warn "Isto MUDA ESTADO: sobrepoe o DestinationRule do discounts. O revert roda"
   _warn "no fim e tambem com Ctrl-C."
   _warn "Os numeros do manifesto sao ABSURDOS de proposito (1 conexao, 1 pendente)"
-  _warn "-- e o que faz o disjuntor abrir no tempo de um ato. Diga isso em voz alta."
+  _warn "-- e o que faz o circuit breaker abrir no tempo de um ato. Diga isso em voz alta."
   _pause || return 0
 
   _revert_dr() { oc apply -f "${_here}/base/mesh/destinationrule-discounts.yaml" >/dev/null 2>&1 || true; }
@@ -1537,16 +1537,16 @@ step_resiliencia() {
   _do_as "20 chamadas ao discounts, a partir do cars" \
     bash -c "oc exec -n travel-agency ${pod} -c cars -- sh -c 'for i in \$(seq 20); do curl -s -o /dev/null -w \"%{http_code} \" http://discounts.travel-agency:8000/discounts/cars; done; echo'"
   echo
-  _why "2. Agora o disjuntor entra, com limites de uma conexao e uma pendente."
+  _why "2. Agora o circuit breaker entra, com limites de uma conexao e uma pendente."
   _pause || return 0
   _do oc apply -f "platform-reference/mesh/destinationrule-discounts-circuitbreaker.yaml"
   sleep 12
   _why "3. A MESMA chamada, agora em paralelo -- e e a concorrencia que abre o"
-  _why "   disjuntor, nao o volume."
+  _why "   circuit breaker, nao o volume."
   _do_as "40 chamadas CONCORRENTES ao discounts" \
     bash -c "oc exec -n travel-agency ${pod} -c cars -- sh -c 'for i in \$(seq 40); do (curl -s -o /dev/null -w \"%{http_code} \" http://discounts.travel-agency:8000/discounts/cars &); done; sleep 6; echo'"
   echo
-  _look "os 503 sao o disjuntor recusando -- e o codigo nao diz qual dos dois modos"
+  _look "os 503 sao o circuit breaker recusando -- e o codigo nao diz qual dos dois modos"
   echo
   _why "4. A prova de QUAL mecanismo disparou esta no flag do Envoy. A coleta"
   _why "   leva ~30s; fale sobre o que acabou de acontecer."

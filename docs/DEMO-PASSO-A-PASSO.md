@@ -889,7 +889,7 @@ oc apply -f base/mesh/virtualservice-discounts.yaml
 ---
 
 
-## Passo 7c — O disjuntor, e o que NÃO dá para demonstrar *(5 min, extra, MUDA ESTADO · **depois do passo 7**)*
+## Passo 7c — O circuit breaker, e o que NÃO dá para demonstrar *(5 min, extra, MUDA ESTADO · **depois do passo 7**)*
 
 ```bash
 bash scripts/demo.sh resiliencia
@@ -920,7 +920,7 @@ rende: o Envoy tirou a instância de circulação sozinho, depois de contar erro
 consecutivos, e a devolve quando `baseEjectionTime` passa.
 
 **Os números do manifesto são absurdos de propósito.** Uma conexão e uma
-pendente não é configuração de produção — é o que faz o disjuntor abrir no
+pendente não é configuração de produção — é o que faz o circuit breaker abrir no
 tempo de um ato. Diga isso em voz alta, ou vem a pergunta *"vocês recomendam
 uma conexão?"*. O manifesto mora em
 [platform-reference/mesh/destinationrule-discounts-circuitbreaker.yaml](../platform-reference/mesh/destinationrule-discounts-circuitbreaker.yaml)

@@ -9,7 +9,7 @@
 #
 # OS NUMEROS SAO ABSURDOS DE PROPOSITO. maxConnections: 1 com
 # http1MaxPendingRequests: 1 nao e configuracao de producao -- e o que faz o
-# disjuntor abrir em SEGUNDOS, com 40 requisicoes concorrentes, no tempo de um
+# circuit breaker abrir em SEGUNDOS, com 40 requisicoes concorrentes, no tempo de um
 # ato. Em producao estes numeros saem de medicao de carga, e dizer isso em voz
 # alta evita a pergunta "voces recomendam 1 conexao?".
 #
