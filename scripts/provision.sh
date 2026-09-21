@@ -657,6 +657,15 @@ st_mesh() {
 # ===========================================================================
 st_platform() {
   _sec "plataforma"
+  # A ORDEM AQUI E A CORRECAO, nao estetica. O kuadrant.yaml liga spec.mtls, e
+  # o operador cria a PeerAuthentication 'default' STRICT -- por SELETOR de
+  # workload (kuadrant.io/managed=true), nao para o namespace. Com duas
+  # PeerAuthentication de workload no mesmo pod, o Istio usa a MAIS ANTIGA.
+  # A excecao da porta de metricas (8080) tem de nascer antes, senao e
+  # ignorada: o Prometheus leva reset, limitador_up some, e o alerta
+  # LimitadorForaDoAr dispara com o Limitador de pe (medido em 2026-09-21).
+  _ns kuadrant-system
+  _apply platform-reference/kuadrant-system/peerauthentication-metricas.yaml
   _apply platform-reference/kuadrant-system/kuadrant.yaml
 
   # Em cluster VIRGEM o operator do Kuadrant nasce na etapa 'operators', antes

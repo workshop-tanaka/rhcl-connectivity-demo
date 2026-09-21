@@ -112,6 +112,30 @@ else
         "oc logs -n kuadrant-system deploy/kuadrant-operator-controller-manager | grep 'Discovered extension'"
 fi
 
+# mTLS Gateway -> Authorino/Limitador. Sem ele a chave de API (query string)
+# atravessa o cluster em texto claro ate quem a valida. Com ele, a excecao da
+# porta de metricas precisa ser MAIS ANTIGA que a 'default' do operador --
+# Istio usa a PeerAuthentication de workload mais antiga -- senao o Prometheus
+# leva reset e o alerta LimitadorForaDoAr dispara com o Limitador de pe.
+_mtls="$(oc get kuadrant kuadrant -n kuadrant-system -o jsonpath='{.status.mtlsAuthorino}/{.status.mtlsLimitador}' 2>/dev/null)"
+if [[ "$_mtls" == "true/true" ]]; then
+  _ok "mTLS entre o Gateway e Authorino/Limitador"
+  _pa_def="$(oc get peerauthentication default -n kuadrant-system -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null)"
+  _pa_met="$(oc get peerauthentication limitador-metricas -n kuadrant-system -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null)"
+  if [[ -z "$_pa_met" ]]; then
+    _bad "mTLS ligado sem a excecao da porta de metricas: Prometheus recusado, alerta falso" \
+         "oc apply -f platform-reference/kuadrant-system/peerauthentication-metricas.yaml && oc delete peerauthentication default -n kuadrant-system  (o operador recria, e ela fica mais nova)"
+  elif [[ -n "$_pa_def" && ! "$_pa_met" < "$_pa_def" ]]; then
+    _bad "excecao de metricas mais NOVA que a 'default' do operador -- o Istio a ignora" \
+         "oc delete peerauthentication default -n kuadrant-system  (o operador recria em ~2s, agora mais nova)"
+  else
+    _ok "excecao da porta de metricas em vigor (mais antiga que a do operador)"
+  fi
+else
+  _warn "canal Gateway -> Authorino/Limitador em texto claro (mtls=${_mtls:-?})" \
+        "a chave de API atravessa o cluster legivel; bash scripts/mtls-kuadrant.sh status"
+fi
+
 # ---------------------------------------------------------------------------
 _sec "gateway e rota"
 

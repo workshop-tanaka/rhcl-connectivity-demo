@@ -56,8 +56,11 @@ for c in d.get("configs", []):
         print("    %-28s %s" % (n, ("cifrado (" + ts.split(".")[-1] + ")") if ts else "TEXTO CLARO"))'
   echo
   oc get kuadrant -n "$KNS" -o jsonpath='{range .items[*]}    Kuadrant/{.metadata.name}  spec.mtls={.spec.mtls}{"\n"}    status: mtlsAuthorino={.status.mtlsAuthorino} mtlsLimitador={.status.mtlsLimitador}{"\n"}{end}' 2>/dev/null
-  _log "sidecar no Authorino / Limitador:"
-  oc get pods -n "$KNS" -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.containers[*].name}{"\n"}{end}' 2>/dev/null \
+  # O istio-proxy aqui e sidecar NATIVO: mora em initContainers (com
+  # restartPolicy Always), nao em containers. Listar so containers esconde o
+  # sidecar e faz parecer que o mTLS nao pegou.
+  _log "sidecar no Authorino / Limitador (containers + initContainers):"
+  oc get pods -n "$KNS" -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.containers[*].name}{" "}{.spec.initContainers[*].name}{"\n"}{end}' 2>/dev/null \
     | grep -E '^(authorino|limitador-limitador)' | grep -v operator | sed 's/^/      /'
 }
 
@@ -81,6 +84,13 @@ _troca() { # <true|false>
   local sp=$!
   sleep 5
   if [[ "$1" == "true" ]]; then
+    # A excecao da porta de metricas ANTES do patch: o Istio usa a
+    # PeerAuthentication de workload mais antiga, e a 'default' que o operador
+    # cria ao ligar o mTLS tem de nascer depois dela. Na primeira execucao
+    # (2026-09-21) esta linha nao existia: o Prometheus levou reset e o alerta
+    # LimitadorForaDoAr disparou com o Limitador de pe.
+    local _pa; _pa="$(cd "$(dirname "$0")/.." && pwd)/platform-reference/kuadrant-system/peerauthentication-metricas.yaml"
+    oc apply -f "$_pa" >/dev/null && _log "excecao da porta de metricas aplicada antes"
     oc patch kuadrant kuadrant -n "$KNS" --type=merge -p '{"spec":{"mtls":{"enable":true}}}' >/dev/null
   else
     oc patch kuadrant kuadrant -n "$KNS" --type=json -p '[{"op":"remove","path":"/spec/mtls"}]' >/dev/null 2>&1 \
@@ -93,9 +103,18 @@ _troca() { # <true|false>
   if [[ "$anom" -eq 0 ]]; then
     _ok "${total} amostras, nenhuma fora do normal"
   else
-    _no "${anom} de ${total} amostras fora do normal (segundo gold sem-chave):"
-    awk '$2!="200" || $3!="401"' "$s" | head -20 | sed 's/^/      /'
-    _nota "gold != 200: janela de recusa. sem-chave != 401: FALHA ABERTA -- grave."
+    # Falha ABERTA e so uma: requisicao SEM chave recebendo 200. Um 500 para
+    # todos e falha FECHADA -- ninguem passa, nem quem deveria. A primeira
+    # versao deste script chamava qualquer sem-chave != 401 de falha aberta, e
+    # classificou errado os 500 da troca medida em 2026-09-21.
+    local aberta; aberta="$(awk '$3=="200"' "$s" | wc -l | tr -d ' ')"
+    if [[ "$aberta" -gt 0 ]]; then
+      _no "FALHA ABERTA: ${aberta} amostra(s) SEM chave receberam 200"
+    else
+      _warn "${anom} de ${total} amostras fora do normal -- janela de falha FECHADA (ninguem passou sem chave)"
+    fi
+    _log "segundo  gold  sem-chave"
+    awk '$2!="200" || $3!="401" {printf "      %4ss   %s   %s\n", $1, $2, $3}' "$s" | head -20
   fi
   rm -f "$s"
   cmd_status

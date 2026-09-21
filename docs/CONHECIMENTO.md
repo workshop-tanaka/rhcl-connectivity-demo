@@ -731,6 +731,36 @@ volta a resolver pelo curinga.
 **O que isso custa no roteiro:** o `ato1` chama o echo e passa a imprimir `000`
 onde a narração do script diz `401`.
 
+### 5.19 Ligar o mTLS do Kuadrant cega o Prometheus — e acende um alerta falso
+
+`Kuadrant.spec.mtls.enable` cifra o salto Gateway → Authorino/Limitador, que
+sem ele é **texto claro** (config_dump do Envoy: `kuadrant-auth-service` e
+`kuadrant-ratelimit-service` sem `transport_socket`). Como a chave de API vai
+na query string, ela atravessava o cluster legível até quem a valida.
+
+Ligar tem dois efeitos, um esperado e um não:
+
+- **Esperado:** ~8 s de `500` para todos enquanto os pods trocam (sidecar
+  nativo — o `istio-proxy` mora em `initContainers`, não em `containers`).
+  Falha **fechada**: nenhuma requisição sem chave passou.
+- **Não esperado:** o operador cria a `PeerAuthentication` `default` STRICT, e o
+  Prometheus do user-workload monitoring — fora do mesh — leva `connection
+  reset` na 8080. `up=0` para Limitador e Authorino, `limitador_up` e
+  `authorized_calls` somem, e o **`LimitadorForaDoAr` dispara com o Limitador de
+  pé**. A parte 1.5 e os painéis ficam vazios.
+
+A correção é uma exceção **por porta** (8080 `PERMISSIVE`; 50051 e 8081 seguem
+STRICT) — e aqui mora a segunda armadilha: a `default` do operador **não é do
+namespace**, ela seleciona `kuadrant.io/managed=true`. Com duas
+`PeerAuthentication` de workload no mesmo pod, **o Istio usa a mais antiga**, e
+a exceção criada depois é ignorada em silêncio (o listener da 8080 continuava
+só-TLS). Ela precisa nascer antes; num ambiente onde nasceu depois, apagar a
+`default` basta — o operador a recria em ~2 s, agora mais nova.
+
+Por isso `provision.sh platform` aplica `peerauthentication-metricas.yaml`
+**antes** do `kuadrant.yaml`, `mtls-kuadrant.sh liga` faz o mesmo, e o preflight
+compara os `creationTimestamp`.
+
 ## 6. Estrutura do repositório
 
 | Caminho | Conteúdo |

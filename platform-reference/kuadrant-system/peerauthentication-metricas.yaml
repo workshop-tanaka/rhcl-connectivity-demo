@@ -1,0 +1,47 @@
+# Par obrigatorio do Kuadrant.spec.mtls.enable (kuadrant.yaml, ao lado).
+#
+# Com o mTLS ligado, o operador cria 'default' STRICT em kuadrant-system. O
+# Prometheus do user-workload monitoring fica FORA do mesh e raspa em texto
+# claro -- e o STRICT o recusa. Medido em 2026-09-21, minutos depois de ligar:
+#
+#   up{job="limitador-limitador"}            0
+#   up{job="authorino-controller-metrics"}   0
+#   limitador_up / authorized_calls          0 series
+#   ALERTS LimitadorForaDoAr                 FIRING -- com o Limitador DE PE
+#
+# Ou seja: sem este par, a parte 1.5 (metrica por plano) e os paineis ficam
+# vazios, e o alerta da parte 3.5 dispara em falso -- o pior alerta possivel,
+# o que ensina a ignorar alerta.
+#
+# A excecao e SO na porta 8080 (metricas; no Limitador, tambem a API HTTP de
+# contadores, que o Gateway nao usa). Os canais que carregam credencial e
+# decisao continuam STRICT: Authorino gRPC 50051, Limitador gRPC 8081.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: limitador-metricas
+  namespace: kuadrant-system
+spec:
+  selector:
+    matchLabels:
+      app: limitador
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8080:
+      mode: PERMISSIVE
+---
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: authorino-metricas
+  namespace: kuadrant-system
+spec:
+  selector:
+    matchLabels:
+      authorino-resource: authorino
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8080:
+      mode: PERMISSIVE
