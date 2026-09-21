@@ -761,6 +761,37 @@ Por isso `provision.sh platform` aplica `peerauthentication-metricas.yaml`
 **antes** do `kuadrant.yaml`, `mtls-kuadrant.sh liga` faz o mesmo, e o preflight
 compara os `creationTimestamp`.
 
+### 5.20 O mTLS termina no hotels — e o banco fala em texto claro
+
+`scripts/mapa-mtls.sh` mede cada salto (metrica `connection_security_policy`
+reportada por quem recebe; saltos que só quem envia reporta têm destino sem
+sidecar). Medido em 2026-09-21:
+
+- tudo `mutual_tls` do Gateway até os serviços, e do Gateway ao Kuadrant;
+- `hotels` → `mysqldb.travel-db` **em texto claro**: o `skupper-router` não tem
+  sidecar, o endpoint chega ao Envoy do `hotels` sem `tlsMode`, e o auto-mTLS
+  cai para texto claro. O `echo-web` → `echo-api` também (namespace fora do mesh);
+- o **Link do Skupper** entre os routers é TLS mútuo próprio dele;
+- o **MySQL**: 1417 conexões, `Ssl_accepts=0` — o protocolo do banco nunca
+  negociou TLS. Queries e resultados passam legíveis nos dois saltos locais.
+
+Não é defeito a corrigir no roteiro: é o mapa. "Temos mTLS" vale até o
+`hotels`.
+
+### 5.21 AuthPolicy `x509` não enxerga o certificado de cliente
+
+Listener em `gateway.istio.io/tls-terminate-mode: MUTUAL` funciona (sem
+certificado, `exit=56`), mas só prova a **CA**: qualquer certificado dela entra.
+A AuthPolicy com `x509` responde `401 client certificate is missing` mesmo com o
+handshake validado — o wasm-shim não repassa o certificado ao Authorino.
+
+Contorno medido (`scripts/parceiro-certificado.sh`):
+`spec.infrastructure.annotations` do Gateway com
+`proxy.istio.io/config: {"gatewayTopology":{"forwardClientCertDetails":"SANITIZE_SET"}}`
+e AuthPolicy `plain` sobre `x-forwarded-client-cert` + `patternMatching` no
+`Subject="CN=..."`. Gold `200`, intruso da mesma CA `403`, intruso forjando o
+cabeçalho `403` — o `SANITIZE_SET` substitui o que o cliente mandou.
+
 ## 6. Estrutura do repositório
 
 | Caminho | Conteúdo |
