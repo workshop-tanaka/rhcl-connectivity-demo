@@ -36,9 +36,16 @@ NS="parceiros"
 # republicar a tag, o workshop muda de comportamento sem ninguem pedir; se
 # alguem a apagar, quebra. O digest e imutavel.
 #
+# COPIA PROPRIA desde 2026-09-21: o digest e o MESMO do original
+# (quay.io/redhat-servicemesh-apim-demo/travels-demo-ui), copiado para
+# quay.io/stanaka-redhat -- o repositorio de terceiro pode sumir, a copia nao
+# depende dele. A tag 7feeeab3 la e uma manifest list que embrulha este digest
+# (efeito do 'docker buildx imagetools create'); por isso a referencia e o
+# digest, nao a tag.
+#
 # Para trocar de versao conscientemente:
 #   skopeo inspect docker://quay.io/redhat-servicemesh-apim-demo/travels-demo-ui:latest
-IMAGEM="quay.io/redhat-servicemesh-apim-demo/travels-demo-ui@sha256:7feeeab38828f37ff4f068d5ced6818ce153f85003e4c1aace38be9b8222d7e5"
+IMAGEM="quay.io/stanaka-redhat/travels-demo-ui@sha256:7feeeab38828f37ff4f068d5ced6818ce153f85003e4c1aace38be9b8222d7e5"
 
 if [[ -t 1 ]]; then
   _BLD=$'\033[1m'; _RST=$'\033[0m'; _GRN=$'\033[32m'; _YEL=$'\033[33m'; _DIM=$'\033[2m'
