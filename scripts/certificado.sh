@@ -41,20 +41,50 @@ _nota() { printf '    %s%s%s\n' "$_DIM" "$*" "$_RST"; }
 _warn() { printf '    %s!%s %s\n' "$_YEL" "$_RST" "$*"; }
 
 command -v oc >/dev/null || { echo "oc nao encontrado" >&2; exit 1; }
-command -v openssl >/dev/null || { echo "openssl nao encontrado" >&2; exit 1; }
+command -v python3 >/dev/null || { echo "python3 nao encontrado" >&2; exit 1; }
 oc whoami >/dev/null 2>&1 || { echo "sem sessao no cluster" >&2; exit 1; }
 
 DOMINIO="$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
 LAB_HOST="tls-lab.${DOMINIO}"
 
-# campo de um certificado PEM lido da entrada padrao
-_x509() { openssl x509 -noout "$@" 2>/dev/null; }
+# SEM OPENSSL DE PROPOSITO: o terminal do workshop nao tem openssl, nem o
+# modulo 'cryptography'. O python3 da stdlib decodifica certificado com
+# ssl._ssl._test_decode_cert -- privado, mas presente no CPython ha mais de
+# uma decada -- e e o unico decodificador garantido nos dois lados.
+_PY_CERT='
+import sys, ssl, tempfile, os
+campo = sys.argv[1]
+if len(sys.argv) > 2:                       # host: ler o que o servidor ENTREGA
+    import socket
+    ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with socket.create_connection((sys.argv[2], 443), timeout=10) as s:
+            with ctx.wrap_socket(s, server_hostname=sys.argv[2]) as t:
+                pem = ssl.DER_cert_to_PEM_cert(t.getpeercert(True))
+    except Exception:
+        sys.exit(0)
+else:
+    pem = sys.stdin.read()
+    i = pem.find("-----BEGIN CERTIFICATE-----")
+    if i < 0: sys.exit(0)
+    pem = pem[i:pem.find("-----END CERTIFICATE-----", i) + 25] + "\n"
+f = tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False); f.write(pem); f.close()
+try:
+    d = ssl._ssl._test_decode_cert(f.name)
+finally:
+    os.unlink(f.name)
+if campo == "issuer":
+    print(", ".join("%s=%s" % kv for rdn in d.get("issuer", ()) for kv in rdn))
+elif campo == "enddate":
+    print(d.get("notAfter", ""))
+elif campo == "serial":
+    print(d.get("serialNumber", ""))
+'
+_cert() { python3 -c "$_PY_CERT" "$@" 2>/dev/null; }   # <campo> [host]
 _secret_pem() { # <ns> <secret>
   oc get secret "$2" -n "$1" -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d 2>/dev/null
 }
-_servido_serial() { # o serial que o Gateway ENTREGA, lido da conexao
-  echo | openssl s_client -connect "$1:443" -servername "$1" 2>/dev/null | _x509 -serial | sed 's/serial=//'
-}
+_servido_serial() { _cert serial "$1" < /dev/null; }  # o serial que o Gateway ENTREGA
 
 # ------------------------------------------------------------------ quem
 cmd_quem() {
@@ -66,8 +96,8 @@ cmd_quem() {
 
   local pem; pem="$(_secret_pem "$gw_ns" "$sec")"
   _log "o Gateway ${gw} aponta para o Secret ${sec}. Dentro dele:"
-  printf '%s' "$pem" | _x509 -issuer  | sed 's/^/      /'
-  printf '%s' "$pem" | _x509 -enddate | sed 's/notAfter=/      vence em /'
+  printf '      emitido por  %s\n' "$(printf '%s' "$pem" | _cert issuer)"
+  printf '      vence em     %s\n' "$(printf '%s' "$pem" | _cert enddate)"
   if [[ -n "$host" ]]; then
     local v; v="$(curl -s -o /dev/null -m 20 -w '%{ssl_verify_result}' "https://${host}/travels" 2>/dev/null)"
     if [[ "$v" == "0" ]]; then
@@ -98,12 +128,12 @@ cmd_quem() {
 
   # Procura, no cluster, um Certificate de verdade que emita o MESMO
   # certificado (mesmo serial). Se houver, o Secret da borda e uma copia.
-  local serial; serial="$(printf '%s' "$pem" | _x509 -serial | sed 's/serial=//')"
+  local serial; serial="$(printf '%s' "$pem" | _cert serial)"
   local linha ns nome s_sec renova achou=""
   while IFS='|' read -r ns nome s_sec renova; do
     [[ -z "$ns" ]] && continue
     [[ "$ns" == "$gw_ns" && "$s_sec" == "$sec" ]] && continue
-    if [[ "$(_secret_pem "$ns" "$s_sec" | _x509 -serial | sed 's/serial=//')" == "$serial" ]]; then
+    if [[ "$(_secret_pem "$ns" "$s_sec" | _cert serial)" == "$serial" ]]; then
       achou="${ns}/${nome}|${renova}"; break
     fi
   done <<EOF
@@ -227,12 +257,12 @@ EOF
 
   _sec "6. Quem e o dono: apague o certificado"
   local s1 s2="" i=0
-  s1="$(_secret_pem "$LAB_NS" tls-lab-cert | _x509 -serial | sed 's/serial=//')"
+  s1="$(_secret_pem "$LAB_NS" tls-lab-cert | _cert serial)"
   printf '      serial antes .......... %s\n' "$s1"
   oc delete secret tls-lab-cert -n "$LAB_NS" >/dev/null
   t0=$SECONDS
   while [[ $i -lt 30 ]]; do
-    s2="$(_secret_pem "$LAB_NS" tls-lab-cert | _x509 -serial | sed 's/serial=//')"
+    s2="$(_secret_pem "$LAB_NS" tls-lab-cert | _cert serial)"
     [[ -n "$s2" ]] && break
     sleep 2; i=$((i+2))
   done
