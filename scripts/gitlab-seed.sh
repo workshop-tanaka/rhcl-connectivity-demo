@@ -647,7 +647,9 @@ if travel_id:
 #
 # Os manifests continuam completos em samples/websockets/. Quando ele voltar,
 # basta acrescenta-lo aqui e a proxima semeadura cria o projeto.
-SAMPLES = ["bookinfo", "grpc-echo", "open-telemetry"]
+# Desde 2026-09-21 grpc-echo e open-telemetry tambem ficam de fora, pelo mesmo
+# mecanismo (ver SAMPLES_PADRAO): voltam acrescentando o nome aqui.
+SAMPLES = ["bookinfo"]
 
 FONTE_SAMPLES = os.path.join(ROOT_REPO, "samples")
 

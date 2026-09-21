@@ -26,6 +26,25 @@ tocar nos sete atos.
 | `grpc-echo` | canário **80/20 sobre gRPC**, mTLS, e a dimensão `grpc_status` que o status HTTP esconde | a **mesma** `AuthPolicy` das APIs HTTP, mudando só `targetRef` e o lugar da credencial |
 | `websockets` ⏸ | **adiada** — o upgrade atravessa o mesh sem configuração nenhuma, e as duas linhas que impedem a conexão de cair | a policy confere o **handshake** e não vê os frames — governar conexão longa vira decisão de desenho |
 
+### `grpc-echo` e `open-telemetry` também estão adiadas (2026-09-21)
+
+Mesmo mecanismo da `websockets` — fora de `SAMPLES_PADRAO` e da lista do seed —,
+outro motivo: **não pagam o que custam**. O `grpc-echo` repete o que o Extra de
+gRPC do workshop já mostra com o `bookings-grpc`, dentro da própria aplicação de
+viagens. O `open-telemetry` entrega o access log a um coletor que só imprime,
+porque o Tempo deste ambiente recusa log em OTLP (§8.7).
+
+O `bookinfo` fica, e sustenta o Extra *Uma aplicação, duas fronteiras*
+(`scripts/bookinfo-fronteiras.sh`): as três versões de `reviews` com a v2 em
+zero, e a camada `rhcl/` aplicada em `bookinfo-rhcl.<domínio>` — medido em
+2026-09-21: interface `200` sem chave, API `401` sem chave, free `200 200 429`,
+gold `200` em todas. O script **não** aplica o `26-identity-apikeys.yaml`:
+cunha três chaves aleatórias na hora e as apaga no fim.
+
+A `Telemetry` do `bookinfo` continua apontando para `otel-als-sample`, que o
+`provision.sh` declara sempre: sem o coletor, o access log não chega a lugar
+nenhum — degradação, não erro.
+
 ### `websockets` está adiada
 
 Os manifests estão completos e conferidos (`kustomize build` e
@@ -54,9 +73,9 @@ e o dia em que a amostra voltar o portal já a descreve. É a diferença entre
 ## 2. Aplicar
 
 ```bash
-bash scripts/provision.sh samples                     # o conjunto padrão (sem websockets)
+bash scripts/provision.sh samples                     # o conjunto padrão: só o bookinfo
 SAMPLES=bookinfo bash scripts/provision.sh samples    # uma só
-SAMPLES=websockets bash scripts/provision.sh samples  # a adiada
+SAMPLES=websockets bash scripts/provision.sh samples  # uma adiada
 bash scripts/provision.sh --dry-run samples           # imprime, não muda nada
 ```
 

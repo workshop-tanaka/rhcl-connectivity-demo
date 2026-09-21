@@ -2230,7 +2230,17 @@ SAMPLES_ORDEM=(open-telemetry bookinfo websockets grpc-echo)
 # As outras tres puxam de registry.istio.io e nao tem esse par de riscos.
 # Adiar a que depende do que nao controlamos e mais barato do que descobrir no
 # palco -- e o preco de adiar e nenhum: ela nao sustenta ato nenhum.
-SAMPLES_PADRAO=(open-telemetry bookinfo grpc-echo)
+#
+# E DESDE 2026-09-21 SO O BOOKINFO. grpc-echo e open-telemetry tambem ficam
+# ADIADOS, por outro motivo: nao pagam o que custam. O grpc-echo repete o que o
+# Extra de gRPC do workshop ja mostra com o bookings-grpc, dentro da propria
+# aplicacao de viagens; o open-telemetry entrega access log a um coletor que so
+# imprime, porque o Tempo deste ambiente recusa log em OTLP (SAMPLES 8.7). O
+# bookinfo fica porque sustenta um Extra (scripts/bookinfo-fronteiras.sh).
+# A Telemetry do bookinfo continua apontando para o provider otel-als-sample,
+# que _als_provider declara sempre: sem o coletor, o access log nao chega a
+# lugar nenhum -- degradacao, nao erro.
+SAMPLES_PADRAO=(bookinfo)
 
 # As imagens de terceiro que a cadeia de suprimento espelha no Quay. Uma
 # execucao da pipeline POR IMAGEM: o Chains assina um IMAGE_DIGEST por TaskRun.
