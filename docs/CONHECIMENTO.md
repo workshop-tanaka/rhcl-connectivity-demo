@@ -792,6 +792,40 @@ e AuthPolicy `plain` sobre `x-forwarded-client-cert` + `patternMatching` no
 `Subject="CN=..."`. Gold `200`, intruso da mesma CA `403`, intruso forjando o
 cabeçalho `403` — o `SANITIZE_SET` substitui o que o cliente mandou.
 
+### 5.22 Rate limit por `auth.identity` exige que a AuthPolicy EXPORTE a identidade
+
+Uma `TokenRateLimitPolicy` (ou `RateLimitPolicy`) com predicate em
+`auth.identity.metadata.labels[...]` fica `Accepted=True`, `Enforced=True`, os
+limites aparecem no CR do Limitador — e **nunca conta nada**. O log do Gateway
+diz por quê: `CelError::Resolve { NoSuchKey("identity") }`. O wasm-shim não vê a
+identidade que o Authorino resolveu; vê só o que a AuthPolicy exporta em
+`response.success.filters`:
+
+```yaml
+response:
+  success:
+    filters:
+      identity:
+        json:
+          properties:
+            userid: {expression: auth.identity.metadata.name}
+            plan: {expression: 'auth.identity.metadata.labels["kuadrant.io/plan-id"]'}
+```
+
+e a policy de limite passa a usar `auth.identity.plan` / `auth.identity.userid`.
+No travels ninguém percebe porque a `PlanPolicy` exporta o plano sozinha
+(`dynamicMetadata.kuadrant.plan`). Medido com `scripts/tokens-ia.sh`: sem os
+filters, 5×200 com 480 tokens contra limite de 300; com eles, `429` na chamada
+seguinte à que estourou.
+
+### 5.23 `increase()` de série que nasce dentro da janela devolve 0
+
+O contador `istio_requests_total{partner="<chave>"}` nasce já com o valor das
+primeiras chamadas; `increase(...[30m])` sobre ele deu **0** com 4×200 e 5×429
+no contador. E com nome de chave fixo, o contador do Envoy acumula os ensaios
+anteriores. `chave-vazada.sh` usa nome com sufixo aleatório e conta
+"valor agora − valor no `creationTimestamp` do Secret".
+
 ## 6. Estrutura do repositório
 
 | Caminho | Conteúdo |
