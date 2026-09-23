@@ -1,0 +1,271 @@
+# ===========================================================================
+# Dashboard 'Consumo da plataforma — RHCL e OSSM, separados'.
+#
+# POR QUE ISTO EXISTE
+# A subscrição do Connectivity Link é contada por requisições/dia e por número
+# de Gateway. O que ela NÃO diz é quanto os dois produtos pesam no cluster — e
+# essa pergunta chega em toda conversa de dimensionamento, sem resposta à mão.
+# Este dashboard responde com o que já é coletado: nenhum exporter novo.
+#
+# A REGRA DE ATRIBUIÇÃO, e ela é a parte que importa:
+#
+#   RHCL   pods de kuadrant-system, SEM os contêineres istio-* deles. São o
+#          operador, o Authorino, o Limitador, o operador de DNS, o do portal
+#          e o plugin de console.
+#   OSSM   istiod (istio-system), o CNI (istio-cni, um pod POR NÓ), os pods de
+#          Gateway (Envoy) e os sidecars dos workloads.
+#
+# Os sidecars do Authorino e do Limitador aparecem em OSSM, não em RHCL: eles
+# existem porque 'Kuadrant.spec.mtls' está ligado, e quem os injeta é o Service
+# Mesh. Há um painel só para eles, porque a pergunta "isso é custo de qual
+# produto?" é legítima e a resposta honesta é "dos dois".
+#
+# O Skupper fica FORA por decisão (2026-09-23): ele não é nem um nem outro.
+#
+# COMO OS PODS DE GATEWAY SÃO IDENTIFICADOS: por join com kube_pod_labels, no
+# label 'gateway.networking.k8s.io/gateway-name'. Sem o join, os contêineres
+# istio-proxy dos gateways entrariam na conta de sidecar e o número de pods
+# com sidecar ficaria inflado.
+#
+# ARMADILHA MEDIDA AQUI (2026-09-23): a reserva dos sidecars NÃO aparece em
+# 'kube_pod_container_resource_requests'. O sidecar do OSSM 3 é nativo — mora
+# em 'initContainers' —, então só a família 'kube_pod_init_container_*' o
+# enxerga. A primeira versão deste painel somava 0,3 CPU de sidecar (só os
+# Gateways) em vez de 2,0, e o percentual do cluster saía pela metade.
+#
+# RESERVA E USO SÃO COISAS DIFERENTES, e os dois estão aqui:
+#   requests  o que o scheduler reserva. É o que satura primeiro em cluster
+#             pequeno, e é o número que decide se cabe.
+#   uso       o que os processos gastam de fato. Em cluster de workshop a
+#             diferença entre os dois é de uma ordem de grandeza.
+#
+# MEDIDO EM 2026-09-23, com o ambiente inteiro no ar:
+#   RHCL     0,87 CPU reservada, 13 mCPU usados, 549 MiB
+#   OSSM     reserva: istiod 0,5 + CNI 0,6 + Gateways 0,3 + sidecars 4,0 CPU
+#            uso: istiod 470 MiB, CNI 717 MiB em 6 nós, sidecars 2,4 GiB/19 pods
+#   as duas 4,55% da CPU alocável do cluster (reserva contra 138 CPU)
+#   borda    38.866 requisições em 24h, 3 Gateway (2 governados por policy)
+#
+# O NÚMERO QUE SALTA: os sidecars reservam 4,0 CPU — mais que RHCL, istiod,
+# CNI e Gateways somados. O custo da plataforma é a malha, não o gateway.
+#
+# O PAINEL DE CUSTO POR 1.000 REQUISIÇÕES só tem sentido sob carga: com menos
+# de 1 req/s o denominador é ruído. A descrição dele diz isso na tela.
+#
+# FONTE: kube_pod_container_resource_requests, container_*_usage (cadvisor),
+# kube_pod_labels e kube_node_status_allocatable vêm do monitoring de
+# plataforma; istio_requests_total e auth_server_* vêm do user workload;
+# gatewayapi_* vêm do kube-state-metrics próprio deste repositório
+# (kube-state-metrics-kuadrant.yaml). O datasource Thanos enxerga os três.
+# ===========================================================================
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: rhcl-consumo-plataforma
+  namespace: monitoring
+  labels:
+    rhcl.demo/origem: repo
+spec:
+  folder: "Plataforma"
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  # datasource explícito por variável: ver o cabeçalho do
+  # dashboard-negocio-planos.yaml, onde a armadilha do UID está documentada.
+  json: >
+    {
+      "title": "Consumo da plataforma (RHCL e OSSM)",
+      "uid": "rhcl-consumo-plataforma",
+      "tags": ["rhcl", "customizado", "plataforma", "consumo"],
+      "timezone": "browser",
+      "refresh": "1m",
+      "time": {"from": "now-6h", "to": "now"},
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {"text": "Thanos", "value": "thanos", "selected": true},
+            "options": [],
+            "refresh": 1,
+            "hide": 0,
+            "includeAll": false,
+            "multi": false
+          }
+        ]
+      },
+      "panels": [
+        {"type": "row", "title": "O que a subscricao conta", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}, "collapsed": false, "panels": []},
+        {
+          "type": "stat",
+          "title": "Gateways no cluster",
+          "description": "Objetos Gateway de qualquer GatewayClass. A subscricao do RHCL conta gateway; o cluster pode ter gateway que o RHCL nao governa.",
+          "gridPos": {"h": 5, "w": 4, "x": 0, "y": 1},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "count(gatewayapi_gateway_info)", "legendFormat": "gateways"}],
+          "fieldConfig": {"defaults": {"unit": "none", "color": {"mode": "fixed", "fixedColor": "blue"}}, "overrides": []}
+        },
+        {
+          "type": "stat",
+          "title": "Governados por AuthPolicy",
+          "description": "Gateways que tem AuthPolicy anexada. Um Gateway vira 'do RHCL' ao receber policy, nao por ser de outro tipo.",
+          "gridPos": {"h": 5, "w": 4, "x": 4, "y": 1},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "count(count by (target_name) (gatewayapi_authpolicy_target_info{target_kind=\"Gateway\"}))", "legendFormat": "governados"}],
+          "fieldConfig": {"defaults": {"unit": "none", "color": {"mode": "fixed", "fixedColor": "green"}}, "overrides": []}
+        },
+        {
+          "type": "stat",
+          "title": "Requisicoes nas ultimas 24h",
+          "description": "Tudo que entrou pelos Gateways (reporter=source). E a unidade que a subscricao do RHCL conta.",
+          "gridPos": {"h": 5, "w": 8, "x": 8, "y": 1},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(increase(istio_requests_total{reporter=\"source\", source_workload=~\".+-istio\"}[24h]))", "legendFormat": "req/24h"}],
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "fixed", "fixedColor": "purple"}}, "overrides": []}
+        },
+        {
+          "type": "stat",
+          "title": "Projecao mensal",
+          "description": "As ultimas 24h multiplicadas por 30. E extrapolacao, nao previsao: uma janela atipica gera um mes atipico.",
+          "gridPos": {"h": 5, "w": 8, "x": 16, "y": 1},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(increase(istio_requests_total{reporter=\"source\", source_workload=~\".+-istio\"}[24h])) * 30", "legendFormat": "req/mes"}],
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "fixed", "fixedColor": "purple"}}, "overrides": []}
+        },
+        {
+          "type": "timeseries",
+          "title": "Requisicoes por Gateway (24h moveis)",
+          "description": "Qual gateway carrega o volume. Cada serie e um pod de Envoy publicando uma borda.",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 6},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (source_workload) (increase(istio_requests_total{reporter=\"source\", source_workload=~\".+-istio\"}[24h]))", "legendFormat": "{{source_workload}}"}],
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []}
+        },
+
+        {"type": "row", "title": "RHCL -- componentes proprios (kuadrant-system, sem os conteineres do mesh)", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14}, "collapsed": false, "panels": []},
+        {
+          "type": "stat",
+          "title": "RHCL: CPU reservada x usada",
+          "description": "Reserva e o que o scheduler tira do cluster; uso e o que os processos gastam. A diferenca entre os dois e o custo real de ter a camada parada.",
+          "gridPos": {"h": 5, "w": 8, "x": 0, "y": 15},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(kube_pod_container_resource_requests{namespace=\"kuadrant-system\", resource=\"cpu\", container!~\"istio-proxy|istio-validation\"})", "legendFormat": "reservada"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"kuadrant-system\", container!~\"istio-proxy|istio-validation\", container!=\"\"}[5m]))", "legendFormat": "usada"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "none", "decimals": 3}, "overrides": []}
+        },
+        {
+          "type": "stat",
+          "title": "RHCL: memoria reservada x usada",
+          "description": "Mesma leitura, em memoria. O grosso e dos operadores, que so reconciliam.",
+          "gridPos": {"h": 5, "w": 8, "x": 8, "y": 15},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(kube_pod_container_resource_requests{namespace=\"kuadrant-system\", resource=\"memory\", container!~\"istio-proxy|istio-validation\"})", "legendFormat": "reservada"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(container_memory_working_set_bytes{namespace=\"kuadrant-system\", container!~\"istio-proxy|istio-validation\", container!=\"\"})", "legendFormat": "usada"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+        },
+        {
+          "type": "stat",
+          "title": "Decisoes do Authorino (24h) e latencia media",
+          "description": "Quantas decisoes de autenticacao e quanto cada uma custou de tempo. E o custo do RHCL que aparece para o cliente, e nao no cluster.",
+          "gridPos": {"h": 5, "w": 8, "x": 16, "y": 15},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(increase(auth_server_authconfig_total[24h]))", "legendFormat": "decisoes/24h"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(rate(auth_server_authconfig_duration_seconds_sum[24h])) / sum(rate(auth_server_authconfig_duration_seconds_count[24h])) * 1000", "legendFormat": "latencia media (ms)"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 1}, "overrides": []}
+        },
+        {
+          "type": "bargauge",
+          "title": "RHCL: memoria usada por componente",
+          "description": "Onde a memoria do namespace esta. Authorino e Limitador sao o plano de decisao; o resto reconcilia.",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sort_desc(sum by (pod) (container_memory_working_set_bytes{namespace=\"kuadrant-system\", container!~\"istio-proxy|istio-validation\", container!=\"\"}))", "legendFormat": "{{pod}}"}],
+          "options": {"displayMode": "gradient", "orientation": "horizontal"},
+          "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+        },
+        {
+          "type": "timeseries",
+          "title": "RHCL: CPU usada ao longo do tempo",
+          "description": "Sobe com a taxa de decisoes, nao com o tamanho da resposta. Plano em subida sustentada = hora de olhar o volume da borda.",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"kuadrant-system\", container!~\"istio-proxy|istio-validation\", container!=\"\"}[5m]))", "legendFormat": "{{pod}}"}],
+          "fieldConfig": {"defaults": {"unit": "none", "decimals": 3}, "overrides": []}
+        },
+
+        {"type": "row", "title": "OSSM -- control plane, CNI, Gateways e sidecars", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 28}, "collapsed": false, "panels": []},
+        {
+          "type": "timeseries",
+          "title": "OSSM: memoria usada por papel",
+          "description": "Quatro papeis com curvas de crescimento diferentes: o control plane e um so, o CNI e um POR NO, o gateway e um por borda, e o sidecar e um por pod da aplicacao.",
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 29},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(container_memory_working_set_bytes{namespace=\"istio-system\", pod=~\"istiod-.*\", container!=\"\"})", "legendFormat": "control plane (istiod)"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(container_memory_working_set_bytes{namespace=\"istio-cni\", container!=\"\"})", "legendFormat": "CNI (por no)"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(container_memory_working_set_bytes{container!=\"\"} * on(namespace,pod) group_left() kube_pod_labels{label_gateway_networking_k8s_io_gateway_name!=\"\"})", "legendFormat": "Gateways (Envoy)"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(container_memory_working_set_bytes{container=~\"istio-proxy|istio-validation\"} unless on(namespace,pod) kube_pod_labels{label_gateway_networking_k8s_io_gateway_name!=\"\"})", "legendFormat": "sidecars dos workloads"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(container_memory_working_set_bytes{namespace=\"istio-system\", pod=~\"kiali-.*|ossmconsole-.*\", container!=\"\"})", "legendFormat": "consoles (Kiali, OSSM)"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+        },
+        {
+          "type": "bargauge",
+          "title": "OSSM: CPU reservada por papel",
+          "description": "A reserva e o que decide se cabe. O sidecar pede 100m por pod e e o item que escala com a adocao da malha -- e ele vem de kube_pod_INIT_container_resource_requests, porque o sidecar do OSSM 3 e NATIVO: mora em initContainers, e a metrica de container comum nao o ve.",
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 29},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(kube_pod_container_resource_requests{namespace=\"istio-system\", pod=~\"istiod-.*\", resource=\"cpu\"})", "legendFormat": "control plane"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(kube_pod_container_resource_requests{namespace=\"istio-cni\", resource=\"cpu\"})", "legendFormat": "CNI"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\"} * on(namespace,pod) group_left() kube_pod_labels{label_gateway_networking_k8s_io_gateway_name!=\"\"})", "legendFormat": "Gateways"},
+            {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(kube_pod_init_container_resource_requests{resource=\"cpu\", container=~\"istio-proxy|istio-validation\"})", "legendFormat": "sidecars (initContainers)"}
+          ],
+          "options": {"displayMode": "gradient", "orientation": "horizontal"},
+          "fieldConfig": {"defaults": {"unit": "none", "decimals": 2}, "overrides": []}
+        },
+        {
+          "type": "stat",
+          "title": "Pods com sidecar",
+          "description": "Cada um pede 100m de CPU e 128Mi. Multiplicar por este numero da a reserva da malha.",
+          "gridPos": {"h": 5, "w": 6, "x": 0, "y": 38},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "count(count by (namespace,pod) (container_memory_working_set_bytes{container=\"istio-proxy\"} unless on(namespace,pod) kube_pod_labels{label_gateway_networking_k8s_io_gateway_name!=\"\"}))", "legendFormat": "pods"}],
+          "fieldConfig": {"defaults": {"unit": "none", "color": {"mode": "fixed", "fixedColor": "orange"}}, "overrides": []}
+        },
+        {
+          "type": "stat",
+          "title": "Sidecar que o mTLS do RHCL acrescentou",
+          "description": "Memoria dos istio-proxy dentro de kuadrant-system. Existem porque Kuadrant.spec.mtls esta ligado -- custo de uma decisao do RHCL, pago em componente do OSSM.",
+          "gridPos": {"h": 5, "w": 6, "x": 6, "y": 38},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(container_memory_working_set_bytes{namespace=\"kuadrant-system\", container=~\"istio-proxy|istio-validation\"})", "legendFormat": "memoria"}],
+          "fieldConfig": {"defaults": {"unit": "bytes", "color": {"mode": "fixed", "fixedColor": "orange"}}, "overrides": []}
+        },
+        {
+          "type": "stat",
+          "title": "As duas camadas, em % da CPU alocavel",
+          "description": "Soma das RESERVAS de RHCL e OSSM contra o alocavel do cluster. Em cluster pequeno e este numero que impede o proximo workload de subir.",
+          "gridPos": {"h": 5, "w": 6, "x": 12, "y": 38},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "100 * (sum(kube_pod_container_resource_requests{namespace=~\"kuadrant-system|istio-system|istio-cni\", resource=\"cpu\"}) + sum(kube_pod_init_container_resource_requests{resource=\"cpu\", container=~\"istio-proxy|istio-validation\"}) + sum(kube_pod_container_resource_requests{resource=\"cpu\"} * on(namespace,pod) group_left() kube_pod_labels{label_gateway_networking_k8s_io_gateway_name!=\"\"})) / sum(kube_node_status_allocatable{resource=\"cpu\"})", "legendFormat": "% da CPU alocavel"}],
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 10}, {"color": "red", "value": 25}]}}, "overrides": []}
+        },
+        {
+          "type": "stat",
+          "title": "CPU por 1.000 requisicoes (RHCL)",
+          "description": "SO TEM SENTIDO SOB CARGA. Com menos de 1 req/s o denominador e ruido e o numero nao significa nada -- gere trafego (scripts/traffic.sh soak) antes de citar este painel.",
+          "gridPos": {"h": 5, "w": 6, "x": 18, "y": 38},
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "1000 * sum(rate(container_cpu_usage_seconds_total{namespace=\"kuadrant-system\", pod=~\"authorino-.*|limitador-limitador-.*\", container!~\"istio-proxy|istio-validation\", container!=\"\"}[10m])) / clamp_min(sum(rate(istio_requests_total{reporter=\"source\", source_workload=~\".+-istio\"}[10m])), 0.001)", "legendFormat": "mCPU/1k req"}],
+          "fieldConfig": {"defaults": {"unit": "none", "decimals": 2}, "overrides": []}
+        }
+      ]
+    }

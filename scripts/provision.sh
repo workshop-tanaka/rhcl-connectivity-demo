@@ -1082,6 +1082,10 @@ st_dashboards() {
   _apply platform-reference/monitoring/dashboard-ambiente-cluster.yaml  # o chao: operadores, nodes, disco
   _apply platform-reference/monitoring/dashboard-seguranca-cadeia.yaml  # assinatura, admissao e malha
   _apply platform-reference/monitoring/dashboard-desenvolvimento-entrega.yaml # build, pipeline e Dev Spaces
+  # Quanto o RHCL e o OSSM custam neste cluster, separados por produto. A
+  # subscricao conta req/dia e gateway; este responde a outra metade da
+  # pergunta de dimensionamento, que nao tinha onde ser respondida.
+  _apply platform-reference/monitoring/dashboard-consumo-plataforma.yaml # consumo por produto
   _apply platform-reference/monitoring/kuadrant-dashboards              # os tres de fabrica
 }
 

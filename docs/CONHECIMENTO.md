@@ -826,6 +826,31 @@ no contador. E com nome de chave fixo, o contador do Envoy acumula os ensaios
 anteriores. `chave-vazada.sh` usa nome com sufixo aleatório e conta
 "valor agora − valor no `creationTimestamp` do Secret".
 
+### 5.24 A reserva do sidecar não está em `kube_pod_container_resource_requests`
+
+O sidecar do OSSM 3 é **nativo**: mora em `initContainers` com
+`restartPolicy: Always` (§5.19). A consequência para quem mede consumo é que
+`kube_pod_container_resource_requests{container="istio-proxy"}` devolve **só os
+pods de Gateway** — onde o `istio-proxy` é contêiner comum. A reserva dos
+sidecars dos workloads só aparece em `kube_pod_init_container_resource_requests`.
+
+Medido em 2026-09-23, neste cluster:
+
+| consulta | CPU |
+| --- | --- |
+| `kube_pod_container_resource_requests{container=~"istio-proxy\|istio-validation"}` | 0,3 |
+| `kube_pod_init_container_resource_requests{container=~"istio-proxy\|istio-validation"}` | **4,0** |
+
+A primeira versão do `dashboard-consumo-plataforma.yaml` usava a família errada
+e mostrava a plataforma ocupando metade do que ocupa. O uso (cadvisor) não tem
+esse problema: `container_memory_working_set_bytes` enxerga o sidecar nativo.
+
+**Atribuição por produto**, que o mesmo dashboard implementa: RHCL é
+`kuadrant-system` sem os contêineres `istio-*`; OSSM é `istiod` + `istio-cni`
+(um pod por nó) + os pods de `Gateway` (join por
+`kube_pod_labels{label_gateway_networking_k8s_io_gateway_name!=""}`) + os
+sidecars. O Skupper fica fora.
+
 ## 6. Estrutura do repositório
 
 | Caminho | Conteúdo |
