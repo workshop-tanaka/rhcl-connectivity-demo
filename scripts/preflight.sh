@@ -29,6 +29,9 @@ _sec()  { printf '\n%s== %s ==%s\n' "$_BLU" "$*" "$_RST"; }
 _ok()   { printf '  %s✓%s %s\n' "$_GRN" "$_RST" "$*"; }
 _bad()  { printf '  %s✗%s %s\n' "$_RED" "$_RST" "$1"; [[ -n "${2:-}" ]] && printf '      %s→ %s%s\n' "$_DIM" "$2" "$_RST"; FAIL=$((FAIL+1)); }
 _warn() { printf '  %s!%s %s\n' "$_YEL" "$_RST" "$1"; [[ -n "${2:-}" ]] && printf '      %s→ %s%s\n' "$_DIM" "$2" "$_RST"; WARN=$((WARN+1)); }
+# Nota: nem verde nem aviso. Estado esperado que gera pergunta toda vez que
+# alguem olha o cluster por fora do preflight -- dizer antes sai mais barato.
+_nota() { printf '  %s· %s%s\n' "$_DIM" "$*" "$_RST"; }
 
 MODE="${1:-full}"
 
@@ -1592,6 +1595,14 @@ for r in "authpolicy:travel-agency-authpolicy:travel-agency" \
   fi
 done
 [[ "$_drift" == "0" ]] && _ok "camada de demo continua fora do controle do Argo"
+
+# CONSEQUENCIA DISSO, e a pergunta que ela gera em toda checagem: as
+# Application 'travel-*' aparecem OutOfSync para sempre. O ApplicationSet
+# reivindica os mesmos objetos que o provision.sh criou sem rastreio, e sem
+# auto-sync o Argo ve diferenca e nao age. Dizer isso aqui e mais barato que
+# alguem descobrir sozinho no 'oc get application' e achar que quebrou.
+_oos="$(oc get application -n openshift-gitops --no-headers 2>/dev/null | awk '$1 ~ /^travel-/ && $2 == "OutOfSync"' | wc -l | tr -d ' ')"
+[[ "${_oos:-0}" -gt 0 ]] && _nota "${_oos} Application travel-* OutOfSync — esperado: os workloads sao do provision.sh, o Argo so os observa (CONHECIMENTO §7)"
 fi
 
 # ---------------------------------------------------------------------------
