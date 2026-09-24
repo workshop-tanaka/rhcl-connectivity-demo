@@ -894,6 +894,35 @@ sabe falar com mais de um provedor de Gateway API — o que ele **não** tem é
 Istio (`IstioExtensionReconciler`). Qual combinação é **suportada** sai da
 documentação do produto, não daqui.
 
+### 5.27 A policy desce ate a REGRA da HTTPRoute (`sectionName`)
+
+As cinco policies (`AuthPolicy`, `RateLimitPolicy`, `PlanPolicy`,
+`TokenRateLimitPolicy`, `TelemetryPolicy`) aceitam `targetRef.sectionName` — e
+o RHCL 1.4.3 **aplica de fato** em regra nomeada de `HTTPRoute` (Gateway API
+v1.4.1). Medido em 2026-09-24 com `scripts/contextos.sh`:
+
+| caminho | sem chave | free | gold |
+| --- | --- | --- | --- |
+| `/catalogo/listall` (regra com `anonymous`) | **200** | 200 | 200 |
+| `/catalogo/admin` (regra com autorização por plano) | 401 | **403** | 200 |
+| `/catalogo/search` (herda a rota) | 401 | 200 | 200 |
+
+Três consequências que mudam como se escreve policy aqui:
+
+- **A regra precisa ter `name`.** Regra sem nome não pode receber policy.
+- **A policy de regra SUBSTITUI a da rota naquele trecho**, não soma: a policy
+  de `/admin` teve de declarar a autenticação de novo.
+- **O status denuncia a cessão:** a policy de rota fica
+  `"AuthPolicy has been partially enforced"` quando uma policy de regra assume
+  parte do alcance. É precedência legível sem abrir o Envoy.
+
+E dois hostnames no mesmo Gateway funcionam sem nada especial: listener com
+`hostname: "*.zona"`, uma `HTTPRoute` por hostname, policies independentes.
+
+**Medir rajada com um `oc exec` por chamada não serve:** cada exec leva ~0,6 s,
+oito levam ~5 s e a janela de 10 s desliza no meio — o corte aparece e some. O
+laço tem de rodar **dentro** do pod, num exec só.
+
 ## 6. Estrutura do repositório
 
 | Caminho | Conteúdo |
