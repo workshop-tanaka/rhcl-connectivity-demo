@@ -953,6 +953,37 @@ policy de rota já apagada. Enquanto a janela dura, a rota responde sem policy.
 É o argumento de produção para rota e policy nascerem no mesmo commit (golden
 path, parte 1.7).
 
+### 5.29 Lista por IP na borda: o que chega, e por que a NetworkPolicy e dificil
+
+Medido em 2026-09-24 com `scripts/listas.sh`, publicando o MESMO Gateway de
+duas formas:
+
+| publicacao | `x-forwarded-for` que chega |
+| --- | --- |
+| `Route` edge | `100.64.0.6,10.233.2.2` — o primeiro e o **NAT da borda** |
+| `Route` passthrough | `10.235.0.2` — so o router; **nada do cliente** |
+| de dentro do cluster | IP do pod |
+
+O IP publico real do cliente (179.110.84.93 na medicao) nao aparece em nenhuma
+das tres. Consequencia: **lista por IP nesta borda libera todo mundo que passa
+pelo mesmo NAT.**
+
+Mais tres achados:
+
+1. **`x-envoy-external-address` nao chega a `AuthPolicy`** — um predicado sobre
+   ele derruba tudo (`403` ate para quem vem de fora). So o XFF cru esta
+   disponivel na decisao.
+2. **`numTrustedProxies: 1` nao impede a forja** de quem fala direto com o
+   Gateway: esse cliente e sempre "um salto antes".
+3. **A `NetworkPolicy` que fecha o caminho direto exige saber como o OVN
+   mascara o host.** Tres tentativas falharam, todas bloqueando ate o router:
+   `namespaceSelector` de `openshift-ingress` (o router e host network),
+   `ipBlock` com a rede dos nos (o trafego nao chega com o IP do no) e
+   `0.0.0.0/0 except <rede de pods>` (o trafego do host chega mascarado como o
+   endereco de gerencia do no, que fica DENTRO da rede de pods). O que funciona
+   e liberar o `.2` da sub-rede de cada no, lida de
+   `k8s.ovn.org/node-subnets`.
+
 ## 6. Estrutura do repositório
 
 | Caminho | Conteúdo |
