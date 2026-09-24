@@ -851,6 +851,49 @@ esse problema: `container_memory_working_set_bytes` enxerga o sidecar nativo.
 `kube_pod_labels{label_gateway_networking_k8s_io_gateway_name!=""}`) + os
 sidecars. O Skupper fica fora.
 
+### 5.25 A `DNSPolicy` roda sem nuvem: o provedor `coredns`
+
+O operador de DNS do RHCL 1.4.3 registra **cinco** provedores, e está no log
+dele: `providers: ["coredns","endpoint","aws","azure","google"]`. Dois rodam
+dentro do cluster, então a `DNSPolicy` **não exige** conta em nuvem, domínio
+público nem LoadBalancer. `scripts/dns-nome.sh` faz o caminho inteiro num
+namespace.
+
+Como as peças se encaixam (medido em 2026-09-23/24):
+
+- `Secret` de tipo `kuadrant.io/coredns`, com `ZONES: <zona>`;
+- a `DNSPolicy` mira o `Gateway` e gera dois `DNSRecord` — um do provedor
+  `endpoint` e um **autoritativo**, com os labels
+  `kuadrant.io/coredns-zone-name` e `kuadrant.io/dns-provider-name: coredns`;
+- o CoreDNS com o plugin do Kuadrant (`quay.io/kuadrant/coredns-kuadrant`,
+  upstream) **descobre o registro pelo label** — não há arquivo de zona;
+- com `loadBalancing`, aparece a estrutura de multicluster:
+  `nome → klb.<nome> → geo-<x>.klb.<nome>`, com `geo-code` no ramo e `weight`
+  no destino.
+
+**Três armadilhas medidas, e as três param o exercício:**
+
+1. **O pod do CoreDNS não sobe com `capabilities: drop: [ALL]`** —
+   `exec ... Operation not permitted`. O binário tem *file capabilities*;
+   `add: [NET_BIND_SERVICE]` resolve, e a SCC `restricted-v2` aceita.
+2. **Só o plugin `kuadrant` no bloco da zona resolve CNAME e para ali.** O `A`
+   volta `SERVFAIL` até acrescentar `forward . /etc/resolv.conf` no mesmo bloco.
+3. **Apagar o namespace de uma vez trava tudo.** O `DNSRecord` tem finalizer
+   `kuadrant.io/dns-record`, e para finalizá-lo o operador precisa ler o
+   `Secret` do provedor — que mora no mesmo namespace. O namespace ficou 11 min
+   em `Terminating`; só saiu ao remover o finalizer à mão. A limpeza correta é
+   **DNSPolicy primeiro, esperar os `DNSRecord` sumirem, namespace depois**.
+
+### 5.26 O CSV do RHCL pede RBAC do Envoy Gateway, além do Istio
+
+`rhcl-operator.v1.4.3` declara permissões em `gateway.envoyproxy.io` e nos três
+grupos do Istio (`extensions`, `networking`, `security`). Ou seja: o operador
+sabe falar com mais de um provedor de Gateway API — o que ele **não** tem é
+`GatewayClass` própria. Neste cluster a única classe é `istio`
+(`istio.io/gateway-controller`), e os reconcilers que aparecem no log são os do
+Istio (`IstioExtensionReconciler`). Qual combinação é **suportada** sai da
+documentação do produto, não daqui.
+
 ## 6. Estrutura do repositório
 
 | Caminho | Conteúdo |
