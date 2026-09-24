@@ -923,6 +923,36 @@ E dois hostnames no mesmo Gateway funcionam sem nada especial: listener com
 oito levam ~5 s e a janela de 10 s desliza no meio — o corte aparece e some. O
 laço tem de rodar **dentro** do pod, num exec só.
 
+### 5.28 Varias APIs sob um hostname, e a janela em que a rota nova fica sem teto
+
+`scripts/prefixos.sh` monta o layout multi-equipe: Gateway num namespace,
+`HTTPRoute` por equipe no namespace de cada uma (`allowedRoutes: {namespaces:
+{from: All}}`), prefixo por API e `URLRewrite` tirando o prefixo antes do
+backend. Medido em 2026-09-24:
+
+- `/api1/listall` → `401` sem chave, `200` com chave, backend recebe `/listall`;
+- `/api2/listall` → `200` anônimo (a equipe B decidiu assim);
+- `/api/getinfo` → `401`/`403`/`200` por plano, com `matches: Exact` e
+  `ReplaceFullPath` — **um endpoint publicado fora do prefixo da própria API**;
+- `/outro` → `404`: sem rota, não há policy a aplicar.
+
+**Quem governa cada caminho sai do wasm do Gateway**, e é a melhor evidência de
+precedência que este projeto tem:
+
+```
+request.url_path == '/api/getinfo'      <- pfx-equipe-b/getinfo-gold
+request.url_path.startsWith('/api1')    <- pfx-equipe-a/api1-chave
+request.url_path.startsWith('/api2')    <- pfx-equipe-b/api2-anonima
+```
+
+**A janela que importa:** uma rota nova **sem policy própria** passa a ser
+coberta pelo `deny-all` do Gateway, mas não na hora. Três medições: `~1s`,
+`~13s` e **mais de um minuto** quando o operador estava reconciliando outras
+mudanças — nessa última, o `oc get authpolicy` do Gateway ainda listava uma
+policy de rota já apagada. Enquanto a janela dura, a rota responde sem policy.
+É o argumento de produção para rota e policy nascerem no mesmo commit (golden
+path, parte 1.7).
+
 ## 6. Estrutura do repositório
 
 | Caminho | Conteúdo |
