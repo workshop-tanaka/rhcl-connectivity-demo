@@ -32,7 +32,7 @@ NS="kuadrant-system"
 # na metrica, e com nome fixo o contador do Envoy acumulava os ensaios
 # anteriores (medido: um ensaio logo depois do outro contou 4x200 em vez de 3).
 # Os subcomandos acham a chave do ensaio corrente pelo label.
-ROTULO="rhcl.demo/exercicio=chave-vazada"
+ROTULO="rhcl.demo/lab=chave-vazada"
 PARCEIRO="Parceiro Comprometido"
 
 if [[ -t 1 ]]; then

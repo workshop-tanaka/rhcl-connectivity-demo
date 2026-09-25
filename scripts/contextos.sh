@@ -92,10 +92,11 @@ _rajada() { # <host> <caminho> <chave> <n>
 }
 
 cmd_prova() {
-  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT
+  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT INT TERM
 
   _sec "1. Um Gateway, dois hostnames, uma rota com quatro contextos"
   oc create namespace "$LAB_NS" >/dev/null || { _no "namespace ${LAB_NS} ja existe -- rode 'limpa' antes"; trap - EXIT; exit 1; }
+  oc label namespace "$LAB_NS" "rhcl.demo/lab=contextos" --overwrite >/dev/null 2>&1
   oc create configmap app -n "$LAB_NS" --from-literal=app.py="$APP_PY" >/dev/null
   local SC="securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: [ALL]}, seccompProfile: {type: RuntimeDefault}}"
   local gold free

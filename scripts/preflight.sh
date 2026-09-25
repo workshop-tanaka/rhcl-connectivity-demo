@@ -1566,6 +1566,18 @@ except Exception: print(0)' 2>/dev/null)"
 fi
 
 # ---------------------------------------------------------------------------
+# LABORATORIO ESQUECIDO NO AR. Um Extra interrompido deixa namespace de pe, e
+# o sintoma que aparece aqui e ENGANOSO: as rotas do laboratorio contam como
+# "HTTPRoute sem Route publicada" e viram falha, sem dizer a causa. Aconteceu
+# em 2026-09-25, com o ctx-lab. O rotulo rhcl.demo/lab, que todo laboratorio
+# poe no que cria, permite dizer a causa antes do sintoma.
+_labs="$(oc get namespace -l rhcl.demo/lab -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.metadata.labels.rhcl\.demo/lab}{" "}{end}' 2>/dev/null)"
+if [[ -n "$_labs" ]]; then
+  _sec "laboratórios dos Extras"
+  _warn "laboratório no ar: ${_labs% }" "bash scripts/labs.sh limpa — um Extra interrompido deixa falhas de rota logo abaixo"
+fi
+
+# ---------------------------------------------------------------------------
 _sec "governança (ownership dos recursos)"
 
 # Este bloco existe por causa do cluster 1.2, onde o Argo governava metade dos

@@ -93,12 +93,15 @@ except Exception: print("")' 2>/dev/null
 _chave() { oc get secret "$1" -n "$GW_NS" -o jsonpath='{.data.api_key}' 2>/dev/null | base64 -d; }
 
 cmd_prova() {
-  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT
+  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT INT TERM
 
   _sec "1. Um Gateway, duas equipes, um hostname"
   local ns
   for ns in "$GW_NS" "$A_NS" "$B_NS"; do
     oc create namespace "$ns" >/dev/null 2>&1 || { _no "namespace ${ns} ja existe -- rode 'limpa' antes"; trap - EXIT; exit 1; }
+    # O rotulo e o que permite ao scripts/labs.sh achar e limpar o que sobrou
+    # de uma execucao interrompida -- e ao preflight avisar em vez de falhar.
+    oc label namespace "$ns" "rhcl.demo/lab=prefixos" --overwrite >/dev/null 2>&1
   done
   for ns in "$A_NS" "$B_NS"; do oc create configmap app -n "$ns" --from-literal=app.py="$APP_PY" >/dev/null; done
   local SC="securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: [ALL]}, seccompProfile: {type: RuntimeDefault}}"

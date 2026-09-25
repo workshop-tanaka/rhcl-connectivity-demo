@@ -73,10 +73,11 @@ _espera_gold() { # <codigo>
 }
 
 cmd_prova() {
-  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT
+  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT INT TERM
 
   _sec "1. Uma CA de parceiros, um Gateway que exige certificado"
   oc create namespace "$LAB_NS" >/dev/null || { _no "namespace ${LAB_NS} ja existe -- rode 'limpa' antes"; trap - EXIT; exit 1; }
+  oc label namespace "$LAB_NS" "rhcl.demo/lab=parceiro-certificado" --overwrite >/dev/null 2>&1
   oc apply -f - >/dev/null <<EOF
 apiVersion: cert-manager.io/v1
 kind: Issuer

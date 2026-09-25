@@ -122,10 +122,11 @@ _espera() { # <secret> <codigo>
 }
 
 cmd_prova() {
-  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT
+  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT INT TERM
 
   _sec "1. Uma API de IA de mentira, atras de um Gateway de verdade"
   oc create namespace "$LAB_NS" >/dev/null || { _no "namespace ${LAB_NS} ja existe -- rode 'limpa' antes"; trap - EXIT; exit 1; }
+  oc label namespace "$LAB_NS" "rhcl.demo/lab=tokens-ia" --overwrite >/dev/null 2>&1
   oc create configmap mock-llm -n "$LAB_NS" --from-literal=mock.py="$MOCK_PY" >/dev/null
   local k_free k_free2 k_gold
   k_free="ia-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n')"

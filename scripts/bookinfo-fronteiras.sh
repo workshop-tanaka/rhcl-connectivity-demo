@@ -29,7 +29,7 @@ set -uo pipefail
 MANTER="${MANTER:-0}"
 NS=bookinfo
 KNS=kuadrant-system
-ROTULO="rhcl.demo/exercicio=bookinfo-fronteiras"
+ROTULO="rhcl.demo/lab=bookinfo-fronteiras"
 AQUI="$(cd "$(dirname "$0")/.." && pwd)"
 CAMADA="${AQUI}/samples/bookinfo/rhcl"
 VS="${AQUI}/samples/bookinfo/12-mesh-virtualservice-reviews.yaml"
@@ -84,7 +84,7 @@ _http() { curl -s -o /dev/null -m 10 -w '%{http_code}' "$@"; }
 _chave() { oc get secret -n "$KNS" -l "${ROTULO},kuadrant.io/plan-id=$1" -o jsonpath='{.items[0].data.api_key}' 2>/dev/null | base64 -d; }
 
 cmd_prova() {
-  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT
+  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT INT TERM
 
   # ---------------------------------------------------------------- versoes
   _sec "1. Tres versoes no ar -- e quem decide quem recebe"

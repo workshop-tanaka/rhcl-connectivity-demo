@@ -178,10 +178,11 @@ cmd_prova() {
     _warn "o namespace ${LAB_NS} ja existe -- rode 'bash scripts/certificado.sh limpa' antes"
     return 1
   fi
-  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT
+  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT INT TERM
 
   _sec "3. Um Gateway sem certificado"
   oc create namespace "$LAB_NS" >/dev/null
+  oc label namespace "$LAB_NS" "rhcl.demo/lab=certificado" --overwrite >/dev/null 2>&1
   oc apply -f - >/dev/null <<EOF
 apiVersion: cert-manager.io/v1
 kind: Issuer

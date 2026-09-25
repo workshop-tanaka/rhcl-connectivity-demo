@@ -139,10 +139,11 @@ for it in itens:
 }
 
 cmd_prova() {
-  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT
+  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT INT TERM
 
   _sec "1. Uma zona nossa, servida por um CoreDNS do laboratorio"
   oc create namespace "$LAB_NS" >/dev/null || { _no "namespace ${LAB_NS} ja existe -- rode 'limpa' antes"; trap - EXIT; exit 1; }
+  oc label namespace "$LAB_NS" "rhcl.demo/lab=dns-nome" --overwrite >/dev/null 2>&1
   local SC="securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: [ALL]}, seccompProfile: {type: RuntimeDefault}}"
   oc apply -f - >/dev/null <<EOF
 apiVersion: v1
