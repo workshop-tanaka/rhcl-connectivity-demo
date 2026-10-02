@@ -31,6 +31,7 @@ funcionar ao vivo.
 | [docs/DEMO-PASSO-A-PASSO.md](docs/DEMO-PASSO-A-PASSO.md) | a sequência de execução: o que rodar, a saída esperada e o que dizer |
 | [docs/PROVISIONING-1.4.md](docs/PROVISIONING-1.4.md) | por que cada passo do provisionamento existe e como cada um quebra |
 | [docs/SAMPLES.md](docs/SAMPLES.md) | as amostras do Istio: o que dizer, o que medir, e as quatro armadilhas já medidas |
+| [docs/FROTA.md](docs/FROTA.md) | montar e validar o workshop em N ambientes: a onda como unidade, as cinco fases, e o que falta construir |
 
 **O cluster é efêmero.** Hostname, senha e nome de cluster que aparecem em doc
 envelhecem; descobrir do cluster na hora, nunca copiar de documento. Nenhum
