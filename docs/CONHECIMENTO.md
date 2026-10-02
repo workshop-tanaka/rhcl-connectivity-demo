@@ -984,6 +984,36 @@ Mais tres achados:
    e liberar o `.2` da sub-rede de cada no, lida de
    `k8s.ovn.org/node-subnets`.
 
+### 5.30 URL em backtick vira link na MESMA aba — e derruba o Showroom
+
+O conteúdo do workshop tem o `^` em **todos** os macros de link, de propósito:
+sem ele o Asciidoctor não emite `target="_blank"`, e no Showroom a navegação
+acontece *dentro* do painel — o participante perde o workshop para ver uma
+página de `401`.
+
+A armadilha é que o `^` não cobre tudo. Uma URL **sem macro**, inclusive dentro
+de backtick, é auto-linkada, e o autolink **não tem target**:
+
+```
+`https://{api_host}/travels`
+→ <code><a href="..." class="bare">...</a></code>     mesma aba
+```
+
+Eram três no workshop (`acessos.adoc`, e duas em `aplicacao.adoc`), e todas as
+três eram **endereço para ler**, não link para clicar: uma responde `401` sem
+chave, a outra `404` de propósito. A correção é suprimir o autolink com barra
+invertida, que preserva a substituição do atributo:
+
+```
+`\https://{api_host}/travels`
+→ <code>https://api-travels...</code>                 sem <a>
+```
+
+Relatado em 2026-10-02 pelo link de `aplicacao` abrindo no próprio painel.
+Depois da correção, zero links externos sem `target="_blank"` nas 45 páginas
+renderizadas — e é essa a verificação que vale automatizar, porque ela se mede
+no HTML e não no fonte.
+
 ## 6. Estrutura do repositório
 
 | Caminho | Conteúdo |
@@ -1122,3 +1152,11 @@ REQS=20 bash scripts/traffic.sh mesh-split    # esperado ~90/10
 - `istioctl` está em `/usr/local/bin/istioctl`, na mesma versão do control plane.
 - `python3` local **não tem o módulo `yaml`** — validar manifesto com
   `oc apply --dry-run=server`, que checa contra o schema real sem persistir.
+- `asciidoctor` 2.0.26 instalado como **user gem** em
+  `~/.gem/ruby/2.6.0/bin` (2026-10-02; `gem install --user-install asciidoctor`,
+  não está no PATH por padrão). Com ele o conteúdo do workshop se renderiza na
+  máquina, o que antes só acontecia no pod do Showroom. Para o asciidoctor nu
+  resolver o que é do Antora, pré-substituir `include::partial$` pelo caminho
+  real da pasta `partials/` e passar os atributos do `content/antora.yml` como
+  `-a chave=valor`. É assim que se confere, por exemplo, se um link sai com
+  `target="_blank"` — ver a §5.30.
