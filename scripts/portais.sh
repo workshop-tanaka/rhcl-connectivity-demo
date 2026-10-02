@@ -149,6 +149,24 @@ spec:
             httpGet: { path: /, port: 8080 }
             initialDelaySeconds: 10
             periodSeconds: 10
+            # timeoutSeconds NAO pode ficar no default (1s). O '/' e renderizado
+            # no SERVIDOR pelo Angular a cada chamada, sem cache: medido dentro
+            # do pod, OCIOSO, em 2026-10-02 -- mediana 789ms, pior 926ms, numa
+            # janela de 1000ms. O portal vivia a 80% do proprio prazo.
+            #
+            # O resultado era "indisponivel" INTERMITENTE no navegador: tres
+            # sondagens lentas (30s) e o kubelet tira o pod dos endpoints; com
+            # replicas: 1 nao ha outro, e a Route passa a devolver 503. Nao
+            # aparece no preflight, que acerta a sondagem por sorte de segundo
+            # (o evento 'Readiness probe failed: context deadline exceeded'
+            # estava no namespace enquanto o preflight dizia que os tres
+            # serviam 45 destinos).
+            #
+            # 5s cobre cinco vezes a mediana; failureThreshold maior porque o
+            # unico replica nao tem colchao -- preferimos servir uma pagina
+            # lenta a nao servir nenhuma.
+            timeoutSeconds: 5
+            failureThreshold: 6
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: ["ALL"] }

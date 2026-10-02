@@ -1014,6 +1014,37 @@ Depois da correção, zero links externos sem `target="_blank"` nas 45 páginas
 renderizadas — e é essa a verificação que vale automatizar, porque ela se mede
 no HTML e não no fonte.
 
+### 5.31 Portal "indisponivel" sem nada quebrado: a sondagem no default de 1s
+
+Sintoma: o portal de parceiro abre `Application is not available` no navegador,
+**de vez em quando**, enquanto o `preflight.sh` diz que os três servem 45
+destinos.
+
+A causa não está no portal, está na sondagem. O `readinessProbe` não declarava
+`timeoutSeconds`, e o default é **1 segundo**. O `/` do portal é renderizado no
+**servidor** pelo Angular a cada chamada, sem cache. Medido dentro do pod,
+ocioso, em 2026-10-02:
+
+```
+ms: 284 301 308 313 373 380 789 807 820 833 903 926
+mediana 789ms   pior 926ms   janela 1000ms
+```
+
+O portal vivia a 80% do próprio prazo **sem carga**. Qualquer jitter reprova a
+sondagem; três reprovações (30 s) e o kubelet tira o pod dos endpoints. Com
+`replicas: 1` não há outro, e a `Route` passa a devolver 503.
+
+**E o `preflight.sh` não vê.** Ele chama a rota uma vez, e acerta por sorte de
+segundo: o evento `Readiness probe failed: context deadline exceeded` estava no
+namespace `parceiros` **enquanto** o preflight dava os três como bons. É a
+mesma lição da §5.30 e do falso positivo da [FROTA](FROTA.md) §8 — verificação
+que **amostra uma vez** não enxerga falha intermitente, e num workshop a falha
+intermitente é a que o participante encontra.
+
+Corrigido no `scripts/portais.sh`: `timeoutSeconds: 5` (cinco vezes a mediana)
+e `failureThreshold: 6`, porque o único replica não tem colchão — serve-se uma
+página lenta antes de não servir nenhuma.
+
 ## 6. Estrutura do repositório
 
 | Caminho | Conteúdo |
