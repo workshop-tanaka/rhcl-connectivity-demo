@@ -130,6 +130,11 @@ KC_ACS_SECRET="$(_le KC_ACS_SECRET || true)";       [[ -n "$KC_ACS_SECRET"    ]]
 KC_TANAKA_PASSWORD="$(_le KC_TANAKA_PASSWORD || true)"; [[ -n "$KC_TANAKA_PASSWORD" ]] || KC_TANAKA_PASSWORD="$(_gera)"
 # a mesma senha que as personas já usam no GitLab, para não haver duas verdades
 KC_PERSONA_PASSWORD="${KC_PERSONA_PASSWORD:-redhat123}"
+# Ela VAI para o cofre, logo abaixo. Antes vivia só aqui, e a consequência
+# aparecia longe: o workshop manda abrir uma console, precisa dizer com o que
+# se entra, e a única fonte era este arquivo -- ou seja, material copiando
+# credencial de documento, que é o que a regra do projeto proíbe. Com ela no
+# Secret, o playbook do workshop a descobre do cluster como descobre o resto.
 
 oc create secret generic "$_SEC" -n "$KC_NS" \
   --from-literal=KC_GITLAB_SECRET="$KC_GITLAB_SECRET" \
@@ -137,6 +142,7 @@ oc create secret generic "$_SEC" -n "$KC_NS" \
   --from-literal=KC_ACS_SECRET="$KC_ACS_SECRET" \
   --from-literal=KC_TANAKA_PASSWORD="$KC_TANAKA_PASSWORD" \
   --from-literal=KC_ADMIN_PASSWORD="$KC_ADMIN_PASSWORD" \
+  --from-literal=KC_PERSONA_PASSWORD="$KC_PERSONA_PASSWORD" \
   --dry-run=client -o yaml | oc apply -f - >/dev/null \
   || _die "falha ao guardar os segredos de identidade"
 _ok "segredos preservados em ${KC_NS}/${_SEC}"
