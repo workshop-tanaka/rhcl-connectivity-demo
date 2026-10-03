@@ -56,7 +56,7 @@ _valor()    { oc get secret "$SECRET" -n "$NS" -o jsonpath='{.data.api_key}' 2>/
 cria() {
   _sec "0. A chave existe, e e usada -- como qualquer parceiro"
   if [[ -n "$SECRET" ]]; then
-    _warn "o Secret ja existe de um ensaio anterior; reaproveitando"
+    _warn "o Secret ja existe de uma execucao anterior; reaproveitando"
   else
     local v="vazada-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')"
     SECRET="apikey-vazada-$(head -c2 /dev/urandom | od -An -tx1 | tr -d ' \n')"

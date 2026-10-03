@@ -237,7 +237,7 @@ for a in d.get("items", []):
     if [[ -n "$_auto" ]]; then
       _warn "com AUTO-SYNC e OutOfSync -- o Argo vai desfazer o repontamento:"
       printf '%s\n' "$_auto" | sed 's/^/      /'
-      _warn "  desligue o auto-sync nesses, ou o Ato 8 cai sozinho"
+      _warn "  desligue o auto-sync nesses, ou o Service Interconnect cai sozinho"
     fi
   fi
 

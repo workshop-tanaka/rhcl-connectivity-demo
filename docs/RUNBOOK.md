@@ -53,7 +53,7 @@ bash scripts/preflight.sh
 
 Ele percorre a cadeia na mesma ordem do roteiro — operadores, extensões,
 Gateway, policies, chaves, tráfego real, observabilidade, RHDH, Argo — e cada
-falha vem com a correção ao lado. Termina em `[OK] demo pronta.` ou sai com
+falha vem com a correção ao lado. Termina em `[OK] o ambiente esta inteiro` ou sai com
 código 1.
 
 Se o cluster for novo, ou o preflight acusar recursos ausentes:

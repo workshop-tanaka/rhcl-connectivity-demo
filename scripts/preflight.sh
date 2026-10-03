@@ -99,7 +99,7 @@ for crd in planpolicies.extensions.kuadrant.io telemetrypolicies.extensions.kuad
   if oc get crd "$crd" >/dev/null 2>&1; then
     _ok "CRD ${crd%%.*} presente"
   else
-    _bad "CRD ${crd} ausente" "RHCL < 1.2? Atos 2 e 4 do roteiro não funcionam."
+    _bad "CRD ${crd} ausente" "RHCL < 1.2? Os planos comerciais e a métrica por plano não funcionam."
   fi
 done
 
@@ -217,7 +217,7 @@ if [[ -z "$_rlp_e" ]]; then
          "sem nenhuma das duas não há rate limit: oc apply -k overlays/rhcl-1.4"
   fi
 elif [[ "$_rlp_e" == "False" && "$_rlp_m" == *overridden* ]]; then
-  _ok "ratelimitpolicy/ratelimit-policy-travels sobreposta pelo PlanPolicy (esperado — regime 1.2, Ato 3)"
+  _ok "ratelimitpolicy/ratelimit-policy-travels sobreposta pelo PlanPolicy (esperado — regime 1.2, precedência de policies)"
 elif [[ "$_rlp_e" == "True" && "$_plan_e" != "True" ]]; then
   _bad "a RLP plana sobrepôs o PlanPolicy — OS TIERS NÃO EXISTEM" \
        "inversão de precedência do RHCL 1.4: use overlays/rhcl-1.4, que tira a RLP plana do render"
@@ -327,14 +327,14 @@ for c in d:
 }
 
 # ---------------------------------------------------------------------------
-_sec "caminho de dados (o que a plateia vê)"
+_sec "caminho de dados (o que se vê na tela)"
 
 if [[ -n "$HOST" ]]; then
   URL="https://${HOST}/travels"
 
   _anon="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "$URL" 2>/dev/null)"
   if [[ "$_anon" == "401" ]]; then
-    _ok "sem chave -> 401 (Ato 1)"
+    _ok "sem chave -> 401 (a borda fechada)"
   else
     _bad "sem chave -> ${_anon}, esperado 401" "AuthPolicy da rota não está barrando"
   fi
@@ -365,10 +365,10 @@ if [[ -n "$HOST" ]]; then
       _ok "cota diária do free intacta (${_quota%, })"
     elif [[ "$_free_rem" == "0" ]]; then
       _bad "cota diária do free ESGOTADA (${_quota%, })" \
-           "o Ato 2 mostra três linhas de 429 e parece rate limit — bash scripts/traffic.sh reset"
+           "os planos comerciais mostram três linhas de 429 e parece rate limit — bash scripts/traffic.sh reset"
     elif [[ "$_free_rem" -lt 20 ]]; then
       _warn "cota diária do free em ${_free_rem} (${_quota%, })" \
-            "o preflight gasta 8 e o Ato 2 pede ~14 — bash scripts/traffic.sh reset"
+            "o preflight gasta 8 e os planos pedem ~14 — bash scripts/traffic.sh reset"
     else
       _ok "cota diária: ${_quota%, }"
     fi
@@ -420,7 +420,7 @@ if [[ -n "$HOST" ]]; then
       esac
     done
     if [[ "$_ok200" -gt 0 && "$_ok429" -gt 0 ]]; then
-      _ok "tier free: ${_ok200} servidas, ${_ok429} limitadas (Ato 2)"
+      _ok "tier free: ${_ok200} servidas, ${_ok429} limitadas (planos comerciais)"
     elif [[ "$_ok429" == "0" ]]; then
       _bad "tier free não produziu nenhum 429 em 8 requisições" \
            "rate limit não está chegando ao Limitador — ver 'fail-open' em docs/RUNBOOK.md"
@@ -446,12 +446,12 @@ if [[ -n "$HOST" ]]; then
   if [[ -n "$_gold" ]]; then
     _dest="$(curl -sk --max-time 15 "${URL}?APIKEY=${_gold}" -H 'user: theonlyuser' 2>/dev/null)"
     if [[ "$_dest" == "[]" ]]; then
-      _bad "a lista de destinos voltou VAZIA — sem fan-out, os Atos 5 e 7 nao acontecem" \
+      _bad "a lista de destinos voltou VAZIA — sem fan-out, nao ha rastro nem fronteira leste-oeste" \
            "a app depende do banco; onde ele vem por Skupper, confira o outro site: oc get site,listener -n travel-db e 'octets=' no log do skupper-router"
     elif [[ -z "$_dest" ]]; then
       _warn "nao consegui ler a lista de destinos" "curl -k ${URL}?APIKEY=<gold>"
     else
-      _ok "lista de destinos com dado — o fan-out dos Atos 5 e 7 tem de onde sair"
+      _ok "lista de destinos com dado — o fan-out do rastro e da fronteira leste-oeste tem de onde sair"
     fi
   fi
 fi
@@ -498,7 +498,7 @@ while read -r _h; do
 done <<< "$_hosts"
 
 # ---------------------------------------------------------------------------
-_sec "observabilidade (Atos 4 e 5)"
+_sec "observabilidade (métrica de negócio e rastro)"
 
 # A métrica com o label 'plan' é o que sustenta o Ato 4. Se o TelemetryPolicy
 # não estiver rotulando, o Grafana só mostra agregado e o ato perde o ponto.
@@ -520,7 +520,7 @@ print(' '.join(sorted(r['metric']['plan'] for r in d.get('data',{}).get('result'
           "gere tráfego (bash scripts/traffic.sh tiers) e reexecute; a coleta leva ~30s"
   fi
 else
-  _warn "route do thanos-querier não encontrada" "o Ato 4 via Grafana pode não funcionar"
+  _warn "route do thanos-querier não encontrada" "a métrica de negócio via Grafana pode não funcionar"
 fi
 
 # Dashboards do Grafana. Os tres de fabrica (Business User, App Developer,
@@ -586,7 +586,7 @@ for r in "grafana-route:monitoring:Grafana" "kiali:istio-system:Kiali" "tempo-te
   if [[ -n "$_h" ]]; then
     _ok "${_label}: https://${_h}"
   else
-    _warn "${_label}: route ausente em ${_ns}" "o ato correspondente fica sem tela"
+    _warn "${_label}: route ausente em ${_ns}" "o passo correspondente fica sem tela"
   fi
 done
 
@@ -615,12 +615,12 @@ if oc get crd grafanadashboards.grafana.integreatly.org >/dev/null 2>&1; then
           "os paineis do repo referenciam 'Thanos' pelo NOME e abrem 'No data'. Crie um datasource com esse nome, ou renomeie a variavel nos dashboards"
   else
     _warn "datasource 'Thanos' não confirmado no Grafana" \
-          "os painéis do Ato 4 abrem sem dado — docs/PROVISIONING-1.4.md"
+          "os painéis de negócio abrem sem dado — docs/PROVISIONING-1.4.md"
   fi
 
   _dash="$(oc get grafanadashboard rhcl-negocio-planos -n monitoring             -o jsonpath='{.status.conditions[?(@.type=="DashboardSynchronized")].status}' 2>/dev/null)"
   if [[ "$_dash" == "True" ]]; then
-    _ok "dashboard do Ato 4: https://${_graf}/d/rhcl-negocio-planos"
+    _ok "dashboard de negócio: https://${_graf}/d/rhcl-negocio-planos"
   elif [[ -z "$_dash" ]]; then
     _warn "dashboard 'rhcl-negocio-planos' não está no cluster" \
           "oc apply -f platform-reference/monitoring/dashboard-negocio-planos.yaml"
@@ -630,7 +630,7 @@ if oc get crd grafanadashboards.grafana.integreatly.org >/dev/null 2>&1; then
   fi
 else
   _warn "grafana-operator ausente (sem CRD grafanadashboards)" \
-        "o Ato 4 fica sem tela — docs/PROVISIONING-1.4.md"
+        "a métrica de negócio fica sem tela — docs/PROVISIONING-1.4.md"
 fi
 
 # Route existir não diz nada sobre o Kiali. Ele pode estar Running, com o CR em
@@ -699,7 +699,7 @@ print(r[0]['value'][1] if r else '')
   if [[ -n "$_istio" ]]; then
     _ok "Service Mesh instrumentada: ${_istio} séries 'istio_requests_total' no Thanos"
   else
-    _warn "nenhuma série 'istio_*' no Thanos: o grafo do Ato 5 abre vazio" \
+    _warn "nenhuma série 'istio_*' no Thanos: o grafo do rastro abre vazio" \
           "oc apply -f platform-reference/monitoring/istio-monitors.yaml && bash scripts/traffic.sh mesh"
   fi
 fi
@@ -804,12 +804,12 @@ else
 fi
 if [[ -z "$_tempo" ]]; then
   _warn "route do Tempo não encontrada em tracing-system" \
-        "o Ato 5 fica sem tela — platform-reference/tracing/tempo-monolithic.yaml"
+        "o rastro fica sem tela — platform-reference/tracing/tempo-monolithic.yaml"
 else
   _svcs="$(curl -sk --max-time 15 -H "Authorization: Bearer $(oc whoami -t)" \
             "$_tempo_url" 2>/dev/null)"
   if grep -q 'ingress-gateway' <<< "$_svcs"; then
-    _ok "Tempo tem traces do gateway (Ato 5)"
+    _ok "Tempo tem traces do gateway (o caminho rastreável)"
   elif grep -q 'tenant not found' <<< "$_svcs"; then
     # Tenant do PlanPolicy do tracing: o nome no CR, no header do collector e
     # aqui têm de ser o mesmo. Ver platform-reference/tracing/.
@@ -866,7 +866,7 @@ if oc get deploy otel-collector -n tracing-system >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-_sec "consoles integradas (Atos 3 e 5)"
+_sec "consoles integradas (precedência e rastro)"
 
 # Plugin de console quebra em três lugares e só o primeiro aparece num
 # 'oc get consoleplugin': o CR pode não existir, existir e não estar na lista do
@@ -1032,7 +1032,7 @@ if [[ "$_plugins" == *'"kuadrant-console-plugin"'* ]]; then
              "essas chaves passam SEM LIMITE; aplique env/rhcl-1.4_ocp-4.21/patch-planpolicy-plan-id.yaml, ou: oc delete secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true && oc delete apikeyapproval --all -n travel-agency"
       elif [[ "${_kmint:-0}" -gt 0 ]]; then
         _warn "${_kmint} Secret cunhado por aprovacao no portal -- classificado pela annotation, nao e fail-open" \
-              "esperado depois do Ato 6; para voltar ao estado 'ninguem aprovou': oc delete secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true && oc delete apikeyapproval --all -n travel-agency"
+              "esperado depois do caminho pavimentado; para voltar ao estado 'ninguem aprovou': oc delete secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true && oc delete apikeyapproval --all -n travel-agency"
       elif [[ "${_kpend:-0}" -ne "${_ktot:-0}" ]]; then
         _warn "APIKey fora de Pending (${_kpend}/${_ktot}) -- alguem aprovou um pedido" \
               "Pending e o estado inicial (approvalMode: manual); ver env/rhcl-1.4_ocp-4.21/devportal/apikeys.yaml"
@@ -1044,7 +1044,7 @@ if [[ "$_plugins" == *'"kuadrant-console-plugin"'* ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-_sec "Red Hat Developer Hub (Ato 6)"
+_sec "Red Hat Developer Hub (o caminho pavimentado)"
 
 # ----- qual RHDH e o da demo -----------------------------------------------
 # O cluster pode ja vir com um RHDH proprio em 'rhdh' -- e este cluster vem, com
@@ -1070,7 +1070,7 @@ _discover_rhdh_ns() {
 _rhdh_ns="${RHDH_NS:-$(_discover_rhdh_ns)}"
 _rhdh="$(oc get route backstage-developer-hub -n "$_rhdh_ns" -o jsonpath='{.spec.host}' 2>/dev/null)"
 if [[ -z "$_rhdh" ]]; then
-  _warn "RHDH não instalado" "bash rhdh/install.sh — ou pule o Ato 6"
+  _warn "RHDH não instalado" "bash rhdh/install.sh — ou pule o caminho pavimentado"
 else
   if [[ "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://${_rhdh}")" =~ ^(200|302)$ ]]; then
     _ok "portal no ar: https://${_rhdh}"
@@ -1133,7 +1133,7 @@ else
   if [[ "${_tplsrc:-0}" -ge 1 ]]; then
     _ok "${_tplsrc} software template(s) vindos do GitLab (espelho no cluster)"
   else
-    _bad "nenhum software template vindo do GitLab — o Ato 6 não tem o que criar" \
+    _bad "nenhum software template vindo do GitLab — o caminho pavimentado não tem o que criar" \
          "bash scripts/gitlab-seed.sh && bash rhdh/setup-gitlab.sh"
   fi
 
@@ -1183,9 +1183,9 @@ else
     _gst="$(curl -sk -m 15 -o /dev/null -w '%{http_code}' -X POST \
             "https://${_rhdh_host}/api/auth/guest/refresh" 2>/dev/null)"
     [[ "$_gst" == "404" ]] \
-      && _ok "provider 'guest' ausente (identidade real no Ato 6)" \
+      && _ok "provider 'guest' ausente (identidade real no caminho pavimentado)" \
       || _warn "o provider 'guest' respondeu (http=${_gst})" \
-               "com guest de volta, a MR do Ato 6 sai assinada pelo token de serviço"
+               "com guest de volta, a MR do golden path sai assinada pelo token de serviço"
 
     # As personas precisam existir NO CATALOGO, nao so no YAML do repo: o
     # resolver casa o username do GitLab com User:default/<nome>.
@@ -1220,7 +1220,7 @@ _glhost="$(oc get route -n gitlab-system \
   -o jsonpath='{range .items[?(@.spec.to.name=="gitlab-webservice-default")]}{.spec.host}{"\n"}{end}' 2>/dev/null | head -1)"
 
 if [[ -z "$_glhost" ]]; then
-  _warn "GitLab não instalado — o golden path do Ato 6 não tem onde publicar" \
+  _warn "GitLab não instalado — o golden path não tem onde publicar" \
         "bash scripts/provision.sh gitlab"
 else
   _glcode="$(curl -s -m 15 -o /dev/null -w '%{http_code}' "https://${_glhost}/" 2>/dev/null)"
@@ -1332,7 +1332,7 @@ fi
 # nao pode e ela existir quebrada -- os tres modos de falha abaixo sao todos
 # SILENCIOSOS no caminho de dados, e dois deles sao residuo da propria demo
 # anterior (PERMISSIVE e fault injection nao revertidos).
-_sec "Service Mesh leste-oeste (Ato 7)"
+_sec "Service Mesh leste-oeste"
 
 _pa_mode="$(oc get peerauthentication travel-agency-mtls -n travel-agency \
              -o jsonpath='{.spec.mtls.mode}' 2>/dev/null)"
@@ -1341,8 +1341,8 @@ _ap="$(oc get authorizationpolicy discounts-only-sellers -n travel-agency \
 _vs="$(oc get virtualservice discounts -n travel-agency -o name 2>/dev/null)"
 
 if [[ -z "$_pa_mode" && -z "$_ap" && -z "$_vs" ]]; then
-  _warn "camada de Service Mesh não aplicada — Ato 7 indisponível" \
-        "oc apply -k overlays/rhcl-1.4 (os outros atos não dependem dela)"
+  _warn "camada de Service Mesh não aplicada — a fronteira leste-oeste fica indisponível" \
+        "oc apply -k overlays/rhcl-1.4 (os outros passos não dependem dela)"
 else
   # mTLS. PERMISSIVE nao e erro de configuracao: e o estado em que o ato fica
   # se alguem demonstrar o contraste ao vivo e esquecer de voltar. A sonda
@@ -1350,7 +1350,7 @@ else
   case "$_pa_mode" in
     STRICT)     _ok "PeerAuthentication STRICT" ;;
     PERMISSIVE) _bad "PeerAuthentication em PERMISSIVE" \
-                     "resíduo da demonstração do contraste: oc patch peerauthentication travel-agency-mtls -n travel-agency --type=merge -p '{\"spec\":{\"mtls\":{\"mode\":\"STRICT\"}}}'" ;;
+                     "resíduo do contraste entre PERMISSIVE e STRICT: oc patch peerauthentication travel-agency-mtls -n travel-agency --type=merge -p '{\"spec\":{\"mtls\":{\"mode\":\"STRICT\"}}}'" ;;
     "")         _bad "PeerAuthentication travel-agency-mtls ausente" "oc apply -k overlays/rhcl-1.4" ;;
     *)          _bad "PeerAuthentication em ${_pa_mode}" "esperado STRICT" ;;
   esac
@@ -1402,11 +1402,11 @@ else
             -o jsonpath='{.spec.http[0].route[*].weight}' 2>/dev/null)"
     if [[ -n "$_fault" ]]; then
       _bad "VirtualService com fault injection ativa (${_fault})" \
-           "resíduo do encerramento do Ato 7: oc apply -f base/mesh/virtualservice-discounts.yaml"
+           "resíduo do encerramento da fronteira leste-oeste: oc apply -f base/mesh/virtualservice-discounts.yaml"
     elif [[ "$_w" == "90 10" ]]; then
       _ok "canary 90/10 declarado (medir: bash scripts/traffic.sh mesh-split)"
     else
-      _warn "pesos do canary: '${_w}' (o roteiro conta 90/10)" \
+      _warn "pesos do canary: '${_w}' (o texto conta 90/10)" \
             "não é erro se foi mudado de propósito — base/mesh/virtualservice-discounts.yaml"
     fi
   fi
@@ -1434,7 +1434,7 @@ fi
 # do status.
 if oc get crd sites.skupper.io >/dev/null 2>&1 && \
    [[ -n "$(oc get site -A --no-headers 2>/dev/null | head -1)" ]]; then
-  _sec "Service Interconnect (Ato 8)"
+  _sec "Service Interconnect"
 
   _ic_ns="$(oc get listener -A --no-headers 2>/dev/null | awk '$2=="mysqldb"{print $1; exit}')"
   [[ -n "$_ic_ns" ]] || _ic_ns="travel-db"

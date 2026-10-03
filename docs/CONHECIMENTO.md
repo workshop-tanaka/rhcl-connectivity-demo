@@ -77,7 +77,7 @@ e então `oc apply -k overlays/<slug>`.
 > (16 vCPU/64 Gi) + 2 workers (16 vCPU/32 Gi), OCP 4.22.10, ODF externo. O
 > repositório reproduziu a demo inteira num cluster virgem: todas as etapas,
 > portal com os 3 plugins construídos, `credenciais` com EULA aceito, e
-> `preflight.sh` em `[OK] demo pronta.` com 62 checks. Custo final medido:
+> `preflight.sh` em `[OK] o ambiente esta inteiro` com 62 checks. Custo final medido:
 > 50,6c de CPU-request / 127,6 Gi de memória-request / 922 Gi de PVC — numa
 > capacidade de 80c/256 Gi. Hostnames: `api-travels.apps.cluster-flqzh...`,
 > portal em `rhcl-portal.apps.cluster-flqzh...`. A rodada rendeu mais 8

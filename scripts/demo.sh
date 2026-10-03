@@ -126,14 +126,14 @@ Uso: bash scripts/demo.sh [--dry-run] [--auto] [--list] [passo...]
 
 Preparacao (antes de comecar):
 
-  telas    URLs de cada aba que o roteiro abre, resolvidas deste cluster.
+  telas    URLs de cada aba que os passos abrem, resolvidas deste cluster.
            Nao muda nada — so imprime onde clicar.
   check    preflight.sh: o veredito de se o ambiente esta inteiro.
   aquece   ${SOAK_SECS}s de trafego de fundo e DEPOIS zera os contadores. A ordem
-           e contraintuitiva e importa: o soak popula os graficos do Ato 4, e o
-           reset devolve a cota que ele queimou. Invertida, o Ato 2 morre.
+           e contraintuitiva e importa: o soak popula os graficos de negocio, e o
+           reset devolve a cota que ele queimou. Invertida, os planos morrem.
 
-O roteiro (o default, sem argumento, e ato1..ato5 — ~20 min):
+A sequencia (o default, sem argumento, e ato1..ato5 — ~20 min):
 
   ato1     A API esta fechada por padrao        (2 min)
   ato2     Nem todo cliente e igual             (5 min)
@@ -143,14 +143,14 @@ O roteiro (o default, sem argumento, e ato1..ato5 — ~20 min):
   ato6     A policy nasce com o servico — RHDH  (8 min, opcional)
   ato7     A borda nao e a unica fronteira      (8 min, opcional)
 
-Atos extras, fora do default (cada um roda sozinho):
+Passos extras, fora do default (cada um roda sozinho):
 
   borda    O certificado e o DNS tambem sao policy   (3 min, entre 3 e 4)
   degrada  O que acontece quando a policy cai        (4 min, MUDA ESTADO)
   trace    O que um contador nao responde            (4 min, depois do 4 ou 5)
   canario  A promocao acontecendo, ao vivo           (3 min, MUDA ESTADO)
              LOGS=1 acrescenta o log colorido das duas versoes
-  resiliencia  O circuit breaker, e o que NAO da para demonstrar  (5 min, MUDA ESTADO)
+  resiliencia  O circuit breaker, e o que NAO da para medir       (5 min, MUDA ESTADO)
   exposta  De aberta a governada, um passo por vez    (10 min, antes do 6)
              quatro momentos: sem criterio, zero trust, liberacao seletiva e
              limite -- e a sobreposicao de policies acontecendo na sua rota
@@ -159,20 +159,20 @@ Atos extras, fora do default (cada um roda sozinho):
              seis estacoes com a assinatura de cada uma, e o que cada sintoma
              ja permite DESCARTAR. Tem modo desafio: sorteia uma e voce
              diagnostica. Nao muda estado.
-  auditoria  Quatro perguntas, quatro fontes             (6 min, depois do 3b)
+  auditoria  Quatro perguntas, quatro fontes             (6 min, depois de papeis)
              o audit log, os managedFields, o Argo e a metrica -- e o que
              cada um NAO sabe
              login real como app-dev, sem perder a sua sessao
   interconnect A dependencia que nao mora aqui           (5 min, depois do 7)
                  o banco em outro site, por Service Interconnect, com a console
 
-Depois:
+Depois (de quem conduz: nenhum destes aparece no material do workshop):
 
   falha    fault injection no discounts e o revert (opcional, muda estado)
   mesh_base  devolve VirtualService, DestinationRule e mTLS ao que base/mesh
-           declara (~5s) -- e o pre-ato que ato7/canario/resiliencia oferecem
+           declara (~5s) -- e o pre-passo que ato7/canario/resiliencia oferecem
   reset    zera as cotas para repetir os passos
-  pos      pos-sessao: procura o que a demo deixou para tras, ajusta, e
+  pos      pos-sessao: procura o que a execucao deixou para tras, ajusta, e
            revalida. E o que se roda DEPOIS da sessao, nao antes.
 
 A ordem importa — o que cada passo pressupoe (cada passo imprime isto ao comecar):
@@ -187,10 +187,10 @@ A ordem importa — o que cada passo pressupoe (cada passo imprime isto ao comec
   canario  parte de 90/10 (o estado que o ato7 mede); narrativa depois do 7
   resiliencia  narrativa depois do 7 (usa a AuthorizationPolicy dele)
   os demais rodam sozinhos: ato1, ato3, ato5, borda, degrada, ato6, falha
-  Quando falta, o passo PERGUNTA se roda o pre-ato (ato2, ato5 ou mesh_base)
-  e volta; com --auto ele so avisa -- relance com o pre-ato na frente.
+  Quando falta, o passo PERGUNTA se roda o pre-passo (ato2, ato5 ou mesh_base)
+  e volta; com --auto ele so avisa -- relance com o pre-passo na frente.
 
-Para quem cada ato fala (a persona que reconhece o problema):
+Para quem cada passo fala (a persona que reconhece o problema):
 
   ato1 seguranca/plataforma   ato2 produto/negocio     ato3 plataforma
   ato4 negocio/operacao       ato5 operacao/dev        ato6 desenvolvedor
@@ -323,16 +323,16 @@ step_mesh_base() {
 #   --dry-run    so imprime
 _oferece_pre() { # _oferece_pre <passo-pre> <o que ele resolve>
   local pre="$1" motivo="$2" k
-  _why "  pre-ato: ${pre} — ${motivo}"
+  _why "  pre-passo: ${pre} — ${motivo}"
   if [[ $DRY_RUN -eq 1 ]]; then return 0; fi
   if [[ $AUTO -eq 1 || ! -t 0 || ! -e /dev/tty ]]; then
-    _warn "sem terminal para perguntar: rode 'bash scripts/demo.sh ${pre} <este passo>' se quiser o pre-ato"
+    _warn "sem terminal para perguntar: rode 'bash scripts/demo.sh ${pre} <este passo>' se quiser o pre-passo"
     return 0
   fi
-  printf '  %srodar o pre-ato "%s" agora e voltar a este passo? [s/N]%s ' "$_YEL" "$pre" "$_RST"
+  printf '  %srodar o pre-passo "%s" agora e voltar a este passo? [s/N]%s ' "$_YEL" "$pre" "$_RST"
   read -r k </dev/tty || true
   echo
-  [[ "$k" == "s" || "$k" == "S" ]] || { _log "seguindo sem o pre-ato"; return 0; }
+  [[ "$k" == "s" || "$k" == "S" ]] || { _log "seguindo sem o pre-passo"; return 0; }
   "step_${pre}"
   printf '\n  %s— de volta ao passo —%s\n\n' "$_DIM" "$_RST"
 }
@@ -487,9 +487,9 @@ _graf_url() {
 
 step_telas() {
   _title "Preparacao — as telas" "2 min"
-  _why "Uma aba por ato, e tres delas moram no mesmo console do OpenShift — que"
+  _why "Uma aba por passo, e tres delas moram no mesmo console do OpenShift — que"
   _why "e o console que o time do cliente ja abre todo dia. Vale dizer isso em"
-  _why "no Ato 5: nenhuma ferramenta nova entrou na conversa."
+  _why "no rastro: nenhuma ferramenta nova entrou na conversa."
   echo
   local c g k t r
   c="$(_console)"; g="$(_route grafana-route monitoring)"
@@ -503,13 +503,13 @@ step_telas() {
   echo
   printf '  %sAba 1 — Grafana, dashboard "Planos comerciais"%s\n' "$_BLD" "$_RST"
   printf '    %s\n' "${g:+https://$g}"
-  printf '  %sAba 2 — Policy Topology (Ato 3), Traffic Graph e Traces (Ato 5)%s\n' "$_BLD" "$_RST"
+  printf '  %sAba 2 — Policy Topology (precedencia), Traffic Graph e Traces (rastro)%s\n' "$_BLD" "$_RST"
   printf '    %s\n' "${c}/kuadrant/policy-topology"
   printf '    %s\n' "$(_graf_url)"
   printf '    %s\n' "$(_traces_url)"
-  printf '  %sAba 3 — API Catalog do console (Ato 2): produtos, chaves, aprovacoes%s\n' "$_BLD" "$_RST"
+  printf '  %sAba 3 — API Catalog do console (planos): produtos, chaves, aprovacoes%s\n' "$_BLD" "$_RST"
   printf '    %s\n' "${c}/kuadrant/apiproducts"
-  printf '  %sAba 4 — RHDH (so no Ato 6)%s\n' "$_BLD" "$_RST"
+  printf '  %sAba 4 — RHDH (so no caminho pavimentado)%s\n' "$_BLD" "$_RST"
   printf '    %s\n' "${r:+https://$r}"
   echo
   _why "Planos B, se um plugin do console nao abrir:"
@@ -521,9 +521,9 @@ step_telas() {
 
 step_check() {
   _title "Preparacao — o veredito" "1 min"
-  _why "O preflight percorre a cadeia inteira na ordem do roteiro e cada falha"
+  _why "O preflight percorre a cadeia inteira na ordem dos passos e cada falha"
   _why "vem com a correcao ao lado. Rode SEMPRE — o sandbox expira, o cluster e"
-  _why "recriado, e descobrir isso no meio do roteiro custa o resto dele."
+  _why "recriado, e descobrir isso no meio da sequencia custa o resto dela."
   _pause || return 0
   _do bash "scripts/preflight.sh"
   echo
@@ -533,13 +533,13 @@ step_check() {
 step_aquece() {
   _title "Preparacao — aquecimento" "~$(( SOAK_SECS / 60 + 1 )) min"
   _pre "nenhum — substitui o ato2 como fonte de dados do ato4"
-  _why "Sem trafego de fundo o Grafana do Ato 4 mostra linha achatada. O soak"
+  _why "Sem trafego de fundo o Grafana de negocio mostra linha achatada. O soak"
   _why "resolve isso — e queima cota, porque faz round-robin entre os tiers e"
   _why "cada plano tem cota DIARIA alem da janela de 10s."
   _why ""
   _why "Por isso a ordem e soak -> reset -> tiers, e nao o contrario: o reset"
   _why "reinicia o Limitador (contadores in-memory) e devolve a cota que o"
-  _why "proprio aquecimento consumiu. Invertido, o Ato 2 vira tres linhas de 429"
+  _why "proprio aquecimento consumiu. Invertido, os planos viram tres linhas de 429"
   _why "— que e exatamente o sintoma que a demo quer mostrar, so que falso."
   _pause || return 0
   _do_sh "DURATION=${SOAK_SECS} bash scripts/traffic.sh soak"
@@ -548,14 +548,14 @@ step_aquece() {
   _do bash "scripts/traffic.sh" reset
   echo
   _look "para deixar trafego rodando em paralelo, no Terminal 2:"
-  _look "  bash scripts/traffic.sh soak     (e rode 'reset' logo antes do Ato 2)"
+  _look "  bash scripts/traffic.sh soak     (e rode 'reset' logo antes das rajadas)"
 }
 
 # ---------------------------------------------------------------------------
 # o roteiro
 # ---------------------------------------------------------------------------
 step_ato1() {
-  _title "Ato 1 — A API esta fechada por padrao" "2 min"
+  _title "A API esta fechada por padrao" "2 min"
   _quem "Seguranca e Engenheiro de Plataforma — e tambem o Desenvolvedor, que nao escreveu uma linha disto"
   _say  "Esta e a API de viagens que ja rodava. A chamada a seguir vai sem credencial nenhuma."
   _pause || return 0
@@ -592,7 +592,7 @@ step_ato1() {
 }
 
 step_ato2() {
-  _title "Ato 2 — Nem todo cliente e igual" "5 min · alimenta o ato4"
+  _title "Nem todo cliente e igual" "5 min · alimenta o ato4"
   _quem "Produto/Negocio (o plano e vocabulario comercial) e Engenheiro de Plataforma (quem o declara)"
   _pre "nenhum — mas o ato4 le o trafego DESTE; 11s desde a ultima rajada"
   _say  "Mesma rota, mesma aplicacao, mesmo path. Tres chaves diferentes, tres resultados."
@@ -617,16 +617,16 @@ step_ato2() {
   _warn "NAO aprove nada em 'API Key Approvals'. Os pedidos estao Pending de"
   _warn "proposito — aprovar cunha um Secret com o plano em annotation em vez de"
   _warn "label (armadilha 11 do runbook). O predicado hoje tem fallback e aguenta,"
-  _warn "mas o ato perde o fio."
+  _warn "mas o passo perde o fio."
 }
 
 step_ato3() {
-  _title "Ato 3 — Precedencia de policies e explicita" "4 min"
+  _title "Precedencia de policies e explicita" "4 min"
   _quem "Engenheiro de Plataforma — quem responde "qual policy venceu?" sem arqueologia"
   _why "O par aqui e Gateway contra rota. As policies que miram o prod-web valem"
   _why "para toda rota anexada, e CEDEM onde a rota declara a sua. No RHCL 1.4"
   _why "esse e o par certo: a RateLimitPolicy plana da rota sai do render, porque"
-  _why "nesta release ela sobrepoe o PlanPolicy e apagaria os tiers do Ato 2."
+  _why "nesta release ela sobrepoe o PlanPolicy e apagaria os tiers dos planos comerciais."
   _pause || return 0
   _do oc get authpolicy prod-web-deny-all -n ingress-gateway \
       -o jsonpath='{range .status.conditions[*]}{.type}={.status} ({.message}){"\n"}{end}'
@@ -652,14 +652,14 @@ step_ato3() {
   _pause || return 0
   _do_sh "oc get envoyfilter kuadrant-prod-web -n ingress-gateway -o jsonpath='{.spec.configPatches[0].patch.value.typed_config.value.config.configuration.value}' | python3 -m json.tool | grep -E 'auth.kuadrant.plan|metrics.labels'"
   _look "os predicados por plano dentro do filtro do Envoy, e o label 'plan' que"
-  _look "o TelemetryPolicy pediu — a ponte para o Ato 4"
+  _look "o TelemetryPolicy pediu — a ponte para o numero de negocio"
   echo
   _why "Uma policy declarativa de 30 linhas virou CEL de classificacao no"
   _why "Authorino, um contador por tier no Limitador e predicados no data plane."
 }
 
 step_ato4() {
-  _title "Ato 4 — Isso vira numero de negocio" "4 min · DEPOIS DO ATO2"
+  _title "Isso vira numero de negocio" "4 min · DEPOIS DO ato2"
   _quem "Negocio (a pergunta e dele) e Operacao (quem mantem a cadeia que responde)"
   _pre "ato2 (ou aquece) nos ultimos 15 min — este so LE; sem isso o Grafana sai vazio"
   _checa_trafego_recente || _oferece_pre ato2 "gera as tres rajadas que este painel le (~45s)"
@@ -679,7 +679,7 @@ step_ato4() {
   _look "(user workload) -> Thanos -> Grafana. Ja estava de pe; a demo so"
   _look "acrescentou a dimensao de negocio."
   echo
-  _log  "no Grafana, o dashboard do ato e 'Planos comerciais' (rhcl-negocio-planos)"
+  _log  "no Grafana, o dashboard do passo e 'Planos comerciais' (rhcl-negocio-planos)"
   _why  "Os quatro primeiros paineis sao a rajada; o quinto e a cota diaria"
   _why  "consumida por plano — a rajada e o que se ve na hora, a cota e o que esta"
   _why  "no contrato. Os dashboards de fabrica agregam sem quebrar por plano: sao"
@@ -687,7 +687,7 @@ step_ato4() {
 }
 
 step_ato5() {
-  _title "Ato 5 — O caminho todo e rastreavel" "3 min"
+  _title "O caminho todo e rastreavel" "3 min"
   _quem "Operacao/SRE e Desenvolvedor — a mesma tela serve a incidente e a debug"
   _why "O trafego de /travels NAO atravessa o Service Mesh: a resposta e local ao"
   _why "travels e o grafo para em 'prod-web -> travels', o que na tela se le como"
@@ -731,15 +731,15 @@ GRAFO
 }
 
 step_ato6() {
-  _title "Ato 6 — A policy nasce com o servico (RHDH)" "8 min, opcional"
+  _title "A policy nasce com o servico (RHDH)" "8 min, opcional"
   _quem "Desenvolvedor — o golden path e a resposta a "quem escreve esse YAML?""
-  _why "Este ato responde a objecao que sempre vem depois do Ato 2: 'ok, mas quem"
+  _why "Este passo responde a objecao que sempre vem depois dos planos: 'ok, mas quem"
   _why "escreve esse YAML?'. A resposta e um golden path — o portal gera o"
   _why "servico COM as policies, e a mudanca vai por pull request."
   local r; r="$(_route backstage-developer-hub rhdh-rhcl)"
   [[ -n "$r" ]] || r="$(_route backstage-developer-hub rhdh)"
   if [[ -z "$r" ]]; then
-    _warn "RHDH nao encontrado neste cluster — pule este ato (bash rhdh/install.sh)"
+    _warn "RHDH nao encontrado neste cluster — pule este passo (bash rhdh/install.sh)"
     return 0
   fi
   echo
@@ -759,7 +759,7 @@ step_ato6() {
   _why "   escopo do targetRef — que e o que decide o alcance de cada uma:"
   _why "   rhcl-ingress    = prod-web e as policies que miram o Gateway"
   _why "   travel-agency   = a aplicacao e as policies que miram a HTTPRoute"
-  _why "   Os parceiros do Ato 2 aparecem como consumidores, um por chave."
+  _why "   Os parceiros dos planos aparecem como consumidores, um por chave."
   echo
   _why "b) Os tres templates, em Create — sao os tres momentos do ciclo:"
   _why "   1. API como produto      cria namespace no Service Mesh, workload, rota,"
@@ -784,21 +784,21 @@ step_ato6() {
     _ok "OpenShift GitOps presente — o merge do PR chega ao cluster pelo Argo CD"
   else
     _warn "sem OpenShift GitOps neste cluster: o template abre o PR e gera os"
-    _warn "manifests, mas nada sincroniza sozinho. Conte o ato ate o pull request,"
+    _warn "manifests, mas nada sincroniza sozinho. Conte o passo ate o pull request,"
     _warn "ou instale antes: bash scripts/provision.sh gitops"
   fi
   _say  "Repare em QUEM assina: o parceiro abre a merge request, a plataforma faz o merge."
   _log "o portal entra pelo GitLab -- nao ha mais login guest. Personas em ACESSOS.md"
-  _log "TROCAR DE USUARIO entre os dois templates E o ato: quem pede nao aprova"
+  _log "TROCAR DE USUARIO entre os dois templates E o passo: quem pede nao aprova"
 }
 
 step_ato7() {
-  _title "Ato 7 — A borda nao e a unica fronteira" "8 min, opcional · mesh no estado base"
+  _title "A borda nao e a unica fronteira" "8 min, opcional · mesh no estado base"
   _quem "Seguranca e Engenheiro de Plataforma — identidade de servico, nao de cliente"
-  _pre "nenhum ato; precisa do mesh no estado base (STRICT, 90/10, sem fault) — canario/falha/resiliencia o devolvem ao sair"
+  _pre "nenhum passo; precisa do mesh no estado base (STRICT, 90/10, sem fault) — canario/falha/resiliencia o devolvem ao sair"
   _checa_mesh_base || _oferece_pre mesh_base "devolve VirtualService, DestinationRule e mTLS ao que base/mesh declara (~5s)"
-  _why "Este ato e do Service Mesh, nao do RHCL, e existe porque a pergunta vem"
-  _why "sozinha depois do Ato 1: 'entao a chave de API protege tudo?'. Nao"
+  _why "Este passo e do Service Mesh, nao do RHCL, e existe porque a pergunta vem"
+  _why "sozinha depois da borda fechada: 'entao a chave de API protege tudo?'. Nao"
   _why "protege — ela abre a porta da rua. E o argumento fecha porque e o MESMO"
   _why "Envoy nas duas pontas: o prod-web e um gateway Istio."
   echo
@@ -849,9 +849,9 @@ done"
 }
 
 step_interconnect() {
-  _title "Ato interconnect — a dependencia que nao mora aqui" "5 min, OPCIONAL"
+  _title "A dependencia que nao mora aqui" "5 min, OPCIONAL"
   _quem "Arquitetura e Operacao -- e quem diz 'esse banco nao vai para o Kubernetes'"
-  _pre "nenhum ato; precisa da etapa 'interconnect' provisionada (bash scripts/interconnect.sh status)"
+  _pre "nenhum passo; precisa da etapa 'interconnect' provisionada (bash scripts/interconnect.sh status)"
   _why "O RHCL governou a BORDA: quem entra, quanto passa, quanto custa. O"
   _why "Service Mesh governou o LESTE-OESTE: quem fala com quem, em qual versao."
   _why "Falta a fronteira que nenhum dos dois cobre -- o que esta FORA do"
@@ -890,7 +890,7 @@ step_interconnect() {
   _why "Aqui mora a licao mais cara deste projeto. Com o banco do outro lado"
   _why "parado, TUDO fica verde: Site Ready, Listener Ready, Connector Matched."
   _why "E o contador nao sai do zero. A borda continua perfeita -- 401 sem chave,"
-  _why "429 no free, planos medindo 3/10/14 -- e os Atos 1 a 4 passam inteiros."
+  _why "429 no free, planos medindo 3/10/14 -- e os quatro primeiros passos passam inteiros."
   _pause || return 0
   _do bash "scripts/interconnect.sh" status
   _look "'in' e 'thru' sobem a cada requisicao. Zero com tudo Ready e o sintoma"
@@ -951,9 +951,9 @@ MATRIZ
 }
 
 step_papeis() {
-  _title "Ato papeis — quem pode o que, e por que isso e o produto" "6 min"
+  _title "Quem pode o que, e por que isso e o produto" "6 min"
   _quem "Engenheiro de Plataforma e Desenvolvedor -- os dois papeis que o Gateway API nomeia"
-  _pre "nenhum ato; precisa das personas (bash scripts/setup-identity.sh realm)"
+  _pre "nenhum passo; precisa das personas (bash scripts/setup-identity.sh realm)"
   _why "A especificacao do Gateway API define tres papeis, e o RHCL herda os"
   _why "tres. Dois deles aparecem aqui:"
   _why ""
@@ -963,7 +963,7 @@ step_papeis() {
   _why "  Application Developer a HTTPRoute do proprio servico e as policies"
   _why "  (app-dev)             que miram essa ROTA"
   _why ""
-  _why "O Ato 3 mostrou a precedencia num campo de status. Aqui ela deixa de ser"
+  _why "A precedencia apareceu num campo de status. Aqui ela deixa de ser"
   _why "afirmacao: quem responde e o apiserver."
   _pause || return 0
 
@@ -1009,7 +1009,7 @@ step_papeis() {
     _dev annotate planpolicy travels-plans -n travel-agency rhcl.demo/tocado-por- >/dev/null 2>&1
   fi
   _look "a policy comercial da rota dele: pode. E ela PREVALECE sobre a do"
-  _look "gateway -- foi o que o Ato 3 mostrou no status."
+  _look "gateway -- foi o que a precedencia mostrou no status."
   echo
   _why "E a delegacao nao e combinado verbal. Esta escrita no proprio Gateway:"
   _do oc get gateway prod-web -n ingress-gateway \
@@ -1034,9 +1034,9 @@ _exposta_curl() { # _exposta_curl <host> <ip> <sufixo-da-url> [quantas]
 }
 
 step_exposta() {
-  _title "Ato exposta — de aberta a governada, um passo por vez" "10 min, MUDA ESTADO"
+  _title "De aberta a governada, um passo por vez" "10 min, MUDA ESTADO"
   _quem "Desenvolvedor -- e o Engenheiro de Plataforma, que escreveu o teto"
-  _pre "Ato 1 (o que este aprofunda), Ato 3 (precedencia) e 3b (personas)"
+  _pre "ato1 (o que este aprofunda), ato3 (precedencia) e papeis (personas)"
   _why "Voce vai publicar uma API do jeito natural e ver quatro estados dela,"
   _why "em ordem: sem criterio nenhum, negada a todos, liberada com criterio,"
   _why "e com limite. Cada passo e UMA policy -- e o terceiro mostra a"
@@ -1079,7 +1079,7 @@ step_exposta() {
   _why "O Gateway carrega a AuthPolicy 'prod-web-deny-all', do Engenheiro de"
   _why "Plataforma. Toda rota anexada herda esse teto. O padrao da plataforma"
   _why "nao e 'aberto ate alguem fechar' -- e o contrario."
-  _say  "Isto muda o Ato 1. A API de viagens nao esta fechada porque plataformas fecham coisas: esta fechada porque alguem escreveu um deny-all no Gateway. E esse alguem acabou de impedir que a sua fosse ao ar sem ninguem olhando."
+  _say  "Isto muda a leitura da borda fechada. A API de viagens nao esta fechada porque plataformas fecham coisas: esta fechada porque alguem escreveu um deny-all no Gateway. E esse alguem acabou de impedir que a sua fosse ao ar sem ninguem olhando."
 
   printf '\n  %sMOMENTO 3 — liberacao seletiva, e a sobreposicao acontecendo%s\n' "$_BLD" "$_RST"
   _why "Uma chave, e uma AuthPolicy que mira a SUA ROTA -- nao o Gateway."
@@ -1096,7 +1096,7 @@ step_exposta() {
   _look "o proprio teto declara que cedeu, e NOMEIA quem o sobrepos"
   _why  "Dois alvos diferentes: o deny-all mira o Gateway (kind: Gateway), a"
   _why  "sua mira a rota (kind: HTTPRoute). O mais especifico prevalece, e o"
-  _why  "cluster registra isso num campo de status -- e o Ato 3, agora na sua"
+  _why  "cluster registra isso num campo de status -- e a precedencia, agora na sua"
   _why  "API, provocado por voce."
 
   printf '\n  %sMOMENTO 4 — quem entra ja esta resolvido; falta quanto pode%s\n' "$_BLD" "$_RST"
@@ -1140,12 +1140,12 @@ step_exposta() {
     _log "agora pelo portal: https://${portal}"
     _log "  Create -> '5. API como produto' -> mesmo nome, e compare o que nasce"
   else
-    _warn "RHDH ausente -- 'bash rhdh/install.sh' para fechar o ato pelo portal"
+    _warn "RHDH ausente -- 'bash rhdh/install.sh' para fechar o passo pelo portal"
   fi
 }
 
 step_negado() {
-  _title "Ato negado — onde a requisicao morreu" "8 min"
+  _title "Onde a requisicao morreu" "8 min"
   _quem "Operacao e Suporte -- e quem atende o cliente que diz 'nao consigo acessar'"
   _why "Seis lugares onde uma chamada pode morrer, e a assinatura de cada um."
   _why "Nao e um passo para assistir: cada estacao pede uma APOSTA antes de"
@@ -1166,15 +1166,15 @@ step_negado() {
 }
 
 step_auditoria() {
-  _title "Ato auditoria — quatro perguntas, quatro fontes" "6 min"
+  _title "Quatro perguntas, quatro fontes" "6 min"
   _quem "Seguranca, Compliance e Operacao -- e quem vai responder a auditoria de verdade"
-  _pre "os atos 3b (o Forbidden) e 2 (as chamadas); sem eles nao ha rastro para auditar"
+  _pre "papeis (o Forbidden) e ato2 (as chamadas); sem eles nao ha rastro para auditar"
   _why "Auditoria costuma ser demonstrada com um exemplo inventado. Aqui as"
   _why "quatro perguntas incidem sobre o que VOCE acabou de fazer neste"
   _why "cluster -- o Forbidden que levou como app-dev, a policy que alterou, a"
   _why "chamada que emitiu."
   _why ""
-  _why "E o ponto do ato nao e que existe log: e que sao QUATRO fontes"
+  _why "E o ponto do passo nao e que existe log: e que sao QUATRO fontes"
   _why "diferentes, e nenhuma responde a pergunta da outra."
   _pause || return 0
   _do bash "scripts/auditoria.sh"
@@ -1188,20 +1188,20 @@ step_auditoria() {
   _why ""
   _why "O audit log sabe que alguem mudou a policy as 14h03. Ele NAO sabe por"
   _why "que. O git sabe: a mensagem do commit, a revisao do merge request, o"
-  _why "nome de quem aprovou. Por isso o Ato 6 termina onde termina."
+  _why "nome de quem aprovou. Por isso o caminho pavimentado termina onde termina."
   _say  "Quando a auditoria perguntar 'quem liberou esse acesso, e com autorizacao de quem?', o cluster responde a primeira metade e o repositorio responde a segunda. Configuracao que so existe no cluster responde metade da pergunta."
   echo
   _log "so uma das quatro: bash scripts/auditoria.sh [negadas|config|argo|consumo]"
 }
 
 step_borda() {
-  _title "Ato borda — o certificado e o DNS tambem sao policy" "3 min · entre o ato3 e o ato4"
+  _title "O certificado e o DNS tambem sao policy" "3 min · entre o ato3 e o ato4"
   _quem "Operacao — quem hoje renova certificado e cria registro DNS a mao"
-  _why "Os atos 1 a 4 respondem quem entra, quanto passa e quanto custa. Esta e"
+  _why "Os quatro primeiros passos respondem quem entra, quanto passa e quanto custa. Esta e"
   _why "a outra metade do que o RHCL governa na borda, e a que fala com quem"
   _why "opera a plataforma em vez de consumi-la."
   _why ""
-  _why "Posicao no roteiro: entre o Ato 3 e o Ato 4. O 3 mostrou que policy tem"
+  _why "Posicao: entre a precedencia e o numero de negocio. A precedencia mostrou que policy tem"
   _why "precedencia declarada; este mostra que ha mais policies do que as duas"
   _why "que acabou de acontecer."
   _pause || return 0
@@ -1241,9 +1241,9 @@ step_borda() {
 }
 
 step_degrada() {
-  _title "Ato degrada — o que acontece quando a policy cai" "4 min, MUDA ESTADO · depois do ato2 (narrativa)"
+  _title "O que acontece quando a policy cai" "4 min, MUDA ESTADO · depois do ato2 (narrativa)"
   _quem "Operacao/SRE — a pergunta "e se o componente cair?" e dele"
-  _why "Esta e a pergunta que vem sozinha depois do Ato 2, e ate agora era"
+  _why "Esta e a pergunta que vem sozinha depois dos planos, e ate agora era"
   _why "respondida so de boca. Aqui ela e respondida com o cluster."
   _why ""
   _why "O que se mede: o rate limit falha ABERTO. Com o Limitador fora, a"
@@ -1319,11 +1319,11 @@ _tempo_api() { # imprime a URL base da API de traces, ou vazio
 }
 
 step_trace() {
-  _title "Ato trace — o que um contador nao consegue responder" "4 min · DEPOIS DO ATO5"
+  _title "O que um contador nao consegue responder" "4 min · DEPOIS DO ato5"
   _quem "Operacao/SRE (o custo medido) e Desenvolvedor (as tres linhas de propagacao sao dele)"
   _pre "ato5 na ultima hora — o 3o movimento procura os traces de fan-out dele"
   _checa_traces_fanout || _oferece_pre ato5 "dispara o trafego de fan-out em segundo plano (os traces levam ~1 min para indexar)"
-  _why "O Ato 4 mostrou a metrica: quantas requisicoes, de qual plano, quantas"
+  _why "A metrica de negocio disse quantas requisicoes, de qual plano, quantas"
   _why "recusadas. A metrica AGREGA -- ela soma requisicoes diferentes num numero"
   _why "so. O trace CORRELACIONA: amarra os pedacos de UMA requisicao."
   _why ""
@@ -1333,7 +1333,7 @@ step_trace() {
 
   local base; base="$(_tempo_api)"
   if [[ -z "$base" ]]; then
-    _warn "sem rota do Tempo em tracing-system — o ato fica sem tela"
+    _warn "sem rota do Tempo em tracing-system — o passo fica sem tela"
     _log  "platform-reference/tracing/ monta o Tempo; 'provision.sh tracing' aplica"
     return 0
   fi
@@ -1447,19 +1447,19 @@ _tail_versoes() { # liga os dois tails; PIDs ficam em _TAILS
 }
 
 step_canario() {
-  _title "Ato canario — a promocao acontecendo, ao vivo" "3 min, MUDA ESTADO · DEPOIS DO ATO7"
+  _title "A promocao acontecendo, ao vivo" "3 min, MUDA ESTADO · DEPOIS DO ato7"
   _quem "Desenvolvedor e Engenheiro de Plataforma — quem promove, e quem decide o peso"
   _pre "ato7 (narrativa: ele mostra o 90/10 parado); discounts em 90/10"
   _checa_mesh_base || _oferece_pre mesh_base "devolve VirtualService, DestinationRule e mTLS ao que base/mesh declara (~5s)"
-  _why "O Ato 7 mostra um canary PARADO em 90/10: prova que a divisao existe e"
+  _why "A fronteira leste-oeste mostra um canary PARADO em 90/10: prova que existe e"
   _why "que ela e decisao de plataforma. Este mostra a divisao SE MOVENDO --"
   _why "10, 25, 50, 75, 100 -- que e como uma promocao acontece de verdade."
   _why ""
   _why "A ideia vem do modulo 2 do workshop (app-connectivity-workshop/scripts,"
   _why "m2/canary-rollout.sh). A diferenca esta no fim: aquele script TERMINA em"
   _why "v2=100 e nao volta, e o VirtualService que ele patcha e o mesmo que o"
-  _why "nosso Ato 7 declara em base/mesh/. Rodar o do workshop antes do Ato 7"
-  _why "deixa o ato medindo 0/100 enquanto a narracao promete 90/10 -- aconteceu"
+  _why "nosso base/mesh/ declara. Rodar o daquele workshop antes da fronteira"
+  _why "deixa o passo medindo 0/100 enquanto a narracao promete 90/10 -- aconteceu"
   _why "neste cluster em 2026-09-18, e o preflight so AVISA, porque nao tem como"
   _why "saber se a mudanca foi de proposito."
   _warn "Isto MUDA ESTADO. O revert roda no fim e tambem com Ctrl-C."
@@ -1511,16 +1511,16 @@ step_canario() {
   _why "e o retry -- base/mesh/virtualservice-discounts.yaml."
   echo
   _mata_tails
-  _log "revertendo para 90/10 (o estado que o Ato 7 mede)"
+  _log "revertendo para 90/10 (o estado que a fronteira leste-oeste mede)"
   _do oc apply -f "base/mesh/virtualservice-discounts.yaml"
 }
 
 step_resiliencia() {
-  _title "Ato resiliencia — o circuit breaker, e o que NAO da para demonstrar" "5 min, OPCIONAL, MUDA ESTADO · DEPOIS DO ATO7"
+  _title "Circuit breaker — e o que NAO da para medir" "5 min, OPCIONAL, MUDA ESTADO · DEPOIS DA FRONTEIRA LESTE-OESTE"
   _quem "Operacao/SRE — flags do Envoy, ejecao, e o que fault injection nao prova"
   _pre "ato7 (narrativa: a carga sai do cars por causa da AuthorizationPolicy dele)"
   _checa_mesh_base || _oferece_pre mesh_base "devolve VirtualService, DestinationRule e mTLS ao que base/mesh declara (~5s)"
-  _why "Este ato responde a pergunta que vem depois do Ato 7: 'e quando o"
+  _why "Este passo responde a pergunta que vem depois da fronteira: 'e quando o"
   _why "servico do outro lado comeca a falhar?'. O Service Mesh tem duas"
   _why "respostas, e as duas sao visiveis -- mas nao pelo codigo HTTP, e sim"
   _why "pelo response_flag do Envoy, porque os dois modos devolvem 503."
@@ -1609,7 +1609,7 @@ step_falha() {
   _why "responder 200, com o catalogo completo e sem desconto. Boa deixa para o"
   _why "Kiali em vermelho."
   _warn "Isto MUDA ESTADO. O revert esta no fim do passo e roda mesmo com Ctrl-C."
-  _warn "Nao use para demonstrar retry ou timeout: os dois testes obvios falham"
+  _warn "Nao use para medir retry ou timeout: os dois testes obvios falham"
   _warn "em silencio (armadilha 12 do runbook)."
   _pause || return 0
   # Revert em trap, nos DOIS caminhos de saida: sair no meio deixando a injecao
@@ -1631,15 +1631,15 @@ step_falha() {
 }
 
 step_reset() {
-  _title "Reset entre apresentacoes" "1 min"
+  _title "Reset entre execucoes" "1 min"
   _why "Os contadores do Limitador sao in-memory. A janela de 10s se resolve"
   _why "sozinha em segundos; a cota diaria nao — e ela e o que impede a demo de"
-  _why "repetir no mesmo dia. Entre duas apresentacoes, e este o comando."
+  _why "repetir no mesmo dia. Entre duas execucoes, e este o comando."
   _pause || return 0
   _do bash "scripts/traffic.sh" reset
   echo
   _look "confirme com: bash scripts/demo.sh ato2"
-  _log  "voltar ao estado 'plano', sem tiers, para reapresentar do zero:"
+  _log  "voltar ao estado 'plano', sem tiers, para recomecar do zero:"
   _log  "  oc delete planpolicy travels-plans -n travel-agency"
   _log  "  oc apply -k ${OVERLAY}"
 }
@@ -1676,9 +1676,9 @@ step_pos() {
   mode="$(oc get peerauthentication travel-agency-mtls -n travel-agency \
             -o jsonpath='{.spec.mtls.mode}' 2>/dev/null)"
   if [[ -z "$mode" ]]; then
-    _warn "PeerAuthentication travel-agency-mtls ausente (Ato 7 nao roda sem ela)"
+    _warn "PeerAuthentication travel-agency-mtls ausente (a fronteira leste-oeste nao roda sem ela)"
   elif [[ "$mode" != "STRICT" ]]; then
-    _warn "mTLS em ${mode} — a sonda do Ato 7 devolveria 403 em vez de exit=56"
+    _warn "mTLS em ${mode} — a sonda leste-oeste devolveria 403 em vez de exit=56"
     _do oc patch peerauthentication travel-agency-mtls -n travel-agency \
         --type=merge -p '{"spec":{"mtls":{"mode":"STRICT"}}}'
     mudou=1
@@ -1755,7 +1755,7 @@ step_pos() {
     _do bash scripts/traffic.sh reset
     mudou=1
   else
-    _ok "cota diaria com folga para o proximo ensaio"
+    _ok "cota diaria com folga para a proxima execucao"
   fi
 
   # 6. O veredito, depois dos ajustes -- e nao antes, senao ele julga o estado

@@ -1,12 +1,12 @@
 {
   "info": {
     "name": "RHCL Demo — travel-agency, planos, pacotes e CDC",
-    "description": "Testes das APIs da demo do Red Hat Connectivity Link, por ato.\n\nSETUP: gere o environment com as chaves reais do cluster:\n    bash scripts/postman-env.sh\ne importe postman/rhcl-demo.local.postman_environment.json.\n\nA chave vai por query (?APIKEY=...), como as policies esperam. O corte de\nrate limit tem DOIS caminhos: o request 'estourar o free' prova o 429 numa\nexecucao so (pre-request queima a cota), e o Runner com 14 iteracoes na\npasta Ato 2 mostra o corte requisicao a requisicao.",
+    "description": "Testes das APIs do Red Hat Connectivity Link, agrupados por assunto.\n\nSETUP: gere o environment com as chaves reais do cluster:\n    bash scripts/postman-env.sh\ne importe postman/rhcl-demo.local.postman_environment.json.\n\nA chave vai por query (?APIKEY=...), como as policies esperam. O corte de\nrate limit tem DOIS caminhos: o request 'estourar o free' prova o 429 numa\nexecucao so (pre-request queima a cota), e o Runner com 14 iteracoes na\npasta 'Planos comerciais' mostra o corte requisicao a requisicao.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
-      "name": "Ato 1 — a borda e fechada",
+      "name": "A borda e fechada",
       "item": [
         {
           "name": "travels SEM chave -> 401",
@@ -119,7 +119,7 @@
       ]
     },
     {
-      "name": "Ato 2 — planos comerciais",
+      "name": "Planos comerciais",
       "item": [
         {
           "name": "free (3 req/10s)",
@@ -347,7 +347,7 @@
                 }
               ]
             },
-            "description": "O tier muda O QUE a API devolve, nao so o quanto -- a tese do Ato 2."
+            "description": "O tier muda O QUE a API devolve, nao so o quanto -- a tese dos planos comerciais."
           },
           "event": [
             {
@@ -642,7 +642,7 @@
               ],
               "query": []
             },
-            "description": "Contraste com o Ato 1: mesma classe de gateway, sem deny-all -- e a diferenca que o RHCL adiciona."
+            "description": "Contraste com a borda fechada: mesma classe de gateway, sem deny-all -- e a diferenca que o RHCL adiciona."
           },
           "event": [
             {

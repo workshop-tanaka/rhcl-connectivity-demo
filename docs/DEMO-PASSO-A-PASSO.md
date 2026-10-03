@@ -141,7 +141,7 @@ bash scripts/demo.sh check          # ou: bash scripts/preflight.sh
 
 Percorre a cadeia inteira na ordem do roteiro — operadores, Gateway, policies,
 chaves, tráfego real, observabilidade, consoles, RHDH, Service Mesh — e cada falha vem
-com a correção ao lado. Termina em `[OK] demo pronta.` ou sai com código 1.
+com a correção ao lado. Termina em `[OK] o ambiente esta inteiro` ou sai com código 1.
 
 Se acusar recursos ausentes:
 

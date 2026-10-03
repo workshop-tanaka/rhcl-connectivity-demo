@@ -140,7 +140,7 @@ except Exception: print("(nao consegui ler)")' 2>/dev/null)"
   _nota ""
   _nota "E a diferenca entre configurar um gateway e declarar uma intencao:"
   _nota "no primeiro caso voce escreve os dois objetos e lembra do callback;"
-  _nota "no segundo voce diz 'este produto usa OIDC' e o resto e derivado."
+  _nota "no segundo basta declarar 'este produto usa OIDC' -- o resto e derivado."
 }
 
 case "${1:-tudo}" in

@@ -77,7 +77,7 @@ for linha in open(sys.argv[1]):
     if len(vistos) >= 8: break
 PY
   _nota "toda tentativa recusada fica registrada, com o nome de quem tentou."
-  _nota "e o Forbidden do Ato 3b esta entre elas."
+  _nota "e o Forbidden das personas esta entre elas."
 }
 
 # ------------------------------------------------------------ configuracao
@@ -112,7 +112,7 @@ aud_argo() {
 # ---------------------------------------------------------------- consumo
 aud_consumo() {
   _sec "4. Quem consumiu a API, e quanto?"
-  _nota "fonte: metricas do RHCL, com a dimensao de parceiro do Ato 4"
+  _nota "fonte: metricas do RHCL, com a dimensao de parceiro da TelemetryPolicy"
   local th tok
   th="$(oc get route thanos-querier -n openshift-monitoring -o jsonpath='{.spec.host}' 2>/dev/null)"
   tok="$(oc whoami -t 2>/dev/null)"
@@ -135,7 +135,7 @@ for x in sorted(vivos, key=lambda y: -float(y["value"][1]))[:8]:
   _nota "auditoria de USO, que e outra pergunta: o audit log sabe quem MUDOU a"
   _nota "configuracao; a metrica sabe quem EXERCEU o que ela permite."
   _nota "por consumidor, e no dashboard 'Consumo por parceiro' -- a dimensao vem"
-  _nota "da TelemetryPolicy do Ato 4, nao do audit log."
+  _nota "da TelemetryPolicy, nao do audit log."
 }
 
 case "${1:-tudo}" in
