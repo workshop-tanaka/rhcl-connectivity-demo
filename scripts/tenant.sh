@@ -125,6 +125,13 @@ BEGIN { $v = qr/(?:$ENV{VAZIOS})/; }
 s/^\|[^\n]*\n\|[^\n]*\n\|\s*\{$v\}\[[^\]\n]*\]\n\n?//mg;
 s/(?<=\n\n)\{$v\}\[[^\]\n]*\][^\n]*\n(?:[^\n]+\n)*//g;
 s/\{$v\}\[([^\]\n]*?)\^?\]/$1/g;
+# E DUAS FRASES QUE DEIXARAM DE SER VERDADE no cluster compartilhado: o Kiali
+# pede o login do OpenShift (anonimo, ele deixava um participante editar o
+# Istio do outro) e o Grafana anonimo e so leitura. A pagina dizia "abre sem
+# pedir nada" e "papel de Admin".
+s/o Kiali abre \*\*sem pedir nada\*\* -- este ambiente o serve em\s+modo anônimo\./clique em *Log In With OpenShift* e entre com o seu usuário do console (\x60{usuario_console}\x60). O Kiali mostra só os namespaces do seu ambiente./g;
+s/o Grafana abre \*\*sem pedir nada\*\* \(acesso anônimo, papel de\s+Admin\)\.[^\n]*(?:\n[^\n=]+)*?(?=\n====)/o Grafana abre **sem pedir nada**, em modo de leitura. Os painéis do roteiro já abrem filtrados pelo seu ambiente./g;
+s/o Grafana abre \*\*sem pedir nada\*\* -- acesso anônimo, com\s+papel de Admin\./o Grafana abre **sem pedir nada**, em modo de leitura. Os painéis do roteiro já abrem filtrados pelo seu ambiente./g;
 PERL
 )"
 
@@ -862,7 +869,7 @@ for o in itens:
                     {"name": "ALT_HOST", "value": os.environ["ALT_HOST"]}, {"name": "PERL_TROCA", "value": os.environ["PERL_TROCA"]},
                     {"name": "CONTEUDO", "value": "1"}, {"name": "VAZIOS", "value": "|".join(vazios)},
                     {"name": "PERL_VAZIOS", "value": os.environ["PERL_VAZIOS"]}],
-            "command": ["bash", "-c", "set -e; d=%s; n=$(find \"$d\" -name \"*.adoc\" | wc -l); [ \"$n\" -gt 0 ]; find \"$d\" -name \"*.adoc\" -print0 | xargs -0 perl -pi -e \"$PERL_TROCA\"; if [ -n \"$VAZIOS\" ]; then find \"$d\" -name \"*.adoc\" -print0 | xargs -0 perl -0777 -pi -e \"$PERL_VAZIOS\"; fi; echo \"troca aplicada a $n paginas; links sem destino: ${VAZIOS:-nenhum}\"" % repo[0]["mountPath"]],
+            "command": ["bash", "-c", "set -e; d=%s; n=$(find \"$d\" -name \"*.adoc\" | wc -l); [ \"$n\" -gt 0 ]; find \"$d\" -name \"*.adoc\" -print0 | xargs -0 perl -pi -e \"$PERL_TROCA\"; find \"$d\" -name \"*.adoc\" -print0 | VAZIOS=\"${VAZIOS:-__nenhum__}\" xargs -0 perl -0777 -pi -e \"$PERL_VAZIOS\"; echo \"troca aplicada a $n paginas; links sem destino: ${VAZIOS:-nenhum}\"" % repo[0]["mountPath"]],
             "volumeMounts": repo})
         ini.append({
             "name": "prepara-terminal", "image": term["image"],
