@@ -358,7 +358,13 @@ for r in d["data"]["result"]:
     pol_txt="${y1}/${y2}"; [[ "$ys" -gt 0 ]] && pol_txt="${pol_txt} +${ys} sobrep."
     [[ "$AVANCO" == 1 ]] || pg=""
     printf '  %-8s %-3s %-7s %-8s %-18s %-6s %-7s %s%-7s%s %s\n' "$t" "$nn" "${a}/${b}" "${g1}/${g2}" "$pol_txt" "$gu" "$rq" "$cor" "$rot" "$_RST" "${pg//|/ }"
-    grep "^D${tab}${t}${tab}" "$TRAB/linhas" | cut -f3 | while IFS= read -r e; do printf '           %s↳ %s%s\n' "$_DIM" "$e" "$_RST"; done
+    if [[ "$est" == subindo ]]; then
+      # quem esta nascendo tem uma linha por pod em Init: a lista inteira
+      # empurraria para fora da tela justamente quem ja esta pronto
+      printf '           %s↳ %s pendencia(s) — ainda sendo montado (SUBINDO_MIN=0 lista todas)%s\n' "$_DIM" "$(grep -c "^D${tab}${t}${tab}" "$TRAB/linhas")" "$_RST"
+    else
+      grep "^D${tab}${t}${tab}" "$TRAB/linhas" | cut -f3 | while IFS= read -r e; do printf '           %s↳ %s%s\n' "$_DIM" "$e" "$_RST"; done
+    fi
   done < "$TRAB/ord"
 
   if [[ "$TSV" == 1 ]]; then
