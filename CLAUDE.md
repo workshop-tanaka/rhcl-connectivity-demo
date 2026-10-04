@@ -61,6 +61,10 @@ bash scripts/provision.sh            # idempotente; --list, --dry-run, ou etapas
 # N ambientes (uma onda do workshop) — ver docs/FROTA.md
 bash scripts/preflight.sh showroom   # a superfície que o PARTICIPANTE vê, não a plataforma
 bash scripts/frota.sh valida         # as duas camadas por ambiente, do inventário frota.local
+
+# N participantes no MESMO cluster (scripts/tenant.sh) — a visão do instrutor
+bash scripts/turma.sh --vigia        # saúde por participante + a plataforma compartilhada; só lê
+bash scripts/turma.sh todos          # um bloco por cluster do inventário
 ```
 
 Validação local — é o que o CI ([.github/workflows/validate.yml](.github/workflows/validate.yml)) roda:
