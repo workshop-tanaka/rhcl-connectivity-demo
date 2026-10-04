@@ -42,6 +42,13 @@
 #             E A UNICA LEITURA QUE CRESCE COM A TURMA (um 'oc logs' por
 #             participante, em lotes de LARGURA). AVANCO=0 desliga.
 #
+# SUBINDO NAO E FALHA. Enquanto o 'tenant.sh turma' monta os participantes em
+# lotes, o que ainda esta nascendo aparece sem pod e sem Showroom -- igual a
+# um ambiente quebrado. Quem falha com o travel-agency DELE criado ha menos
+# de SUBINDO_MIN minutos sai como SUBINDO e nao conta como falha. A idade e a
+# do travel-agency de proposito, e nao a do namespace mais novo: no dia da
+# aula um Extra cria namespace novo, e isso nao pode esconder uma falha.
+#
 # LEITURA QUE FALHA NAO VIRA ZERO. Sem a lista de pods o cluster inteiro sai
 # sem veredito; sem Thanos a coluna mostra '-'. Concluir "0 pods" de um 'oc'
 # que caiu acusaria os trinta de uma vez (docs/FROTA.md, secao 8).
@@ -55,6 +62,7 @@
 #
 #   FROTA=outro.local       outro inventario
 #   MEM_ALERTA=80           % do limite de memoria a partir do qual avisa
+#   SUBINDO_MIN=10          ate quantos minutos de vida uma falha e "subindo"
 #   AVANCO=0                nao le o log do Showroom (a coluna PAGINA some)
 #   LARGURA=6               quantos logs de cada vez (default 6)
 #
@@ -67,6 +75,7 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
 INV="${FROTA:-frota.local}"
 MEM_ALERTA="${MEM_ALERTA:-80}"
 AVANCO="${AVANCO:-1}"
+SUBINDO_MIN="${SUBINDO_MIN:-10}"
 LARGURA="${LARGURA:-6}"
 ROTULO="rhcl.demo/tenant"
 NS_PLATAFORMA="kuadrant-system istio-system"
@@ -213,7 +222,7 @@ _cluster() { # <rotulo>
     _bad "nao consegui listar os pods — sem veredito para este cluster (leitura que falha nao e 'zero pods')"
     return 1
   fi
-  if ! oc get ns -l "$ROTULO" -o jsonpath="{range .items[*]}{.metadata.labels.rhcl\\.demo/tenant}{'\t'}{.metadata.name}{'\n'}{end}" > "$TRAB/ns" 2>/dev/null; then
+  if ! oc get ns -l "$ROTULO" -o jsonpath="{range .items[*]}{.metadata.labels.rhcl\\.demo/tenant}{'\t'}{.metadata.name}{'\t'}{.metadata.creationTimestamp}{'\n'}{end}" > "$TRAB/ns" 2>/dev/null; then
     [[ "$TSV" == 1 ]] && printf 'RESUMO\t%s\tsem-leitura\n' "$nome"
     _bad "nao consegui listar os namespaces dos participantes — sem veredito para este cluster"
     return 1
@@ -270,10 +279,21 @@ for r in d["data"]["result"]:
     [[ -f "$TRAB/pol" ]] && { echo "TEM pol"; sed 's/^/Y /' "$TRAB/pol"; }
     [[ -f "$TRAB/req" ]] && { echo "TEM req"; sed 's/^/R /' "$TRAB/req"; }
     [[ -f "$TRAB/pag" ]] && { echo "TEM pag"; sed 's/^/V /' "$TRAB/pag"; }
-  } | awk '
+  } | awk -v agora="$(date -u +%s)" -v nova="$SUBINDO_MIN" '
     function falha(t, msg) { ruim[t] = 1; nd[t]++; d[t, nd[t]] = msg }
+    # epoch de "2026-10-04T23:22:00Z" na mao: o awk do macOS nao tem mktime
+    function epoch(s,  p, m, y, era, yoe, doy, doe) {
+      split(s, p, /[-T:Z]/); m = p[2] + 0; y = p[1] - (m <= 2)
+      era = int(y / 400); yoe = y - era * 400
+      doy = int((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + p[3] - 1
+      doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy
+      return (era * 146097 + doe - 719468) * 86400 + p[4] * 3600 + p[5] * 60 + p[6] }
     $1 == "TEM" { tem[$2] = 1; next }
-    $1 == "N"   { dono[$3] = $2; nns[$2]++; todos[$2] = 1; next }
+    $1 == "N"   { dono[$3] = $2; nns[$2]++; todos[$2] = 1
+                  i = (agora - epoch($4)) / 60
+                  if ($3 == "travel-agency-" $2) base[$2] = i
+                  if (!($2 in menor) || i < menor[$2]) menor[$2] = i
+                  next }
     $1 == "P" && ($2 in dono) {
       t = dono[$2]; split($4, r, "/"); pt[t]++
       if (($5 == "Running" && r[1] == r[2]) || $5 == "Completed") {
@@ -307,7 +327,10 @@ for r in d["data"]["result"]:
         else if (guia[t] == "")                { falha(t, "nenhum pod em showroom-" t); guia[t] = "falha" }
         if (tem["gw"] && gt[t] == 0)           falha(t, "nenhum Gateway nos namespaces dele")
         if (tem["pol"] && yt[t] == 0)          falha(t, "nenhuma policy do Kuadrant nos namespaces dele")
-        printf "L\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n", t, (ruim[t] ? "falha" : "ok"), nns[t], pp[t], pt[t],
+        # sem travel-agency ainda, vale o namespace mais novo que ele tem
+        vida = (t in base) ? base[t] : menor[t]
+        if (ruim[t] && vida < nova) ruim[t] = 2
+        printf "L\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n", t, (ruim[t] == 2 ? "subindo" : ruim[t] ? "falha" : "ok"), nns[t], pp[t], pt[t],
           (tem["gw"] ? gp[t] + 0 : "-"), (tem["gw"] ? gt[t] + 0 : "-"),
           (tem["pol"] ? yp[t] + 0 : "-"), (tem["pol"] ? yt[t] + 0 : "-"), ys[t], guia[t],
           (tem["req"] ? req[t] + 0 : "-"), ((t in pag) ? pag[t] : "-")
@@ -316,27 +339,30 @@ for r in d["data"]["result"]:
     }' > "$TRAB/linhas"
 
   local e t est nn a b g1 g2 y1 y2 ys gu rq pg cor pol_txt
-  local n_ok=0 n_falha=0 n_ativos=0 n_total=0
-  [[ "$TSV" == 1 ]] || { _sec "participantes"; printf '  %s%-8s %-3s %-7s %-8s %-18s %-6s %-7s %-6s %s%s\n' "$_DIM" TENANT NS PODS GATEWAY POLICIES GUIA 'REQ 5m' '' "$([[ "$AVANCO" == 1 ]] && echo PAGINA)" "$_RST"; }
+  local n_ok=0 n_falha=0 n_sub=0 n_ativos=0 n_total=0 rot
+  [[ "$TSV" == 1 ]] || { _sec "participantes"; printf '  %s%-8s %-3s %-7s %-8s %-18s %-6s %-7s %-7s %s%s\n' "$_DIM" TENANT NS PODS GATEWAY POLICIES GUIA 'REQ 5m' '' "$([[ "$AVANCO" == 1 ]] && echo PAGINA)" "$_RST"; }
   # user2 antes de user10: a ordem e a do numero
   grep "^L${tab}" "$TRAB/linhas" | sed "s/^L${tab}user//" | sort -n | sed 's/^/user/' > "$TRAB/ord"
   while IFS="$tab" read -r t est nn a b g1 g2 y1 y2 ys gu rq pg; do
     n_total=$((n_total + 1))
-    [[ "$est" == ok ]] && n_ok=$((n_ok + 1)) || n_falha=$((n_falha + 1))
+    case "$est" in
+      ok)      n_ok=$((n_ok + 1));       cor="$_GRN"; rot=OK ;;
+      subindo) n_sub=$((n_sub + 1));     cor="$_YEL"; rot=SUBINDO ;;
+      *)       n_falha=$((n_falha + 1)); cor="$_RED"; rot=FALHA ;;
+    esac
     [[ "$rq" != "-" && "$rq" -gt 0 ]] && n_ativos=$((n_ativos + 1))
     if [[ "$TSV" == 1 ]]; then
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$est" "$nome" "$t" "$nn" "$a" "$b" "$g1" "$g2" "$y1" "$y2" "$ys" "$gu" "$rq" "$pg"
       continue
     fi
     pol_txt="${y1}/${y2}"; [[ "$ys" -gt 0 ]] && pol_txt="${pol_txt} +${ys} sobrep."
-    [[ "$est" == ok ]] && cor="$_GRN" || cor="$_RED"
     [[ "$AVANCO" == 1 ]] || pg=""
-    printf '  %-8s %-3s %-7s %-8s %-18s %-6s %-7s %s%-6s%s %s\n' "$t" "$nn" "${a}/${b}" "${g1}/${g2}" "$pol_txt" "$gu" "$rq" "$cor" "$([[ "$est" == ok ]] && echo OK || echo FALHA)" "$_RST" "${pg//|/ }"
+    printf '  %-8s %-3s %-7s %-8s %-18s %-6s %-7s %s%-7s%s %s\n' "$t" "$nn" "${a}/${b}" "${g1}/${g2}" "$pol_txt" "$gu" "$rq" "$cor" "$rot" "$_RST" "${pg//|/ }"
     grep "^D${tab}${t}${tab}" "$TRAB/linhas" | cut -f3 | while IFS= read -r e; do printf '           %s↳ %s%s\n' "$_DIM" "$e" "$_RST"; done
   done < "$TRAB/ord"
 
   if [[ "$TSV" == 1 ]]; then
-    printf 'RESUMO\t%s\t%d\t%d\n' "$nome" "$n_ok" "$n_falha"
+    printf 'RESUMO\t%s\t%d\t%d\t%d\n' "$nome" "$n_ok" "$n_falha" "$n_sub"
   else
     [[ -f "$TRAB/gw"  ]] || _nota "GATEWAY '-': a leitura dos Gateways falhou neste ciclo — a coluna se abstem"
     [[ -f "$TRAB/pol" ]] || _nota "POLICIES '-': a leitura das policies falhou neste ciclo — a coluna se abstem"
@@ -344,6 +370,7 @@ for r in d["data"]["result"]:
     [[ "$AVANCO" != 1 || -f "$TRAB/pag" ]] || _nota "PAGINA '-': nenhum log de Showroom respondeu neste ciclo — avanco nao medido"
     printf '\n  %s%d participantes%s: %s%d OK%s' "$_BLD" "$n_total" "$_RST" "$_GRN" "$n_ok" "$_RST"
     [[ "$n_falha" -gt 0 ]] && printf ', %s%d com falha%s' "$_RED" "$n_falha" "$_RST"
+    [[ "$n_sub" -gt 0 ]] && printf ', %s%d subindo%s' "$_YEL" "$n_sub" "$_RST"
     [[ -f "$TRAB/req" ]] && printf ' — %d com trafego nos ultimos 5 min' "$n_ativos"
     [[ "$PLAT_FALHA" -gt 0 ]] && printf ' — %splataforma com %d falha(s)%s' "$_RED" "$PLAT_FALHA" "$_RST"
     [[ "$PLAT_FALHA" == 0 && "$PLAT_AVISO" -gt 0 ]] && printf ' — %splataforma com %d aviso(s)%s' "$_YEL" "$PLAT_AVISO" "$_RST"
