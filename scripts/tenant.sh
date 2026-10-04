@@ -72,8 +72,12 @@ COPIA="scripts base env overlays platform-reference postman"
 ROTULO="rhcl.demo/tenant"
 
 _valida_tenant() {
-  [[ "${1:-}" =~ ^[a-z][a-z0-9]{1,14}$ ]] \
-    || _die "tenant invalido: '${1:-}'. Use letras minusculas e digitos, sem hifen (ex.: user7) -- ele vira sufixo de namespace e rotulo de hostname."
+  # O MESMO padrao da trava de admissao (_plataforma), e tem de ser: um nome
+  # que este validador aceitasse e a trava nao reconhecesse criaria um
+  # participante SEM trava -- com escrita livre nas chaves de todos. E tambem
+  # o nome dos usuarios que o RHDP cria (user1..userN).
+  [[ "${1:-}" =~ ^user[0-9]{1,3}$ ]] \
+    || _die "tenant invalido: '${1:-}'. O nome e o do usuario do RHDP: user1, user2, ... (ele vira sufixo de namespace, rotulo de hostname e a identidade que a trava de admissao reconhece)."
 }
 
 # ---------------------------------------------------------------------------
@@ -82,6 +86,11 @@ _valida_tenant() {
 _render() { # <tenant> <destino>
   local t="$1" dest="$2" f rel novo
   command -v perl >/dev/null || _die "perl nao encontrado (a troca usa lookbehind, que o sed do macOS nao tem)."
+  # O destino e APAGADO antes de gerar. So se apaga o que e reconhecivelmente
+  # uma copia anterior: um caminho digitado errado nao pode custar um diretorio.
+  if [[ -e "$dest" && ! -f "${dest}/.tenant" ]]; then
+    _die "${dest} existe e nao e uma copia de tenant (falta o arquivo .tenant) — nao vou apagar."
+  fi
   rm -rf "${dest:?}" && mkdir -p "$dest" || _die "nao consegui preparar ${dest}"
 
   # O que o git conhece ou conheceria (sem os ignorados): env/cluster-*/ e
@@ -224,8 +233,15 @@ _remove() { # <tenant>
 #   rhcl-tenant-chaves  Secret em kuadrant-system -- as chaves de API moram la
 #   a trava de admissao a permissao acima vale para o namespace INTEIRO, e
 #                       RBAC nao sabe restringir 'create' por nome. A
-#                       ValidatingAdmissionPolicy fecha isso: o tenant so
-#                       escreve Secret cujo nome comeca com 'apikey-<tenant>-'
+#                       ValidatingAdmissionPolicy fecha a ESCRITA: nome
+#                       'apikey-<tenant>-*' e rotulo 'app: partner-<tenant>'
+#
+# O LIMITE QUE FICA, e que e preciso saber: a trava nao alcanca LEITURA. O
+# participante le todo Secret de kuadrant-system -- as chaves dos outros
+# participantes, o certificado do plugin da console e os tokens de pull. Os
+# scripts do roteiro listam chaves por rotulo, e RBAC nao filtra 'list' por
+# rotulo nem por prefixo. Serve a uma sala de aula cooperativa; NAO serve a
+# participantes que nao confiam uns nos outros.
 # ---------------------------------------------------------------------------
 _plataforma() {
   oc apply -f - <<'EOF' >/dev/null || _die "falha ao aplicar o RBAC de plataforma dos tenants"
@@ -251,10 +267,10 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: [secrets]
-    verbs: [get, list, watch, create, update, patch, delete]
+    verbs: [get, list, create, update, patch, delete]
   - apiGroups: [devportal.kuadrant.io]
     resources: [apikeys]
-    verbs: [get, list, watch, create, update, patch, delete]
+    verbs: [get, list, create, update, patch, delete]
   # traffic.sh le os contadores do Limitador por port-forward
   - apiGroups: [""]
     resources: [pods/portforward]
@@ -273,22 +289,58 @@ spec:
         apiVersions: [v1]
         operations: [CREATE, UPDATE, DELETE]
         resources: [secrets]
+      - apiGroups: [devportal.kuadrant.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [apikeys]
   matchConditions:
     - name: so-participante
       expression: >-
-        request.userInfo.username.matches('^system:serviceaccount:showroom-[a-z][a-z0-9]+:showroom$')
-        || request.userInfo.username.matches('^user[0-9]+$')
+        request.userInfo.username.matches('^system:serviceaccount:showroom-user[0-9]{1,3}:showroom$')
+        || request.userInfo.username.matches('^user[0-9]{1,3}$')
   variables:
     - name: tenant
       expression: >-
         request.userInfo.username.startsWith('system:serviceaccount:')
         ? request.userInfo.username.split(':')[2].substring(9)
         : request.userInfo.username
+    - name: alvo
+      expression: "request.operation == 'DELETE' ? oldObject : object"
+    - name: rotulos
+      expression: >-
+        request.operation != 'DELETE' && has(object.metadata.labels) ? object.metadata.labels : {}
   validations:
+    # o NOME carrega o tenant: e o que impede apagar ou sobrescrever a do vizinho
     - expression: >-
-        (request.operation == 'DELETE' ? oldObject : object).metadata.name.startsWith('apikey-' + variables.tenant + '-')
+        request.kind.kind != 'Secret'
+        || variables.alvo.metadata.name.startsWith('apikey-' + variables.tenant + '-')
       messageExpression: >-
         'em kuadrant-system o participante ' + variables.tenant + ' so escreve Secret de nome apikey-' + variables.tenant + '-*'
+    # ...mas quem ABRE a API e o ROTULO, nao o nome: a AuthPolicy seleciona por
+    # 'app: partner-<tenant>'. Travar so o nome deixaria o participante criar
+    # 'apikey-<ele>-x' com o rotulo do vizinho -- ou com 'app: partner', que e
+    # o do ambiente do instrutor -- e entrar na API alheia.
+    - expression: >-
+        !('app' in variables.rotulos) || !variables.rotulos['app'].startsWith('partner')
+        || variables.rotulos['app'] == 'partner-' + variables.tenant
+      messageExpression: >-
+        'o rotulo app de uma chave do participante ' + variables.tenant + ' so pode ser partner-' + variables.tenant
+    - expression: >-
+        variables.rotulos.all(k,
+          !variables.rotulos[k].matches('(^|[^a-z0-9])user[0-9]+([^0-9]|$)')
+          || variables.rotulos[k].matches('(^|[^a-z0-9])' + variables.tenant + '([^0-9]|$)'))
+      messageExpression: >-
+        'rotulo com o nome de outro participante nao e aceito de ' + variables.tenant
+    # a APIKey do developer portal faz o controller EMITIR um Secret: sem
+    # trava, ela seria o caminho de volta para a chave na API do vizinho
+    - expression: >-
+        request.kind.kind != 'APIKey'
+        || (variables.alvo.metadata.name.endsWith('-' + variables.tenant)
+            && (request.operation == 'DELETE'
+                || (object.spec.apiProductRef.namespace.endsWith('-' + variables.tenant)
+                    && (!has(object.spec.secretRef) || object.spec.secretRef.name.startsWith('apikey-' + variables.tenant + '-')))))
+      messageExpression: >-
+        'APIKey do participante ' + variables.tenant + ': nome *-' + variables.tenant + ', APIProduct de um namespace dele, Secret apikey-' + variables.tenant + '-*'
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
@@ -340,10 +392,29 @@ _rbac() { # <tenant>
 _kubeconfig() { # <tenant> <arquivo>
   local t="$1" out="$2" tok srv
   tok="$(oc create token showroom -n "showroom-${t}" --duration=8h 2>/dev/null)" || _die "sem token para showroom-${t}/showroom — rode 'rbac ${t}' antes"
-  srv="$(oc whoami --show-server)"
-  : > "$out" && chmod 600 "$out"
-  KUBECONFIG="$out" oc login --token="$tok" --server="$srv" --insecure-skip-tls-verify=true >/dev/null 2>&1 \
-    || _die "o login com o token de ${t} falhou"
+  # O cluster (servidor, CA ou a dispensa dela) vem do kubeconfig de quem esta
+  # rodando: um --insecure-skip-tls-verify fixo aqui desligaria a verificacao
+  # tambem onde o operador a tinha ligado. O arquivo e montado DO ZERO, e nao
+  # copiado: a copia levaria junto a credencial de admin de quem roda.
+  local ca inseguro
+  srv="$(oc config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+  ca="$(oc config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')"
+  inseguro="$(oc config view --minify -o jsonpath='{.clusters[0].cluster.insecure-skip-tls-verify}')"
+  [[ -n "$srv" ]] || _die "nao consegui ler o servidor do kubeconfig corrente"
+  rm -f "$out"; ( umask 077; : > "$out" ) || _die "nao consegui criar ${out}"
+  if [[ -n "$ca" ]]; then
+    KUBECONFIG="$out" oc config set-cluster c --server="$srv" >/dev/null \
+      && KUBECONFIG="$out" oc config set clusters.c.certificate-authority-data "$ca" >/dev/null
+  elif [[ "$inseguro" == "true" ]]; then
+    KUBECONFIG="$out" oc config set-cluster c --server="$srv" --insecure-skip-tls-verify=true >/dev/null
+  else
+    KUBECONFIG="$out" oc config set-cluster c --server="$srv" >/dev/null
+  fi
+  KUBECONFIG="$out" oc config set-credentials "$t" --token="$tok" >/dev/null
+  KUBECONFIG="$out" oc config set-context "$t" --cluster=c --user="$t" >/dev/null
+  KUBECONFIG="$out" oc config use-context "$t" >/dev/null
+  [[ "$(KUBECONFIG="$out" oc whoami 2>/dev/null)" == "system:serviceaccount:showroom-${t}:showroom" ]] \
+    || _die "o kubeconfig de ${t} nao autentica como o participante"
   _ok "kubeconfig de ${t} em ${out}"
 }
 
