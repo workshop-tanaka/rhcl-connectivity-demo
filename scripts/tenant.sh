@@ -539,7 +539,11 @@ EOF
 # ---------------------------------------------------------------------------
 _rbac() { # <tenant>
   local t="$1" ns
-  oc get clusterrole rhcl-tenant-leitura >/dev/null 2>&1 || _plataforma
+  # SEMPRE, e nao "se ainda nao existir": os papeis de plataforma mudaram tres
+  # vezes num dia, cada vez para FECHAR algo. Testar a existencia deixaria um
+  # cluster provisionado por uma versao anterior com o papel antigo -- mais
+  # largo -- para sempre. O apply e idempotente e custa um segundo.
+  _plataforma >/dev/null
   _ns_nosso "$t" "showroom-${t}"
   oc get sa showroom -n "showroom-${t}" >/dev/null 2>&1 || oc create sa showroom -n "showroom-${t}" >/dev/null
 
