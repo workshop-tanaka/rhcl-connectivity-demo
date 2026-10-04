@@ -28,6 +28,14 @@
 # (o rotulo 'ambiente' nasce nos PodMonitors do tenant e no ServiceMonitor
 # do Limitador -- ver platform-reference/monitoring/servicemonitors.yaml)
 # Vazio (o cluster de um participante), o painel se comporta como antes.
+#
+# A VARIAVEL 'tenant' (oculta). O filtro ad hoc alcanca as consultas dos
+# PAINEIS, nao a consulta de outra variavel: a lista 'Parceiro' continuava
+# trazendo as chaves de todos os participantes (visto no cluster-swsmt em
+# 2026-10-04, com 30 no ar), embora os graficos ja saissem filtrados. Uma
+# variavel ad hoc nao se interpola, entao o mesmo nome chega uma segunda vez
+# pelo link:  &var-tenant=user7. O default '.*' casa tambem a serie SEM o
+# rotulo 'ambiente' -- sem o parametro, a lista e a de antes.
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
@@ -62,11 +70,19 @@ spec:
             "options": [], "refresh": 1, "hide": 0, "includeAll": false, "multi": false
           },
           {
+            "name": "tenant",
+            "type": "textbox",
+            "hide": 2,
+            "query": ".*",
+            "current": {"text": ".*", "value": ".*"},
+            "options": [{"selected": true, "text": ".*", "value": ".*"}]
+          },
+          {
             "name": "parceiro",
             "type": "query",
             "label": "Parceiro",
             "datasource": {"type": "prometheus", "uid": "${datasource}"},
-            "query": {"query": "label_values(istio_requests_total{partner!=\"\", partner!=\"unknown\"}, partner)", "refId": "StandardVariableQuery"},
+            "query": {"query": "label_values(istio_requests_total{partner!=\"\", partner!=\"unknown\", ambiente=~\"$tenant\"}, partner)", "refId": "StandardVariableQuery"},
             "refresh": 2, "includeAll": true, "multi": true, "current": {"text": "All", "value": "$__all"}
           },
           {
