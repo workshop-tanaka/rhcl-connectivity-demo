@@ -279,8 +279,16 @@ print(" ".join(sorted(set(ruins))))' 2>/dev/null)"
     # DESCOBRIR, nunca supor. Sem o diretorio, esta verificacao se ABSTEM --
     # concluir ausencia a partir de uma leitura que falhou foi exatamente o
     # defeito da cobertura de templates (docs/FROTA.md, secao 8).
+    # Descoberta por CONTEUDO, nao por nome. A primeira versao pegava
+    # 'find ... -name modules | head -1' e trazia /etc/crypto-policies/policies/
+    # modules -- o find percorre em ordem de diretorio, e /etc vem antes de
+    # /showroom. A verificacao entao se abstinha ("nao cita nenhum script") e
+    # ficava INERTE, justamente a que existe para pegar a tag velha. Medido na
+    # primeira execucao contra cluster real, 2026-10-04.
+    #
+    # Agora o criterio e o que importa: o diretorio que CONTEM as paginas.
     _sr_raiz="$(oc exec -n "$_sr_ns" "$_sr_pod" -c content -- \
-      sh -c 'find / -maxdepth 6 -type d -name modules 2>/dev/null | head -1' 2>/dev/null | tr -d '\r')"
+      sh -c 'for d in $(find / -maxdepth 6 -type d -name modules 2>/dev/null); do ls "$d"/*.html >/dev/null 2>&1 && { echo "$d"; break; }; done' 2>/dev/null | tr -d '\r')"
     if [[ -z "$_sr_raiz" ]]; then
       _nota "não localizei o conteúdo construído no container 'content' — verificação de scripts omitida"
     else
@@ -1701,8 +1709,14 @@ if oc get crd sites.skupper.io >/dev/null 2>&1 && \
     if [[ "$(oc get site "$_nm" -n "$_ns" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)" == "True" ]]; then
       _ok "site ${_s} pronto"
     else
-      _warn "site ${_s} com Ready=False (normal sem LoadBalancer)" \
-            "o que decide é o contador do túnel, abaixo"
+      # NOTA, e nao AVISO. O proprio comentario acima diz que isto e o
+      # comportamento esperado em cluster sem LoadBalancer -- e aviso que nunca
+      # sai de cena nao e aviso, e ruido. Medido com o scripts/frota.sh
+      # rodando de verdade em 2026-10-04: ele classificava o ambiente como
+      # 'degradado' por causa desta linha, e numa onda de vinte ambientes TODOS
+      # ficariam amarelos por um motivo que ja se sabe benigno -- o que apaga a
+      # diferenca entre os tres baldes da triagem. Ver docs/FROTA.md, fase 4.
+      _nota "site ${_s} com Ready=False — esperado sem LoadBalancer; quem decide é o contador do túnel, abaixo"
     fi
   done
 
