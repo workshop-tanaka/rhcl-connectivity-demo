@@ -1263,11 +1263,27 @@ try:
     espelho = {e["name"] for e in json.load(sys.stdin) if e["type"] == "tree"}
 except Exception:
     sys.exit(0)
-cm = subprocess.run(["oc", "get", "cm", "app-config-rhdh-catalog", "-n", sys.argv[1],
-                     "-o", "jsonpath={.data.app-config-catalog\\.yaml}"],
-                    capture_output=True, text=True).stdout
+r = subprocess.run(["oc", "get", "cm", "app-config-rhdh-catalog", "-n", sys.argv[1],
+                    "-o", "jsonpath={.data.app-config-catalog\\.yaml}"],
+                   capture_output=True, text=True)
+# ABSTER-SE, nao concluir ausencia. Esta verificacao e uma DIFERENCA entre duas
+# leituras, e por isso a falha de uma delas nao se parece com falha: se este
+# 'oc' devolve vazio, 'declarados' nasce vazio e a diferenca vira o espelho
+# INTEIRO -- seis templates acusados de faltar, com uma correcao sugerida que
+# reescreveria locations que estavam boas.
+#
+# Aconteceu em 2026-10-02: uma execucao acusou os seis, as duas seguintes
+# passaram. Com um ambiente, voce reexecuta e descobre. Com vinte, voce
+# reescreve seis locations em vinte clusters. Ver docs/FROTA.md, secao 8.
+if r.returncode != 0 or not r.stdout.strip():
+    sys.exit(0)
 declarados = {l.split("/templates/")[1].split("/")[0]
-              for l in cm.splitlines() if "/templates/" in l}
+              for l in r.stdout.splitlines() if "/templates/" in l}
+# Mesmo motivo, outro lado: ConfigMap que existe mas nao declara template
+# nenhum e configuracao incompleta, nao e esta verificacao que a diagnostica
+# (a de 'location que o portal leu' faz isso, com a mensagem certa).
+if not declarados:
+    sys.exit(0)
 print(" ".join(sorted(espelho - declarados)))
 ' "${_rhdh_ns:-rhdh-rhcl}" 2>/dev/null)"
       if [[ -z "$_tplfalta" ]]; then
