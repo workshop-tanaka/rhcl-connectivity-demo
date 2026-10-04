@@ -32,6 +32,7 @@ funcionar ao vivo.
 | [docs/PROVISIONING-1.4.md](docs/PROVISIONING-1.4.md) | por que cada passo do provisionamento existe e como cada um quebra |
 | [docs/SAMPLES.md](docs/SAMPLES.md) | as amostras do Istio: o que dizer, o que medir, e as quatro armadilhas já medidas |
 | [docs/FROTA.md](docs/FROTA.md) | montar e validar o workshop em N ambientes: a onda como unidade, as cinco fases, e o que falta construir |
+| [docs/TURMA.md](docs/TURMA.md) | N participantes no MESMO cluster (`scripts/tenant.sh`): como subir e conferir a turma, o que fica com o instrutor, e as armadilhas medidas |
 
 **O cluster é efêmero.** Hostname, senha e nome de cluster que aparecem em doc
 envelhecem; descobrir do cluster na hora, nunca copiar de documento. Nenhum
@@ -65,6 +66,10 @@ bash scripts/frota.sh valida         # as duas camadas por ambiente, do inventá
 # N participantes no MESMO cluster (scripts/tenant.sh) — a visão do instrutor
 bash scripts/turma.sh --vigia        # saúde por participante + a plataforma compartilhada; só lê
 bash scripts/turma.sh todos          # um bloco por cluster do inventário
+
+# N participantes no MESMO cluster — ver docs/TURMA.md
+bash scripts/tenant.sh turma 30      # user1..user30: ambiente, guia e terminal de cada um
+bash scripts/tenant.sh confere-turma # o preflight do terminal de cada participante
 ```
 
 Validação local — é o que o CI ([.github/workflows/validate.yml](.github/workflows/validate.yml)) roda:
