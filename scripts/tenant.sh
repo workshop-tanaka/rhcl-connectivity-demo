@@ -76,6 +76,58 @@ ROTULO="rhcl.demo/tenant"
 # que o roteiro manda olhar. Fora desta lista ele nao ve pod de ninguem.
 NS_PLATAFORMA="kuadrant-system istio-system istio-cni monitoring tracing-system openshift-monitoring openshift-console"
 
+# A TROCA, num lugar so. Ela roda em dois: na copia do repositorio ('render')
+# e no CONTEUDO do guia, dentro do Showroom do participante ('showroom'). Sao
+# as mesmas regras de proposito -- o comando que a pagina manda digitar tem de
+# enderecar o mesmo namespace que o script ao lado dele usa.
+# Recebe TENANT, ALT_NS e ALT_HOST pelo ambiente.
+_PERL_TROCA="$(cat <<'PERL'
+BEGIN { $t = $ENV{TENANT}; $ns = qr/$ENV{ALT_NS}/; $h = qr/$ENV{ALT_HOST}/;
+        # "solto" a esquerda: nada de letra, digito, _ ou - antes -- EXCETO o
+        # dois-pontos-hifen do default do bash (${X:-travel-agency}), que e onde
+        # moram os namespaces dos Extras e os hostnames do new-env.sh
+        $solto = qr/(?:(?<![\w-])|(?<=:-))/; }
+# chaves de API: o tenant entra no nome e no rotulo do seletor
+s/$solto apikey-(?=[a-z])/apikey-$t-/gx;
+s/(\bapp["\x27]?\s*[:=]\s*["\x27]?)partner(?![\w-])/$1partner-$t/g;
+# namespaces e rotulos de hostname, so quando o nome esta solto
+s/$solto ($ns)(?![\w-])/$1-$t/gx;
+s/$solto ($h)(?![\w-])/$1-$t/gx;
+# os paineis do Grafana sao UM para a turma: o link abre ja filtrado pelo
+# rotulo 'ambiente' do participante (ver servicemonitors.yaml)
+s{(/d/rhcl-(?:evidencia|negocio-planos|negocio-parceiros))(?![\w/?-])}{$1?var-ambiente=ambiente%7C%3D%7C$t}g;
+# a lista 'Parceiro' e consulta de VARIAVEL, que o filtro ad hoc nao alcanca:
+# o mesmo nome vai de novo, na variavel oculta que ela usa
+s{(/d/rhcl-negocio-parceiros\?var-ambiente=ambiente%7C%3D%7C\Q$t\E)(?![\w&])}{$1&var-tenant=$t}g;
+# SO NO CONTEUDO DO GUIA (CONTEUDO=1): o endereco da API vinha como texto
+# (URL escapada entre crases) e o participante quer clicar. Vira link que
+# abre em aba NOVA -- o '^' e o que impede o link de substituir o guia.
+# \x60 e a crase: escrita por extenso ela quebra o parser do bash 3.2, que
+# procura o par dela mesmo dentro de um heredoc citado.
+s{\x60\\(https?://[^\x60\s]+)\x60}{$1\[$1^\]}g if $ENV{CONTEUDO};
+PERL
+)"
+
+# O SEGUNDO PASSO, so do conteudo: links cujo destino NAO EXISTE neste ambiente.
+# O chart do workshop nao sobe GitLab, Dev Spaces com repositorio nem Developer
+# Hub, e as paginas linkam os tres: o atributo chega vazio e o link sai morto
+# (visto pelo participante no cluster-swsmt, 2026-10-04, em "As telas" e em
+# "Onde a configuracao vive"). Com o arquivo inteiro na memoria (-0777):
+#   1. a linha de tabela de tres celulas cuja ultima e o link vazio sai
+#   2. o paragrafo que COMECA pelo link vazio sai -- comeca de verdade, depois
+#      de linha em branco: a primeira versao casava tambem a linha de
+#      continuacao que por acaso abria com o link, e levava junto o '===='
+#      que fechava o bloco seguinte
+#   3. o link vazio no meio de uma frase vira so o texto
+# Recebe VAZIOS (atributos sem valor, separados por |) pelo ambiente.
+_PERL_VAZIOS="$(cat <<'PERL'
+BEGIN { $v = qr/(?:$ENV{VAZIOS})/; }
+s/^\|[^\n]*\n\|[^\n]*\n\|\s*\{$v\}\[[^\]\n]*\]\n\n?//mg;
+s/(?<=\n\n)\{$v\}\[[^\]\n]*\][^\n]*\n(?:[^\n]+\n)*//g;
+s/\{$v\}\[([^\]\n]*?)\^?\]/$1/g;
+PERL
+)"
+
 _valida_tenant() {
   # O MESMO padrao da trava de admissao (_plataforma), e tem de ser: um nome
   # que este validador aceitasse e a trava nao reconhecesse criaria um
@@ -106,24 +158,16 @@ _render() { # <tenant> <destino>
   done
 
   local alt_ns alt_host
-  alt_ns="$(printf '%s' "$NS_TENANT" | tr -s ' \\\n' '|' | sed 's/^|//; s/|$//')"
+  # 'parceiros' fica FORA da troca do conteudo: nas paginas a palavra e so
+  # prosa ("os tres parceiros"), 13 vezes, e nenhuma delas e o namespace. Os
+  # links dos portais chegam por atributo.
+  alt_ns="$(printf '%s' "$NS_TENANT" | tr -s ' \\\n' '|' | sed 's/^|//; s/|$//; s/|parceiros|/|/')"
   alt_host="$(printf '%s %s' "$HOSTS_TENANT" "$NOMES_TENANT" | tr -s ' ' '|')"
 
   # 1. conteudo. A ordem das regras importa: as chaves primeiro, porque a
   #    regra dos namespaces nao pode ver 'apikey-user7-...' como token novo.
-  find "$dest" -type f -print0 | TENANT="$t" ALT_NS="$alt_ns" ALT_HOST="$alt_host" xargs -0 perl -pi -e '
-    BEGIN { $t = $ENV{TENANT}; $ns = qr/$ENV{ALT_NS}/; $h = qr/$ENV{ALT_HOST}/;
-            # "solto" a esquerda: nada de letra, digito, _ ou - antes -- EXCETO o
-            # dois-pontos-hifen do default do bash (${X:-travel-agency}), que e onde moram
-            # os namespaces dos Extras e os hostnames do new-env.sh
-            $solto = qr/(?:(?<![\w-])|(?<=:-))/; }
-    # chaves de API: o tenant entra no nome e no rotulo do seletor
-    s/$solto apikey-(?=[a-z])/apikey-$t-/gx;
-    s/(\bapp["\x27]?\s*[:=]\s*["\x27]?)partner(?![\w-])/$1partner-$t/g;
-    # namespaces e rotulos de hostname, so quando o nome esta solto
-    s/$solto ($ns)(?![\w-])/$1-$t/gx;
-    s/$solto ($h)(?![\w-])/$1-$t/gx;
-  ' || _die "a troca de conteudo falhou"
+  find "$dest" -type f -print0 | TENANT="$t" ALT_NS="$alt_ns" ALT_HOST="$alt_host" xargs -0 perl -pi -e "$_PERL_TROCA" \
+    || _die "a troca de conteudo falhou"
 
   # 2. caminhos: arquivo ou diretorio cujo nome e o token. De baixo para cima,
   #    senao renomear o diretorio invalida o caminho dos filhos.
@@ -629,6 +673,9 @@ _showroom() { # <tenant> <dir da copia>
   [[ -n "$orig" ]] || _die "nao achei o Showroom do instrutor para servir de molde (defina SHOWROOM_ORIGEM=<namespace>)."
   dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
   _rbac "$t"
+  local alt_ns alt_host
+  alt_ns="$(printf '%s' "$NS_TENANT" | tr -s ' \\\n' '|' | sed 's/^|//; s/|$//')"
+  alt_host="$(printf '%s %s' "$HOSTS_TENANT" "$NOMES_TENANT" | tr -s ' ' '|')"
 
   {
     oc get deploy/showroom svc/showroom route/showroom pvc/showroom-terminal-lab-user-home rolebinding/edit-showroom-sa \
@@ -644,7 +691,7 @@ _showroom() { # <tenant> <dir da copia>
     # e, nele, um KeycloakRealmImport com o nome de outro participante -- com
     # '-A' a "senha" plantada iria parar no guia da vitima.
     oc get keycloakrealmimport -n "${KEYCLOAK_NS:-keycloak}" -o json 2>/dev/null || printf '{"items":[]}'
-  } | TENANT="$t" DOM="$dom" python3 -c '
+  } | TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
 import sys, json, os, re, base64
 t, dom = os.environ["TENANT"], os.environ["DOM"]
 objs, chaves, rotas, realms = sys.stdin.read().split("\x1e")
@@ -664,8 +711,47 @@ troca = {"api_host": "api-travels-%s.%s" % (t, dom), "guid": t, "usuario_console
 novos = {"user": t, "sufixo": "-" + t}
 pode = {"api_host", "api_key_free", "api_key_silver", "api_key_gold", "cluster_domain", "guid",
         "usuario_console", "demo_ref", "repo_no_ambiente", "repo_policies", "repo_apis"}
+# Os atributos saem ANTES do laco: o Deployment precisa saber quais ficaram
+# vazios para tirar do guia os links que nao levam a lugar nenhum.
+itens = json.loads(objs)["items"]
+# RECONSTRUIDO, nao filtrado. O molde e o Showroom do INSTRUTOR, e os atributos
+# dele trazem a senha de admin do Keycloak, do Grafana e do GitLab. Filtrar
+# linha a linha deixava passar tudo o que nao tivesse cara de chave e valor --
+# a continuacao de um valor de varias linhas, um bloco aninhado. Aqui so entra
+# o que casa INTEIRO com "chave": "valor" numa linha, de uma chave da lista do
+# que PODE, e URL com credencial embutida (usuario@) fica de fora. O resto nao
+# e copiado: a pagina ja trata atributo ausente.
+dados = {}
+for o in itens:
+    if o["kind"] == "ConfigMap" and o["metadata"]["name"] == "showroom-userdata":
+        for l in o["data"]["user_data.yml"].splitlines():
+            c = re.fullmatch(r"\"?([A-Za-z0-9_]+)\"?:\s*\"((?:[^\"\\]|\\.)*)\"\s*", l)
+            if not c: continue
+            ch, v = c.group(1), c.group(2)
+            if not (ch in pode or ch.endswith("_url")): continue
+            if "@" in v: continue
+            dados[ch] = v
+dados.update(troca); dados.update(novos)
+# SEM GITLAB NO CLUSTER, a configuracao que as paginas linkam esta no
+# repositorio publico, na mesma tag que este ambiente clonou. Os caminhos sao
+# os mesmos (base/...), entao os 14 links de arquivo voltam a funcionar.
+base = re.sub(r"\.git$", "", dados.get("demo_repo_url", "")); ref = dados.get("demo_ref", "")
+if base.startswith("https://") and ref and not dados.get("config_url"):
+    dados["config_url"] = base + "/blob/" + ref
+    dados["repo_policies"] = base + "/tree/" + ref + "/base"
+    dados["repo_no_ambiente"] = base + "/tree/" + ref
+# Parte destes valores vem do cluster (hostname de Route, senha do usuario). O
+# arquivo e montado por concatenacao, entao valor com aspas, barra invertida ou
+# caractere de controle quebraria a string e injetaria atributo: nesse caso o
+# atributo sai vazio.
+for ch in list(dados):
+    if not re.fullmatch(r"[\x20\x21\x23-\x5b\x5d-\x7e\u00a0-\uffff]*", dados[ch]): dados[ch] = ""
+vazios = sorted(ch for ch in ("ide_url", "rhdh_url", "repo_policies", "repo_no_ambiente", "config_url",
+                              "interconnect_console_url", "portal_free_url", "portal_silver_url", "portal_gold_url",
+                              "keycloak_url", "grafana_url", "kiali_url", "traces_url", "tempo_url")
+                if dados.get(ch, "") in ("", "https://"))
 out = []
-for o in json.loads(objs)["items"]:
+for o in itens:
     m = o["metadata"]
     o["metadata"] = {"name": m["name"], "namespace": "showroom-" + t, "labels": m.get("labels", {})}
     o.pop("status", None)
@@ -680,29 +766,6 @@ for o in json.loads(objs)["items"]:
     elif k == "RoleBinding":
         for s in o["subjects"]: s["namespace"] = "showroom-" + t
     elif k == "ConfigMap" and m["name"] == "showroom-userdata":
-        # RECONSTRUIDO, nao filtrado. O molde e o Showroom do INSTRUTOR, e os
-        # atributos dele trazem a senha de admin do Keycloak, do Grafana e do
-        # GitLab. Filtrar linha a linha deixava passar tudo o que nao tivesse
-        # cara de chave e valor -- a continuacao de um valor de varias linhas,
-        # um bloco aninhado. Aqui so entra o que casa INTEIRO com
-        # "chave": "valor" numa linha, de uma chave da lista do que PODE, e
-        # URL com credencial embutida (usuario@) fica de fora. O resto nao e
-        # copiado: a pagina ja trata atributo ausente.
-        dados = {}
-        for l in o["data"]["user_data.yml"].splitlines():
-            c = re.fullmatch(r"\"?([A-Za-z0-9_]+)\"?:\s*\"((?:[^\"\\]|\\.)*)\"\s*", l)
-            if not c: continue
-            ch, v = c.group(1), c.group(2)
-            if not (ch in pode or ch.endswith("_url")): continue
-            if "@" in v: continue
-            dados[ch] = v
-        dados.update(troca); dados.update(novos)
-        # Parte destes valores vem do cluster (hostname de Route, senha do
-        # usuario). O arquivo e montado por concatenacao, entao valor com
-        # aspas, barra invertida ou caractere de controle quebraria a string
-        # e injetaria atributo: nesse caso o atributo sai vazio.
-        for ch in list(dados):
-            if not re.fullmatch(r"[\x20\x21\x23-\x5b\x5d-\x7e\u00a0-\uffff]*", dados[ch]): dados[ch] = ""
         o["data"]["user_data.yml"] = "".join("\"%s\": \"%s\"\n" % (ch, dados[ch]) for ch in sorted(dados))
     elif k == "Deployment":
         sp = o["spec"]["template"]["spec"]
@@ -712,7 +775,24 @@ for o in json.loads(objs)["items"]:
                 if e["name"] in ("GUID", "USER"): e["value"] = t
         # o workingDir do terminal precisa EXISTIR antes do container subir,
         # senao ele morre em CreateContainerError; a copia so chega depois
-        sp.setdefault("initContainers", []).append({
+        # O CONTEUDO DO GUIA passa pela MESMA troca que o repositorio: entre o
+        # clone e o build do Antora, um passo reescreve as paginas. Sem ele o
+        # texto manda digitar -n travel-agency num terminal que so alcanca
+        # travel-agency-<tenant>. Nenhuma pagina precisa mudar, e o workshop
+        # de um cluster por participante continua lendo o mesmo conteudo.
+        ini = sp.setdefault("initContainers", [])
+        ini[:] = [c for c in ini if c["name"] not in ("troca-conteudo", "prepara-terminal")]
+        pos = 1 + max([i for i, c in enumerate(ini) if c["name"] == "git-cloner"] or [-1])
+        repo = [v for c in ini if c["name"] == "git-cloner" for v in c["volumeMounts"]]
+        ini.insert(pos, {
+            "name": "troca-conteudo", "image": term["image"],
+            "env": [{"name": "TENANT", "value": t}, {"name": "ALT_NS", "value": os.environ["ALT_NS"]},
+                    {"name": "ALT_HOST", "value": os.environ["ALT_HOST"]}, {"name": "PERL_TROCA", "value": os.environ["PERL_TROCA"]},
+                    {"name": "CONTEUDO", "value": "1"}, {"name": "VAZIOS", "value": "|".join(vazios)},
+                    {"name": "PERL_VAZIOS", "value": os.environ["PERL_VAZIOS"]}],
+            "command": ["bash", "-c", "set -e; d=%s; n=$(find \"$d\" -name \"*.adoc\" | wc -l); [ \"$n\" -gt 0 ]; find \"$d\" -name \"*.adoc\" -print0 | xargs -0 perl -pi -e \"$PERL_TROCA\"; if [ -n \"$VAZIOS\" ]; then find \"$d\" -name \"*.adoc\" -print0 | xargs -0 perl -0777 -pi -e \"$PERL_VAZIOS\"; fi; echo \"troca aplicada a $n paginas; links sem destino: ${VAZIOS:-nenhum}\"" % repo[0]["mountPath"]],
+            "volumeMounts": repo})
+        ini.append({
             "name": "prepara-terminal", "image": term["image"],
             "command": ["bash", "-c", "mkdir -p " + term.get("workingDir", "/home/lab-user/rhcl-connectivity-demo")],
             "volumeMounts": [v for v in term["volumeMounts"] if v["name"] == "terminal-lab-user-home"]})
