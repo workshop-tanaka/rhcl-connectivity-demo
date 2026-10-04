@@ -15,6 +15,16 @@ acessos.local
 env/cluster-*/
 overlays/cluster-*/
 
+# INVENTARIO DA FROTA e as medicoes dele (scripts/frota.sh).
+#
+# O inventario carrega credencial viva -- um kubeconfig por ambiente --, mesma
+# faixa do ACESSOS.md acima e pelo mesmo motivo. O MANIFESTO DA ONDA e o
+# oposto: carrega DECISAO (as refs congeladas) e por isso e versionado. E a
+# mesma fronteira do env/cluster-*/ acima: branch leva o que varia por decisao,
+# diretorio o que varia por ambiente.
+frota.local
+frota/
+
 # artefatos de build de plugin (scripts/build-plugins.sh) -- reconstruiveis
 .plugins-build/
 postman/*.local.*

@@ -32,15 +32,56 @@ else
 fi
 
 FAIL=0; WARN=0
-_sec()  { printf '\n%s== %s ==%s\n' "$_BLU" "$*" "$_RST"; }
-_ok()   { printf '  %s✓%s %s\n' "$_GRN" "$_RST" "$*"; }
-_bad()  { printf '  %s✗%s %s\n' "$_RED" "$_RST" "$1"; [[ -n "${2:-}" ]] && printf '      %s→ %s%s\n' "$_DIM" "$2" "$_RST"; FAIL=$((FAIL+1)); }
-_warn() { printf '  %s!%s %s\n' "$_YEL" "$_RST" "$1"; [[ -n "${2:-}" ]] && printf '      %s→ %s%s\n' "$_DIM" "$2" "$_RST"; WARN=$((WARN+1)); }
+
+# ----- saida em DADO, para a frota -----------------------------------------
+# '--tsv' troca o relatorio humano por uma linha por verificacao:
+#
+#   estado <TAB> secao <TAB> mensagem <TAB> correcao
+#
+# POR QUE existe: com um ambiente voce LE as 97 linhas. Com vinte, precisa de
+# uma linha por ambiente E de saber QUAL verificacao caiu ONDE -- um exit 1
+# agregado nao diz nada acionavel. O scripts/frota.sh consome isto.
+#
+# E por que um formato DECLARADO em vez de raspar os marcadores: '✓ ✗ ! ·' sao
+# APRESENTACAO. Construir a frota sobre eles faria qualquer ajuste de cor ou de
+# simbolo quebrar a frota em silencio. Ver docs/FROTA.md, lacuna G3.
+TSV=0
+_SECAO="-"
+_lim() { printf '%s' "$1" | tr '\t\n' '  '; }   # TAB no texto quebraria a coluna
+_dado() { [[ "$TSV" == "1" ]] || return 0; printf '%s\t%s\t%s\t%s\n' "$1" "$(_lim "$_SECAO")" "$(_lim "$2")" "$(_lim "${3:-}")"; }
+
+_sec()  { _SECAO="$*"; [[ "$TSV" == "1" ]] && return 0; printf '\n%s== %s ==%s\n' "$_BLU" "$*" "$_RST"; }
+_ok()   { _dado OK    "$*" ""; [[ "$TSV" == "1" ]] && return 0; printf '  %s✓%s %s\n' "$_GRN" "$_RST" "$*"; }
+_bad()  { FAIL=$((FAIL+1)); _dado FALHA "$1" "${2:-}"; [[ "$TSV" == "1" ]] && return 0
+          printf '  %s✗%s %s\n' "$_RED" "$_RST" "$1"; [[ -n "${2:-}" ]] && printf '      %s→ %s%s\n' "$_DIM" "$2" "$_RST"; return 0; }
+_warn() { WARN=$((WARN+1)); _dado AVISO "$1" "${2:-}"; [[ "$TSV" == "1" ]] && return 0
+          printf '  %s!%s %s\n' "$_YEL" "$_RST" "$1"; [[ -n "${2:-}" ]] && printf '      %s→ %s%s\n' "$_DIM" "$2" "$_RST"; return 0; }
 # Nota: nem verde nem aviso. Estado esperado que gera pergunta toda vez que
 # alguem olha o cluster por fora do preflight -- dizer antes sai mais barato.
-_nota() { printf '  %s· %s%s\n' "$_DIM" "$*" "$_RST"; }
+_nota() { _dado NOTA "$*" ""; [[ "$TSV" == "1" ]] && return 0; printf '  %s· %s%s\n' "$_DIM" "$*" "$_RST"; }
 
-MODE="${1:-full}"
+# A ultima linha, nos dois formatos. Em dado ela e uma linha como as outras --
+# o consumidor nao precisa contar: le o RESUMO.
+_resumo() { printf 'RESUMO\t-\tfalhas=%d avisos=%d\t%s\n' "$FAIL" "$WARN" "$MODE"; }
+_veredito_showroom() {
+  if [[ "$TSV" == "1" ]]; then _resumo; return 0; fi
+  printf '\n'
+  [[ "$FAIL" == "0" ]] \
+    && printf '%s[OK]%s o Showroom entrega o ambiente DESTE participante (%d aviso(s)).\n' "$_GRN" "$_RST" "$WARN" \
+    || printf '%s[X]%s %d falha(s) na superfície do participante.\n' "$_RED" "$_RST" "$FAIL"
+  return 0
+}
+
+# '--tsv' pode vir antes ou depois do modo; o modo e o primeiro posicional.
+_ARGS=()
+for _a in "$@"; do
+  case "$_a" in
+    --tsv) TSV=1 ;;
+    -*)    printf 'opcao desconhecida: %s (use: --tsv)\n' "$_a" >&2; exit 2 ;;
+    *)     _ARGS+=("$_a") ;;
+  esac
+done
+MODE="${_ARGS[0]:-full}"
 # Modo desconhecido CAI, em vez de virar 'full' calado. Importa para quem
 # chama de fora: o playbook do workshop gateia o ambiente nesta saida, e um
 # 'showroom' escrito errado passando como verificacao completa daria verde
@@ -92,17 +133,21 @@ _overlay() {
 }
 OVERLAY="$(_overlay)"
 
-printf '\n  %sRed Hat Connectivity Link — verificacao do ambiente%s\n' "$_BLD" "$_RST"
-printf '  %sidealizado e construido por Sandro Tanaka%s\n' "$_DIM" "$_RST"
+if [[ "$TSV" != "1" ]]; then
+  printf '\n  %sRed Hat Connectivity Link — verificacao do ambiente%s\n' "$_BLD" "$_RST"
+  printf '  %sidealizado e construido por Sandro Tanaka%s\n' "$_DIM" "$_RST"
+fi
 
 # ---------------------------------------------------------------------------
 _sec "acesso ao cluster"
 if ! command -v oc >/dev/null; then
   _bad "'oc' não encontrado no PATH" "instale o cliente do OpenShift"
+  [[ "$TSV" == "1" ]] && _resumo
   exit 1
 fi
 if ! oc whoami >/dev/null 2>&1; then
   _bad "não autenticado" "oc login <api-url>"
+  [[ "$TSV" == "1" ]] && _resumo
   exit 1
 fi
 _ok "autenticado como $(oc whoami) em $(oc whoami --show-server 2>/dev/null | sed 's|https://||')"
@@ -138,7 +183,7 @@ if [[ "$MODE" == "showroom" ]]; then
   if [[ -z "$_sr_ns" ]]; then
     _bad "nenhum namespace 'showroom-*' no cluster" \
          "o Showroom é o passo 6 do playbook do workshop; sem ele não há o que verificar"
-    printf '\n%s[X]%s 1 falha(s).\n' "$_RED" "$_RST"; exit 1
+    _veredito_showroom; exit 1
   fi
   _ok "namespace ${_sr_ns}"
 
@@ -268,12 +313,8 @@ print(" ".join(sorted(set(ruins))))' 2>/dev/null)"
           "a página do pedido no RHDP não mostra os endereços; o workshop funciona"
   fi
 
-  printf '\n'
-  if [[ "$FAIL" == "0" ]]; then
-    printf '%s[OK]%s o Showroom entrega o ambiente DESTE participante (%d aviso(s)).\n' "$_GRN" "$_RST" "$WARN"
-    exit 0
-  fi
-  printf '%s[X]%s %d falha(s) na superfície do participante.\n' "$_RED" "$_RST" "$FAIL"
+  _veredito_showroom
+  [[ "$FAIL" == "0" ]] && exit 0
   exit 1
 fi
 
@@ -594,7 +635,7 @@ if [[ -n "$HOST" ]]; then
   _key="$(oc get secrets -n kuadrant-system -l kuadrant.io/plan-id=free \
             -o jsonpath='{.items[0].data.api_key}' 2>/dev/null | base64 -d)"
   if [[ "$_free_rem" == "0" ]]; then
-    printf '      %s… medição do tier free pulada: com a cota do dia zerada o resultado seria 8/8 em 429%s\n' "$_DIM" "$_RST"
+    [[ "$TSV" == "1" ]] || printf '      %s… medição do tier free pulada: com a cota do dia zerada o resultado seria 8/8 em 429%s\n' "$_DIM" "$_RST"
   elif [[ -n "$_key" ]]; then
     sleep 11
     _ok200=0; _ok429=0
@@ -641,7 +682,17 @@ if [[ -n "$HOST" ]]; then
   fi
 fi
 
-[[ "$MODE" == "core" ]] && { printf '\n'; [[ "$FAIL" == "0" ]] && { printf '%s[OK]%s núcleo pronto (%d avisos).\n' "$_GRN" "$_RST" "$WARN"; exit 0; } || { printf '%s[X]%s %d falha(s).\n' "$_RED" "$_RST" "$FAIL"; exit 1; }; }
+if [[ "$MODE" == "core" ]]; then
+  if [[ "$TSV" == "1" ]]; then
+    _resumo
+  else
+    printf '\n'
+    [[ "$FAIL" == "0" ]] && printf '%s[OK]%s núcleo pronto (%d avisos).\n' "$_GRN" "$_RST" "$WARN" \
+                         || printf '%s[X]%s %d falha(s).\n' "$_RED" "$_RST" "$FAIL"
+  fi
+  [[ "$FAIL" == "0" ]] && exit 0
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # API atras do Gateway com hostname que o ROUTER do OpenShift nao conhece.
@@ -1792,7 +1843,7 @@ _sec "governança (ownership dos recursos)"
 # apagar a arvore de referencia. Ver o cabecalho de scripts/capture.sh.
 if ! oc get crd applications.argoproj.io >/dev/null 2>&1; then
   _ok "sem Argo CD neste cluster: nada disputa os recursos da demo"
-  printf '      %s… capture.sh detecta isso e preserva a arvore atual em vez de rotear por tracking-id%s\n' "$_DIM" "$_RST"
+  [[ "$TSV" == "1" ]] || printf '      %s… capture.sh detecta isso e preserva a arvore atual em vez de rotear por tracking-id%s\n' "$_DIM" "$_RST"
 else
 
 # Não é sobre a demo funcionar, é sobre ela continuar funcionando: um apply em
@@ -1926,6 +1977,11 @@ fi
 
 
 # ---------------------------------------------------------------------------
+if [[ "$TSV" == "1" ]]; then
+  _resumo
+  [[ "$FAIL" == "0" ]] && exit 0
+  exit 1
+fi
 printf '\n'
 if [[ "$FAIL" == "0" && "$WARN" == "0" ]]; then
   printf '%s[OK]%s o ambiente esta inteiro, sem avisos.\n' "$_GRN" "$_RST"

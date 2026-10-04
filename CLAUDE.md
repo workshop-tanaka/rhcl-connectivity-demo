@@ -57,6 +57,10 @@ SAMPLES=bookinfo bash scripts/provision.sh samples
 # cluster novo
 bash scripts/new-env.sh              # gera env/<cluster>/ + overlays/<cluster>/ (não versionados)
 bash scripts/provision.sh            # idempotente; --list, --dry-run, ou etapas soltas: 'gateway demo'
+
+# N ambientes (uma onda do workshop) — ver docs/FROTA.md
+bash scripts/preflight.sh showroom   # a superfície que o PARTICIPANTE vê, não a plataforma
+bash scripts/frota.sh valida         # as duas camadas por ambiente, do inventário frota.local
 ```
 
 Validação local — é o que o CI ([.github/workflows/validate.yml](.github/workflows/validate.yml)) roda:

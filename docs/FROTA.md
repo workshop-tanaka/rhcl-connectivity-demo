@@ -262,17 +262,33 @@ terminal; e a ConfigMap de `userinfo`. A tarefa do playbook é condicionada à
 tag da demo conhecer o modo — promover para trás não pode quebrar o
 provisionamento por causa de uma verificação que lá não existe.
 
-**3. `scripts/frota.sh` — o condutor.** Lê o inventário, roda as duas camadas
-por ambiente com paralelismo limitado, imprime uma linha por ambiente e um
-resumo, e sai diferente de zero se algum estiver quebrado. Self-contained como
-os outros, com `lista`/`valida`/`assina` à maneira do `labs.sh`.
+**3. ~~`scripts/frota.sh`~~ — FEITO.** `lista` mostra o inventário e quem
+responde; `valida` mede as duas camadas de cada ambiente em lotes (`LARGURA=4`
+por padrão) e, para quem não está pronto, **nomeia a verificação e a seção**
+que caíram; `assina` monta a tabela a partir das medições em disco, sem
+remedir — o que também dá a retomabilidade da §G5.
 
-**4. `preflight.sh --tsv` — o veredito como dado.** Uma linha por verificação:
-`estado<TAB>seção<TAB>mensagem`. Sem isto, o `frota.sh` precisa raspar os
-marcadores de apresentação, e qualquer ajuste de cor quebra a frota calada.
+Duas decisões que valem registro. O paralelismo é em **lote**, não `wait -n`: o
+bash 3.2 do macOS não tem `-n`, e lote resolve o problema real, porque passar de
+4–6 simultâneas disputa o API server deste lado sem comprar tempo. E saída vazia
+do preflight **não** é tratada como "tudo certo": é verificação que não rodou, e
+dizer isso é o oposto de concluir ausência a partir de leitura que falhou (§8).
 
-**5. O inventário e o manifesto** — formato, `.gitignore`, e o manifesto da
-onda no repositório.
+**4. ~~`preflight.sh --tsv`~~ — FEITO.** Uma linha por verificação,
+`estado<TAB>seção<TAB>mensagem<TAB>correção`, fechando com uma linha `RESUMO`
+que traz as contagens — o consumidor lê o veredito em vez de contar. Funciona
+nos três modos, e as saídas precoces (sem `oc`, sem sessão) também fecham com
+`RESUMO`, senão um ambiente sem sessão pareceria saída truncada.
+
+Tudo passa pelos helpers `_ok`/`_bad`/`_warn`/`_nota`, que eram já o funil
+único; os poucos `printf` diretos (cabeçalho, vereditos, duas notas de
+continuação) ficaram guardados, porque em modo dado a saída tem de ser
+**apenas** dado. E modo desconhecido sai com 2 em vez de virar `full` calado.
+
+**5. ~~O inventário~~ — FEITO.** `frota.local` e `frota/` estão no
+`.gitignore`, com o porquê ao lado: o inventário carrega credencial viva, e o
+manifesto da onda é o oposto — carrega decisão, e por isso é versionado. É a
+mesma fronteira do `env/cluster-*/`.
 
 ## 8. Armadilhas que a frota vai reencontrar
 
