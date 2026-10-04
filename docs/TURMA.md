@@ -141,9 +141,12 @@ a cópia que vai para o terminal, e ela carrega os hostnames do cluster.
 | Módulo 4, Service Interconnect | não foi levado para o modo de turma |
 | Extra de DNS | cria `ClusterRole` |
 
-Os Extras que sobem laboratório próprio (certificado, contextos, listas,
-prefixos, tokens de IA, parceiro com certificado) **não foram testados** como
-participante: eles criam e apagam namespace, que o participante não pode.
+Os seis Extras que sobem laboratório próprio (certificado, contextos, listas,
+prefixos, tokens de IA, parceiro com certificado) **rodam como participante**.
+Eles criam e apagam o próprio namespace, o que é de cluster-admin; na cópia do
+participante `oc create namespace` vira `oc new-project`, e quem pede o projeto
+é admin dele. Medido no cluster-swsmt como `user2`: os seis terminam sem erro
+de permissão, com as medições de cada um, e limpam o que criaram.
 
 O ambiente sem sufixo (`travel-agency`, o Showroom `showroom-rhcl`) é o do
 instrutor, com cluster-admin.
@@ -175,7 +178,9 @@ instrutor, com cluster-admin.
   que só importa **uma vez**: mudar o CR não muda o realm, então a troca vai
   pela API de admin.
 - O participante **não é cluster-admin**: `admin` nos namespaces dele, leitura
-  enumerada da plataforma, e uma trava de admissão nas chaves.
+  enumerada da plataforma, e uma trava de admissão nas chaves. O **usuário de
+  console** dele tem ainda menos que o terminal: só os namespaces dele, e é
+  por isso que a console e o Kiali mostram o ambiente dele e mais nada.
 
 ## 6. O isolamento, e como ele foi fechado
 
@@ -270,6 +275,11 @@ confira que não estão na mesma faixa (`dig +short api.cluster-<guid>...`).
   nos outros.
 - **O participante lê as rotas e as policies de todos** (`oc get httproute -A`
   mostra a turma inteira). É leitura, e o roteiro tem comandos com `-A`.
+- **Não há trava no nome do projeto de um Extra.** Um participante pode pedir
+  um projeto com o nome do laboratório de outro (`tls-lab-user9`), e o Extra do
+  outro falha com "já existe". É incômodo, não vazamento: ele não ganha acesso
+  a nada. Os namespaces de base de cada um são recusados se já existirem sem
+  o rótulo do provisionamento.
 - O texto do guia é trocado na construção, não na origem. Uma página nova que
   cite um namespace fora da lista de `NS_TENANT` em `tenant.sh` sai sem o
   sufixo.

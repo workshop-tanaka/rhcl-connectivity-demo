@@ -99,6 +99,12 @@ s{(/d/rhcl-(?:evidencia|negocio-planos|negocio-parceiros))(?![\w/?-])}{$1?var-am
 # a lista 'Parceiro' e consulta de VARIAVEL, que o filtro ad hoc nao alcanca:
 # o mesmo nome vai de novo, na variavel oculta que ela usa
 s{(/d/rhcl-negocio-parceiros\?var-ambiente=ambiente%7C%3D%7C\Q$t\E)(?![\w&])}{$1&var-tenant=$t}g;
+# SO NOS SCRIPTS (fora do conteudo): os Extras com laboratorio proprio criam e
+# apagam o namespace deles, e 'create namespace' e de cluster-admin. Projeto,
+# o participante pode pedir -- e quem pede vira admin dele, que e exatamente o
+# que o laboratorio precisa. 'delete project' e o par.
+s/\boc create (?:namespace|ns) /oc new-project --skip-config-write /g unless $ENV{CONTEUDO};
+s/\boc delete (?:namespace|ns) /oc delete project /g unless $ENV{CONTEUDO};
 # SO NO CONTEUDO DO GUIA (CONTEUDO=1): o endereco da API vinha como texto
 # (URL escapada entre crases) e o participante quer clicar. Vira link que
 # abre em aba NOVA -- o '^' e o que impede o link de substituir o guia.
@@ -334,6 +340,10 @@ _remove() { # <tenant>
   oc delete clusterrolebinding -l "${ROTULO}=${t}" --ignore-not-found >/dev/null 2>&1
   oc delete rolebinding "rhcl-tenant-${t}" "rhcl-tenant-${t}-logs" -n kuadrant-system --ignore-not-found >/dev/null 2>&1
   oc delete rolebinding -A -l "${ROTULO}=${t}" --ignore-not-found >/dev/null 2>&1
+  # os projetos de laboratorio que o proprio participante pediu (Extras):
+  # nao tem o nosso rotulo, entao vao pelo nome, que termina no tenant
+  oc get ns -o name 2>/dev/null | grep -E -- "-${t}\$" | grep -E '/(tls|mtls|listas|ia|dns|ctx)-lab-|/pfx-' \
+    | while read -r ns; do oc delete "$ns" --wait=false >/dev/null 2>&1; done
   rm -rf "${_TDIR:?}/${t}" "${_TDIR:?}/.${t}.log"
 }
 
@@ -427,7 +437,11 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: rhcl-tenant-extra
-  labels: {rhcl.demo/multitenant: "true"}
+  # AGREGADO AO 'admin': o laboratorio de um Extra nasce num projeto que o
+  # proprio participante pede, e ali nao ha RoleBinding nosso -- so o 'admin'
+  # que o OpenShift da a quem pediu. Sem a agregacao ele criaria o projeto e
+  # nao conseguiria criar o Gateway dentro dele.
+  labels: {rhcl.demo/multitenant: "true", rbac.authorization.k8s.io/aggregate-to-admin: "true"}
 rules:
   - apiGroups: [gateway.networking.k8s.io]
     resources: [gateways]
@@ -705,7 +719,9 @@ _rbac() { # <tenant>
     printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-logs, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-logs}\nsubjects:\n' "$t"; _so_sa
     # leitura da plataforma (enumerada, ver _plataforma) e das metricas: os
     # scripts do roteiro consultam nodes, operadores e Thanos, e nao escrevem la
-    for r in rhcl-tenant-leitura cluster-monitoring-view; do
+    # 'self-provisioner' so para a ServiceAccount do terminal: os Extras pedem o
+    # proprio projeto (ver a regra de 'create namespace' na troca)
+    for r in rhcl-tenant-leitura cluster-monitoring-view self-provisioner; do
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata: {name: rhcl-tenant-%s-%s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: %s}\nsubjects:\n' "$t" "$r" "$ROTULO" "$t" "$r"; _so_sa
     done
   } | oc apply -f - >/dev/null || _die "falha ao aplicar o RBAC de ${t}"
