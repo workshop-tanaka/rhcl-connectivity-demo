@@ -54,9 +54,14 @@ GW="prod-web-istio.ingress-gateway.svc.cluster.local:443"
 CHAVE="$(oc get secrets -n kuadrant-system -l 'app=partner,kuadrant.io/plan-id=gold' \
           -o jsonpath='{.items[0].data.api_key}' 2>/dev/null | base64 -d)"
 
+# Num cluster compartilhado (scripts/tenant.sh) o participante nao escreve no
+# 'default'; o namespace do Showroom dele faz o mesmo papel.
+_NS_SONDA="default"
+_raiz="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[[ -f "${_raiz}/.tenant" ]] && _NS_SONDA="showroom-$(cat "${_raiz}/.tenant")"
 _chama() { # _chama <nome-do-pod> [cabecalho]
   local nome="$1"; shift
-  oc run "$nome" --rm -i --restart=Never -n default --image="$IMG" --timeout=120s -- \
+  oc run "$nome" --rm -i --restart=Never -n "$_NS_SONDA" --image="$IMG" --timeout=120s -- \
     -insecure -authority "$HOST" "$@" "$GW" list 2>&1 | grep -vE '^pod |deleted'
 }
 

@@ -72,6 +72,9 @@ NOMES_TENANT="acme-free initech-silver globex-gold"
 # roda no terminal do participante.
 COPIA="scripts base env overlays platform-reference postman"
 ROTULO="rhcl.demo/tenant"
+# Onde o participante LE pods, servicos e rotas sem ser dono: os namespaces
+# que o roteiro manda olhar. Fora desta lista ele nao ve pod de ninguem.
+NS_PLATAFORMA="kuadrant-system istio-system istio-cni monitoring tracing-system openshift-monitoring openshift-console"
 
 _valida_tenant() {
   # O MESMO padrao da trava de admissao (_plataforma), e tem de ser: um nome
@@ -194,7 +197,9 @@ _sobe() { # <tenant> <dir da copia>
   oc get kuadrant kuadrant -n kuadrant-system >/dev/null 2>&1 \
     || _die "a plataforma nao esta de pe (sem CR Kuadrant). Rode antes o provision.sh do repositorio original."
 
-  _ns_nosso "$t" "travel-agency-${t}" "ingress-gateway-${t}" "echo-api-${t}"
+  # echo-exposta entra aqui e nao no provisionamento: e o namespace do passo
+  # 'exposta', que num cluster de um participante o proprio passo cria e apaga
+  _ns_nosso "$t" "travel-agency-${t}" "ingress-gateway-${t}" "echo-api-${t}" "echo-exposta-${t}"
   _render "$t" "$d"
   _ok "copia de ${t} em ${d#${_here}/}"
 
@@ -205,10 +210,6 @@ _sobe() { # <tenant> <dir da copia>
   ( cd "$d" && bash scripts/provision.sh platform gateway demo ) > "${d}/.provision.log" 2>&1 \
     || { tail -25 "${d}/.provision.log"; _die "provision.sh falhou na copia de ${t} (log completo em ${d#${_here}/}/.provision.log)"; }
   grep -E '✓|!' "${d}/.provision.log" | tail -8
-
-  for ns in $NS_TENANT; do
-    oc get ns "${ns}-${t}" >/dev/null 2>&1 && oc label ns "${ns}-${t}" "${ROTULO}=${t}" --overwrite >/dev/null
-  done
 
   # A BORDA RESPONDE? 401 sem chave e o unico veredito que vale. Medido em
   # 2026-10-04 subindo 35 de uma vez: 1 Gateway em 35 nao conseguiu baixar o
@@ -242,6 +243,7 @@ _remove() { # <tenant>
     | xargs -r oc delete -n kuadrant-system
   oc delete clusterrolebinding -l "${ROTULO}=${t}" --ignore-not-found >/dev/null 2>&1
   oc delete rolebinding "rhcl-tenant-${t}" "rhcl-tenant-${t}-logs" -n kuadrant-system --ignore-not-found >/dev/null 2>&1
+  oc delete rolebinding -A -l "${ROTULO}=${t}" --ignore-not-found >/dev/null 2>&1
   rm -rf "${_here:?}/tenants/${t}" "${_here:?}/tenants/.${t}.log"
 }
 
@@ -295,14 +297,15 @@ metadata:
   name: rhcl-tenant-leitura
   labels: {rhcl.demo/multitenant: "true"}
 rules:
+  # O QUE VALE PARA O CLUSTER INTEIRO e so o que nao tem como carregar
+  # segredo. Pod e Deployment ficam de FORA daqui: a spec deles traz 'env', e
+  # env em texto claro e onde senha mora (o pod do Job de provisionamento, o
+  # Keycloak). Route tambem: 'spec.tls.key' e chave privada.
   - apiGroups: [""]
-    resources: [pods, services, endpoints, namespaces, nodes, events, serviceaccounts, persistentvolumeclaims]
-    verbs: [get, list, watch]
-  - apiGroups: [apps]
-    resources: [deployments, replicasets, statefulsets, daemonsets]
+    resources: [namespaces, nodes]
     verbs: [get, list, watch]
   - apiGroups: [config.openshift.io]
-    resources: [ingresses, clusterversions, infrastructures, networks, clusteroperators]
+    resources: [ingresses, clusterversions, infrastructures, networks]
     verbs: [get, list, watch]
   - apiGroups: [operators.coreos.com]
     resources: [clusterserviceversions, subscriptions]
@@ -310,20 +313,58 @@ rules:
   - apiGroups: [apiextensions.k8s.io]
     resources: [customresourcedefinitions]
     verbs: [get, list, watch]
-  - apiGroups: [route.openshift.io]
-    resources: [routes]
-    verbs: [get, list, watch]
   - apiGroups: [project.openshift.io]
     resources: [projects]
     verbs: [get, list, watch]
-  - apiGroups: [gateway.networking.k8s.io, kuadrant.io, extensions.kuadrant.io, devportal.kuadrant.io,
-               limitador.kuadrant.io, operator.authorino.kuadrant.io, authorino.kuadrant.io,
-               networking.istio.io, security.istio.io, telemetry.istio.io, extensions.istio.io, sailoperator.io,
-               monitoring.coreos.com, networking.k8s.io, tempo.grafana.com, opentelemetry.io, kiali.io]
-    resources: ["*"]
+  # as policies e as rotas do Gateway API de todos: e o que 'oc get ... -A' do
+  # roteiro mostra, e nenhuma delas guarda credencial (referenciam Secret)
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [gateways, gatewayclasses, httproutes, grpcroutes]
+    verbs: [get, list, watch]
+  - apiGroups: [kuadrant.io]
+    resources: [authpolicies, ratelimitpolicies, tokenratelimitpolicies, tlspolicies, dnspolicies, kuadrants]
+    verbs: [get, list, watch]
+  - apiGroups: [extensions.kuadrant.io]
+    resources: [planpolicies, telemetrypolicies, oidcpolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [limitador.kuadrant.io]
+    resources: [limitadors]
+    verbs: [get, list, watch]
+  - apiGroups: [operator.authorino.kuadrant.io]
+    resources: [authorinos]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.istio.io, security.istio.io, telemetry.istio.io, extensions.istio.io]
+    resources: [virtualservices, destinationrules, envoyfilters, peerauthentications, authorizationpolicies, telemetries, wasmplugins]
+    verbs: [get, list, watch]
+  - apiGroups: [sailoperator.io]
+    resources: [istios, istiocnis, istiorevisions]
     verbs: [get, list, watch]
   - apiGroups: [metrics.k8s.io]
-    resources: [pods, nodes]
+    resources: [nodes]
+    verbs: [get, list]
+---
+# ...e o que so vale nos namespaces da PLATAFORMA (a lista esta em _rbac):
+# os pods do Kuadrant, do Istio e da observabilidade, e as rotas das telas.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rhcl-tenant-leitura-plataforma
+  labels: {rhcl.demo/multitenant: "true"}
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, endpoints, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [route.openshift.io]
+    resources: [routes]
+    verbs: [get, list, watch]
+  - apiGroups: [monitoring.coreos.com]
+    resources: [prometheusrules, servicemonitors, podmonitors]
+    verbs: [get, list, watch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods]
     verbs: [get, list]
 ---
 # o log do Authorino e do Limitador e parte do roteiro ('negado', 'auditoria')
@@ -458,6 +499,10 @@ _rbac() { # <tenant>
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-extra, namespace: %s}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-extra}\nsubjects:\n' "$ns"; _sujeitos
     done
     printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-chaves}\nsubjects:\n' "$t"; _sujeitos
+    for ns in $NS_PLATAFORMA; do
+      oc get ns "$ns" >/dev/null 2>&1 || continue
+      printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-leitura, namespace: %s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-leitura-plataforma}\nsubjects:\n' "$t" "$ns" "$ROTULO" "$t"; _sujeitos
+    done
     printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-logs, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-logs}\nsubjects:\n' "$t"; _sujeitos
     # leitura da plataforma (enumerada, ver _plataforma) e das metricas: os
     # scripts do roteiro consultam nodes, operadores e Thanos, e nao escrevem la
@@ -518,6 +563,8 @@ for s in json.loads(chaves)["items"]:
 troca = {"api_host": "api-travels-%s.%s" % (t, dom), "guid": t, "usuario_console": t,
          "api_key_free": chave.get("free", ""), "api_key_silver": chave.get("silver", ""), "api_key_gold": chave.get("gold", "")}
 novos = {"user": t, "sufixo": "-" + t}
+pode = {"api_host", "api_key_free", "api_key_silver", "api_key_gold", "cluster_domain", "guid",
+        "usuario_console", "demo_ref", "repo_no_ambiente", "repo_policies", "repo_apis"}
 out = []
 for o in json.loads(objs)["items"]:
     m = o["metadata"]
@@ -541,7 +588,10 @@ for o in json.loads(objs)["items"]:
             # senha de admin do Keycloak, do Grafana e do GitLab. Copiados, cada
             # participante receberia a chave do cluster. Tudo o que e senha ou
             # conta de admin sai em branco; a pagina ja trata atributo vazio.
-            if c and re.search(r"senha|password|admin|token|secret", c.group(1), re.I): l = "\"%s\": \"\"" % c.group(1)
+            # LISTA DO QUE PODE, nao do que nao pode: uma lista de proibidos
+            # falha ABERTA no dia em que o playbook ganhar um atributo de
+            # credencial com outro nome.
+            if c and not (c.group(1) in pode or c.group(1).endswith("_url")): l = "\"%s\": \"\"" % c.group(1)
             if c and c.group(1) in troca: l = "\"%s\": \"%s\"" % (c.group(1), troca[c.group(1)])
             if c and c.group(1) in novos: continue
             linhas.append(l)

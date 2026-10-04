@@ -46,6 +46,12 @@ _warn() { printf '  %s!%s %s\n' "$_YEL" "$_RST" "$*"; }
 _die()  { printf '\n%s[X]%s %s\n' "$_RED" "$_RST" "$*" >&2; exit 1; }
 
 _here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Onde nascem os pods de sonda "de fora do Service Mesh". Num cluster de um
+# participante e o 'default'. Num cluster COMPARTILHADO (scripts/tenant.sh) o
+# participante nao escreve no 'default' -- e nem deve: e de todos. O namespace
+# do Showroom dele serve ao mesmo proposito: nao tem sidecar e e so dele.
+_NS_SONDA="default"
+[[ -f "${_here}/.tenant" ]] && _NS_SONDA="showroom-$(cat "${_here}/.tenant")"
 # Roda sempre da raiz do repo: assim todo comando que aparece na tela e
 # relativo ("bash scripts/traffic.sh"), que e a forma que o runbook usa e a
 # unica que a plateia consegue copiar.
@@ -808,9 +814,9 @@ step_ato7() {
   printf '\n  %s1. Ninguem fala em texto claro%s\n' "$_BLD" "$_RST"
   _do oc get peerauthentication travel-agency-mtls -n travel-agency \
       -o jsonpath='{.spec.mtls.mode}{"\n"}'
-  _why "Agora a prova, de fora do Service Mesh — um pod sem sidecar, no namespace default:"
+  _why "Agora a prova, de fora do Service Mesh — um pod sem sidecar, no namespace ${_NS_SONDA}:"
   _pause || return 0
-  _do oc run mtls-probe -n default --image=registry.access.redhat.com/ubi9/ubi-minimal \
+  _do oc run mtls-probe -n "$_NS_SONDA" --image=registry.access.redhat.com/ubi9/ubi-minimal \
       --restart=Never --rm -i -- curl -s -m 6 -o /dev/null \
       -w 'HTTP=%{http_code} exit=%{exitcode}\n' \
       http://discounts.travel-agency:8000/discounts/probe
@@ -1029,7 +1035,7 @@ step_papeis() {
 # Dentro, o --resolve entrega o SNI que o listener espera.
 _exposta_curl() { # _exposta_curl <host> <ip> <sufixo-da-url> [quantas]
   local h="$1" ip="$2" q="${3:-}" n="${4:-1}"
-  oc run "probe-$RANDOM" -n default --rm -i --restart=Never --image=registry.access.redhat.com/ubi9/ubi-minimal -- \
+  oc run "probe-$RANDOM" -n "$_NS_SONDA" --rm -i --restart=Never --image=registry.access.redhat.com/ubi9/ubi-minimal -- \
     sh -c "for i in \$(seq $n); do curl -sk -m 10 -o /dev/null -w '%{http_code} ' --resolve ${h}:443:${ip} 'https://${h}/${q}'; done; echo" 2>/dev/null | grep -E '^[0-9]{3}'
 }
 
@@ -1041,7 +1047,11 @@ step_exposta() {
   _why "em ordem: sem criterio nenhum, negada a todos, liberada com criterio,"
   _why "e com limite. Cada passo e UMA policy -- e o terceiro mostra a"
   _why "sobreposicao acontecendo na sua propria rota."
-  _warn "MUDA ESTADO: cria o namespace echo-exposta. O passo o remove no fim."
+  if [[ -f "${_here}/.tenant" ]]; then
+    _warn "MUDA ESTADO: publica uma API no namespace echo-exposta. O passo a remove no fim."
+  else
+    _warn "MUDA ESTADO: cria o namespace echo-exposta. O passo o remove no fim."
+  fi
   _pause || return 0
 
   local api host ip
@@ -1051,7 +1061,14 @@ step_exposta() {
   printf '\n  %sMOMENTO 1 — qualquer um acessa, sem criterio nenhum%s\n' "$_BLD" "$_RST"
   _why "O caminho que quase todo servico segue no primeiro dia: sobe o pod,"
   _why "expoe o Service, publica uma Route. Pronto, esta no ar."
-  _do oc apply -f platform-reference/golden-path-manual/01-echo-exposta.yaml
+  # CLUSTER COMPARTILHADO: o participante nao cria nem apaga namespace -- o
+  # dele ja nasceu com o ambiente (scripts/tenant.sh). Aplica-se o mesmo
+  # arquivo sem o documento Namespace, e no fim limpa-se o CONTEUDO.
+  if [[ -f "${_here}/.tenant" ]]; then
+    _do_sh "perl -0777 -ne 'print join(qq{---\n}, grep { !/^kind:\s*Namespace\s*\$/m } split(/^---\s*\$/m))' platform-reference/golden-path-manual/01-echo-exposta.yaml | oc apply -f -"
+  else
+    _do oc apply -f platform-reference/golden-path-manual/01-echo-exposta.yaml
+  fi
   [[ $DRY_RUN -eq 0 ]] && oc rollout status deploy/echo -n echo-exposta --timeout=180s >/dev/null 2>&1
   _do_sh "oc create route edge echo-solto -n echo-exposta --service=echo --port=http --dry-run=client -o yaml | oc apply -f - >/dev/null"
   if [[ $DRY_RUN -eq 0 ]]; then
@@ -1132,7 +1149,11 @@ step_exposta() {
 
   printf '\n  %sLimpando, e refazendo do jeito certo%s\n' "$_BLD" "$_RST"
   _pause || return 0
-  _do oc delete namespace echo-exposta --wait=false
+  if [[ -f "${_here}/.tenant" ]]; then
+    _do_sh "oc delete planpolicy,ratelimitpolicy,authpolicy,httproute,route,deploy,svc --all -n echo-exposta --ignore-not-found"
+  else
+    _do oc delete namespace echo-exposta --wait=false
+  fi
   _do_sh "oc delete secret apikey-echo-exposta -n kuadrant-system --ignore-not-found >/dev/null; echo '  chave removida'"
   local portal; portal="$(_route backstage-developer-hub rhdh-rhcl)"
   [[ -z "$portal" ]] && portal="$(_route backstage-developer-hub rhdh)"
@@ -1254,9 +1275,15 @@ step_degrada() {
   _why "Por que MEDIR e nao ler: no RHCL 1.2 o comportamento de falha vive"
   _why "dentro do WasmPlugin, nao numa config do Envoy. Nao ha campo para"
   _why "mostrar (conferido em 2026-09-17). O contador e a unica prova honesta."
-  _warn "Isto MUDA ESTADO: o Limitador e escalado para zero e volta no fim do"
-  _warn "passo, inclusive com Ctrl-C. A cota do dia nao se perde -- o contador e"
-  _warn "no Redis do proprio Limitador, e ele volta com o que tinha."
+  if [[ -f "${_here}/.tenant" ]]; then
+    _warn "Isto MUDA ESTADO: o caminho do SEU Gateway ate o Limitador e cortado e"
+    _warn "volta no fim do passo, inclusive com Ctrl-C. O Limitador continua de pe"
+    _warn "para os outros participantes -- o cluster e compartilhado."
+  else
+    _warn "Isto MUDA ESTADO: o Limitador e escalado para zero e volta no fim do"
+    _warn "passo, inclusive com Ctrl-C. A cota do dia nao se perde -- o contador e"
+    _warn "no Redis do proprio Limitador, e ele volta com o que tinha."
+  fi
   _pause || return 0
 
   local api free; api="$(_api_host)"; free="$(_key_of free)"
