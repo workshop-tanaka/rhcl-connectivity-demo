@@ -128,6 +128,15 @@ s/\{$v\}\[([^\]\n]*?)\^?\]/$1/g;
 PERL
 )"
 
+# AS COPIAS SAO POR CLUSTER. A copia de um participante carrega o overlay e os
+# hostnames do cluster em que ele foi provisionado, e e ELA que 'showroom'
+# empurra para o terminal. Com um diretorio so, provisionar o user7 do segundo
+# cluster sobrescrevia a copia do user7 do primeiro -- e a proxima
+# republicacao do guia no primeiro levaria ao terminal os hostnames do outro.
+# O nome sai do dominio de apps; sem sessao (um 'render' de bancada), 'local'.
+_TDIR="${_here}/tenants/$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null | sed 's/^apps\.//' | cut -d. -f1 | tr -c 'a-z0-9-\n' '-')"
+[[ "$_TDIR" == "${_here}/tenants/" ]] && _TDIR="${_here}/tenants/local"
+
 _valida_tenant() {
   # O MESMO padrao da trava de admissao (_plataforma), e tem de ser: um nome
   # que este validador aceitasse e a trava nao reconhecesse criaria um
@@ -318,7 +327,7 @@ _remove() { # <tenant>
   oc delete clusterrolebinding -l "${ROTULO}=${t}" --ignore-not-found >/dev/null 2>&1
   oc delete rolebinding "rhcl-tenant-${t}" "rhcl-tenant-${t}-logs" -n kuadrant-system --ignore-not-found >/dev/null 2>&1
   oc delete rolebinding -A -l "${ROTULO}=${t}" --ignore-not-found >/dev/null 2>&1
-  rm -rf "${_here:?}/tenants/${t}" "${_here:?}/tenants/.${t}.log"
+  rm -rf "${_TDIR:?}/${t}" "${_TDIR:?}/.${t}.log"
 }
 
 # ---------------------------------------------------------------------------
@@ -894,21 +903,21 @@ _turma() { # <N> [primeiro=1]
   local n="$1" ini="${2:-1}" larg="${LARGURA:-4}" i j t falhou=0
   [[ "$n" =~ ^[0-9]+$ && "$ini" =~ ^[0-9]+$ && $n -ge $ini ]] || _die "uso: tenant.sh turma <N> [primeiro]"
   _plataforma
-  mkdir -p "${_here}/tenants"
+  mkdir -p "${_TDIR}"
   _sec "turma: user${ini}..user${n}, ${larg} por vez"
   i=$ini
   while [[ $i -le $n ]]; do
     for j in $(seq "$i" $(( i + larg - 1 ))); do
       [[ $j -le $n ]] || break
       t="user${j}"
-      ( bash "${BASH_SOURCE[0]}" sobe "$t" && bash "${BASH_SOURCE[0]}" showroom "$t" ) > "${_here}/tenants/.${t}.log" 2>&1 &
+      ( bash "${BASH_SOURCE[0]}" sobe "$t" && bash "${BASH_SOURCE[0]}" showroom "$t" ) > "${_TDIR}/.${t}.log" 2>&1 &
     done
     wait
     for j in $(seq "$i" $(( i + larg - 1 ))); do
       [[ $j -le $n ]] || break
       t="user${j}"
-      if grep -q 'com o nucleo pronto' "${_here}/tenants/.${t}.log" 2>/dev/null; then _ok "${t}"
-      else falhou=$((falhou+1)); printf '  %s✗%s %s — %s\n' "$_RED" "$_RST" "$t" "$(grep -E '\[X\]|!' "${_here}/tenants/.${t}.log" | tail -1)"; fi
+      if grep -q 'com o nucleo pronto' "${_TDIR}/.${t}.log" 2>/dev/null; then _ok "${t}"
+      else falhou=$((falhou+1)); printf '  %s✗%s %s — %s\n' "$_RED" "$_RST" "$t" "$(grep -E '\[X\]|!' "${_TDIR}/.${t}.log" | tail -1)"; fi
     done
     i=$(( i + larg ))
   done
@@ -941,7 +950,7 @@ _lista() {
 # ---------------------------------------------------------------------------
 case "${1:-}" in
   sobe)
-    _valida_tenant "${2:-}"; _sobe "$2" "${3:-${_here}/tenants/$2}"
+    _valida_tenant "${2:-}"; _sobe "$2" "${3:-${_TDIR}/$2}"
     ;;
   remove)
     _valida_tenant "${2:-}"; _remove "$2"; _ok "tenant ${2} removido"
@@ -962,18 +971,18 @@ case "${1:-}" in
     _turma "${2:-}" "${3:-1}"
     ;;
   showroom)
-    _valida_tenant "${2:-}"; _showroom "$2" "${3:-${_here}/tenants/$2}"
+    _valida_tenant "${2:-}"; _showroom "$2" "${3:-${_TDIR}/$2}"
     ;;
   kubeconfig)
-    _valida_tenant "${2:-}"; _kubeconfig "$2" "${3:-${_here}/tenants/$2/.kubeconfig}"
+    _valida_tenant "${2:-}"; _kubeconfig "$2" "${3:-${_TDIR}/$2/.kubeconfig}"
     ;;
   render)
-    _valida_tenant "${2:-}"; dest="${3:-${_here}/tenants/$2}"
+    _valida_tenant "${2:-}"; dest="${3:-${_TDIR}/$2}"
     _render "$2" "$dest"
     _ok "copia de ${2} em ${dest#${_here}/}"
     ;;
   confere)
-    _valida_tenant "${2:-}"; dest="${3:-${_here}/tenants/$2}"
+    _valida_tenant "${2:-}"; dest="${3:-${_TDIR}/$2}"
     [[ -f "${dest}/.tenant" ]] || _render "$2" "$dest"
     _confere "$dest" "$2"
     ;;
