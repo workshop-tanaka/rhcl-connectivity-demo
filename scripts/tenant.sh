@@ -375,6 +375,15 @@ _plataforma() {
     oc patch kiali kiali -n istio-system --type=merge -p '{"spec":{"auth":{"strategy":"openshift"}}}' >/dev/null 2>&1 \
       || _warn "nao consegui trocar a autenticacao do Kiali para 'openshift' — ele segue anonimo, com escrita em todos os namespaces"
   fi
+  # O GRAFANA ANONIMO DEIXA DE SER ADMIN. Ele e UM para a turma, e com o papel
+  # de Admin qualquer participante apagava ou editava o painel de todos. Como
+  # Viewer ele abre os paineis e mexe no filtro 'ambiente', que e o que o
+  # roteiro pede; quem precisa editar entra com a conta de admin.
+  if oc get grafana grafana -n monitoring >/dev/null 2>&1; then
+    oc patch grafana grafana -n monitoring --type=merge \
+      -p '{"spec":{"config":{"auth.anonymous":{"enabled":"true","org_role":"Viewer"}}}}' >/dev/null 2>&1 \
+      || _warn "nao consegui baixar o acesso anonimo do Grafana para Viewer — ele segue como Admin, para todos"
+  fi
   oc apply -f - <<'EOF' >/dev/null || _die "falha ao aplicar o RBAC de plataforma dos tenants"
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
