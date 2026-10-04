@@ -303,6 +303,18 @@ _remove() { # <tenant>
 # participantes que nao confiam uns nos outros.
 # ---------------------------------------------------------------------------
 _plataforma() {
+  # O OPERATOR DO KUADRANT NAO CABE NO LIMITE DE FABRICA. O CSV do RHCL 1.4.3
+  # da a ele 200m de CPU e 300Mi de memoria. Subindo 30 participantes no
+  # cluster-swsmt (2026-10-04, 364 policies) ele passou de 300Mi por volta do
+  # 25o, foi morto por OOM e entrou em CrashLoopBackOff -- e as policies dos
+  # ultimos nunca foram reconciliadas: a borda do user29 e do user30 respondia
+  # 200 SEM CHAVE, com Gateway Programmed e nenhum erro em lugar nenhum.
+  # Com 2Gi e 1 CPU ele estabiliza em ~340Mi e as 30 bordas fecham em 401.
+  # Pela Subscription, e nao no Deployment: o Deployment e do OLM, que o
+  # devolveria ao que o CSV diz.
+  oc patch subscription.operators.coreos.com rhcl-operator -n kuadrant-system --type=merge \
+    -p '{"spec":{"config":{"resources":{"requests":{"cpu":"200m","memory":"512Mi"},"limits":{"cpu":"1","memory":"2Gi"}}}}}' >/dev/null 2>&1 \
+    || _warn "nao consegui ampliar os recursos do operator do Kuadrant (Subscription rhcl-operator) — acima de ~20 participantes ele morre por OOM e as policies deixam de ser aplicadas"
   oc apply -f - <<'EOF' >/dev/null || _die "falha ao aplicar o RBAC de plataforma dos tenants"
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -313,8 +325,11 @@ rules:
   - apiGroups: [gateway.networking.k8s.io]
     resources: [gateways]
     verbs: [get, list, watch, create, update, patch, delete]
+  # So a regra de alerta. PodMonitor e ServiceMonitor ficam de FORA: e neles
+  # que nasce o rotulo 'ambiente' que separa os paineis por participante, e
+  # quem pudesse edita-los rotularia o proprio trafego com o nome do vizinho.
   - apiGroups: [monitoring.coreos.com]
-    resources: [prometheusrules, podmonitors, servicemonitors]
+    resources: [prometheusrules]
     verbs: [get, list, watch, create, update, patch, delete]
 ---
 # LEITURA DA PLATAFORMA, ENUMERADA -- e nao 'cluster-reader'. Medido em
