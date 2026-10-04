@@ -543,7 +543,10 @@ _rbac() { # <tenant>
   # vezes num dia, cada vez para FECHAR algo. Testar a existencia deixaria um
   # cluster provisionado por uma versao anterior com o papel antigo -- mais
   # largo -- para sempre. O apply e idempotente e custa um segundo.
-  _plataforma >/dev/null
+  # Em subshell e com uma segunda tentativa: 'turma' roda varios destes ao
+  # mesmo tempo, e dois applies simultaneos do mesmo objeto podem dar conflito.
+  ( _plataforma ) >/dev/null 2>&1 || { sleep 3; ( _plataforma ) >/dev/null 2>&1; } \
+    || _die "nao consegui aplicar o RBAC de plataforma dos tenants"
   _ns_nosso "$t" "showroom-${t}"
   oc get sa showroom -n "showroom-${t}" >/dev/null 2>&1 || oc create sa showroom -n "showroom-${t}" >/dev/null
 
