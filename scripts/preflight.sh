@@ -8,8 +8,15 @@
 # SELF-CONTAINED: só precisa de 'oc' autenticado, 'curl' e 'python3'.
 #
 # Uso:
-#   bash preflight.sh          # tudo
-#   bash preflight.sh core     # só o caminho de dados (pula observabilidade/consoles/RHDH)
+#   bash preflight.sh            # tudo
+#   bash preflight.sh core       # só o caminho de dados (pula observabilidade/consoles/RHDH)
+#   bash preflight.sh showroom   # SÓ a superfície que o participante do workshop vê
+#
+# O 'showroom' não é um subconjunto do 'core': ele checa outra coisa. O 'core'
+# pergunta se a plataforma serve a demo; o 'showroom' pergunta se o Showroom
+# entrega ESTE ambiente a quem o pediu — atributo resolvido, página servida sem
+# placeholder, e o terminal com os scripts que o conteúdo manda rodar. Um
+# ambiente pode passar no 'core' e estar quebrado para quem o usa.
 #
 # Saída: 0 se a demo pode ser apresentada, 1 se algo essencial está quebrado.
 # Avisos (amarelo) não falham o script — são coisas que degradam um ato, não
@@ -34,6 +41,14 @@ _warn() { printf '  %s!%s %s\n' "$_YEL" "$_RST" "$1"; [[ -n "${2:-}" ]] && print
 _nota() { printf '  %s· %s%s\n' "$_DIM" "$*" "$_RST"; }
 
 MODE="${1:-full}"
+# Modo desconhecido CAI, em vez de virar 'full' calado. Importa para quem
+# chama de fora: o playbook do workshop gateia o ambiente nesta saida, e um
+# 'showroom' escrito errado passando como verificacao completa daria verde
+# sem nunca ter olhado a superficie do participante.
+case "$MODE" in
+  full|core|showroom) ;;
+  *) printf 'modo desconhecido: %s (use: full | core | showroom)\n' "$MODE" >&2; exit 2 ;;
+esac
 
 # ----- descoberta: qual overlay serve ESTE cluster ---------------------------
 # Antes isto era a string fixa 'overlays/provisioned' espalhada pelas dicas de
@@ -91,6 +106,176 @@ if ! oc whoami >/dev/null 2>&1; then
   exit 1
 fi
 _ok "autenticado como $(oc whoami) em $(oc whoami --show-server 2>/dev/null | sed 's|https://||')"
+
+# ===========================================================================
+# MODO 'showroom' -- a superficie que o PARTICIPANTE ve.
+#
+# POR QUE ISTO EXISTE, e por que e um modo proprio: o resto deste script checa
+# a PLATAFORMA. Um ambiente pode passar inteiro -- Gateway Programmed, cinco
+# policies Enforced, 401 sem chave, dashboards com dado -- e ainda assim
+# entregar ao participante uma pagina que diz
+# 'api-travels.apps.cluster-guid.dominio.exemplo', ou um terminal onde metade
+# dos passos morre em 'No such file or directory'.
+#
+# As duas coisas aconteceram:
+#
+#   - a tag workshop-v0.17 nao tinha 13 dos scripts que o conteudo manda rodar.
+#     Um ambiente provisionado com ela nascia verde no preflight e quebrado
+#     para quem o usava. Descoberto em 2026-10-04, por acidente.
+#   - atributo que nao chega do cluster cai no placeholder do content/antora.yml
+#     e o participante le o valor de mentira como se fosse o do ambiente dele.
+#
+# O modo e separado do 'core' de proposito: no passo 5 do playbook do workshop
+# o Showroom AINDA NAO EXISTE, e gatear ali faria todo ambiente falhar. Este
+# roda como ULTIMA tarefa, depois do Showroom -- e ai o ambiente se recusa a
+# nascer quebrado, em vez de nascer verde e ser pego depois, quando o conserto
+# custa um reprovisionamento. Ver docs/FROTA.md, secao 7.
+# ===========================================================================
+if [[ "$MODE" == "showroom" ]]; then
+  _sec "Showroom (a superficie que o participante vê)"
+
+  _sr_ns="$(oc get ns -o name 2>/dev/null | sed 's|namespace/||' | grep -m1 '^showroom-')"
+  if [[ -z "$_sr_ns" ]]; then
+    _bad "nenhum namespace 'showroom-*' no cluster" \
+         "o Showroom é o passo 6 do playbook do workshop; sem ele não há o que verificar"
+    printf '\n%s[X]%s 1 falha(s).\n' "$_RED" "$_RST"; exit 1
+  fi
+  _ok "namespace ${_sr_ns}"
+
+  # --- 1. o pod serve? Todos os containers, nao so o deployment "Available" ---
+  _sr_pod="$(oc get pod -n "$_sr_ns" -l app.kubernetes.io/name=showroom \
+             --field-selector=status.phase=Running -o name 2>/dev/null | head -1 | cut -d/ -f2)"
+  if [[ -z "$_sr_pod" ]]; then
+    _bad "nenhum pod do Showroom em Running em ${_sr_ns}" \
+         "oc get pod -n ${_sr_ns}; oc logs -n ${_sr_ns} deploy/showroom -c content"
+  else
+    _sr_nok="$(oc get pod "$_sr_pod" -n "$_sr_ns" \
+      -o jsonpath='{range .status.containerStatuses[?(@.ready==false)]}{.name}{" "}{end}' 2>/dev/null)"
+    if [[ -n "$_sr_nok" ]]; then
+      _bad "container(s) do Showroom sem ready: ${_sr_nok% }" \
+           "oc logs -n ${_sr_ns} ${_sr_pod} -c ${_sr_nok%% *}"
+    else
+      _ok "pod ${_sr_pod} com todos os containers prontos"
+    fi
+  fi
+
+  # --- 2. a rota responde ----------------------------------------------------
+  _sr_host="$(oc get route showroom -n "$_sr_ns" -o jsonpath='{.spec.host}' 2>/dev/null)"
+  if [[ -z "$_sr_host" ]]; then
+    _bad "route 'showroom' ausente em ${_sr_ns}" "sem ela o participante não tem por onde entrar"
+  else
+    _sr_code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 "https://${_sr_host}/" 2>/dev/null)"
+    if [[ "$_sr_code" =~ ^(200|302)$ ]]; then
+      _ok "Showroom no ar: https://${_sr_host}"
+    else
+      _bad "Showroom não responde (http=${_sr_code:-000})" "oc logs -n ${_sr_ns} deploy/showroom -c traefik"
+    fi
+  fi
+
+  # --- 3. nenhum atributo com valor de PLACEHOLDER --------------------------
+  # Os atributos sao escritos pelo playbook a partir do cluster. O que nao
+  # chega cai no placeholder do content/antora.yml -- e placeholder de hostname
+  # ou de chave e pior que vazio: o participante o tenta.
+  _sr_ud="$(oc get cm showroom-userdata -n "$_sr_ns" -o go-template='{{index .data "user_data.yml"}}' 2>/dev/null)"
+  if [[ -z "$_sr_ud" ]]; then
+    _bad "ConfigMap showroom-userdata ausente ou vazia em ${_sr_ns}" \
+         "é o passo 6 do playbook que a escreve; sem ela TODA página sai com placeholder"
+  else
+    _sr_ruins="$(printf '%s' "$_sr_ud" | python3 -c '
+import re, sys
+# As marcas que o content/antora.yml usa nos placeholders de build local.
+MARCAS = ("cluster-guid", "dominio.exemplo", "PLACEHOLDER", "xxxxxx")
+ruins = []
+for l in sys.stdin.read().splitlines():
+    if not l.strip():
+        continue
+    k, _, v = l.partition(":")
+    for m in MARCAS:
+        if m in v:
+            ruins.append(k.strip().strip(chr(34)))
+            break
+print(" ".join(sorted(set(ruins))))' 2>/dev/null)"
+    if [[ -n "$_sr_ruins" ]]; then
+      _bad "atributo(s) no valor de PLACEHOLDER: ${_sr_ruins}" \
+           "o playbook não os leu do cluster — o participante vai ler um endereço que não existe"
+    else
+      _sr_n="$(printf '%s' "$_sr_ud" | grep -c . )"
+      _ok "${_sr_n} atributo(s) resolvidos, nenhum em placeholder"
+    fi
+  fi
+
+  # --- 4. a prova no HTML, nao na ConfigMap --------------------------------
+  # A ConfigMap pode estar certa e a pagina servida vir do build ANTERIOR: o
+  # conteudo e construido na SUBIDA do pod, por init container. 'rollout
+  # restart' atualiza; editar a ConfigMap sozinho nao.
+  if [[ -n "$_sr_host" ]]; then
+    _sr_pag="$(curl -sk --max-time 25 "https://${_sr_host}/modules/acessos.html" 2>/dev/null)"
+    if [[ -z "$_sr_pag" ]]; then
+      _warn "não consegui baixar /modules/acessos.html" "a prova no HTML fica sem medir"
+    elif printf '%s' "$_sr_pag" | grep -q 'cluster-guid\|dominio\.exemplo'; then
+      _bad "a página SERVIDA ainda tem placeholder de hostname" \
+           "o conteúdo foi construído antes da ConfigMap: oc delete pod -n ${_sr_ns} -l app.kubernetes.io/name=showroom"
+    else
+      _ok "a página servida carrega os endereços deste cluster"
+    fi
+  fi
+
+  # --- 5. o terminal tem TODO script que o conteudo manda rodar ------------
+  # A verificacao que faltava em 2026-10-04. O conteudo e a fonte da verdade
+  # sobre o que o participante vai digitar; o terminal e onde isso roda. Se
+  # divergirem, o passo morre em 'No such file or directory'.
+  if [[ -n "$_sr_pod" ]]; then
+    _sr_tag="$(oc exec -n "$_sr_ns" "$_sr_pod" -c terminal -- \
+      bash -lc 'git -C /home/lab-user/rhcl-connectivity-demo describe --tags 2>/dev/null' 2>/dev/null | tr -d '\r')"
+    [[ -n "$_sr_tag" ]] && _ok "terminal em ${_sr_tag}" \
+      || _warn "não consegui ler a versão do repositório no terminal" "oc exec -n ${_sr_ns} ${_sr_pod} -c terminal -- ls /home/lab-user"
+
+    # Onde o conteudo construido mora muda com a imagem do showroom-content:
+    # DESCOBRIR, nunca supor. Sem o diretorio, esta verificacao se ABSTEM --
+    # concluir ausencia a partir de uma leitura que falhou foi exatamente o
+    # defeito da cobertura de templates (docs/FROTA.md, secao 8).
+    _sr_raiz="$(oc exec -n "$_sr_ns" "$_sr_pod" -c content -- \
+      sh -c 'find / -maxdepth 6 -type d -name modules 2>/dev/null | head -1' 2>/dev/null | tr -d '\r')"
+    if [[ -z "$_sr_raiz" ]]; then
+      _nota "não localizei o conteúdo construído no container 'content' — verificação de scripts omitida"
+    else
+      _sr_cita="$(oc exec -n "$_sr_ns" "$_sr_pod" -c content -- \
+        sh -c "grep -rhoE 'bash scripts/[a-z0-9-]+\.sh' '$_sr_raiz' 2>/dev/null | sed 's|bash scripts/||' | sort -u" 2>/dev/null | tr -d '\r')"
+      if [[ -z "$_sr_cita" ]]; then
+        _nota "o conteúdo construído não cita nenhum script — verificação omitida"
+      else
+        _sr_falta=""
+        for _s in $_sr_cita; do
+          oc exec -n "$_sr_ns" "$_sr_pod" -c terminal -- \
+            test -f "/home/lab-user/rhcl-connectivity-demo/scripts/${_s}" >/dev/null 2>&1 \
+            || _sr_falta="${_sr_falta}${_s} "
+        done
+        if [[ -n "$_sr_falta" ]]; then
+          _bad "o conteúdo manda rodar script que o terminal NÃO tem: ${_sr_falta% }" \
+               "demo.ref aponta para uma tag velha — é o que aconteceu com a workshop-v0.17"
+        else
+          _ok "os $(printf '%s\n' $_sr_cita | wc -l | tr -d ' ') script(s) que o conteúdo cita existem no terminal"
+        fi
+      fi
+    fi
+  fi
+
+  # --- 6. a pagina do pedido no RHDP --------------------------------------
+  if oc get cm rhcl-workshop-userinfo -n "$_sr_ns" >/dev/null 2>&1; then
+    _ok "ConfigMap de userinfo presente (a página do pedido no RHDP)"
+  else
+    _warn "ConfigMap rhcl-workshop-userinfo ausente" \
+          "a página do pedido no RHDP não mostra os endereços; o workshop funciona"
+  fi
+
+  printf '\n'
+  if [[ "$FAIL" == "0" ]]; then
+    printf '%s[OK]%s o Showroom entrega o ambiente DESTE participante (%d aviso(s)).\n' "$_GRN" "$_RST" "$WARN"
+    exit 0
+  fi
+  printf '%s[X]%s %d falha(s) na superfície do participante.\n' "$_RED" "$_RST" "$FAIL"
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 _sec "operadores e extensões do RHCL"
@@ -1743,7 +1928,7 @@ fi
 # ---------------------------------------------------------------------------
 printf '\n'
 if [[ "$FAIL" == "0" && "$WARN" == "0" ]]; then
-  printf '%s[OK]%s demo pronta.\n' "$_GRN" "$_RST"
+  printf '%s[OK]%s o ambiente esta inteiro, sem avisos.\n' "$_GRN" "$_RST"
 elif [[ "$FAIL" == "0" ]]; then
   printf '%s[OK]%s o ambiente esta inteiro — %d aviso(s) acima degradam algum passo.\n' "$_GRN" "$_RST" "$WARN"
 else

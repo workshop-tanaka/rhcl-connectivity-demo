@@ -107,6 +107,12 @@ a única que o verificador atual não enxerga.
 
 **E o lugar certo de consertar isso não é na frota.** Ver a §7.
 
+> **Fechada em 2026-10-04.** `preflight.sh showroom` faz essas verificações, e
+> o playbook do workshop as chama como última tarefa — depois do Showroom
+> existir. Um ambiente com atributo em placeholder, página servida do build
+> anterior, ou terminal sem os scripts que o conteúdo cita **falha o pedido no
+> RHDP** em vez de nascer verde.
+
 ### G5 · Não há noção de quarentena
 
 Numa onda, alguns ambientes falham — é estatística, não azar. A onda não pode
@@ -217,11 +223,18 @@ fora do git.
 
 Ordenado por risco removido por linha escrita, não por dependência técnica.
 
-**1. Fechar o G1 — fixar as duas refs que flutuam.** Uma linha de `values.yaml`
-cada. É a única mudança que, sozinha, torna a onda comparável; todo o resto
-mede melhor uma coisa que já está certa ou melhor uma coisa que já está errada.
+**1. ~~Fechar o G1~~ — FEITO (`workshop-v0.18`).** As **quatro** refs carregam
+o mesmo nome: `demo.ref`, `ansible.repository.branch`, `showroom.content.repoRef`
+e o `revision` do catalog. O CI do repositório do workshop falha se alguma
+voltar para um branch ou divergir das outras.
 
-**2. O verificador da superfície do workshop — e DENTRO do `preflight.sh`.**
+E não era só reprodutibilidade: a `workshop-v0.17` **não tinha 13 dos scripts
+que o conteúdo manda rodar**. Um ambiente provisionado com ela entregava um
+terminal onde esses passos morriam em `No such file or directory`, e o nsvz5
+funcionava por acidente — o terminal dele estava em `workshop-v0.17-16-g1b3ac5b`,
+adiante da tag. Ref que não diz o que está rodando é o G1 inteiro numa frase.
+
+**2. ~~O verificador da superfície do workshop~~ — FEITO (`preflight.sh showroom`).**
 Esta é a escolha de projeto que vale discutir, porque o instinto é construir
 mais um script para a frota chamar.
 
@@ -240,6 +253,14 @@ ela custa um reprovisionamento.
 
 A seção não pode entrar no `core`: no passo 5 o Showroom ainda não existe, e
 gatear ali faria todo ambiente falhar. Por isso um modo próprio.
+
+As seis verificações: pod com todos os containers prontos; rota respondendo;
+nenhum atributo no valor de placeholder; **a página servida** sem placeholder
+(a ConfigMap pode estar certa e o conteúdo vir do build anterior, porque ele é
+construído na subida do pod); todo script que o conteúdo cita presente no
+terminal; e a ConfigMap de `userinfo`. A tarefa do playbook é condicionada à
+tag da demo conhecer o modo — promover para trás não pode quebrar o
+provisionamento por causa de uma verificação que lá não existe.
 
 **3. `scripts/frota.sh` — o condutor.** Lê o inventário, roda as duas camadas
 por ambiente com paralelismo limitado, imprime uma linha por ambiente e um
@@ -267,6 +288,9 @@ regime de N ambientes:
   passaram. Com um ambiente você reexecuta e descobre. Com vinte, você reescreve
   seis locations em vinte clusters. **Verificação que depende de uma leitura
   precisa se abster quando a leitura falha, nunca concluir ausência.**
+  Corrigido em 2026-10-04 no `preflight.sh`, e a mesma regra vale na
+  verificação de scripts do modo `showroom`: sem o diretório do conteúdo
+  construído, ela se omite em vez de acusar.
 
 - **O placeholder que mente.** Atributo do Antora que não chega do cluster cai
   no valor do `content/antora.yml`. Por isso os placeholders de credencial
