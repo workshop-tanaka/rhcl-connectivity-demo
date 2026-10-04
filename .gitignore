@@ -28,3 +28,6 @@ frota/
 # artefatos de build de plugin (scripts/build-plugins.sh) -- reconstruiveis
 .plugins-build/
 postman/*.local.*
+
+# copias renderizadas por participante (scripts/tenant.sh): geradas, por ambiente
+tenants/

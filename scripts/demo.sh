@@ -1278,13 +1278,29 @@ step_degrada() {
   # sobe o pod de novo sozinho, e a rajada seguinte volta a levar 429, que e o
   # OPOSTO do que este passo quer provar.
   _revert_lim() { oc patch limitador limitador -n kuadrant-system --type=merge -p '{"spec":{"replicas":1}}' >/dev/null 2>&1 || true; }
+  # CLUSTER COMPARTILHADO (scripts/tenant.sh): escalar o Limitador a zero
+  # derrubaria o limite de todos os participantes, e o participante nao tem
+  # permissao em kuadrant-system. O que cai e o CAMINHO ate ele, so para os
+  # Gateways deste ambiente -- e a prova e a mesma. Ver o manifesto.
+  local _corte="${_here}/platform-reference/multitenant/corta-limitador.yaml" _mt=0
+  [[ -f "${_here}/.tenant" ]] && _mt=1
+  [[ $_mt -eq 1 ]] && _revert_lim() { oc delete -f "$_corte" --ignore-not-found >/dev/null 2>&1 || true; }
   trap '_revert_lim; printf "\n  revertido.\n"; exit 130' INT
   trap '_revert_lim; trap - INT RETURN' RETURN
 
-  _why "2. Agora o Limitador sai do ar."
-  _pause || return 0
-  _do oc patch limitador limitador -n kuadrant-system --type=merge -p '{"spec":{"replicas":0}}'
-  _do_sh "oc wait --for=delete pod -l app.kubernetes.io/component=limitador -n kuadrant-system --timeout=120s 2>/dev/null; sleep 5; oc get pods -n kuadrant-system -l app.kubernetes.io/component=limitador --no-headers 2>/dev/null | wc -l | xargs printf 'pods do limitador: %s\n'"
+  if [[ $_mt -eq 1 ]]; then
+    _why "2. Agora o Limitador fica INALCANCAVEL para o Gateway deste ambiente."
+    _why "   Ele continua de pe -- o que cai e a rede ate ele, que e o jeito"
+    _why "   mais comum de isso acontecer em producao."
+    _pause || return 0
+    _do oc apply -f "$_corte"
+    _do_sh "sleep 15; oc get networkpolicy -n ingress-gateway; oc get pods -n kuadrant-system -l app.kubernetes.io/component=limitador"
+  else
+    _why "2. Agora o Limitador sai do ar."
+    _pause || return 0
+    _do oc patch limitador limitador -n kuadrant-system --type=merge -p '{"spec":{"replicas":0}}'
+    _do_sh "oc wait --for=delete pod -l app.kubernetes.io/component=limitador -n kuadrant-system --timeout=120s 2>/dev/null; sleep 5; oc get pods -n kuadrant-system -l app.kubernetes.io/component=limitador --no-headers 2>/dev/null | wc -l | xargs printf 'pods do limitador: %s\n'"
+  fi
   echo
   _why "3. A MESMA rajada, com o contador inalcancavel:"
   _do_as "14 requisicoes com a chave free" \
@@ -1298,9 +1314,15 @@ step_degrada() {
   _why "porque respondem a perguntas diferentes -- 'quem e voce' nao admite"
   _why "duvida, 'quantas vezes voce ja veio' admite."
   echo
-  _log "restaurando o Limitador"
-  _do oc patch limitador limitador -n kuadrant-system --type=merge -p '{"spec":{"replicas":1}}'
-  _do_sh "oc rollout status deploy/limitador-limitador -n kuadrant-system --timeout=120s"
+  if [[ $_mt -eq 1 ]]; then
+    _log "removendo o corte"
+    _do oc delete -f "$_corte"
+    _do_sh "sleep 15"
+  else
+    _log "restaurando o Limitador"
+    _do oc patch limitador limitador -n kuadrant-system --type=merge -p '{"spec":{"replicas":1}}'
+    _do_sh "oc rollout status deploy/limitador-limitador -n kuadrant-system --timeout=120s"
+  fi
   echo
   _look "de volta. Confirme com: bash scripts/demo.sh ato2"
 }

@@ -1,0 +1,393 @@
+#!/usr/bin/env bash
+# tenant.sh — N participantes no MESMO cluster, cada um com a propria borda.
+#
+# POR QUE ISTO EXISTE: o workshop nasceu um-cluster-por-participante, e todo
+# script e todo manifesto diz 'travel-agency', 'ingress-gateway', 'echo-api'
+# como literal. Para uma turma de 35 isso sao 35 clusters. Medido em
+# 2026-10-04 no cluster-zxljq: 35 conjuntos (aplicacao + Gateway + policies)
+# convivem sob UM Kuadrant, com chave, plano, contador e deny-all isolados.
+#
+# A ESCOLHA DE PROJETO: RENDERIZAR, NAO PARAMETRIZAR. Trocar 421 literais por
+# variavel mexeria em todo script do roteiro, na vespera. Em vez disso, cada
+# participante recebe uma COPIA do repositorio em que os nomes de namespace
+# foram trocados -- 'travel-agency' vira 'travel-agency-user7' -- nos
+# manifestos e nos scripts AO MESMO TEMPO. O que importa e a coerencia: quem
+# cria e quem consulta mudam juntos, entao a copia funciona como o original.
+# O repositorio no git continua single-tenant, e o workshop de um cluster por
+# participante nao percebe que este arquivo existe.
+#
+# A REGRA DA TROCA: o nome so e trocado quando esta "solto" -- nao precedido
+# nem seguido de letra, digito, '_' ou '-'. Entao:
+#   -n travel-agency                      -> -n travel-agency-user7
+#   discounts.travel-agency:8000          -> discounts.travel-agency-user7:8000
+#   cluster.local/ns/travel-agency/sa/x   -> .../ns/travel-agency-user7/sa/x
+#   travel-agency-authpolicy              -> (intacto: e nome de objeto)
+#   httproute-travel-agency.yaml          -> (intacto: e nome de arquivo)
+# Arquivo ou diretorio cujo nome E o token tambem e renomeado, senao os
+# caminhos citados dentro dos scripts deixariam de existir.
+#
+# O QUE NAO E DO TENANT: kuadrant-system, istio-system, monitoring e os demais
+# namespaces de plataforma ficam como estao. As chaves de API moram em
+# kuadrant-system (o seletor da AuthPolicy nao atravessa namespace), e por
+# isso ganham o tenant no NOME ('apikey-user7-...') e no ROTULO do seletor
+# ('app: partner-user7') -- e o rotulo que isola, medido: a chave de um
+# tenant leva 401 na API do outro.
+#
+# Uso:
+#   bash scripts/tenant.sh render user7           # so gera tenants/user7/
+#   bash scripts/tenant.sh confere user7          # o que a copia aplicaria FORA do tenant
+#   bash scripts/tenant.sh sobe user7             # gera e aplica: plataforma do tenant, borda, demo
+#   bash scripts/tenant.sh remove user7           # apaga os namespaces e as chaves do tenant
+#   bash scripts/tenant.sh lista                  # tenants no cluster
+set -uo pipefail
+
+_here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ -t 1 ]]; then
+  _GRN=$'\033[0;32m'; _YEL=$'\033[0;33m'; _RED=$'\033[0;31m'; _BLU=$'\033[0;34m'
+  _BLD=$'\033[1m'; _DIM=$'\033[2m'; _RST=$'\033[0m'
+else _GRN=""; _YEL=""; _RED=""; _BLU=""; _BLD=""; _DIM=""; _RST=""; fi
+_sec()  { printf '\n%s== %s ==%s\n' "$_BLU$_BLD" "$*" "$_RST"; }
+_ok()   { printf '  %s✓%s %s\n' "$_GRN" "$_RST" "$*"; }
+_log()  { printf '  %s\n' "$*"; }
+_warn() { printf '  %s!%s %s\n' "$_YEL" "$_RST" "$*"; }
+_die()  { printf '\n%s[X]%s %s\n' "$_RED" "$_RST" "$*" >&2; exit 1; }
+
+# Os namespaces que pertencem ao participante. Os de laboratorio (Extras)
+# entram na mesma lista: cada script de Extra sobe o proprio namespace com
+# nome fixo, e dois participantes no mesmo Extra colidiriam.
+NS_TENANT="travel-agency ingress-gateway echo-api echo-exposta travel-db-remoto travel-db \
+tls-lab mtls-lab listas-lab ia-lab dns-lab ctx-lab pfx-gw pfx-equipe-a pfx-equipe-b"
+# Rotulos de hostname: o curinga *.apps cobre UM nivel, entao o tenant entra
+# com hifen no primeiro rotulo, nunca como subdominio.
+HOSTS_TENANT="api-travels echo-travels listas-edge listas-pass"
+# Objetos que moram em namespace COMPARTILHADO com nome fixo e conteudo do
+# tenant: as APIKey do developer portal ficam em kuadrant-system e apontam
+# para o APIProduct de travel-agency. Sem o tenant no nome, o segundo
+# participante sobrescreveria as do primeiro ('confere' e quem acusa).
+NOMES_TENANT="acme-free initech-silver globex-gold"
+# O que a copia leva. Documentacao, plugins e portal ficam de fora: nada disso
+# roda no terminal do participante.
+COPIA="scripts base env overlays platform-reference postman"
+ROTULO="rhcl.demo/tenant"
+
+_valida_tenant() {
+  [[ "${1:-}" =~ ^[a-z][a-z0-9]{1,14}$ ]] \
+    || _die "tenant invalido: '${1:-}'. Use letras minusculas e digitos, sem hifen (ex.: user7) -- ele vira sufixo de namespace e rotulo de hostname."
+}
+
+# ---------------------------------------------------------------------------
+# render — a copia do repositorio com os nomes do tenant
+# ---------------------------------------------------------------------------
+_render() { # <tenant> <destino>
+  local t="$1" dest="$2" f rel novo
+  command -v perl >/dev/null || _die "perl nao encontrado (a troca usa lookbehind, que o sed do macOS nao tem)."
+  rm -rf "${dest:?}" && mkdir -p "$dest" || _die "nao consegui preparar ${dest}"
+
+  # O que o git conhece ou conheceria (sem os ignorados): env/cluster-*/ e
+  # overlays/cluster-*/ estao no .gitignore, sao de OUTRO
+  # ambiente e a copia gera os dela com o new-env.sh.
+  ( cd "$_here" && git ls-files -z -co --exclude-standard -- $COPIA ) | while IFS= read -r -d '' rel; do
+    mkdir -p "${dest}/$(dirname "$rel")" && cp -p "${_here}/${rel}" "${dest}/${rel}"
+  done
+
+  local alt_ns alt_host
+  alt_ns="$(printf '%s' "$NS_TENANT" | tr -s ' \\\n' '|' | sed 's/^|//; s/|$//')"
+  alt_host="$(printf '%s %s' "$HOSTS_TENANT" "$NOMES_TENANT" | tr -s ' ' '|')"
+
+  # 1. conteudo. A ordem das regras importa: as chaves primeiro, porque a
+  #    regra dos namespaces nao pode ver 'apikey-user7-...' como token novo.
+  find "$dest" -type f -print0 | TENANT="$t" ALT_NS="$alt_ns" ALT_HOST="$alt_host" xargs -0 perl -pi -e '
+    BEGIN { $t = $ENV{TENANT}; $ns = qr/$ENV{ALT_NS}/; $h = qr/$ENV{ALT_HOST}/;
+            # "solto" a esquerda: nada de letra, digito, _ ou - antes -- EXCETO o
+            # dois-pontos-hifen do default do bash (${X:-travel-agency}), que e onde moram
+            # os namespaces dos Extras e os hostnames do new-env.sh
+            $solto = qr/(?:(?<![\w-])|(?<=:-))/; }
+    # chaves de API: o tenant entra no nome e no rotulo do seletor
+    s/$solto apikey-(?=[a-z])/apikey-$t-/gx;
+    s/(\bapp["\x27]?\s*[:=]\s*["\x27]?)partner(?![\w-])/$1partner-$t/g;
+    # namespaces e rotulos de hostname, so quando o nome esta solto
+    s/$solto ($ns)(?![\w-])/$1-$t/gx;
+    s/$solto ($h)(?![\w-])/$1-$t/gx;
+  ' || _die "a troca de conteudo falhou"
+
+  # 2. caminhos: arquivo ou diretorio cujo nome e o token. De baixo para cima,
+  #    senao renomear o diretorio invalida o caminho dos filhos.
+  find "$dest" -depth -print0 | while IFS= read -r -d '' f; do
+    rel="$(basename "$f")"
+    novo="$(printf '%s' "$rel" | TENANT="$t" ALT_NS="$alt_ns" perl -pe 's/^($ENV{ALT_NS})(?=\.|$)/$1-$ENV{TENANT}/')"
+    [[ "$novo" != "$rel" ]] && mv "$f" "$(dirname "$f")/${novo}"
+  done
+
+  printf '%s\n' "$t" > "${dest}/.tenant"
+}
+
+# ---------------------------------------------------------------------------
+# confere — o que a copia aplicaria FORA dos namespaces do tenant
+#
+# E a pergunta que decide se e seguro aplicar: objeto de namespace
+# compartilhado cujo CONTEUDO mudou com a troca sobrescreveria o do vizinho.
+# ---------------------------------------------------------------------------
+_confere() { # <dir da copia> <tenant>
+  local d="$1" t="$2" f
+  command -v yq >/dev/null || _die "yq nao encontrado"
+  _sec "objetos que a copia de ${t} enderecaria fora do tenant"
+  {
+    oc kustomize "${d}/overlays/rhcl-1.4" 2>/dev/null
+    for f in "${d}/platform-reference/workloads/travel-agency-${t}" "${d}/platform-reference/workloads/echo-api-${t}" \
+             "${d}/platform-reference/workloads/travel-db-${t}" "${d}/platform-reference/monitoring/servicemonitors.yaml" \
+             "${d}/platform-reference/gateway/httproute-echo-api.yaml"; do
+      [[ -e "$f" ]] || { printf '# ausente: %s\n' "$f" >&2; continue; }
+      if [[ -d "$f" ]]; then find "$f" -name '*.yaml' -exec sh -c 'echo ---; cat "$1"' _ {} \;; else echo ---; cat "$f"; fi
+    done
+  } | yq -N 'select(. != null) | [.kind, (.metadata.namespace // "(sem namespace)"), .metadata.name] | join(" ")' 2>/dev/null \
+    | grep -v -- "-${t} " | sort | uniq -c
+}
+
+# ---------------------------------------------------------------------------
+# sobe — a camada do tenant, pelas MESMAS etapas do provision.sh
+#
+# Nao ha provisionamento proprio aqui, de proposito: a copia renderizada traz
+# um provision.sh em que 'platform', 'gateway' e 'demo' ja enderecam os
+# namespaces do tenant. Rodar essas tres etapas DENTRO da copia e o
+# provisionamento do tenant. O que elas tocam fora dele (o CR Kuadrant, os
+# ServiceMonitors) e identico ao original -- 'confere' mede isso.
+# ---------------------------------------------------------------------------
+_borda() { # <host> -> codigo HTTP sem chave
+  curl -sk -m 10 -o /dev/null -w '%{http_code}' "https://$1/travels" 2>/dev/null
+}
+
+_sobe() { # <tenant> <dir da copia>
+  local t="$1" d="$2" dom host ns cod i
+  command -v oc >/dev/null || _die "oc nao encontrado"
+  oc whoami >/dev/null 2>&1 || _die "sem sessao no cluster — oc login"
+  oc get kuadrant kuadrant -n kuadrant-system >/dev/null 2>&1 \
+    || _die "a plataforma nao esta de pe (sem CR Kuadrant). Rode antes o provision.sh do repositorio original."
+
+  _render "$t" "$d"
+  _ok "copia de ${t} em ${d#${_here}/}"
+
+  _sec "tenant ${t}: camada de hostname"
+  ( cd "$d" && bash scripts/new-env.sh --force ) | tail -4 || _die "new-env.sh falhou na copia de ${t}"
+
+  _sec "tenant ${t}: platform, gateway e demo"
+  ( cd "$d" && bash scripts/provision.sh platform gateway demo ) > "${d}/.provision.log" 2>&1 \
+    || { tail -25 "${d}/.provision.log"; _die "provision.sh falhou na copia de ${t} (log completo em ${d#${_here}/}/.provision.log)"; }
+  grep -E '✓|!' "${d}/.provision.log" | tail -8
+
+  for ns in $NS_TENANT; do
+    oc get ns "${ns}-${t}" >/dev/null 2>&1 && oc label ns "${ns}-${t}" "${ROTULO}=${t}" --overwrite >/dev/null
+  done
+
+  # A BORDA RESPONDE? 401 sem chave e o unico veredito que vale. Medido em
+  # 2026-10-04 subindo 35 de uma vez: 1 Gateway em 35 nao conseguiu baixar o
+  # modulo wasm do Kuadrant ('Retry limit exceeded'), o modulo falha FECHADO,
+  # e a borda inteira fica em 503 -- com Gateway Programmed=True e toda policy
+  # Enforced=True. Nao se recupera sozinho; trocar o pod resolve.
+  _sec "tenant ${t}: a borda responde?"
+  dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
+  host="api-travels-${t}.${dom}"
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    cod="$(_borda "$host")"
+    [[ "$cod" == 401 ]] && break
+    if [[ "$cod" == 503 && $i -eq 4 ]]; then
+      _warn "503 persistente em ${host} — trocando os pods do Gateway (modulo wasm nao carregou)"
+      oc rollout restart deploy -n "ingress-gateway-${t}" >/dev/null 2>&1
+      oc rollout status deploy/prod-web-istio -n "ingress-gateway-${t}" --timeout=120s >/dev/null 2>&1
+    fi
+    sleep 5
+  done
+  [[ "$cod" == 401 ]] && _ok "https://${host} responde 401 sem chave — fechada por padrao" \
+    || _die "https://${host} responde ${cod:-nada} sem chave; o esperado e 401. Veja 'oc logs deploy/prod-web-istio -n ingress-gateway-${t}'."
+}
+
+_remove() { # <tenant>
+  local t="$1" ns
+  for ns in $(oc get ns -l "${ROTULO}=${t}" -o name 2>/dev/null); do oc delete "$ns" --wait=false; done
+  # as chaves e as APIKey moram em kuadrant-system: pelo nome, que carrega o tenant
+  oc get secret -n kuadrant-system -o name 2>/dev/null | grep "^secret/apikey-${t}-" \
+    | xargs -r oc delete -n kuadrant-system
+  oc get apikeys.devportal.kuadrant.io -n kuadrant-system -o name 2>/dev/null | grep -- "-${t}\$" \
+    | xargs -r oc delete -n kuadrant-system
+  rm -rf "${_here:?}/tenants/${t}"
+}
+
+# ---------------------------------------------------------------------------
+# plataforma — o que existe UMA vez, para todos os tenants
+#
+# O participante nao e cluster-admin: num cluster compartilhado, o
+# 'oc patch limitador' de um derrubaria o rate limit de todos. Tres pecas:
+#
+#   rhcl-tenant-extra   o que o papel 'admin' de namespace nao cobre e o
+#                       roteiro usa: Gateway (o Gateway API separa de proposito
+#                       quem cria rota de quem cria Gateway) e regra de alerta
+#   rhcl-tenant-chaves  Secret em kuadrant-system -- as chaves de API moram la
+#   a trava de admissao a permissao acima vale para o namespace INTEIRO, e
+#                       RBAC nao sabe restringir 'create' por nome. A
+#                       ValidatingAdmissionPolicy fecha isso: o tenant so
+#                       escreve Secret cujo nome comeca com 'apikey-<tenant>-'
+# ---------------------------------------------------------------------------
+_plataforma() {
+  oc apply -f - <<'EOF' >/dev/null || _die "falha ao aplicar o RBAC de plataforma dos tenants"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rhcl-tenant-extra
+  labels: {rhcl.demo/multitenant: "true"}
+rules:
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [gateways]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [monitoring.coreos.com]
+    resources: [prometheusrules, podmonitors, servicemonitors]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rhcl-tenant-chaves
+  namespace: kuadrant-system
+  labels: {rhcl.demo/multitenant: "true"}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [devportal.kuadrant.io]
+    resources: [apikeys]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # traffic.sh le os contadores do Limitador por port-forward
+  - apiGroups: [""]
+    resources: [pods/portforward]
+    verbs: [create]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: rhcl-tenant-chaves
+  labels: {rhcl.demo/multitenant: "true"}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [secrets]
+  matchConditions:
+    - name: so-participante
+      expression: >-
+        request.userInfo.username.matches('^system:serviceaccount:showroom-[a-z][a-z0-9]+:showroom$')
+        || request.userInfo.username.matches('^user[0-9]+$')
+  variables:
+    - name: tenant
+      expression: >-
+        request.userInfo.username.startsWith('system:serviceaccount:')
+        ? request.userInfo.username.split(':')[2].substring(9)
+        : request.userInfo.username
+  validations:
+    - expression: >-
+        (request.operation == 'DELETE' ? oldObject : object).metadata.name.startsWith('apikey-' + variables.tenant + '-')
+      messageExpression: >-
+        'em kuadrant-system o participante ' + variables.tenant + ' so escreve Secret de nome apikey-' + variables.tenant + '-*'
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: rhcl-tenant-chaves
+  labels: {rhcl.demo/multitenant: "true"}
+spec:
+  policyName: rhcl-tenant-chaves
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels: {kubernetes.io/metadata.name: kuadrant-system}
+EOF
+  _ok "RBAC de plataforma e trava de admissao das chaves"
+}
+
+# ---------------------------------------------------------------------------
+# rbac — a identidade do participante
+#
+# Duas, e as duas sao a mesma pessoa: a ServiceAccount do terminal do Showroom
+# dele (showroom-<tenant>/showroom) e o usuario do Keycloak (<tenant>), com
+# que ele entra na console.
+# ---------------------------------------------------------------------------
+_rbac() { # <tenant>
+  local t="$1" ns
+  oc get clusterrole rhcl-tenant-extra >/dev/null 2>&1 || _plataforma
+  oc get ns "showroom-${t}" >/dev/null 2>&1 || oc create ns "showroom-${t}" >/dev/null
+  oc label ns "showroom-${t}" "${ROTULO}=${t}" --overwrite >/dev/null
+  oc get sa showroom -n "showroom-${t}" >/dev/null 2>&1 || oc create sa showroom -n "showroom-${t}" >/dev/null
+
+  _sujeitos() { printf '  - {kind: ServiceAccount, name: showroom, namespace: showroom-%s}\n  - {kind: User, apiGroup: rbac.authorization.k8s.io, name: %s}\n' "$t" "$t"; }
+  {
+    for ns in $(oc get ns -l "${ROTULO}=${t}" -o jsonpath='{.items[*].metadata.name}'); do
+      [[ "$ns" == "showroom-${t}" ]] && continue
+      printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-admin, namespace: %s}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: admin}\nsubjects:\n' "$ns"; _sujeitos
+      printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-extra, namespace: %s}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-extra}\nsubjects:\n' "$ns"; _sujeitos
+    done
+    printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-chaves}\nsubjects:\n' "$t"; _sujeitos
+    # leitura do cluster (sem Secret) e das metricas: os scripts do roteiro
+    # consultam plataforma, nodes e Thanos, e nenhum deles escreve la
+    for r in cluster-reader cluster-monitoring-view; do
+      printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata: {name: rhcl-tenant-%s-%s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: %s}\nsubjects:\n' "$t" "$r" "$ROTULO" "$t" "$r"; _sujeitos
+    done
+  } | oc apply -f - >/dev/null || _die "falha ao aplicar o RBAC de ${t}"
+  _ok "identidade de ${t}: showroom-${t}/showroom e o usuario ${t}"
+}
+
+# kubeconfig do participante, para rodar o roteiro COMO ele (ensaio e suporte)
+_kubeconfig() { # <tenant> <arquivo>
+  local t="$1" out="$2" tok srv
+  tok="$(oc create token showroom -n "showroom-${t}" --duration=8h 2>/dev/null)" || _die "sem token para showroom-${t}/showroom — rode 'rbac ${t}' antes"
+  srv="$(oc whoami --show-server)"
+  : > "$out" && chmod 600 "$out"
+  KUBECONFIG="$out" oc login --token="$tok" --server="$srv" --insecure-skip-tls-verify=true >/dev/null 2>&1 \
+    || _die "o login com o token de ${t} falhou"
+  _ok "kubeconfig de ${t} em ${out}"
+}
+
+_lista() {
+  local dom; dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
+  printf '  %-10s %-5s %-6s %s\n' TENANT NS BORDA HOST
+  oc get ns -l "$ROTULO" -o jsonpath="{range .items[*]}{.metadata.labels.rhcl\\.demo/tenant}{'\n'}{end}" 2>/dev/null \
+    | sort | uniq -c | while read -r n t; do
+      printf '  %-10s %-5s %-6s %s\n' "$t" "$n" "$(_borda "api-travels-${t}.${dom}")" "api-travels-${t}.${dom}"
+    done
+}
+
+# ---------------------------------------------------------------------------
+case "${1:-}" in
+  sobe)
+    _valida_tenant "${2:-}"; _sobe "$2" "${3:-${_here}/tenants/$2}"
+    ;;
+  remove)
+    _valida_tenant "${2:-}"; _remove "$2"; _ok "tenant ${2} removido"
+    ;;
+  lista)
+    _lista
+    ;;
+  plataforma)
+    _plataforma
+    ;;
+  rbac)
+    _valida_tenant "${2:-}"; _rbac "$2"
+    ;;
+  kubeconfig)
+    _valida_tenant "${2:-}"; _kubeconfig "$2" "${3:-${_here}/tenants/$2/.kubeconfig}"
+    ;;
+  render)
+    _valida_tenant "${2:-}"; dest="${3:-${_here}/tenants/$2}"
+    _render "$2" "$dest"
+    _ok "copia de ${2} em ${dest#${_here}/}"
+    ;;
+  confere)
+    _valida_tenant "${2:-}"; dest="${3:-${_here}/tenants/$2}"
+    [[ -f "${dest}/.tenant" ]] || _render "$2" "$dest"
+    _confere "$dest" "$2"
+    ;;
+  ""|-h|--help)
+    sed -n '2,45p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    ;;
+  *) _die "subcomando desconhecido: $1 (render | confere | sobe | remove | lista)" ;;
+esac

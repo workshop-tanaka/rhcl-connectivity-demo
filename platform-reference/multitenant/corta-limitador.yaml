@@ -1,0 +1,41 @@
+# corta-limitador.yaml — o Limitador INALCANCAVEL para um Gateway so.
+#
+# POR QUE ISTO EXISTE: o passo 'degrada' prova que o rate limit falha ABERTO
+# escalando o Limitador para zero. Num cluster compartilhado
+# (scripts/tenant.sh) isso derrubaria o limite de TODOS os participantes -- e
+# o participante nem tem permissao em kuadrant-system. Cortar o CAMINHO ate
+# o Limitador, so para os Gateways deste namespace, prova a mesma coisa.
+#
+# Medido em 2026-10-04 (cluster-zxljq, OVN-Kubernetes): com a policy
+# aplicada, o tier free do tenant serviu 14 de 14; o do vizinho continuou em
+# 3 de 8; o Limitador ficou Running. O corte pega inclusive a conexao gRPC que
+# ja estava aberta, e a volta ao normal leva menos de 20s.
+#
+# E a falha mais comum em producao, alias: o Limitador raramente "some" -- o
+# que some e a rede entre o Gateway e ele.
+#
+# AS DUAS REGRAS: NetworkPolicy nao sabe dizer "tudo menos uma porta". Entao
+# a primeira libera todo namespace que NAO e kuadrant-system, e a segunda
+# libera, em kuadrant-system, o Authorino (50051) e o servidor do modulo wasm
+# (8082). O que sobra de fora e a 8081 do Limitador.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: corta-limitador
+  namespace: ingress-gateway
+  labels:
+    rhcl.demo/lab: degrada
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchExpressions:
+              - {key: kubernetes.io/metadata.name, operator: NotIn, values: [kuadrant-system]}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kuadrant-system}
+      ports:
+        - {protocol: TCP, port: 50051}
+        - {protocol: TCP, port: 8082}

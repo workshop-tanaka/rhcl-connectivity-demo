@@ -605,6 +605,40 @@ if not q:
 # O sintoma engana: parece rate limit funcionando, e e cota exaurida.
 # Rode isto depois de qualquer ensaio pesado e antes de subir ao palco.
 mode_reset() {
+  # CLUSTER COMPARTILHADO (scripts/tenant.sh): reiniciar o Limitador zeraria a
+  # cota de TODOS os participantes, e o participante nao tem permissao para
+  # isso. O Limitador descarta os contadores de um limite REMOVIDO, entao
+  # recriar o PlanPolicy zera so os deste ambiente. Medido em 2026-10-04: os
+  # contadores diarios do vizinho ficaram exatamente onde estavam.
+  if [[ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/.tenant" ]]; then
+    local pp guarda i
+    guarda="$(mktemp -t planpolicy-travels)"
+    _log "recriando o PlanPolicy travels-plans (zera so os contadores deste ambiente)"
+    # A copia vai para um arquivo ANTES do delete: se o apply falhar, os planos
+    # sumiram, e o caminho de volta tem de estar escrito em algum lugar.
+    oc get planpolicy travels-plans -n travel-agency -o json 2>/dev/null | python3 -c '
+import sys, json
+o = json.load(sys.stdin)
+m = o["metadata"]
+o["metadata"] = {k: m[k] for k in ("name", "namespace", "labels") if k in m}
+o.pop("status", None)
+json.dump(o, sys.stdout)' > "$guarda" 2>/dev/null
+    [[ -s "$guarda" ]] || _die "nao consegui ler o PlanPolicy travels-plans."
+    oc delete planpolicy travels-plans -n travel-agency >/dev/null \
+      || _die "nao consegui remover o PlanPolicy (copia em ${guarda})."
+    sleep 3
+    oc apply -f "$guarda" >/dev/null \
+      || _die "o PlanPolicy NAO voltou. Reaplique: oc apply -f ${guarda}"
+    for i in $(seq 1 30); do
+      [[ "$(oc get ratelimitpolicy travels-plans -n travel-agency -o jsonpath='{.status.conditions[?(@.type=="Enforced")].status}' 2>/dev/null)" == True ]] && break
+      sleep 2
+    done
+    [[ $i -lt 30 ]] || _die "o PlanPolicy voltou mas o limite nao ficou Enforced. Veja: oc get ratelimitpolicy -n travel-agency"
+    rm -f "$guarda"; sleep 3
+    _ok "contadores deste ambiente zerados -- cotas diarias incluidas."
+    _log "confirme com: bash scripts/traffic.sh tiers"
+    return 0
+  fi
   _log "reiniciando o Limitador (contadores sao in-memory)"
   oc rollout restart deployment/limitador-limitador -n kuadrant-system >/dev/null \
     || _die "nao consegui reiniciar o Limitador."
