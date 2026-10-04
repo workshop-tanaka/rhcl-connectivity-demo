@@ -32,6 +32,15 @@
 #   REQ 5m    requisicoes que passaram pela borda dele nos ultimos 5 min
 #             (Thanos, rotulo 'ambiente'). E ATIVIDADE, nao saude: zero e
 #             alguem lendo, ou alguem parado. Nao entra no veredito.
+#   PAGINA    a ultima pagina do guia que o Showroom DELE serviu, e ha quanto
+#             tempo (log de acesso do traefik). E o avanco: tambem nao entra
+#             no veredito. Tres limites, para nao ler demais na coluna:
+#               - mede "abriu a pagina", nao "fez o passo" nem "entendeu";
+#               - quem abriu pode ser voce, conferindo o guia de alguem;
+#               - o log nasce com o pod: se o Showroom reinicia, a coluna
+#                 volta a 'nenhuma' ate a proxima pagina.
+#             E A UNICA LEITURA QUE CRESCE COM A TURMA (um 'oc logs' por
+#             participante, em lotes de LARGURA). AVANCO=0 desliga.
 #
 # LEITURA QUE FALHA NAO VIRA ZERO. Sem a lista de pods o cluster inteiro sai
 # sem veredito; sem Thanos a coluna mostra '-'. Concluir "0 pods" de um 'oc'
@@ -46,6 +55,8 @@
 #
 #   FROTA=outro.local       outro inventario
 #   MEM_ALERTA=80           % do limite de memoria a partir do qual avisa
+#   AVANCO=0                nao le o log do Showroom (a coluna PAGINA some)
+#   LARGURA=6               quantos logs de cada vez (default 6)
 #
 # COMPATIVEL COM BASH 3.2 (o /bin/bash do macOS): sem vetor associativo, sem
 # 'mapfile'. O cruzamento todo e do awk.
@@ -55,6 +66,8 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
 
 INV="${FROTA:-frota.local}"
 MEM_ALERTA="${MEM_ALERTA:-80}"
+AVANCO="${AVANCO:-1}"
+LARGURA="${LARGURA:-6}"
 ROTULO="rhcl.demo/tenant"
 NS_PLATAFORMA="kuadrant-system istio-system"
 
@@ -145,11 +158,45 @@ _plataforma() { # le $TRAB/pods
 }
 
 # ---------------------------------------------------------------------------
+# O avanco: a ultima pagina que o Showroom de cada um serviu
+# ---------------------------------------------------------------------------
+_avanco() { # le $TRAB/ns, escreve $TRAB/pag: "<tenant> <pagina>|<idade>"
+  local t n=0 agora; agora="$(date -u +%s)"
+  for t in $(awk '$2 == "showroom-" $1 { print $1 }' "$TRAB/ns"); do
+    # O arquivo so nasce se o 'oc logs' respondeu: log que nao veio e '-',
+    # log que veio sem pagina nenhuma e 'nenhuma'. Nao sao a mesma coisa.
+    ( oc logs -n "showroom-${t}" deploy/showroom -c traefik --tail=500 > "$TRAB/pag.${t}.log" 2>/dev/null \
+        && awk -v t="$t" -v agora="$agora" '
+             # epoch de "04/Oct/2026:23:22:00" (UTC) na mao: o awk do macOS
+             # nao tem mktime
+             function epoch(s,  p, m, y, d, era, yoe, doy, doe) {
+               split(s, p, /[\/:]/); m = (index("JanFebMarAprMayJunJulAugSepOctNovDec", p[2]) + 2) / 3
+               y = p[3] - (m <= 2); d = p[1] + 0
+               era = int(y / 400); yoe = y - era * 400
+               doy = int((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1
+               doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy
+               return (era * 146097 + doe - 719468) * 86400 + p[4] * 3600 + p[5] * 60 + p[6] }
+             match($0, /"GET \/www\/modules\/[^" ?]+\.html/) {
+               pg = substr($0, RSTART + 18, RLENGTH - 23); qd = $4; sub(/^\[/, "", qd) }
+             END {
+               if (pg == "") { print t, "nenhuma"; exit }
+               m = int((agora - epoch(qd)) / 60)
+               print t, pg "|" (m < 0 ? "agora" : m < 90 ? m "min" : int(m / 60) "h") }' "$TRAB/pag.${t}.log" > "$TRAB/pag.${t}" ) &
+    n=$((n + 1)); [[ $((n % LARGURA)) == 0 ]] && wait
+  done
+  wait
+  cat "$TRAB"/pag.user* 2>/dev/null | grep -v '^$' > "$TRAB/pag.todos" || true
+  # se NENHUM log respondeu, a coluna inteira se abstem
+  if ls "$TRAB"/pag.user*.log >/dev/null 2>&1 && [[ -s "$TRAB/pag.todos" ]]; then mv "$TRAB/pag.todos" "$TRAB/pag"; fi
+  rm -f "$TRAB"/pag.user*
+}
+
+# ---------------------------------------------------------------------------
 # Um cluster: a plataforma e a tabela dos participantes
 # ---------------------------------------------------------------------------
 _cluster() { # <rotulo>
   local nome="$1" dom pol host tok tab; tab="$(printf '\t')"
-  rm -f "$TRAB"/ns "$TRAB"/pods "$TRAB"/gw "$TRAB"/pol "$TRAB"/req "$TRAB"/mem "$TRAB"/plat "$TRAB"/linhas
+  rm -f "$TRAB"/ns "$TRAB"/pods "$TRAB"/gw "$TRAB"/pol "$TRAB"/req "$TRAB"/mem "$TRAB"/plat "$TRAB"/linhas "$TRAB"/pag "$TRAB"/pag.*
   PLAT_FALHA=0; PLAT_AVISO=0
 
   if ! oc whoami >/dev/null 2>&1; then
@@ -214,12 +261,15 @@ for r in d["data"]["result"]:
     print("%s\t%d" % (r["metric"]["ambiente"], float(r["value"][1])))' > "$TRAB/req" 2>/dev/null || rm -f "$TRAB/req"
   fi
 
+  [[ "$AVANCO" == 1 ]] && _avanco
+
   {
     sed 's/^/N /' "$TRAB/ns"
     sed 's/^/P /' "$TRAB/pods"
     [[ -f "$TRAB/gw"  ]] && { echo "TEM gw";  sed 's/^/G /' "$TRAB/gw"; }
     [[ -f "$TRAB/pol" ]] && { echo "TEM pol"; sed 's/^/Y /' "$TRAB/pol"; }
     [[ -f "$TRAB/req" ]] && { echo "TEM req"; sed 's/^/R /' "$TRAB/req"; }
+    [[ -f "$TRAB/pag" ]] && { echo "TEM pag"; sed 's/^/V /' "$TRAB/pag"; }
   } | awk '
     function falha(t, msg) { ruim[t] = 1; nd[t]++; d[t, nd[t]] = msg }
     $1 == "TEM" { tem[$2] = 1; next }
@@ -247,6 +297,7 @@ for r in d["data"]["result"]:
       next
     }
     $1 == "R" { req[$2] = $3; next }
+    $1 == "V" { pag[$2] = $3; next }
     END {
       for (t in todos) {
         # o que todo participante tem de ter, senao nao ha ambiente para avaliar
@@ -256,30 +307,31 @@ for r in d["data"]["result"]:
         else if (guia[t] == "")                { falha(t, "nenhum pod em showroom-" t); guia[t] = "falha" }
         if (tem["gw"] && gt[t] == 0)           falha(t, "nenhum Gateway nos namespaces dele")
         if (tem["pol"] && yt[t] == 0)          falha(t, "nenhuma policy do Kuadrant nos namespaces dele")
-        printf "L\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n", t, (ruim[t] ? "falha" : "ok"), nns[t], pp[t], pt[t],
+        printf "L\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n", t, (ruim[t] ? "falha" : "ok"), nns[t], pp[t], pt[t],
           (tem["gw"] ? gp[t] + 0 : "-"), (tem["gw"] ? gt[t] + 0 : "-"),
           (tem["pol"] ? yp[t] + 0 : "-"), (tem["pol"] ? yt[t] + 0 : "-"), ys[t], guia[t],
-          (tem["req"] ? req[t] + 0 : "-")
+          (tem["req"] ? req[t] + 0 : "-"), ((t in pag) ? pag[t] : "-")
         for (i = 1; i <= nd[t]; i++) printf "D\t%s\t%s\n", t, d[t, i]
       }
     }' > "$TRAB/linhas"
 
-  local e t est nn a b g1 g2 y1 y2 ys gu rq cor pol_txt
+  local e t est nn a b g1 g2 y1 y2 ys gu rq pg cor pol_txt
   local n_ok=0 n_falha=0 n_ativos=0 n_total=0
-  [[ "$TSV" == 1 ]] || { _sec "participantes"; printf '  %s%-8s %-3s %-7s %-8s %-18s %-6s %-7s %s%s\n' "$_DIM" TENANT NS PODS GATEWAY POLICIES GUIA 'REQ 5m' '' "$_RST"; }
+  [[ "$TSV" == 1 ]] || { _sec "participantes"; printf '  %s%-8s %-3s %-7s %-8s %-18s %-6s %-7s %-6s %s%s\n' "$_DIM" TENANT NS PODS GATEWAY POLICIES GUIA 'REQ 5m' '' "$([[ "$AVANCO" == 1 ]] && echo PAGINA)" "$_RST"; }
   # user2 antes de user10: a ordem e a do numero
   grep "^L${tab}" "$TRAB/linhas" | sed "s/^L${tab}user//" | sort -n | sed 's/^/user/' > "$TRAB/ord"
-  while IFS="$tab" read -r t est nn a b g1 g2 y1 y2 ys gu rq; do
+  while IFS="$tab" read -r t est nn a b g1 g2 y1 y2 ys gu rq pg; do
     n_total=$((n_total + 1))
     [[ "$est" == ok ]] && n_ok=$((n_ok + 1)) || n_falha=$((n_falha + 1))
     [[ "$rq" != "-" && "$rq" -gt 0 ]] && n_ativos=$((n_ativos + 1))
     if [[ "$TSV" == 1 ]]; then
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$est" "$nome" "$t" "$nn" "$a" "$b" "$g1" "$g2" "$y1" "$y2" "$ys" "$gu" "$rq"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$est" "$nome" "$t" "$nn" "$a" "$b" "$g1" "$g2" "$y1" "$y2" "$ys" "$gu" "$rq" "$pg"
       continue
     fi
     pol_txt="${y1}/${y2}"; [[ "$ys" -gt 0 ]] && pol_txt="${pol_txt} +${ys} sobrep."
     [[ "$est" == ok ]] && cor="$_GRN" || cor="$_RED"
-    printf '  %-8s %-3s %-7s %-8s %-18s %-6s %-7s %s%s%s\n' "$t" "$nn" "${a}/${b}" "${g1}/${g2}" "$pol_txt" "$gu" "$rq" "$cor" "$([[ "$est" == ok ]] && echo OK || echo FALHA)" "$_RST"
+    [[ "$AVANCO" == 1 ]] || pg=""
+    printf '  %-8s %-3s %-7s %-8s %-18s %-6s %-7s %s%-6s%s %s\n' "$t" "$nn" "${a}/${b}" "${g1}/${g2}" "$pol_txt" "$gu" "$rq" "$cor" "$([[ "$est" == ok ]] && echo OK || echo FALHA)" "$_RST" "${pg//|/ }"
     grep "^D${tab}${t}${tab}" "$TRAB/linhas" | cut -f3 | while IFS= read -r e; do printf '           %s↳ %s%s\n' "$_DIM" "$e" "$_RST"; done
   done < "$TRAB/ord"
 
@@ -289,6 +341,7 @@ for r in d["data"]["result"]:
     [[ -f "$TRAB/gw"  ]] || _nota "GATEWAY '-': a leitura dos Gateways falhou neste ciclo — a coluna se abstem"
     [[ -f "$TRAB/pol" ]] || _nota "POLICIES '-': a leitura das policies falhou neste ciclo — a coluna se abstem"
     [[ -f "$TRAB/req" ]] || _nota "REQ 5m '-': sem resposta do Thanos (rota, token ou python3) — atividade nao medida"
+    [[ "$AVANCO" != 1 || -f "$TRAB/pag" ]] || _nota "PAGINA '-': nenhum log de Showroom respondeu neste ciclo — avanco nao medido"
     printf '\n  %s%d participantes%s: %s%d OK%s' "$_BLD" "$n_total" "$_RST" "$_GRN" "$n_ok" "$_RST"
     [[ "$n_falha" -gt 0 ]] && printf ', %s%d com falha%s' "$_RED" "$n_falha" "$_RST"
     [[ -f "$TRAB/req" ]] && printf ' — %d com trafego nos ultimos 5 min' "$n_ativos"
