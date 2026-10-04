@@ -198,8 +198,14 @@ _cluster() { # <rotulo>
   host="$(oc get route thanos-querier -n openshift-monitoring -o jsonpath='{.spec.host}' 2>/dev/null)"
   tok="$(oc whoami -t 2>/dev/null)"
   if [[ -n "$host" && -n "$tok" ]] && command -v python3 >/dev/null; then
-    curl -sk -m 15 -H "Authorization: Bearer ${tok}" "https://${host}/api/v1/query" \
-         --data-urlencode 'query=sum by (ambiente) (round(increase(istio_requests_total{ambiente!="",namespace=~"ingress-gateway-.+"}[5m])))' 2>/dev/null \
+    # O TOKEN E DE ADMIN, entao o certificado e conferido (sem '-k'): primeiro
+    # com as CAs do sistema, depois com a CA do ingress do proprio cluster.
+    # Se nenhuma das duas fecha, a coluna se abstem -- nao se manda a
+    # credencial para quem nao provou ser o Thanos.
+    _thanos() { curl -s -m 15 "$@" -H "Authorization: Bearer ${tok}" "https://${host}/api/v1/query" \
+         --data-urlencode 'query=sum by (ambiente) (round(increase(istio_requests_total{ambiente!="",namespace=~"ingress-gateway-.+"}[5m])))' 2>/dev/null; }
+    { _thanos || { oc get configmap default-ingress-cert -n openshift-config-managed -o jsonpath='{.data.ca-bundle\.crt}' > "$TRAB/ca.crt" 2>/dev/null \
+                   && [[ -s "$TRAB/ca.crt" ]] && _thanos --cacert "$TRAB/ca.crt"; }; } \
       | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
