@@ -581,22 +581,24 @@ for o in json.loads(objs)["items"]:
     elif k == "RoleBinding":
         for s in o["subjects"]: s["namespace"] = "showroom-" + t
     elif k == "ConfigMap" and m["name"] == "showroom-userdata":
-        linhas = []
+        # RECONSTRUIDO, nao filtrado. O molde e o Showroom do INSTRUTOR, e os
+        # atributos dele trazem a senha de admin do Keycloak, do Grafana e do
+        # GitLab. Filtrar linha a linha deixava passar tudo o que nao tivesse
+        # cara de chave e valor -- a continuacao de um valor de varias linhas,
+        # um bloco aninhado. Aqui so entra o que casa INTEIRO com
+        # "chave": "valor" numa linha, de uma chave da lista do que PODE, e
+        # URL com credencial embutida (usuario@) fica de fora. O resto nao e
+        # copiado: a pagina ja trata atributo ausente.
+        dados = {}
         for l in o["data"]["user_data.yml"].splitlines():
-            c = re.match(r"^\"?([A-Za-z0-9_]+)\"?:", l)
-            # O molde e o Showroom do INSTRUTOR, e os atributos dele trazem a
-            # senha de admin do Keycloak, do Grafana e do GitLab. Copiados, cada
-            # participante receberia a chave do cluster. Tudo o que e senha ou
-            # conta de admin sai em branco; a pagina ja trata atributo vazio.
-            # LISTA DO QUE PODE, nao do que nao pode: uma lista de proibidos
-            # falha ABERTA no dia em que o playbook ganhar um atributo de
-            # credencial com outro nome.
-            if c and not (c.group(1) in pode or c.group(1).endswith("_url")): l = "\"%s\": \"\"" % c.group(1)
-            if c and c.group(1) in troca: l = "\"%s\": \"%s\"" % (c.group(1), troca[c.group(1)])
-            if c and c.group(1) in novos: continue
-            linhas.append(l)
-        linhas += ["\"%s\": \"%s\"" % kv for kv in novos.items()]
-        o["data"]["user_data.yml"] = "\n".join(linhas) + "\n"
+            c = re.fullmatch(r"\"?([A-Za-z0-9_]+)\"?:\s*\"((?:[^\"\\]|\\.)*)\"\s*", l)
+            if not c: continue
+            ch, v = c.group(1), c.group(2)
+            if not (ch in pode or ch.endswith("_url")): continue
+            if "@" in v: continue
+            dados[ch] = v
+        dados.update(troca); dados.update(novos)
+        o["data"]["user_data.yml"] = "".join("\"%s\": \"%s\"\n" % (ch, dados[ch]) for ch in sorted(dados))
     elif k == "Deployment":
         sp = o["spec"]["template"]["spec"]
         term = [c for c in sp["containers"] if c["name"] == "terminal"][0]
