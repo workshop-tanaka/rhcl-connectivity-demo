@@ -164,6 +164,25 @@ _confere() { # <dir da copia> <tenant>
 # provisionamento do tenant. O que elas tocam fora dele (o CR Kuadrant, os
 # ServiceMonitors) e identico ao original -- 'confere' mede isso.
 # ---------------------------------------------------------------------------
+# O usuario do RHDP pode criar projeto ('oc new-project'), e quem cria e admin
+# dele. Um participante que criasse 'travel-agency-user9' ou 'showroom-user9'
+# ANTES do provisionamento do user9 seria admin do namespace onde o ambiente
+# -- e a identidade -- do user9 vao nascer. Entao: namespace de tenant so e
+# aceito se fomos nos que criamos, e a marca e o rotulo, que admin de projeto
+# nao consegue escrever.
+_ns_nosso() { # <tenant> <namespace...>
+  local t="$1" ns dono; shift
+  for ns in "$@"; do
+    if oc get ns "$ns" >/dev/null 2>&1; then
+      dono="$(oc get ns "$ns" -o jsonpath="{.metadata.labels.rhcl\\.demo/tenant}" 2>/dev/null)"
+      [[ "$dono" == "$t" ]] || _die "o namespace ${ns} ja existe e NAO foi criado por este script (sem o rotulo ${ROTULO}=${t}). Alguem o criou antes do provisionamento — confira quem ('oc get rolebinding -n ${ns}') e remova antes de seguir."
+    else
+      printf 'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: %s\n  labels: {%s: %s}\n' "$ns" "$ROTULO" "$t" | oc create -f - >/dev/null \
+        || _die "nao consegui criar o namespace ${ns}"
+    fi
+  done
+}
+
 _borda() { # <host> -> codigo HTTP sem chave
   curl -sk -m 10 -o /dev/null -w '%{http_code}' "https://$1/travels" 2>/dev/null
 }
@@ -175,6 +194,7 @@ _sobe() { # <tenant> <dir da copia>
   oc get kuadrant kuadrant -n kuadrant-system >/dev/null 2>&1 \
     || _die "a plataforma nao esta de pe (sem CR Kuadrant). Rode antes o provision.sh do repositorio original."
 
+  _ns_nosso "$t" "travel-agency-${t}" "ingress-gateway-${t}" "echo-api-${t}"
   _render "$t" "$d"
   _ok "copia de ${t} em ${d#${_here}/}"
 
@@ -221,7 +241,7 @@ _remove() { # <tenant>
   oc get apikeys.devportal.kuadrant.io -n kuadrant-system -o name 2>/dev/null | grep -- "-${t}\$" \
     | xargs -r oc delete -n kuadrant-system
   oc delete clusterrolebinding -l "${ROTULO}=${t}" --ignore-not-found >/dev/null 2>&1
-  oc delete rolebinding "rhcl-tenant-${t}" -n kuadrant-system --ignore-not-found >/dev/null 2>&1
+  oc delete rolebinding "rhcl-tenant-${t}" "rhcl-tenant-${t}-logs" -n kuadrant-system --ignore-not-found >/dev/null 2>&1
   rm -rf "${_here:?}/tenants/${t}" "${_here:?}/tenants/.${t}.log"
 }
 
@@ -261,6 +281,62 @@ rules:
   - apiGroups: [monitoring.coreos.com]
     resources: [prometheusrules, podmonitors, servicemonitors]
     verbs: [get, list, watch, create, update, patch, delete]
+---
+# LEITURA DA PLATAFORMA, ENUMERADA -- e nao 'cluster-reader'. Medido em
+# 2026-10-04 no cluster-vs5gv: com cluster-reader o participante le o
+# Application 'field-content' (cujos values trazem a senha de admin do cluster
+# e do Keycloak), o KeycloakRealmImport e o ConfigMap de atributos do Showroom
+# do instrutor. Num cluster de um participante isso nao era fronteira; aqui e
+# qualquer aluno virando cluster-admin. Nada de ConfigMap, Secret, Argo ou
+# Keycloak nesta lista -- e 'pods/log' fica fora daqui, por namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rhcl-tenant-leitura
+  labels: {rhcl.demo/multitenant: "true"}
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, endpoints, namespaces, nodes, events, serviceaccounts, persistentvolumeclaims]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets, daemonsets]
+    verbs: [get, list, watch]
+  - apiGroups: [config.openshift.io]
+    resources: [ingresses, clusterversions, infrastructures, networks, clusteroperators]
+    verbs: [get, list, watch]
+  - apiGroups: [operators.coreos.com]
+    resources: [clusterserviceversions, subscriptions]
+    verbs: [get, list, watch]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list, watch]
+  - apiGroups: [route.openshift.io]
+    resources: [routes]
+    verbs: [get, list, watch]
+  - apiGroups: [project.openshift.io]
+    resources: [projects]
+    verbs: [get, list, watch]
+  - apiGroups: [gateway.networking.k8s.io, kuadrant.io, extensions.kuadrant.io, devportal.kuadrant.io,
+               limitador.kuadrant.io, operator.authorino.kuadrant.io, authorino.kuadrant.io,
+               networking.istio.io, security.istio.io, telemetry.istio.io, extensions.istio.io, sailoperator.io,
+               monitoring.coreos.com, networking.k8s.io, tempo.grafana.com, opentelemetry.io, kiali.io]
+    resources: ["*"]
+    verbs: [get, list, watch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods, nodes]
+    verbs: [get, list]
+---
+# o log do Authorino e do Limitador e parte do roteiro ('negado', 'auditoria')
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rhcl-tenant-logs
+  namespace: kuadrant-system
+  labels: {rhcl.demo/multitenant: "true"}
+rules:
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -370,9 +446,8 @@ EOF
 # ---------------------------------------------------------------------------
 _rbac() { # <tenant>
   local t="$1" ns
-  oc get clusterrole rhcl-tenant-extra >/dev/null 2>&1 || _plataforma
-  oc get ns "showroom-${t}" >/dev/null 2>&1 || oc create ns "showroom-${t}" >/dev/null
-  oc label ns "showroom-${t}" "${ROTULO}=${t}" --overwrite >/dev/null
+  oc get clusterrole rhcl-tenant-leitura >/dev/null 2>&1 || _plataforma
+  _ns_nosso "$t" "showroom-${t}"
   oc get sa showroom -n "showroom-${t}" >/dev/null 2>&1 || oc create sa showroom -n "showroom-${t}" >/dev/null
 
   _sujeitos() { printf '  - {kind: ServiceAccount, name: showroom, namespace: showroom-%s}\n  - {kind: User, apiGroup: rbac.authorization.k8s.io, name: %s}\n' "$t" "$t"; }
@@ -383,12 +458,15 @@ _rbac() { # <tenant>
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-extra, namespace: %s}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-extra}\nsubjects:\n' "$ns"; _sujeitos
     done
     printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-chaves}\nsubjects:\n' "$t"; _sujeitos
-    # leitura do cluster (sem Secret) e das metricas: os scripts do roteiro
-    # consultam plataforma, nodes e Thanos, e nenhum deles escreve la
-    for r in cluster-reader cluster-monitoring-view; do
+    printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-logs, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-logs}\nsubjects:\n' "$t"; _sujeitos
+    # leitura da plataforma (enumerada, ver _plataforma) e das metricas: os
+    # scripts do roteiro consultam nodes, operadores e Thanos, e nao escrevem la
+    for r in rhcl-tenant-leitura cluster-monitoring-view; do
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata: {name: rhcl-tenant-%s-%s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: %s}\nsubjects:\n' "$t" "$r" "$ROTULO" "$t" "$r"; _sujeitos
     done
   } | oc apply -f - >/dev/null || _die "falha ao aplicar o RBAC de ${t}"
+  # o binding da primeira versao deste script, que dava leitura do cluster inteiro
+  oc delete clusterrolebinding "rhcl-tenant-${t}-cluster-reader" --ignore-not-found >/dev/null 2>&1
   _ok "identidade de ${t}: showroom-${t}/showroom e o usuario ${t}"
 }
 
@@ -413,8 +491,13 @@ _rbac() { # <tenant>
 _showroom() { # <tenant> <dir da copia>
   local t="$1" d="$2" orig dom i pod
   [[ -f "${d}/.tenant" ]] || _die "sem a copia de ${t} em ${d#${_here}/} — rode 'sobe ${t}' antes"
-  orig="${SHOWROOM_ORIGEM:-$(oc get deploy -A --field-selector metadata.name=showroom \
-          -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | grep -vE '^showroom-user[0-9]+$' | head -1)}"
+  # O MOLDE TEM DE SER CONFIAVEL: o Deployment dele e copiado para o namespace
+  # de cada participante e roda com a identidade DELE. Procurar "um Deployment
+  # chamado showroom" aceitaria o de qualquer projeto -- e o usuario do RHDP
+  # cria projeto. O ClusterRoleBinding de cluster-admin que o playbook da ao
+  # terminal do instrutor so um admin escreve: e dele que sai o namespace.
+  orig="${SHOWROOM_ORIGEM:-$(oc get clusterrolebinding -l demo.redhat.com/application=showroom \
+          -o jsonpath='{range .items[?(@.roleRef.name=="cluster-admin")]}{.subjects[0].namespace}{"\n"}{end}' 2>/dev/null | head -1)}"
   [[ -n "$orig" ]] || _die "nao achei o Showroom do instrutor para servir de molde (defina SHOWROOM_ORIGEM=<namespace>)."
   dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
   _rbac "$t"
@@ -454,6 +537,11 @@ for o in json.loads(objs)["items"]:
         linhas = []
         for l in o["data"]["user_data.yml"].splitlines():
             c = re.match(r"^\"?([A-Za-z0-9_]+)\"?:", l)
+            # O molde e o Showroom do INSTRUTOR, e os atributos dele trazem a
+            # senha de admin do Keycloak, do Grafana e do GitLab. Copiados, cada
+            # participante receberia a chave do cluster. Tudo o que e senha ou
+            # conta de admin sai em branco; a pagina ja trata atributo vazio.
+            if c and re.search(r"senha|password|admin|token|secret", c.group(1), re.I): l = "\"%s\": \"\"" % c.group(1)
             if c and c.group(1) in troca: l = "\"%s\": \"%s\"" % (c.group(1), troca[c.group(1)])
             if c and c.group(1) in novos: continue
             linhas.append(l)
@@ -537,7 +625,7 @@ _kubeconfig() { # <tenant> <arquivo>
 _turma() { # <N> [primeiro=1]
   local n="$1" ini="${2:-1}" larg="${LARGURA:-4}" i j t falhou=0
   [[ "$n" =~ ^[0-9]+$ && "$ini" =~ ^[0-9]+$ && $n -ge $ini ]] || _die "uso: tenant.sh turma <N> [primeiro]"
-  oc get clusterrole rhcl-tenant-extra >/dev/null 2>&1 || _plataforma
+  _plataforma
   mkdir -p "${_here}/tenants"
   _sec "turma: user${ini}..user${n}, ${larg} por vez"
   i=$ini
