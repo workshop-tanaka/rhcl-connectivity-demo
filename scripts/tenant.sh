@@ -38,6 +38,8 @@
 #   bash scripts/tenant.sh confere user7          # o que a copia aplicaria FORA do tenant
 #   bash scripts/tenant.sh sobe user7             # gera e aplica: plataforma do tenant, borda, demo
 #   bash scripts/tenant.sh remove user7           # apaga os namespaces e as chaves do tenant
+#   bash scripts/tenant.sh showroom user7         # o guia e o terminal dele, com a copia dentro
+#   bash scripts/tenant.sh turma 30               # user1..user30, em lotes (LARGURA=4)
 #   bash scripts/tenant.sh lista                  # tenants no cluster
 set -uo pipefail
 
@@ -218,7 +220,9 @@ _remove() { # <tenant>
     | xargs -r oc delete -n kuadrant-system
   oc get apikeys.devportal.kuadrant.io -n kuadrant-system -o name 2>/dev/null | grep -- "-${t}\$" \
     | xargs -r oc delete -n kuadrant-system
-  rm -rf "${_here:?}/tenants/${t}"
+  oc delete clusterrolebinding -l "${ROTULO}=${t}" --ignore-not-found >/dev/null 2>&1
+  oc delete rolebinding "rhcl-tenant-${t}" -n kuadrant-system --ignore-not-found >/dev/null 2>&1
+  rm -rf "${_here:?}/tenants/${t}" "${_here:?}/tenants/.${t}.log"
 }
 
 # ---------------------------------------------------------------------------
@@ -388,6 +392,108 @@ _rbac() { # <tenant>
   _ok "identidade de ${t}: showroom-${t}/showroom e o usuario ${t}"
 }
 
+# ---------------------------------------------------------------------------
+# showroom — o guia e o terminal do participante
+#
+# O ENDERECO NAO E ESCOLHA NOSSA: a pagina de workshop do RHDP entrega a cada
+# pessoa 'https://showroom-showroom-{user}.<dominio>' (lido do template do
+# pedido ctuvd6, 2026-10-04). Isso e a rota 'showroom' no namespace
+# 'showroom-<user>' -- o mesmo par que o RBAC e a trava de admissao usam.
+#
+# COMO: clonando o Showroom que o provisionamento ja publicou (o do
+# instrutor), e nao renderizando o chart de novo. Tudo o que custou caro
+# acertar ali -- a SCC fixada, o workingDir, as imagens -- vem junto, e o que
+# muda por participante cabe em cinco linhas: os atributos do conteudo
+# (hostname e chaves DELE), o namespace, e a copia do repositorio no terminal.
+#
+# A copia renderizada e EMPURRADA para o volume, nao clonada la dentro: o
+# terminal nao precisa de uma tag que contenha este script, e o que o
+# participante roda e exatamente o que foi aplicado em nome dele.
+# ---------------------------------------------------------------------------
+_showroom() { # <tenant> <dir da copia>
+  local t="$1" d="$2" orig dom i pod
+  [[ -f "${d}/.tenant" ]] || _die "sem a copia de ${t} em ${d#${_here}/} — rode 'sobe ${t}' antes"
+  orig="${SHOWROOM_ORIGEM:-$(oc get deploy -A --field-selector metadata.name=showroom \
+          -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | grep -vE '^showroom-user[0-9]+$' | head -1)}"
+  [[ -n "$orig" ]] || _die "nao achei o Showroom do instrutor para servir de molde (defina SHOWROOM_ORIGEM=<namespace>)."
+  dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
+  _rbac "$t"
+
+  {
+    oc get deploy/showroom svc/showroom route/showroom pvc/showroom-terminal-lab-user-home rolebinding/edit-showroom-sa \
+       cm/showroom-userdata cm/showroom-traefik-static cm/showroom-traefik-dynamic -n "$orig" -o json
+    printf '\n\x1e\n'
+    oc get secret -n kuadrant-system -l "app=partner-${t},rhcl.demo/finalidade=teste" -o json
+  } | TENANT="$t" DOM="$dom" python3 -c '
+import sys, json, os, re, base64
+t, dom = os.environ["TENANT"], os.environ["DOM"]
+objs, chaves = sys.stdin.read().split("\x1e")
+chave = {}
+for s in json.loads(chaves)["items"]:
+    plano = s["metadata"]["labels"].get("kuadrant.io/plan-id")
+    chave[plano] = base64.b64decode(s["data"]["api_key"]).decode()
+troca = {"api_host": "api-travels-%s.%s" % (t, dom), "guid": t, "usuario_console": t,
+         "api_key_free": chave.get("free", ""), "api_key_silver": chave.get("silver", ""), "api_key_gold": chave.get("gold", "")}
+novos = {"user": t, "sufixo": "-" + t}
+out = []
+for o in json.loads(objs)["items"]:
+    m = o["metadata"]
+    o["metadata"] = {"name": m["name"], "namespace": "showroom-" + t, "labels": m.get("labels", {})}
+    o.pop("status", None)
+    k = o["kind"]
+    if k == "Service":
+        for f in ("clusterIP", "clusterIPs"): o["spec"].pop(f, None)
+    elif k == "Route":
+        o["spec"].pop("host", None)          # o host padrao E o que o RHDP anuncia
+    elif k == "PersistentVolumeClaim":
+        o["spec"] = {"accessModes": o["spec"]["accessModes"], "storageClassName": o["spec"].get("storageClassName"),
+                     "resources": {"requests": {"storage": "1Gi"}}}
+    elif k == "RoleBinding":
+        for s in o["subjects"]: s["namespace"] = "showroom-" + t
+    elif k == "ConfigMap" and m["name"] == "showroom-userdata":
+        linhas = []
+        for l in o["data"]["user_data.yml"].splitlines():
+            c = re.match(r"^\"?([A-Za-z0-9_]+)\"?:", l)
+            if c and c.group(1) in troca: l = "\"%s\": \"%s\"" % (c.group(1), troca[c.group(1)])
+            if c and c.group(1) in novos: continue
+            linhas.append(l)
+        linhas += ["\"%s\": \"%s\"" % kv for kv in novos.items()]
+        o["data"]["user_data.yml"] = "\n".join(linhas) + "\n"
+    elif k == "Deployment":
+        sp = o["spec"]["template"]["spec"]
+        term = [c for c in sp["containers"] if c["name"] == "terminal"][0]
+        for c in sp["containers"]:
+            for e in c.get("env", []):
+                if e["name"] in ("GUID", "USER"): e["value"] = t
+        # o workingDir do terminal precisa EXISTIR antes do container subir,
+        # senao ele morre em CreateContainerError; a copia so chega depois
+        sp.setdefault("initContainers", []).append({
+            "name": "prepara-terminal", "image": term["image"],
+            "command": ["bash", "-c", "mkdir -p " + term.get("workingDir", "/home/lab-user/rhcl-connectivity-demo")],
+            "volumeMounts": [v for v in term["volumeMounts"] if v["name"] == "terminal-lab-user-home"]})
+    out.append(o)
+json.dump({"apiVersion": "v1", "kind": "List", "items": out}, sys.stdout)' \
+    | oc apply -f - >/dev/null || _die "falha ao publicar o Showroom de ${t}"
+
+  oc rollout status deploy/showroom -n "showroom-${t}" --timeout=600s >/dev/null 2>&1 \
+    || _die "o Showroom de ${t} nao ficou pronto. Veja: oc get pods -n showroom-${t}"
+
+  # a copia vai SEM o que e de quem opera: o kubeconfig de ensaio e os logs
+  tar -C "$d" --exclude='./.kubeconfig' --exclude='./.provision.log' --exclude='./.out-*' -cf - . \
+    | oc exec -i -n "showroom-${t}" deploy/showroom -c terminal -- \
+        tar -C /home/lab-user/rhcl-connectivity-demo -xf - 2>/dev/null \
+    || _die "nao consegui levar a copia para o terminal de ${t}"
+
+  # o veredito que vale: o participante, do terminal DELE, ve o ambiente DELE
+  if oc exec -n "showroom-${t}" deploy/showroom -c terminal -- \
+       bash -lc 'cd /home/lab-user/rhcl-connectivity-demo && bash scripts/preflight.sh core' 2>&1 | tail -1 | grep -q 'OK'; then
+    _ok "https://showroom-showroom-${t}.${dom} — terminal de ${t} com o nucleo pronto"
+  else
+    _warn "Showroom de ${t} no ar, mas o 'preflight.sh core' do terminal dele nao fechou em OK"
+    return 1
+  fi
+}
+
 # kubeconfig do participante, para rodar o roteiro COMO ele (ensaio e suporte)
 _kubeconfig() { # <tenant> <arquivo>
   local t="$1" out="$2" tok srv
@@ -418,6 +524,41 @@ _kubeconfig() { # <tenant> <arquivo>
   _ok "kubeconfig de ${t} em ${out}"
 }
 
+# ---------------------------------------------------------------------------
+# turma — user1..userN, em lotes
+#
+# EM LOTE, e nao um de cada vez nem todos juntos. Um de cada vez sao ~3 min
+# por participante: 30 levam hora e meia. Todos juntos foi o que fez 1 Gateway
+# em 35 nascer sem o modulo wasm (2026-10-04): o operator do Kuadrant chega a
+# 200m de CPU reconciliando e o servidor do modulo nao responde a tempo.
+# E lote, e nao 'wait -n', porque o bash 3.2 do macOS nao tem -n -- a mesma
+# decisao do frota.sh.
+# ---------------------------------------------------------------------------
+_turma() { # <N> [primeiro=1]
+  local n="$1" ini="${2:-1}" larg="${LARGURA:-4}" i j t falhou=0
+  [[ "$n" =~ ^[0-9]+$ && "$ini" =~ ^[0-9]+$ && $n -ge $ini ]] || _die "uso: tenant.sh turma <N> [primeiro]"
+  oc get clusterrole rhcl-tenant-extra >/dev/null 2>&1 || _plataforma
+  mkdir -p "${_here}/tenants"
+  _sec "turma: user${ini}..user${n}, ${larg} por vez"
+  i=$ini
+  while [[ $i -le $n ]]; do
+    for j in $(seq "$i" $(( i + larg - 1 ))); do
+      [[ $j -le $n ]] || break
+      t="user${j}"
+      ( bash "${BASH_SOURCE[0]}" sobe "$t" && bash "${BASH_SOURCE[0]}" showroom "$t" ) > "${_here}/tenants/.${t}.log" 2>&1 &
+    done
+    wait
+    for j in $(seq "$i" $(( i + larg - 1 ))); do
+      [[ $j -le $n ]] || break
+      t="user${j}"
+      if grep -q 'com o nucleo pronto' "${_here}/tenants/.${t}.log" 2>/dev/null; then _ok "${t}"
+      else falhou=$((falhou+1)); printf '  %s✗%s %s — %s\n' "$_RED" "$_RST" "$t" "$(grep -E '\[X\]|!' "${_here}/tenants/.${t}.log" | tail -1)"; fi
+    done
+    i=$(( i + larg ))
+  done
+  [[ $falhou -eq 0 ]] && _ok "turma inteira no ar" || { _warn "${falhou} participante(s) com falha — o log de cada um esta em tenants/.<user>.log; 'sobe' e 'showroom' sao reexecutaveis"; return 1; }
+}
+
 _lista() {
   local dom; dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
   printf '  %-10s %-5s %-6s %s\n' TENANT NS BORDA HOST
@@ -444,6 +585,12 @@ case "${1:-}" in
   rbac)
     _valida_tenant "${2:-}"; _rbac "$2"
     ;;
+  turma)
+    _turma "${2:-}" "${3:-1}"
+    ;;
+  showroom)
+    _valida_tenant "${2:-}"; _showroom "$2" "${3:-${_here}/tenants/$2}"
+    ;;
   kubeconfig)
     _valida_tenant "${2:-}"; _kubeconfig "$2" "${3:-${_here}/tenants/$2/.kubeconfig}"
     ;;
@@ -458,7 +605,7 @@ case "${1:-}" in
     _confere "$dest" "$2"
     ;;
   ""|-h|--help)
-    sed -n '2,45p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,/^set -uo pipefail/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'
     ;;
-  *) _die "subcomando desconhecido: $1 (render | confere | sobe | remove | lista)" ;;
+  *) _die "subcomando desconhecido: $1 (render | confere | sobe | showroom | turma | rbac | kubeconfig | remove | lista | plataforma)" ;;
 esac
