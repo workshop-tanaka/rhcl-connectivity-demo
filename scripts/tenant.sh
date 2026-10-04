@@ -158,10 +158,7 @@ _render() { # <tenant> <destino>
   done
 
   local alt_ns alt_host
-  # 'parceiros' fica FORA da troca do conteudo: nas paginas a palavra e so
-  # prosa ("os tres parceiros"), 13 vezes, e nenhuma delas e o namespace. Os
-  # links dos portais chegam por atributo.
-  alt_ns="$(printf '%s' "$NS_TENANT" | tr -s ' \\\n' '|' | sed 's/^|//; s/|$//; s/|parceiros|/|/')"
+  alt_ns="$(printf '%s' "$NS_TENANT" | tr -s ' \\\n' '|' | sed 's/^|//; s/|$//')"
   alt_host="$(printf '%s %s' "$HOSTS_TENANT" "$NOMES_TENANT" | tr -s ' ' '|')"
 
   # 1. conteudo. A ordem das regras importa: as chaves primeiro, porque a
@@ -359,6 +356,16 @@ _plataforma() {
   oc patch subscription.operators.coreos.com rhcl-operator -n kuadrant-system --type=merge \
     -p '{"spec":{"config":{"resources":{"requests":{"cpu":"200m","memory":"512Mi"},"limits":{"cpu":"1","memory":"2Gi"}}}}}' >/dev/null 2>&1 \
     || _warn "nao consegui ampliar os recursos do operator do Kuadrant (Subscription rhcl-operator) — acima de ~20 participantes ele morre por OOM e as policies deixam de ser aplicadas"
+  # O KIALI DEIXA DE SER ANONIMO. Em modo 'anonymous' quem age e a
+  # ServiceAccount do proprio Kiali, que escreve em qualquer namespace: num
+  # cluster compartilhado qualquer participante editava, pela tela, a
+  # VirtualService de outro -- ou a do instrutor. Com 'openshift' cada um
+  # entra com o usuario dele (o SSO da console ja o autenticou) e o Kiali
+  # mostra e altera so o que o RBAC DELE permite.
+  if oc get kiali kiali -n istio-system >/dev/null 2>&1; then
+    oc patch kiali kiali -n istio-system --type=merge -p '{"spec":{"auth":{"strategy":"openshift"}}}' >/dev/null 2>&1 \
+      || _warn "nao consegui trocar a autenticacao do Kiali para 'openshift' — ele segue anonimo, com escrita em todos os namespaces"
+  fi
   oc apply -f - <<'EOF' >/dev/null || _die "falha ao aplicar o RBAC de plataforma dos tenants"
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -618,6 +625,15 @@ _rbac() { # <tenant>
   _ns_nosso "$t" "showroom-${t}"
   oc get sa showroom -n "showroom-${t}" >/dev/null 2>&1 || oc create sa showroom -n "showroom-${t}" >/dev/null
 
+  # DOIS ALCANCES, e a diferenca e o que o participante VE:
+  #   - a ServiceAccount do terminal roda os scripts do roteiro, que leem a
+  #     plataforma (nodes, operadores, policies de todos, Thanos);
+  #   - o usuario do Keycloak e quem entra na console e no Kiali. Com a mesma
+  #     leitura do cluster ele via 273 projetos na console e todos os
+  #     namespaces no Kiali (medido no cluster-swsmt). Ele fica so com 'admin'
+  #     nos namespaces DELE: a console e o Kiali passam a mostrar o ambiente
+  #     dele e mais nada.
+  _so_sa() { printf '  - {kind: ServiceAccount, name: showroom, namespace: showroom-%s}\n' "$t"; }
   _sujeitos() { printf '  - {kind: ServiceAccount, name: showroom, namespace: showroom-%s}\n  - {kind: User, apiGroup: rbac.authorization.k8s.io, name: %s}\n' "$t" "$t"; }
   {
     for ns in $(oc get ns -l "${ROTULO}=${t}" -o jsonpath='{.items[*].metadata.name}'); do
@@ -625,16 +641,16 @@ _rbac() { # <tenant>
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-admin, namespace: %s}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: admin}\nsubjects:\n' "$ns"; _sujeitos
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-extra, namespace: %s}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-extra}\nsubjects:\n' "$ns"; _sujeitos
     done
-    printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-chaves}\nsubjects:\n' "$t"; _sujeitos
+    printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-chaves}\nsubjects:\n' "$t"; _so_sa
     for ns in $NS_PLATAFORMA; do
       oc get ns "$ns" >/dev/null 2>&1 || continue
-      printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-leitura, namespace: %s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-leitura-plataforma}\nsubjects:\n' "$t" "$ns" "$ROTULO" "$t"; _sujeitos
+      printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-leitura, namespace: %s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-leitura-plataforma}\nsubjects:\n' "$t" "$ns" "$ROTULO" "$t"; _so_sa
     done
-    printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-logs, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-logs}\nsubjects:\n' "$t"; _sujeitos
+    printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-logs, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-logs}\nsubjects:\n' "$t"; _so_sa
     # leitura da plataforma (enumerada, ver _plataforma) e das metricas: os
     # scripts do roteiro consultam nodes, operadores e Thanos, e nao escrevem la
     for r in rhcl-tenant-leitura cluster-monitoring-view; do
-      printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata: {name: rhcl-tenant-%s-%s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: %s}\nsubjects:\n' "$t" "$r" "$ROTULO" "$t" "$r"; _sujeitos
+      printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata: {name: rhcl-tenant-%s-%s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: %s}\nsubjects:\n' "$t" "$r" "$ROTULO" "$t" "$r"; _so_sa
     done
   } | oc apply -f - >/dev/null || _die "falha ao aplicar o RBAC de ${t}"
   # o binding da primeira versao deste script, que dava leitura do cluster inteiro
@@ -674,7 +690,14 @@ _showroom() { # <tenant> <dir da copia>
   dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
   _rbac "$t"
   local alt_ns alt_host
-  alt_ns="$(printf '%s' "$NS_TENANT" | tr -s ' \\\n' '|' | sed 's/^|//; s/|$//')"
+  # 'parceiros' fica FORA da troca do conteudo: nas paginas a palavra e so
+  # prosa ("os tres parceiros"), 13 vezes, e nenhuma delas e o namespace. Os
+  # links dos portais chegam por atributo.
+  # SO AQUI. No 'render' o namespace 'parceiros' PRECISA ser trocado: a primeira
+  # versao desta excecao foi parar la por engano, o portais.sh da copia passou
+  # a escrever no 'parceiros' sem sufixo -- um namespace de todos -- e a prosa
+  # do guia saiu "tres parceiros-user26" (cluster-swsmt, 2026-10-04).
+  alt_ns="$(printf '%s' "$NS_TENANT" | tr -s ' \\\n' '|' | sed 's/^|//; s/|$//; s/|parceiros|/|/')"
   alt_host="$(printf '%s %s' "$HOSTS_TENANT" "$NOMES_TENANT" | tr -s ' ' '|')"
 
   {
