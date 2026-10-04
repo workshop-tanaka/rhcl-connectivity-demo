@@ -31,6 +31,19 @@ spec:
     - port: http
       path: /metrics
       interval: 30s
+      # O ROTULO 'ambiente', para o cluster compartilhado (scripts/tenant.sh).
+      # Toda serie do Limitador sai com namespace=kuadrant-system, que e onde
+      # ELE mora -- nao diz de qual participante e o trafego. Quem diz e o
+      # 'limitador_namespace' ("travel-agency-user7/travel-agency-user7"). Daqui
+      # sai um rotulo curto, o MESMO que os PodMonitors de cada tenant poem
+      # nas series do Istio: um filtro so ('ambiente') separa os dois tipos
+      # de metrica nos paineis. Sem tenant no nome nao casa, e o rotulo nao
+      # nasce: o cluster de um participante fica como estava.
+      metricRelabelings:
+        - sourceLabels: [limitador_namespace]
+          regex: '[^/]+-(user[0-9]+)/.*'
+          targetLabel: ambiente
+          replacement: '$1'
 ---
 # authorized_calls / limited_calls saem do Limitador; o Authorino entra aqui
 # para o lado de identidade -- quantas autorizacoes, com que veredito e em

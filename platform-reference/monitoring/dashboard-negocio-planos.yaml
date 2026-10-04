@@ -79,6 +79,14 @@
 # As cotas (50 / 500 / 5000) estao DUPLICADAS aqui, vindas de
 # base/policies-plans/travels-plans.yaml. Mexeu la, mexa aqui.
 # ===========================================================================
+# A VARIAVEL 'ambiente' (filtro ad hoc). Num cluster compartilhado
+# (scripts/tenant.sh) este painel e UM para todos, e sem filtro ele soma os
+# participantes. O filtro ad hoc do Grafana aplica um rotulo a TODAS as
+# consultas do painel sem reescrever nenhuma, e o guia de cada participante
+# abre o painel ja filtrado:  ?var-ambiente=ambiente|=|user7
+# (o rotulo 'ambiente' nasce nos PodMonitors do tenant e no ServiceMonitor
+# do Limitador -- ver platform-reference/monitoring/servicemonitors.yaml)
+# Vazio (o cluster de um participante), o painel se comporta como antes.
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
@@ -115,6 +123,13 @@ spec:
             "hide": 0,
             "includeAll": false,
             "multi": false
+          },
+          {
+            "name": "ambiente",
+            "label": "ambiente",
+            "type": "adhoc",
+            "datasource": {"type": "prometheus", "uid": "${datasource}"},
+            "hide": 0
           }
         ]
       },

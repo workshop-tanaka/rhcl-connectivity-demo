@@ -223,6 +223,15 @@ t = os.environ["TENANT"]
 docs = re.split(r"(?m)^---\s*$", open(sys.argv[1]).read())
 print("\n---\n".join(d for d in docs if re.search(r"(?m)^\s*namespace:\s*\S+-%s\s*$" % re.escape(t), d)))
 ' "${d}/platform-reference/monitoring/istio-monitors.yaml" | oc apply -f - >/dev/null 2>&1 \
+    && for ns in "travel-agency-${t}" "ingress-gateway-${t}"; do
+         # O rotulo 'ambiente' em toda serie do Istio deste tenant: e ele que
+         # o filtro dos paineis usa (o Limitador ganha o mesmo rotulo no
+         # ServiceMonitor). Depois do apply, que devolve a lista ao que o
+         # arquivo diz -- entao reexecutar nao empilha.
+         oc patch podmonitor istio-proxies-monitor -n "$ns" --type=json \
+           -p "[{\"op\":\"add\",\"path\":\"/spec/podMetricsEndpoints/0/relabelings/-\",\"value\":{\"action\":\"replace\",\"targetLabel\":\"ambiente\",\"replacement\":\"${t}\"}}]" >/dev/null 2>&1 \
+           || _warn "PodMonitor de ${ns} sem o rotulo 'ambiente' — os paineis filtrados nao mostram o Istio de ${t}"
+       done \
     && _ok "PodMonitors nos namespaces de ${t}" \
     || _warn "nao consegui aplicar os PodMonitors de ${t} — Kiali e canario ficam sem metrica dele"
 
@@ -705,14 +714,22 @@ json.dump({"apiVersion": "v1", "kind": "List", "items": out}, sys.stdout)' \
         tar -C /home/lab-user/rhcl-connectivity-demo -xf - 2>/dev/null \
     || _die "nao consegui levar a copia para o terminal de ${t}"
 
-  # o veredito que vale: o participante, do terminal DELE, ve o ambiente DELE
-  if oc exec -n "showroom-${t}" deploy/showroom -c terminal -- \
-       bash -lc 'cd /home/lab-user/rhcl-connectivity-demo && bash scripts/preflight.sh core' 2>&1 | tail -1 | grep -q 'OK'; then
-    _ok "https://showroom-showroom-${t}.${dom} — terminal de ${t} com o nucleo pronto"
-  else
-    _warn "Showroom de ${t} no ar, mas o 'preflight.sh core' do terminal dele nao fechou em OK"
-    return 1
-  fi
+  # o veredito que vale: o participante, do terminal DELE, ve o ambiente DELE.
+  # COM INSISTENCIA: subindo a turma do cluster-swsmt (2026-10-04), do 17o
+  # participante em diante este veredito falhava na hora e fechava em OK um
+  # minuto depois. Com dezenas de conjuntos de policies o operator do Kuadrant
+  # demora mais para deixar tudo Enforced, e o terminal fica pronto antes.
+  local tent
+  for tent in 1 2 3 4 5 6; do
+    if oc exec -n "showroom-${t}" deploy/showroom -c terminal -- \
+         bash -lc 'cd /home/lab-user/rhcl-connectivity-demo && bash scripts/preflight.sh core' 2>&1 | tail -1 | grep -q 'OK'; then
+      _ok "https://showroom-showroom-${t}.${dom} — terminal de ${t} com o nucleo pronto"
+      return 0
+    fi
+    sleep 20
+  done
+  _warn "Showroom de ${t} no ar, mas o 'preflight.sh core' do terminal dele nao fechou em OK"
+  return 1
 }
 
 # kubeconfig do participante, para rodar o roteiro COMO ele (ensaio e suporte)
@@ -780,6 +797,20 @@ _turma() { # <N> [primeiro=1]
   [[ $falhou -eq 0 ]] && _ok "turma inteira no ar" || { _warn "${falhou} participante(s) com falha — o log de cada um esta em tenants/.<user>.log; 'sobe' e 'showroom' sao reexecutaveis"; return 1; }
 }
 
+# Remede o veredito de quem ja esta no ar, sem reprovisionar: o mesmo
+# 'preflight.sh core' do terminal de cada participante, quatro por vez.
+_confere_turma() {
+  local t n=0 ruim=0 dom lote=""
+  dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
+  for t in $(oc get ns -l "$ROTULO" -o jsonpath="{range .items[*]}{.metadata.labels.rhcl\\.demo/tenant}{'\n'}{end}" 2>/dev/null | sort -u | sort -t r -k 3 -n); do
+    ( if oc exec -n "showroom-${t}" deploy/showroom -c terminal -- \
+           bash -lc 'cd /home/lab-user/rhcl-connectivity-demo && bash scripts/preflight.sh core' 2>&1 | tail -1 | grep -q 'OK'
+      then printf '  %s✓%s %s\n' "$_GRN" "$_RST" "$t"; else printf '  %s✗%s %s\n' "$_RED" "$_RST" "$t"; fi ) &
+    n=$((n+1)); [[ $(( n % ${LARGURA:-4} )) -eq 0 ]] && wait
+  done
+  wait
+}
+
 _lista() {
   local dom; dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
   printf '  %-10s %-5s %-6s %s\n' TENANT NS BORDA HOST
@@ -805,6 +836,9 @@ case "${1:-}" in
     ;;
   rbac)
     _valida_tenant "${2:-}"; _rbac "$2"
+    ;;
+  confere-turma)
+    _confere_turma
     ;;
   turma)
     _turma "${2:-}" "${3:-1}"

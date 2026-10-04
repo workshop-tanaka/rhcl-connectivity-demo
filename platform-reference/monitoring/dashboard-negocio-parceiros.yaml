@@ -20,6 +20,14 @@
 # CARDINALIDADE: um parceiro novo multiplica series por codigo de resposta.
 # Dezenas, tranquilo. Milhares, volte a medir por plano.
 # ===========================================================================
+# A VARIAVEL 'ambiente' (filtro ad hoc). Num cluster compartilhado
+# (scripts/tenant.sh) este painel e UM para todos, e sem filtro ele soma os
+# participantes. O filtro ad hoc do Grafana aplica um rotulo a TODAS as
+# consultas do painel sem reescrever nenhuma, e o guia de cada participante
+# abre o painel ja filtrado:  ?var-ambiente=ambiente|=|user7
+# (o rotulo 'ambiente' nasce nos PodMonitors do tenant e no ServiceMonitor
+# do Limitador -- ver platform-reference/monitoring/servicemonitors.yaml)
+# Vazio (o cluster de um participante), o painel se comporta como antes.
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
@@ -60,6 +68,16 @@ spec:
             "datasource": {"type": "prometheus", "uid": "${datasource}"},
             "query": {"query": "label_values(istio_requests_total{partner!=\"\", partner!=\"unknown\"}, partner)", "refId": "StandardVariableQuery"},
             "refresh": 2, "includeAll": true, "multi": true, "current": {"text": "All", "value": "$__all"}
+          },
+          {
+            "name": "ambiente",
+            "label": "ambiente",
+            "type": "adhoc",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "hide": 0
           }
         ]
       },
