@@ -831,6 +831,8 @@ if oc get crd checlusters.org.eclipse.che >/dev/null 2>&1; then
                  -o jsonpath='{.status.chePhase}' 2>/dev/null)"
   if [[ -n "$_ds_url" ]]; then
     _ok "Dev Spaces (${_ds_phase}): ${_ds_url}"
+  elif ! oc auth can-i get checlusters.org.eclipse.che -n openshift-devspaces >/dev/null 2>&1; then
+    _nota "Dev Spaces: sem permissao de leitura do CheCluster -- a verificacao se abstem"
   else
     _warn "CheCluster sem status.cheURL (fase: ${_ds_phase:-ausente})" \
           "o link 'Abrir no Dev Spaces' sai do catalogo — oc get checluster devspaces -n openshift-devspaces"
@@ -880,6 +882,10 @@ if oc get crd grafanadashboards.grafana.integreatly.org >/dev/null 2>&1; then
   elif [[ -n "$_dsoutro" ]]; then
     _warn "datasource 'Thanos' não existe; o Grafana deste cluster tem: ${_dsoutro}" \
           "os paineis do repo referenciam 'Thanos' pelo NOME e abrem 'No data'. Crie um datasource com esse nome, ou renomeie a variavel nos dashboards"
+  elif ! oc auth can-i get grafanadatasources.grafana.integreatly.org -n monitoring >/dev/null 2>&1; then
+    # Quem nao pode LER o datasource (o participante de um cluster
+    # compartilhado) nao tem como dizer que ele falta.
+    _nota "datasource do Grafana: sem permissao de leitura -- a verificacao se abstem"
   else
     _warn "datasource 'Thanos' não confirmado no Grafana" \
           "os painéis de negócio abrem sem dado — docs/PROVISIONING-1.4.md"

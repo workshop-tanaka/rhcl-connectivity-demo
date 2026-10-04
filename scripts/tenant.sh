@@ -375,9 +375,6 @@ rules:
   - apiGroups: [console.openshift.io]
     resources: [consoleplugins]
     verbs: [get, list]
-  - apiGroups: [org.eclipse.che]
-    resources: [checlusters]
-    verbs: [get, list]
   - apiGroups: [metrics.k8s.io]
     resources: [nodes]
     verbs: [get, list]
@@ -402,12 +399,11 @@ rules:
   - apiGroups: [monitoring.coreos.com]
     resources: [prometheusrules, servicemonitors, podmonitors]
     verbs: [get, list, watch]
-  # os paineis: o check confere que o datasource e o dashboard de negocio
-  # sincronizaram. O GrafanaDatasource DESTE repositorio nao carrega o token
-  # na spec (vem de Secret, por valuesFrom) -- conferido no cluster-vs5gv. Um
-  # datasource com token em texto claro na spec nao pode entrar em 'monitoring'.
+  # os paineis: so o GrafanaDashboard. O CR 'Grafana' guarda admin_password
+  # em spec.config, e o GrafanaDatasource pode guardar token -- os dois ficam
+  # de FORA; o preflight se abstem do que nao consegue ler.
   - apiGroups: [grafana.integreatly.org]
-    resources: [grafanadashboards, grafanadatasources, grafanas]
+    resources: [grafanadashboards]
     verbs: [get, list]
   # o backend dos plugins da console (kuadrant-system, istio-system)
   - apiGroups: [discovery.k8s.io]
@@ -613,7 +609,10 @@ _showroom() { # <tenant> <dir da copia>
     printf '\n\x1e\n'
     # a senha do PROPRIO participante na console: o RHDP cria user1..userN no
     # Keycloak do cluster, cada um com a sua. So a dele entra no guia dele.
-    oc get keycloakrealmimport -A -o json 2>/dev/null || printf '{"items":[]}'
+    # So do namespace do Keycloak da plataforma: o usuario do RHDP cria projeto
+    # e, nele, um KeycloakRealmImport com o nome de outro participante -- com
+    # '-A' a "senha" plantada iria parar no guia da vitima.
+    oc get keycloakrealmimport -n "${KEYCLOAK_NS:-keycloak}" -o json 2>/dev/null || printf '{"items":[]}'
   } | TENANT="$t" DOM="$dom" python3 -c '
 import sys, json, os, re, base64
 t, dom = os.environ["TENANT"], os.environ["DOM"]
@@ -667,6 +666,12 @@ for o in json.loads(objs)["items"]:
             if "@" in v: continue
             dados[ch] = v
         dados.update(troca); dados.update(novos)
+        # Parte destes valores vem do cluster (hostname de Route, senha do
+        # usuario). O arquivo e montado por concatenacao, entao valor com
+        # aspas, barra invertida ou caractere de controle quebraria a string
+        # e injetaria atributo: nesse caso o atributo sai vazio.
+        for ch in list(dados):
+            if not re.fullmatch(r"[\x20\x21\x23-\x5b\x5d-\x7e\u00a0-\uffff]*", dados[ch]): dados[ch] = ""
         o["data"]["user_data.yml"] = "".join("\"%s\": \"%s\"\n" % (ch, dados[ch]) for ch in sorted(dados))
     elif k == "Deployment":
         sp = o["spec"]["template"]["spec"]
