@@ -719,8 +719,31 @@ fi
 # uma peca que aquele desenho nao usa (medido em 2026-09-17, cluster-45bp4:
 # duas falhas vermelhas com a API respondendo 401 dois blocos acima).
 _sec "exposicao das APIs (o que o router conhece)"
-_hosts="$(oc get httproute -A -o jsonpath='{range .items[*]}{range .spec.hostnames[*]}{@}{"\t"}{end}{end}' 2>/dev/null | tr '\t' '\n' | grep -v '^$' | sort -u)"
-_rhosts="$(oc get route -A -o jsonpath='{range .items[*]}{.spec.host}{"\n"}{end}' 2>/dev/null)"
+# CLUSTER COMPARTILHADO (scripts/tenant.sh): o participante nao le Route fora
+# dos proprios namespaces. Com '-A' a leitura falhava, _rhosts nascia vazio e
+# TODA HTTPRoute do cluster -- a dele, a dos outros 29, a do instrutor --
+# virava "sem Route": 6 falhas num ambiente inteiro (visto no cluster-vs5gv em
+# 2026-10-04). Duas correcoes, e a segunda vale para qualquer cluster:
+#   - na copia do participante, a pergunta e sobre os namespaces DELE
+#   - leitura que falha faz a verificacao se ABSTER, nunca concluir ausencia
+_tn=""; [[ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/.tenant" ]] \
+  && _tn="$(cat "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/.tenant")"
+_rleu=1
+if [[ -n "$_tn" ]]; then
+  _hosts=""; _rhosts=""
+  for _nsx in $(oc get ns -l "rhcl.demo/tenant=${_tn}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    _hosts="${_hosts}$(oc get httproute -n "$_nsx" -o jsonpath='{range .items[*]}{range .spec.hostnames[*]}{@}{"\n"}{end}{end}' 2>/dev/null)
+"
+    _rx="$(oc get route -n "$_nsx" -o jsonpath='{range .items[*]}{.spec.host}{"\n"}{end}' 2>/dev/null)" || _rleu=0
+    _rhosts="${_rhosts}${_rx}
+"
+  done
+  _hosts="$(printf '%s' "$_hosts" | grep -v '^$' | sort -u)"
+else
+  _hosts="$(oc get httproute -A -o jsonpath='{range .items[*]}{range .spec.hostnames[*]}{@}{"\t"}{end}{end}' 2>/dev/null | tr '\t' '\n' | grep -v '^$' | sort -u)"
+  _rhosts="$(oc get route -A -o jsonpath='{range .items[*]}{.spec.host}{"\n"}{end}' 2>/dev/null)" || _rleu=0
+fi
+[[ $_rleu -eq 1 ]] || { _nota "nao consegui ler as Routes -- a verificacao de exposicao se abstem"; _hosts=""; }
 # Endereco do Gateway que NAO vem do router: Service type=LoadBalancer com
 # ingress provisionado. Em SNO isso nao existe e a Route continua obrigatoria.
 _lb="$(oc get svc -A -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.status.loadBalancer.ingress[*].hostname}{.status.loadBalancer.ingress[*].ip}{"\n"}{end}' 2>/dev/null | grep -v '^$' | head -1)"

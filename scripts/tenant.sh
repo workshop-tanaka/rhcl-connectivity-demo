@@ -58,7 +58,7 @@ _die()  { printf '\n%s[X]%s %s\n' "$_RED" "$_RST" "$*" >&2; exit 1; }
 # Os namespaces que pertencem ao participante. Os de laboratorio (Extras)
 # entram na mesma lista: cada script de Extra sobe o proprio namespace com
 # nome fixo, e dois participantes no mesmo Extra colidiriam.
-NS_TENANT="travel-agency ingress-gateway echo-api echo-exposta travel-db-remoto travel-db \
+NS_TENANT="travel-agency ingress-gateway echo-api echo-exposta parceiros travel-db-remoto travel-db \
 tls-lab mtls-lab listas-lab ia-lab dns-lab ctx-lab pfx-gw pfx-equipe-a pfx-equipe-b"
 # Rotulos de hostname: o curinga *.apps cobre UM nivel, entao o tenant entra
 # com hifen no primeiro rotulo, nunca como subdominio.
@@ -199,7 +199,7 @@ _sobe() { # <tenant> <dir da copia>
 
   # echo-exposta entra aqui e nao no provisionamento: e o namespace do passo
   # 'exposta', que num cluster de um participante o proprio passo cria e apaga
-  _ns_nosso "$t" "travel-agency-${t}" "ingress-gateway-${t}" "echo-api-${t}" "echo-exposta-${t}"
+  _ns_nosso "$t" "travel-agency-${t}" "ingress-gateway-${t}" "echo-api-${t}" "echo-exposta-${t}" "parceiros-${t}"
   _render "$t" "$d"
   _ok "copia de ${t} em ${d#${_here}/}"
 
@@ -210,6 +210,30 @@ _sobe() { # <tenant> <dir da copia>
   ( cd "$d" && bash scripts/provision.sh platform gateway demo ) > "${d}/.provision.log" 2>&1 \
     || { tail -25 "${d}/.provision.log"; _die "provision.sh falhou na copia de ${t} (log completo em ${d#${_here}/}/.provision.log)"; }
   grep -E '✓|!' "${d}/.provision.log" | tail -8
+
+  # A COLETA DE METRICA DO TENANT. Os PodMonitors nascem na etapa 'consoles',
+  # que e de plataforma e so conhece os namespaces do ambiente original. Sem
+  # um por namespace do tenant os sidecars e o Gateway dele nao sao raspados:
+  # o grafo do Kiali sai vazio e o canario, que MEDE por metrica, nao tem o
+  # que ler -- com tudo funcionando. Do arquivo de plataforma so se aplica o
+  # que e do tenant; o resto e de outro dono.
+  TENANT="$t" python3 -c '
+import sys, os, re
+t = os.environ["TENANT"]
+docs = re.split(r"(?m)^---\s*$", open(sys.argv[1]).read())
+print("\n---\n".join(d for d in docs if re.search(r"(?m)^\s*namespace:\s*\S+-%s\s*$" % re.escape(t), d)))
+' "${d}/platform-reference/monitoring/istio-monitors.yaml" | oc apply -f - >/dev/null 2>&1 \
+    && _ok "PodMonitors nos namespaces de ${t}" \
+    || _warn "nao consegui aplicar os PodMonitors de ${t} — Kiali e canario ficam sem metrica dele"
+
+  # OS TRES PORTAIS DE PARCEIRO. O chart do workshop nao os sobe (portais.sh
+  # fica fora das etapas), e as paginas 'Seus acessos', 'A aplicacao' e a
+  # parte 1.2 mandam abri-los: sem eles o participante clica em tres links
+  # vazios (visto no cluster-vs5gv, 2026-10-04). Custam 20m/96Mi cada.
+  _sec "tenant ${t}: portais de parceiro"
+  ( cd "$d" && bash scripts/portais.sh ) >> "${d}/.provision.log" 2>&1 \
+    && _ok "tres portais em parceiros-${t}" \
+    || _warn "portais.sh falhou na copia de ${t} — os links de portal do guia ficam vazios (log em ${d#${_here}/}/.provision.log)"
 
   # A BORDA RESPONDE? 401 sem chave e o unico veredito que vale. Medido em
   # 2026-10-04 subindo 35 de uma vez: 1 Gateway em 35 nao conseguiu baixar o
@@ -327,6 +351,9 @@ rules:
   - apiGroups: [extensions.kuadrant.io]
     resources: [planpolicies, telemetrypolicies, oidcpolicies]
     verbs: [get, list, watch]
+  - apiGroups: [devportal.kuadrant.io]
+    resources: [apiproducts]
+    verbs: [get, list, watch]
   - apiGroups: [limitador.kuadrant.io]
     resources: [limitadors]
     verbs: [get, list, watch]
@@ -339,6 +366,18 @@ rules:
   - apiGroups: [sailoperator.io]
     resources: [istios, istiocnis, istiorevisions]
     verbs: [get, list, watch]
+  # o 'demo.sh check' pergunta se os plugins estao HABILITADOS na console e se
+  # o Dev Spaces publicou a URL; sem estas leituras ele avisa de ausencia do
+  # que esta la (visto no cluster-vs5gv: 8 avisos que o instrutor nao tinha)
+  - apiGroups: [operator.openshift.io]
+    resources: [consoles]
+    verbs: [get, list]
+  - apiGroups: [console.openshift.io]
+    resources: [consoleplugins]
+    verbs: [get, list]
+  - apiGroups: [org.eclipse.che]
+    resources: [checlusters]
+    verbs: [get, list]
   - apiGroups: [metrics.k8s.io]
     resources: [nodes]
     verbs: [get, list]
@@ -363,11 +402,24 @@ rules:
   - apiGroups: [monitoring.coreos.com]
     resources: [prometheusrules, servicemonitors, podmonitors]
     verbs: [get, list, watch]
+  # os paineis: o check confere que o datasource e o dashboard de negocio
+  # sincronizaram. O GrafanaDatasource DESTE repositorio nao carrega o token
+  # na spec (vem de Secret, por valuesFrom) -- conferido no cluster-vs5gv. Um
+  # datasource com token em texto claro na spec nao pode entrar em 'monitoring'.
+  - apiGroups: [grafana.integreatly.org]
+    resources: [grafanadashboards, grafanadatasources, grafanas]
+    verbs: [get, list]
+  # o backend dos plugins da console (kuadrant-system, istio-system)
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list]
   - apiGroups: [metrics.k8s.io]
     resources: [pods]
     verbs: [get, list]
 ---
-# o log do Authorino e do Limitador e parte do roteiro ('negado', 'auditoria')
+# o log do Authorino e do Limitador e parte do roteiro ('negado', 'auditoria'),
+# e o ConfigMap 'topology' e o que a Policy Topology da console desenha.
+# So ESSE ConfigMap, pelo nome: os outros de kuadrant-system nao sao do roteiro.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -377,6 +429,10 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: [pods/log]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [topology]
     verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -552,16 +608,29 @@ _showroom() { # <tenant> <dir da copia>
        cm/showroom-userdata cm/showroom-traefik-static cm/showroom-traefik-dynamic -n "$orig" -o json
     printf '\n\x1e\n'
     oc get secret -n kuadrant-system -l "app=partner-${t},rhcl.demo/finalidade=teste" -o json
+    printf '\n\x1e\n'
+    oc get route -n "parceiros-${t}" -o json 2>/dev/null || printf '{"items":[]}'
+    printf '\n\x1e\n'
+    # a senha do PROPRIO participante na console: o RHDP cria user1..userN no
+    # Keycloak do cluster, cada um com a sua. So a dele entra no guia dele.
+    oc get keycloakrealmimport -A -o json 2>/dev/null || printf '{"items":[]}'
   } | TENANT="$t" DOM="$dom" python3 -c '
 import sys, json, os, re, base64
 t, dom = os.environ["TENANT"], os.environ["DOM"]
-objs, chaves = sys.stdin.read().split("\x1e")
+objs, chaves, rotas, realms = sys.stdin.read().split("\x1e")
+senha = ""
+for r in json.loads(realms)["items"]:
+    for u in r["spec"]["realm"].get("users", []):
+        if u.get("username") == t and u.get("credentials"): senha = u["credentials"][0].get("value", "")
+portal = {r["metadata"]["name"]: "https://" + r["spec"]["host"] for r in json.loads(rotas)["items"]}
 chave = {}
 for s in json.loads(chaves)["items"]:
     plano = s["metadata"]["labels"].get("kuadrant.io/plan-id")
     chave[plano] = base64.b64decode(s["data"]["api_key"]).decode()
 troca = {"api_host": "api-travels-%s.%s" % (t, dom), "guid": t, "usuario_console": t,
-         "api_key_free": chave.get("free", ""), "api_key_silver": chave.get("silver", ""), "api_key_gold": chave.get("gold", "")}
+         "api_key_free": chave.get("free", ""), "api_key_silver": chave.get("silver", ""), "api_key_gold": chave.get("gold", ""),
+         "portal_free_url": portal.get("portal-blue", ""), "portal_silver_url": portal.get("portal-green", ""),
+         "portal_gold_url": portal.get("portal-red", ""), "senha_console": senha}
 novos = {"user": t, "sufixo": "-" + t}
 pode = {"api_host", "api_key_free", "api_key_silver", "api_key_gold", "cluster_domain", "guid",
         "usuario_console", "demo_ref", "repo_no_ambiente", "repo_policies", "repo_apis"}
