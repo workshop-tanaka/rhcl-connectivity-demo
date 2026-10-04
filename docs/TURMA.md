@@ -29,6 +29,23 @@ participante é construído.
 O repositório no git continua single-tenant. O que muda de comportamento nos
 scripts do roteiro só vale quando existe o arquivo `.tenant` na raiz da cópia.
 
+**A regra da troca**, porque é ela que decide se a cópia funciona: o nome só é
+trocado quando está *solto* — não precedido nem seguido de letra, dígito, `_`
+ou `-`.
+
+```
+-n travel-agency                      ->  -n travel-agency-user7
+discounts.travel-agency:8000          ->  discounts.travel-agency-user7:8000
+cluster.local/ns/travel-agency/sa/x   ->  .../ns/travel-agency-user7/sa/x
+travel-agency-authpolicy              ->  (intacto: é nome de objeto)
+httproute-travel-agency.yaml          ->  (intacto: é nome de arquivo)
+```
+
+Arquivo ou diretório cujo nome **é** o token também é renomeado — senão os
+caminhos citados dentro dos scripts deixariam de existir. O que importa não é a
+elegância da troca: é a coerência. Quem cria e quem consulta mudam juntos,
+então a cópia funciona como o original.
+
 Cada participante recebe:
 
 | o quê | onde |
@@ -70,7 +87,41 @@ bash scripts/tenant.sh lista          # 401 em toda borda, sem chave
 **reinicia o terminal** daquele participante — não rode com a turma no ar sem
 avisar.
 
-**Durante a sessão**, para ver o que um participante vê:
+**Durante a sessão**, a turma num relance:
+
+```bash
+bash scripts/turma.sh --vigia        # repete a cada 30s; --vigia=60 para espaçar
+bash scripts/turma.sh swsmt x2gsq    # clusters do inventário; 'todos' para o inventário todo
+```
+
+Uma linha por participante — namespaces, pods prontos, Gateways `Programmed`,
+policies `Enforced`, o Showroom dele, as requisições dos últimos 5 min e a
+última página do guia que ele abriu — e, **antes da tabela, a plataforma
+compartilhada**: quem cai ali leva a turma inteira de uma vez.
+
+Ele **só lê**, e de propósito **não faz nenhuma requisição na borda do
+participante**: uma sonda sem chave por ciclo viraria um 401 a mais no painel de
+evidência dele, no passo em que o guia manda contar três. A saúde sai do estado
+declarado. Três regras do veredito, cada uma custou uma medição:
+
+- **`Overridden` não é falha** — é o `deny-all` do Gateway cedendo à policy da
+  rota, que é o desenho da demo. Num cluster de 30 são 93 assim e 155
+  `Enforced`; contadas como falha, os trinta sairiam vermelhos.
+- **`SUBINDO` não é falha.** Enquanto a turma monta em lotes, quem ainda nasce
+  aparece sem pod e sem Showroom — igual a um ambiente quebrado. Quem falha com
+  o `travel-agency` dele criado há menos de `SUBINDO_MIN` minutos sai como
+  `SUBINDO`.
+- **Leitura que falha não vira zero.** Sem a lista de pods o cluster sai sem
+  veredito; Gateways, policies e Thanos se abstêm com `-`. Concluir "0 pods" de
+  um `oc` que caiu acusaria os trinta ao mesmo tempo ([FROTA](FROTA.md), §8).
+
+A coluna `PÁGINA` sai do log de acesso do traefik de cada Showroom, e é a única
+leitura que cresce com a turma (`AVANCO=0` desliga). Ela mede "abriu a página",
+não "fez o passo"; quem abriu pode ser você, conferindo o guia de alguém; e o
+log nasce com o pod, então um Showroom reiniciado volta a `nenhuma`. Por isso
+fica fora do veredito, como a `REQ 5m`.
+
+Para ver o que um participante vê:
 
 ```bash
 bash scripts/tenant.sh kubeconfig user7
@@ -108,13 +159,82 @@ instrutor, com cluster-admin.
   do participante, não no `default`.
 - **Kiali** pede o login do OpenShift. Anônimo, ele deixava um participante
   editar o Istio de outro.
-- **Grafana** é um para a turma, com o acesso anônimo como Viewer. Os painéis
-  do roteiro abrem filtrados pelo rótulo `ambiente`.
-- **Keycloak** fica sem autocadastro.
+- **Grafana** é um para a turma, com o acesso anônimo como Viewer — como
+  Admin, qualquer participante apagava o painel de todos. Os painéis do roteiro
+  abrem filtrados pelo rótulo `ambiente`, pelo **filtro ad hoc**, que alcança
+  todas as consultas do painel sem reescrever nenhuma. O rótulo não existia e
+  nasce em dois lugares: no `ServiceMonitor` do Limitador, extraído de
+  `limitador_namespace` (`travel-agency-user7/...` → `user7`), e nos
+  `PodMonitor` de cada tenant. Sem tenant no nome não casa, e o cluster de um
+  participante fica como estava. O `consumo-plataforma` fica **fora** de
+  propósito: as séries `gatewayapi_*` não têm o rótulo e, filtrado, ele abriria
+  vazio.
+- **Keycloak** fica sem autocadastro — ligado, um usuário criado na tela de
+  login não ganha ambiente nenhum mas é *autenticado*, e usuário autenticado
+  cria projeto no cluster da turma. O realm nasce de um `KeycloakRealmImport`,
+  que só importa **uma vez**: mudar o CR não muda o realm, então a troca vai
+  pela API de admin.
 - O participante **não é cluster-admin**: `admin` nos namespaces dele, leitura
   enumerada da plataforma, e uma trava de admissão nas chaves.
 
-## 6. Armadilhas medidas
+## 6. O isolamento, e como ele foi fechado
+
+O participante não é cluster-admin, e cada peça disso foi fechada depois de uma
+medição com a identidade de um `user1` de verdade. Vale saber **por que** cada
+uma está do jeito que está, porque afrouxar qualquer uma reabre um caminho.
+
+**A trava das chaves olha o rótulo, não o nome.** As chaves moram em
+`kuadrant-system` (o seletor da `AuthPolicy` não atravessa namespace) e o RBAC
+não restringe `create` por nome, então quem guarda é uma
+`ValidatingAdmissionPolicy`. A primeira versão validava só o nome
+(`apikey-<tenant>-*`) — mas a `AuthPolicy` seleciona por **rótulo**, e o
+participante podia criar `apikey-user1-x` com `app: partner-user2`, ou com
+`app: partner`, que é o do instrutor, e entrar na API alheia. Hoje o rótulo
+`app` só pode ser `partner-<tenant>` e nenhum rótulo pode citar outro
+participante. Dois detalhes que vieram com isso: a `APIKey` do developer portal
+faz o controller emitir um Secret, e era o caminho de volta; e o validador de
+nome e a trava usam **o mesmo padrão**, senão um tenant chamado `alice`
+nasceria sem trava nenhuma.
+
+**A leitura da plataforma é enumerada**, não `cluster-reader`. O que saiu, e o
+que cada um entregava:
+
+| Saiu | Entregava |
+| --- | --- |
+| `cluster-reader` | o `Application` `field-content`, cujos values trazem a senha de admin do OpenShift e do Keycloak |
+| pod, serviço e rota do cluster inteiro | a spec de pod carrega `env`, e a de rota `spec.tls.key` — ficaram restritos aos namespaces de plataforma que o roteiro manda olhar |
+| `grafanas`, `grafanadatasources` | o CR Grafana guarda `admin_password` em `spec.config`; o datasource pode guardar token |
+| escrita em `PodMonitor`/`ServiceMonitor` | é onde nasce o rótulo `ambiente` — dava para rotular o próprio tráfego com o nome do vizinho |
+| leitura de `KeycloakRealmImport` com `-A` | o participante cria projeto, e nele um realm import com o nome de outro: a "senha" plantada iria para o guia da vítima |
+
+O roteiro inteiro roda igual com o papel estreito. Quem aprende a lidar com
+leitura negada é o `preflight`, que **se abstém** (`oc auth can-i`) em vez de
+concluir ausência.
+
+**Duas superfícies que existem porque o usuário do RHDP cria projeto:**
+
+- O molde do Showroom era "o primeiro Deployment chamado `showroom`" — um
+  Deployment plantado seria copiado para o namespace de cada participante. O
+  molde sai hoje do `ClusterRoleBinding` de cluster-admin do terminal do
+  instrutor, que só admin escreve.
+- Namespace de tenant que já exista **sem o rótulo deste script é recusado**:
+  quem criasse `showroom-user9` antes do provisionamento seria admin de onde a
+  identidade do `user9` vai nascer.
+
+**Os atributos do guia são reconstruídos, não filtrados.** Eram cópia dos do
+instrutor, com `keycloak_admin_senha`, `grafana_senha` e `gitlab_root_senha`
+dentro. Uma lista de *proibidos* falha aberta no dia em que nascer um atributo
+de credencial com outro nome, e um filtro linha a linha deixa passar o que não
+entende. O `user_data` é montado **do zero**: só entra a linha que casa inteira
+com `"chave": "valor"` de uma chave permitida, e URL com credencial embutida
+fica fora.
+
+> Um tenant criado por uma versão **anterior** do `tenant.sh` pode ter ficado
+> com o papel antigo, mais largo. Os papéis de plataforma são reaplicados
+> sempre, não só quando faltam, por esse motivo — mas quem nasceu com
+> `cluster-reader` precisa de `tenant.sh remove <user>` antes de qualquer uso.
+
+## 7. Armadilhas medidas
 
 Todas falham sem erro na tela.
 
@@ -141,7 +261,7 @@ Grafo vazio no Kiali logo depois do provisionamento não é defeito.
 `148.62.x` pararam de responder sem aviso. Use dois clusters para a turma, e
 confira que não estão na mesma faixa (`dig +short api.cluster-<guid>...`).
 
-## 7. Limites conhecidos
+## 8. Limites conhecidos
 
 - **O participante lê os Secrets de `kuadrant-system`**, inclusive as chaves
   de API dos outros. A trava de admissão fecha a escrita, não a leitura: os

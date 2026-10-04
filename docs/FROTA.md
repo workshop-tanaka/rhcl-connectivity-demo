@@ -5,6 +5,11 @@ workshop no RHDP. Não é material de plateia, e por isso não está no `nav` do
 [mkdocs.yml](../mkdocs.yml) — mesma faixa do
 [CONHECIMENTO](CONHECIMENTO.md) e das `ESTRATEGIA-*.md`.
 
+> **Um ambiente por participante.** É o modelo que este documento trata. O
+> outro — N participantes no **mesmo** cluster, por cópia renderizada — está
+> em [TURMA.md](TURMA.md), e os dois convivem: o ambiente base de uma turma
+> nasce por uma onda daqui, e as cópias saem dele.
+
 ## 1. O que muda quando N > 1
 
 Com um ambiente, você olha. Roda o `preflight.sh`, lê as 80 linhas, reconhece o
