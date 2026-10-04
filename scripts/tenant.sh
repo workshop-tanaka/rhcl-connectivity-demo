@@ -352,6 +352,30 @@ _remove() { # <tenant>
 # rotulo nem por prefixo. Serve a uma sala de aula cooperativa; NAO serve a
 # participantes que nao confiam uns nos outros.
 # ---------------------------------------------------------------------------
+_keycloak_sem_registro() {
+  local ns="${KEYCLOAK_NS:-keycloak}" host u pw tok realm
+  host="$(oc get route -n "$ns" -o jsonpath='{.items[0].spec.host}' 2>/dev/null)"
+  realm="$(oc get keycloakrealmimport -n "$ns" -o jsonpath='{.items[0].spec.realm.realm}' 2>/dev/null)"
+  u="$(oc get secret keycloak-initial-admin -n "$ns" -o jsonpath='{.data.username}' 2>/dev/null | base64 -d)"
+  pw="$(oc get secret keycloak-initial-admin -n "$ns" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)"
+  [[ -n "$host" && -n "$realm" && -n "$u" && -n "$pw" ]] || return 0   # sem Keycloak de plataforma, nada a fazer
+  # a senha vai por stdin (--data-urlencode @-), e nao na linha de comando,
+  # onde ficaria visivel na lista de processos
+  tok="$(printf '%s' "$pw" | curl -sk -m 20 "https://${host}/realms/master/protocol/openid-connect/token" \
+           -d grant_type=password -d client_id=admin-cli --data-urlencode "username=${u}" --data-urlencode password@- 2>/dev/null \
+         | python3 -c 'import sys, json; print(json.load(sys.stdin).get("access_token", ""))' 2>/dev/null)"
+  if [[ -z "$tok" ]]; then
+    _warn "nao consegui autenticar na API de admin do Keycloak — o autocadastro do realm ${realm} segue ligado"; return 0
+  fi
+  if [[ "$(curl -sk -m 20 -o /dev/null -w '%{http_code}' -X PUT "https://${host}/admin/realms/${realm}" \
+            -H "Authorization: Bearer ${tok}" -H 'Content-Type: application/json' \
+            -d '{"registrationAllowed": false}')" == 204 ]]; then
+    _ok "autocadastro desligado no realm ${realm}"
+  else
+    _warn "o Keycloak recusou a troca — o autocadastro do realm ${realm} segue ligado"
+  fi
+}
+
 _plataforma() {
   # O OPERATOR DO KUADRANT NAO CABE NO LIMITE DE FABRICA. O CSV do RHCL 1.4.3
   # da a ele 200m de CPU e 300Mi de memoria. Subindo 30 participantes no
@@ -384,6 +408,13 @@ _plataforma() {
       -p '{"spec":{"config":{"auth.anonymous":{"enabled":"true","org_role":"Viewer"}}}}' >/dev/null 2>&1 \
       || _warn "nao consegui baixar o acesso anonimo do Grafana para Viewer — ele segue como Admin, para todos"
   fi
+  # O AUTOCADASTRO DO KEYCLOAK SAI. O SSO que o RHDP entrega mostra "New user?
+  # Register" na tela de login. Um usuario criado ali nao ganha ambiente
+  # nenhum, mas e 'system:authenticated:oauth' -- cria projeto no cluster da
+  # turma. O realm nasceu de um KeycloakRealmImport, que so importa uma vez:
+  # mudar o CR nao muda o realm, entao a troca vai pela API de admin.
+  _keycloak_sem_registro
+
   oc apply -f - <<'EOF' >/dev/null || _die "falha ao aplicar o RBAC de plataforma dos tenants"
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
