@@ -160,6 +160,31 @@ s/\{$v\}\[([^\]\n]*?)\^?\]/$1/g;
 s/o Kiali abre \*\*sem pedir nada\*\* -- este ambiente o serve em\s+modo anônimo\./clique em *Log In With OpenShift* e entre com o seu usuário do console (\x60{usuario_console}\x60). O Kiali mostra só os namespaces do seu ambiente./g;
 s/o Grafana abre \*\*sem pedir nada\*\* \(acesso anônimo, papel de\s+Admin\)\.[^\n]*(?:\n[^\n=]+)*?(?=\n====)/o Grafana abre **sem pedir nada**, em modo de leitura. Os painéis do roteiro já abrem filtrados pelo seu ambiente./g;
 s/o Grafana abre \*\*sem pedir nada\*\* -- acesso anônimo, com\s+papel de Admin\./o Grafana abre **sem pedir nada**, em modo de leitura. Os painéis do roteiro já abrem filtrados pelo seu ambiente./g;
+# AS PARTES QUE NAO SAO DO PARTICIPANTE NO CLUSTER DE TURMA. O guia e o mesmo
+# do ambiente de um participante so, e nao dizia quais paginas ele nao consegue
+# executar: um participante entrou na 1.7, levou Forbidden no Argo e ficou com
+# o terminal em /tmp (2026-10-05). Tres coisas, so nessas paginas:
+#   - um aviso de destaque logo abaixo do cabecalho;
+#   - os blocos de comando perdem o role execute, e o clique deixa de rodar;
+#   - a entrada no menu ganha a marca, para ninguem chegar la sem saber.
+# O aviso vai DEPOIS do cabecalho inteiro -- titulo e atributos, ate a primeira
+# linha em branco. Logo abaixo do titulo ele cortaria os atributos da pagina
+# (o navtitle), que so valem dentro do cabecalho.
+if (/\A= 1\.7 /) {
+  s/,\s*role="execute"//g;
+  s/\A((?:[^\n]+\n)+)\n/$1\n[IMPORTANT]\n====\n*Esta parte não está disponível nesta turma.* Ela depende do Developer Hub e do GitLab, que este ambiente não tem. Os comandos desta página não funcionam aqui: leia como referência e siga para a próxima parte.\n====\n\n/;
+}
+if (/\A= (?:1\.8 |Módulo 4 |4\.1 |4\.2 |O nome da API também é policy)/) {
+  s/,\s*role="execute"//g;
+  s/\A((?:[^\n]+\n)+)\n/$1\n[IMPORTANT]\n====\n*Nesta turma, esta parte é demonstrada pelo instrutor.* Ela usa componentes que são da plataforma inteira, e o seu ambiente não tem permissão sobre eles: os comandos desta página respondem \x60Forbidden\x60. Acompanhe pela tela do instrutor.\n====\n\n/;
+}
+s/^(\* xref:m1-07-colheita\.adoc\[[^\]\n]*)\]/$1 -- indisponível]/mg;
+s/^(\* xref:(?:m1-08-auditoria|m4-00-intro|m4-01-interconnect|m4-02-tunel|extra-dns)\.adoc\[[^\]\n]*)\]/$1 -- instrutor]/mg;
+s/^(\.Módulo 4 [^\n]*)$/$1 (instrutor)/mg;
+# O painel consumo-plataforma e visao da plataforma INTEIRA por desenho, e o
+# Grafana de uma turma e filtrado, nao isolado (docs/TURMA.md, secao 8): e o
+# unico painel nao filtravel que o guia mandava o participante abrir.
+s/tem dashboard\s+próprio: \{grafana_url\}\/d\/rhcl-consumo-plataforma\[[^\]]*\]\.\n\nEle separa por produto[^\n]*(?:\n[^\n]+)*/é visão da plataforma inteira; nesta turma, quem a abre é o instrutor./;
 PERL
 )"
 
