@@ -815,6 +815,10 @@ _rbac() { # <tenant>
 #      processador 'batch'; sem 'k8s.namespace.name' no span nao ha o que
 #      restringir. Entra o processador k8sattributes, que descobre o pod pela
 #      conexao, e a leitura de pods que ele pede.
+#      E ele tem de IGNORAR o que o cliente declara: qualquer pod alcanca o
+#      coletor, e o k8sattributes nao sobrescreve atributo que ja veio. Medido:
+#      um span enviado do pod do user28 dizendo ser de travel-agency-user29
+#      chegou ao Tempo marcado como showroom-user28, o namespace de ORIGEM.
 #   2. o controle por namespace e a tela do Jaeger sao EXCLUDENTES: o operator
 #      recusa ligar um com o outro de pe. A tela do Jaeger sai; a aba
 #      Observe > Traces da console continua, e e a que o guia usa.
@@ -828,6 +832,11 @@ _rbac() { # <tenant>
 # A leitura no tenant (o ClusterRoleBinding de system:authenticated) FICA: sem
 # ela o gateway do Tempo devolve 403 antes de olhar para o namespace -- medido.
 #
+# SEM A MARCA, O CONTROLE FECHA PARA TODOS: com rbac ligado e spans sem
+# 'k8s.namespace.name', nem o dono nem o admin leem atributo algum (medido).
+# Por isso o processador mora no manifesto do coletor, que o provisionamento
+# reaplica -- como patch solto ele sumia no sync seguinte, sem erro.
+#
 # E um passo A PARTE, que ninguem chama por voce: ele reinicia o Tempo, e os
 # traces que estavam em memoria se perdem. Rode antes da aula, nao durante.
 # ---------------------------------------------------------------------------
@@ -835,46 +844,39 @@ _traces() {
   _sec "traces: o conteudo de cada trace so para o dono do namespace"
   oc get tempomonolithic tempo -n tracing-system >/dev/null 2>&1 \
     || _die "nao ha TempoMonolithic 'tempo' em tracing-system -- a etapa 'tracing' do provision.sh rodou?"
-  oc apply -f - >/dev/null <<'EOF' || _die "falha ao aplicar a leitura de pods do coletor"
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: otel-collector-k8sattributes
-  labels: {rhcl.demo/multitenant: "true"}
-rules:
-  - apiGroups: [""]
-    resources: [pods, namespaces]
-    verbs: [get, list, watch]
-  - apiGroups: [apps]
-    resources: [replicasets]
-    verbs: [get, list, watch]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: otel-collector-k8sattributes
-  labels: {rhcl.demo/multitenant: "true"}
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: otel-collector-k8sattributes}
-subjects:
-  - {kind: ServiceAccount, name: otel-collector, namespace: tracing-system}
-EOF
-  oc patch opentelemetrycollector otel -n tracing-system --type=merge -p '{"spec":{"config":{"processors":{"k8sattributes":{"extract":{"metadata":["k8s.namespace.name","k8s.pod.name"]},"pod_association":[{"sources":[{"from":"connection"}]}]}},"service":{"pipelines":{"traces":{"processors":["k8sattributes","batch"]}}}}}}' >/dev/null \
-    || _die "nao consegui acrescentar o k8sattributes ao coletor"
+
+  # O coletor: o MESMO arquivo que o provisionamento aplica, e nao uma copia
+  # aqui dentro. E ele que apaga o namespace declarado pelo cliente e grava o
+  # do pod de origem -- e por estar no manifesto, o proximo sync nao o desfaz.
+  local man="${_here}/platform-reference/tracing/otel-collector.yaml"
+  [[ -f "$man" ]] || _die "nao achei ${man#${_here}/}"
+  oc apply -f "$man" >/dev/null || _die "falha ao aplicar o coletor"
   oc rollout status deploy/otel-collector -n tracing-system --timeout=180s >/dev/null 2>&1 \
-    || _warn "o coletor nao confirmou o rollout em 180s"
-  _ok "o coletor grava k8s.namespace.name em cada span"
+    || _die "o coletor nao voltou em 180s. Sem ele os spans chegam sem namespace, e com o controle ligado NINGUEM le atributo nenhum. Veja: oc logs deploy/otel-collector -n tracing-system"
+  [[ "$(oc get opentelemetrycollector otel -n tracing-system -o jsonpath='{.spec.config.service.pipelines.traces.processors}' 2>/dev/null)" == *k8sattributes* ]] \
+    || _die "o coletor subiu SEM o k8sattributes no pipeline -- nao ligo o controle do Tempo por cima disso"
+  _ok "o coletor grava k8s.namespace.name em cada span (e descarta o que o cliente declarar)"
+
   # a tela do Jaeger E a rota dela saem no MESMO patch do rbac: o operator
   # valida os tres campos juntos e recusa qualquer combinacao parcial
   oc patch tempomonolithic tempo -n tracing-system --type=merge \
     -p '{"spec":{"jaegerui":{"enabled":false,"route":{"enabled":false}},"query":{"rbac":{"enabled":true}}}}' >/dev/null \
     || _die "o Tempo recusou o controle por namespace. Veja: oc get tempomonolithic tempo -n tracing-system -o yaml"
-  local i
-  for i in $(seq 1 30); do
-    [[ "$(oc get tempomonolithic tempo -n tracing-system -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)" == "True" ]] && break
+
+  # NADA DE [OK] SEM TER LIDO. O laco so espera; quem decide e a leitura
+  # depois dele -- o campo como ficou no objeto, e o Tempo de pe.
+  local i pronto="" rbac=""
+  for i in $(seq 1 40); do
+    pronto="$(oc get tempomonolithic tempo -n tracing-system -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)"
+    [[ "$pronto" == "True" ]] && oc rollout status statefulset/tempo-tempo -n tracing-system --timeout=5s >/dev/null 2>&1 && break
     sleep 6
   done
-  _ok "Tempo com spec.query.rbac ligado (a tela do Jaeger saiu; a aba de Traces da console fica)"
+  rbac="$(oc get tempomonolithic tempo -n tracing-system -o jsonpath='{.spec.query.rbac.enabled}' 2>/dev/null)"
+  [[ "$rbac" == "true" ]] || _die "spec.query.rbac.enabled nao ficou 'true' no objeto (leu: '${rbac:-vazio}') -- os traces seguem ABERTOS"
+  [[ "$pronto" == "True" ]] || _die "o Tempo nao ficou Ready depois de ligar o controle. Veja: oc get pods -n tracing-system"
+  _ok "Tempo com spec.query.rbac ligado e Ready (a tela do Jaeger saiu; a aba de Traces da console fica)"
   _log "os traces anteriores se perderam no reinicio -- gere trafego antes de abrir a tela"
+  _log "confira com o token de um participante que o trace do vizinho vem sem atributos"
 }
 
 # ---------------------------------------------------------------------------

@@ -48,6 +48,40 @@ spec:
           http:
             endpoint: 0.0.0.0:4318
     processors:
+      # O SPAN PRECISA DIZER DE QUE NAMESPACE E, e quem diz e o COLETOR.
+      #
+      # O Tempo restringe a leitura de trace por namespace (spec.query.rbac,
+      # ligado por 'tenant.sh traces' no cluster de turma) olhando o atributo
+      # de recurso 'k8s.namespace.name'. Duas regras, nesta ordem:
+      #
+      # 1. APAGAR o que o cliente mandou. Qualquer pod do cluster alcanca
+      #    otel-collector:4317 e pode enviar um span com o atributo que quiser.
+      #    Se o valor do cliente ficasse, um participante carimbaria os spans
+      #    dele com o namespace de outro -- e o k8sattributes NAO sobrescreve
+      #    atributo que ja existe.
+      # 2. GRAVAR o namespace do pod que abriu a conexao. 'from: connection'
+      #    e o IP de origem, que o remetente nao escolhe.
+      #
+      # Isto mora AQUI, e nao so no tenant.sh, porque o provisionamento
+      # reaplica este arquivo a cada sync: na primeira versao o processador
+      # entrava por 'oc patch' e SUMIA no sync seguinte, sem erro. E com o
+      # controle do Tempo ligado e os spans sem a marca, NINGUEM le atributo
+      # nenhum, nem o dono, nem o admin (medido em 2026-10-05, cluster-x2gsq:
+      # 3 spans, 0 atributos, para os tres) -- falha fechada, e o Modulo 3 fica
+      # com a tela vazia.
+      #
+      # Num ambiente de um participante so o atributo e inofensivo: so mais
+      # uma etiqueta no span.
+      resource/sem-namespace-do-cliente:
+        attributes:
+          - key: k8s.namespace.name
+            action: delete
+      k8sattributes:
+        extract:
+          metadata: [k8s.namespace.name, k8s.pod.name]
+        pod_association:
+          - sources:
+              - from: connection
       batch: {}
     exporters:
       otlp:
@@ -64,5 +98,32 @@ spec:
       pipelines:
         traces:
           receivers: [otlp]
-          processors: [batch]
+          processors: [resource/sem-namespace-do-cliente, k8sattributes, batch]
           exporters: [otlp]
+---
+# O k8sattributes descobre o pod pelo IP da conexao, e para isso le pods,
+# namespaces e replicasets do cluster.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector-k8sattributes
+rules:
+  - apiGroups: [""]
+    resources: [pods, namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector-k8sattributes
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-collector-k8sattributes
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector
+    namespace: tracing-system
