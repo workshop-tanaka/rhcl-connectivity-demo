@@ -526,7 +526,10 @@ step_telas() {
   printf '    %-14s %s\n' "Kiali" "${k:+https://$k}"
   printf '    %-14s %s\n' "Jaeger UI" "${t:+https://$t/dev}  (deprecada; o /dev e o tenant)"
   echo
-  _log "a folha completa de acessos, com usuario e senha: bash scripts/acessos.sh"
+  # NAO aponte o participante para o acessos.sh: e a folha de credenciais da
+  # plataforma, e num cluster de turma ela nao e dele. O guia dele ja traz o
+  # usuario e a senha ao lado de cada tela.
+  _log "as credenciais de cada tela estao no seu guia, ao lado do link"
 }
 
 step_check() {
@@ -963,7 +966,7 @@ MATRIZ
 step_papeis() {
   _title "Quem pode o que, e por que isso e o produto" "6 min"
   _quem "Engenheiro de Plataforma e Desenvolvedor -- os dois papeis que o Gateway API nomeia"
-  _pre "nenhum passo; precisa das personas (bash scripts/setup-identity.sh realm)"
+  _pre "nenhum passo; precisa das personas do Keycloak (quem as cria e o instrutor)"
   _why "A especificacao do Gateway API define tres papeis, e o RHCL herda os"
   _why "tres. Dois deles aparecem aqui:"
   _why ""
@@ -989,7 +992,7 @@ step_papeis() {
   _pause || return 0
   if ! _dev_login; then
     _warn "nao consegui logar como app-dev -- as personas existem?"
-    _warn "  bash scripts/setup-identity.sh realm   (senha: PERSONA_PASSWORD)"
+    _warn "  as personas do Keycloak nao estao no ar -- avise o instrutor"
     return 0
   fi
   _cmd oc whoami

@@ -898,11 +898,53 @@ json.dump({"apiVersion": "v1", "kind": "List", "items": out}, sys.stdout)' \
   oc rollout status deploy/showroom -n "showroom-${t}" --timeout=600s >/dev/null 2>&1 \
     || _die "o Showroom de ${t} nao ficou pronto. Veja: oc get pods -n showroom-${t}"
 
+  # A COPIA VAI SEM O QUE NAO E DO PARTICIPANTE. O 'render' gera o repositorio
+  # inteiro porque o PROVISIONAMENTO precisa dele (new-env.sh, provision.sh e
+  # portais.sh rodam de dentro da copia). O TERMINAL nao: ali o participante
+  # tinha 50 scripts, 10 mil linhas, para os 26 que o guia usa -- incluindo o
+  # tenant.sh (que documenta o RBAC e a trava de admissao da turma inteira) e
+  # o acessos.sh, a folha de credenciais. Excluir no push, e nao no render, e
+  # o que mantem o provisionamento intacto.
+  #
+  # A LISTA E DE PERMISSAO, nao de proibicao: o que fica sao os scripts que o
+  # guia chama (medido: 24 das 45 paginas), mais exposta-checklist.sh (chamada
+  # real do 'demo.sh exposta') e labs.sh (o preflight sugere 'labs.sh limpa'
+  # quando um Extra fica pela metade). Script novo nasce ESCONDIDO -- se o guia
+  # passar a cita-lo, entra aqui de proposito.
+  local _TERMDIR=/home/lab-user/rhcl-connectivity-demo
+  _SO_PARTICIPANTE="alerta.sh auditoria.sh bookinfo-fronteiras.sh certificado.sh
+    chave-vazada.sh contextos.sh demo.sh dns-nome.sh exposta-checklist.sh
+    golden-path-limpa.sh grpc.sh identidade.sh interconnect.sh labs.sh listas.sh
+    mapa-mtls.sh mtls-kuadrant.sh negado.sh parceiro-certificado.sh postman-env.sh
+    prefixos.sh preflight.sh tokens-ia.sh traffic.sh tunel-protege.sh versoes.sh"
+  local _excl=() _tira=() _b
+  for _b in "$d"/scripts/*.sh; do
+    _b="$(basename "$_b")"
+    case "$_b" in *.sh) ;; *) continue ;; esac   # so .sh, nunca um nome vazio
+    case " $(echo $_SO_PARTICIPANTE) " in
+      *" $_b "*) ;;
+      *) _excl+=( "--exclude=./scripts/$_b" )
+         _tira+=( "${_TERMDIR}/scripts/$_b" ) ;;
+    esac
+  done
   # a copia vai SEM o que e de quem opera: o kubeconfig de ensaio e os logs
-  tar -C "$d" --exclude='./.kubeconfig' --exclude='./.provision.log' --exclude='./.out-*' -cf - . \
+  tar -C "$d" --exclude='./.kubeconfig' --exclude='./.provision.log' --exclude='./.out-*' \
+      "${_excl[@]}" -cf - . \
     | oc exec -i -n "showroom-${t}" deploy/showroom -c terminal -- \
-        tar -C /home/lab-user/rhcl-connectivity-demo -xf - 2>/dev/null \
+        tar -C "$_TERMDIR" -xf - 2>/dev/null \
     || _die "nao consegui levar a copia para o terminal de ${t}"
+
+  # EXCLUIR DO TAR NAO APAGA NO DESTINO: 'tar -x' extrai SOBRE o diretorio e
+  # deixa quieto o que nao esta no arquivo. Um terminal que ja recebeu a copia
+  # inteira (como os 60 de 2026-10-04) ficaria com os 24 scripts de
+  # administracao ali, intactos. Entao a remocao e explicita, por NOME --
+  # nunca um glob, nunca um diretorio, e os nomes saem da lista de permissao
+  # acima, filtrados por '*.sh'.
+  if [[ "${#_tira[@]}" -gt 0 ]]; then
+    oc exec -n "showroom-${t}" deploy/showroom -c terminal -- \
+      rm -f "${_tira[@]}" >/dev/null 2>&1 \
+      || _warn "nao consegui remover os scripts de administracao do terminal de ${t}"
+  fi
 
   # o veredito que vale: o participante, do terminal DELE, ve o ambiente DELE.
   # COM INSISTENCIA: subindo a turma do cluster-swsmt (2026-10-04), do 17o
