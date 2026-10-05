@@ -2,8 +2,8 @@
 
 Desenho para a próxima versão do modo de turma. Substitui o modelo de "sala de
 aula cooperativa" do [TURMA.md](TURMA.md), em que um participante alcança dados
-do outro. **Nada aqui está construído ainda**; cada item diz se foi medido ou
-se falta testar.
+do outro. As camadas 1 e 2 estão construídas e medidas em dois participantes; as
+demais ainda não. Cada item diz em que pé está.
 
 ## 1. As restrições que definem o desenho
 
@@ -110,14 +110,45 @@ participantes.
 
 | # | Camada | Mecanismo | Situação |
 | --- | --- | --- | --- |
-| 1 | O Gateway só aceita rotas do dono | `allowedRoutes` por seletor de namespace no listener; regra de admissão exigindo que o hostname da rota seja o do participante | a construir |
-| 2 | Rede fechada entre participantes | `NetworkPolicy` por namespace: entra só o tráfego do próprio ambiente, do Gateway dele e da plataforma | a construir |
+| 1 | O Gateway só aceita rotas do dono | `allowedRoutes` por seletor de namespace no listener; regra de admissão, válida para o cluster, que recusa a rota que aponta para Gateway ou hostname de outro participante | **medido** em dois participantes (`tenant.sh isola`) |
+| 2 | Rede fechada entre participantes | `NetworkPolicy` de entrada por namespace: só os namespaces do participante, o router e o monitoramento | **medido** em dois participantes (`tenant.sh isola`) |
 | 3 | Dois perfis | dois conjuntos de `RoleBinding` por participante, conforme a tabela da seção 3 | a construir |
 | 4 | Chaves no namespace de cada um | `allNamespaces: true` na `AuthPolicy` (o campo existe e o Authorino é de cluster); a regra de admissão impede usar o rótulo de outro participante | a testar |
 | 5 | Sem leitura de cluster no terminal | sai `rhcl-tenant-leitura` em escopo de cluster e o `cluster-monitoring-view`; os comandos com `-A` passam a olhar os namespaces do participante | padrão já usado no `preflight.sh` |
 | 6 | Traces | consequência da 5: o Tempo decide por `get namespace`, e o terminal deixa de ter isso nos alheios | o lado da pessoa já está medido |
 | 7 | Métricas e painéis | porta de isolamento do Thanos (existe: `tenancy`, 9092); um Grafana por participante; um repasse por participante para as séries do Limitador, que nascem em `kuadrant-system` | a parte mais incerta |
 | 8 | Limites de consumo | `ResourceQuota` por participante (pods, Gateways, policies); namespaces de laboratório pré-criados, sem `self-provisioner` | a construir |
+
+### O que as camadas 1 e 2 mediram
+
+`scripts/isolamento.sh user29 user28`, no `cluster-x2gsq`, em 2026-10-05:
+
+| | Abertas | Barradas |
+| --- | --- | --- |
+| antes | 12 | 6 |
+| depois do `isola` nos dois | 8 | 10 |
+
+As quatro que fecharam: as duas chamadas por dentro do cluster (de `200` sem
+chave para sem resposta) e as duas de rota. As oito que restam são leituras, e
+pertencem às camadas 4 e 5: rotas, policies e Gateway do outro, chaves de API
+e leitura de cluster.
+
+Nada quebrou para o dono: a API responde `401` sem chave e `200` com chave, o
+`preflight.sh core` de dentro do terminal fecha em OK, e o monitoramento coleta
+os mesmos alvos de um participante não isolado.
+
+A admissão vale para o cluster desde o primeiro `isola`. Dez controles por
+`dry-run` de servidor: passam a rota própria de um participante não isolado, a
+do laboratório `exposta` e as do instrutor; são barradas a rota presa ao
+Gateway do instrutor, a presa ao Gateway de outro participante (inclusive
+quando quem cria é o admin, num namespace de tenant), o hostname de outro, e
+`user2` contra `user28` -- o hífen antes do sufixo é o que os separa.
+
+Dois erros apareceram só ao medir, e ficam registrados porque nenhum dava
+erro: a admissão lia o namespace do `parentRef` por um nome de campo que nesse
+tipo de regra nunca existe, e aprovava tudo; e a conferência de rotas do
+`isola` exigia `Accepted` de uma entrada de status que é do Connectivity Link,
+não do Gateway, e reprovava rotas aceitas.
 
 ## 6. Como os perfis chegam ao participante
 
