@@ -111,6 +111,28 @@ s/\boc delete (?:namespace|ns) /oc delete project /g unless $ENV{CONTEUDO};
 # \x60 e a crase: escrita por extenso ela quebra o parser do bash 3.2, que
 # procura o par dela mesmo dentro de um heredoc citado.
 s{\x60\\(https?://[^\x60\s]+)\x60}{$1\[$1^\]}g if $ENV{CONTEUDO};
+# SO NO CONTEUDO: o caminho de arquivo das paginas e escrito em sintaxe de
+# GITLAB ('/-/blob/main/<path>'), porque o golden path nasceu nele. Sem GitLab
+# no cluster, os atributos repo_* apontam para o GitHub publico na tag do
+# ambiente -- e ai o link fica '.../tree/<tag>/-/blob/main/postman/...', que da
+# 404. Medido em 2026-10-05, no guia servido de 6 participantes nos dois
+# clusters: 2 links assim, em 3 paginas (referencias, extra-postman,
+# m2-01-leste-oeste).
+# O infixo sai, e o segmento repetido colapsa -- '{repo_policies}' ja termina
+# em '/base' e a pagina escreve '/-/tree/main/base/mesh'. Conferido que as
+# duas formas de destino dao 200 no GitHub, e que nenhuma das 118 URLs do guia
+# tem segmento adjacente repetido por legitimidade.
+# A TROCA ACONTECE NO .adoc, ONDE O ATRIBUTO AINDA NAO FOI EXPANDIDO -- quem
+# expande '{repo_policies}' e o Antora, depois. Entao nao da para colapsar o
+# segmento repetido aqui: ao ver '{repo_policies}/-/tree/main/base/mesh' a
+# duplicacao de 'base' ainda nao existe (ela nasce porque o atributo JA termina
+# em '/base'). Primeira versao deste conserto tentou colapsar e nao disparou --
+# o link seguiu em 404. A regra tem de conhecer o atributo.
+if ($ENV{CONTEUDO}) {
+  s{(\{repo_policies\})/-/(?:blob|tree)/[^/\s\]]+/base/}{$1/}g;
+  s{(\{repo_no_ambiente\}|\{repo_policies\})/-/(?:blob|tree)/[^/\s\]]+/}{$1/}g;
+  s{/-/(?:blob|tree)/[^/\s\]]+/}{/}g;
+}
 PERL
 )"
 
