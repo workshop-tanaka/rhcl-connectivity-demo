@@ -41,6 +41,7 @@
 #   bash scripts/tenant.sh showroom user7         # o guia e o terminal dele, com a copia dentro
 #   bash scripts/tenant.sh turma 30               # user1..user30, em lotes (LARGURA=4)
 #   bash scripts/tenant.sh isola user7            # fecha a rede e as rotas dele para os outros ('abre' desfaz)
+#   bash scripts/tenant.sh restringe user7        # EXPERIMENTO: o terminal dele sem leitura de cluster ('alarga' desfaz)
 #   bash scripts/tenant.sh traces                 # cada um le o conteudo so dos proprios traces (reinicia o Tempo)
 #   bash scripts/tenant.sh lista                  # tenants no cluster
 set -uo pipefail
@@ -987,6 +988,111 @@ _abre() { # <tenant> : desfaz o 'isola'
 }
 
 # ---------------------------------------------------------------------------
+# restringe — o terminal de UM participante sem leitura de cluster (experimento)
+#
+# POR QUE ISTO EXISTE: depois do 'isola', sobram 8 tentativas abertas no
+# isolamento.sh, e seis sao LEITURA: rotas, policies e Gateway do outro, o
+# namespace do outro, as rotas e os namespaces do cluster. Todas saem de duas
+# ligacoes de cluster do terminal -- 'rhcl-tenant-leitura' e
+# 'cluster-monitoring-view'. E pelo 'get namespace' que elas dao que o token do
+# terminal le os traces alheios (medido: 21 de 21 atributos).
+#
+# O QUE O PAPEL DE LEITURA MISTURA, e este passo separa:
+#   fatos da plataforma  versao do cluster, dominio, CRDs, GatewayClass, o CR
+#                        Istio, plugins da console. Nao dizem nada de ninguem.
+#                        Continuam valendo para o cluster ('rhcl-tenant-fatos').
+#   dados dos tenants    namespaces, projetos, rotas, policies e objetos do
+#                        Istio de TODOS. Saem do cluster; o participante segue
+#                        lendo os DELE (e 'admin' nos namespaces dele) e os da
+#                        plataforma, por RoleBinding em cada namespace dela.
+#
+# E UM EXPERIMENTO, e por isso e por participante e tem volta ('alarga'): os
+# scripts do roteiro tem 43 leituras de cluster inteiro e consultas ao Thanos
+# que dependem dessas ligacoes. Tirar de UM, rodar os comandos do guia nele e
+# ver o que quebra e o que da a lista do que adaptar -- em vez de adivinhar.
+# NAO use numa turma em aula. Um 'showroom' ou 'sobe' do participante devolve
+# as ligacoes antigas, porque refaz o RBAC dele.
+# ---------------------------------------------------------------------------
+_restringe() { # <tenant>
+  local t="$1" ns sa="system:serviceaccount:showroom-${1}:showroom"
+  _sec "restringe ${t}: o terminal sem leitura de cluster (experimento)"
+  oc get sa showroom -n "showroom-${t}" >/dev/null 2>&1 || _die "nao ha terminal de ${t} (showroom-${t}/showroom)"
+  oc apply -f - >/dev/null <<'EOF' || _die "falha ao aplicar o papel de fatos da plataforma"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rhcl-tenant-fatos
+  labels: {rhcl.demo/multitenant: "true"}
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list]
+  - apiGroups: [config.openshift.io]
+    resources: [ingresses, clusterversions, infrastructures, networks]
+    verbs: [get, list]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [gatewayclasses]
+    verbs: [get, list]
+  - apiGroups: [sailoperator.io]
+    resources: [istios, istiocnis, istiorevisions]
+    verbs: [get, list]
+  - apiGroups: [operator.openshift.io]
+    resources: [consoles]
+    verbs: [get, list]
+  - apiGroups: [console.openshift.io]
+    resources: [consoleplugins]
+    verbs: [get, list]
+  - apiGroups: [metrics.k8s.io]
+    resources: [nodes]
+    verbs: [get, list]
+EOF
+  # O NOVO ANTES DE TIRAR O VELHO: se algo falhar no meio, o participante fica
+  # com permissao a mais por um instante, e nao sem nenhuma.
+  {
+    printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata: {name: rhcl-tenant-%s-fatos, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-fatos}\nsubjects:\n  - {kind: ServiceAccount, name: showroom, namespace: showroom-%s}\n' "$t" "$ROTULO" "$t" "$t"
+    for ns in $NS_PLATAFORMA; do
+      oc get ns "$ns" >/dev/null 2>&1 || continue
+      # o MESMO papel de leitura de antes, mas ligado so a este namespace: o
+      # que nele e de cluster (namespaces, nodes, CRDs) nao vale por RoleBinding
+      printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-leitura-ampla, namespace: %s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-leitura}\nsubjects:\n  - {kind: ServiceAccount, name: showroom, namespace: showroom-%s}\n' "$t" "$ns" "$ROTULO" "$t" "$t"
+    done
+  } | oc apply -f - >/dev/null || _die "falha ao aplicar as ligacoes novas de ${t}"
+  oc delete clusterrolebinding "rhcl-tenant-${t}-rhcl-tenant-leitura" "rhcl-tenant-${t}-cluster-monitoring-view" --ignore-not-found >/dev/null \
+    || _die "nao consegui tirar as ligacoes de cluster de ${t}"
+  # NADA DE [OK] SEM TER LIDO: pergunta ao servidor o que a identidade pode.
+  local outro="" pode
+  for ns in $(oc get ns -l "${ROTULO}" -o jsonpath='{range .items[*]}{.metadata.labels.rhcl\.demo/tenant}{"\n"}{end}' 2>/dev/null | sort -u); do
+    [[ "$ns" != "$t" ]] && { outro="$ns"; break; }
+  done
+  pode="$(oc auth can-i list namespaces --as="$sa" 2>/dev/null | head -1)"
+  [[ "$pode" == "no" ]] || _die "${t} ainda lista namespaces do cluster (resposta: '${pode:-vazia}') -- ha outra ligacao dando isso: oc get clusterrolebinding -o wide | grep showroom-${t}"
+  if [[ -n "$outro" ]]; then
+    pode="$(oc auth can-i get httproutes.gateway.networking.k8s.io -n "travel-agency-${outro}" --as="$sa" 2>/dev/null | head -1)"
+    [[ "$pode" == "no" ]] || _die "${t} ainda le as rotas de ${outro} (resposta: '${pode:-vazia}')"
+  fi
+  pode="$(oc auth can-i get httproutes.gateway.networking.k8s.io -n "travel-agency-${t}" --as="$sa" 2>/dev/null | head -1)"
+  [[ "$pode" == "yes" ]] || _die "${t} deixou de ler as PROPRIAS rotas (resposta: '${pode:-vazia}') -- desfaca: tenant.sh alarga ${t}"
+  _ok "${t}: nao lista namespaces nem le rotas de ${outro:-outro participante}; segue lendo as dele"
+  _log "agora rode os comandos do guia como ${t} e veja o que quebra; 'tenant.sh alarga ${t}' devolve tudo"
+}
+
+_alarga() { # <tenant> : desfaz o 'restringe'
+  local t="$1" ns
+  _sec "alarga ${t}: devolve a leitura de cluster do terminal"
+  _rbac "$t"
+  oc delete clusterrolebinding "rhcl-tenant-${t}-fatos" --ignore-not-found >/dev/null
+  for ns in $NS_PLATAFORMA; do
+    oc delete rolebinding "rhcl-tenant-${t}-leitura-ampla" -n "$ns" --ignore-not-found >/dev/null 2>&1
+  done
+  [[ "$(oc auth can-i list namespaces --as="system:serviceaccount:showroom-${t}:showroom" 2>/dev/null | head -1)" == "yes" ]] \
+    || _die "${t} nao voltou a listar namespaces -- rode: tenant.sh rbac ${t}"
+  _ok "${t} voltou a ter a leitura de cluster de antes"
+}
+
+# ---------------------------------------------------------------------------
 # traces — cada participante le o CONTEUDO so dos proprios traces
 #
 # POR QUE ISTO EXISTE: o Tempo tem um tenant so ('dev'), e a leitura dele vai
@@ -1427,6 +1533,12 @@ case "${1:-}" in
     ;;
   abre)
     _valida_tenant "${2:-}"; _abre "$2"
+    ;;
+  restringe)
+    _valida_tenant "${2:-}"; _restringe "$2"
+    ;;
+  alarga)
+    _valida_tenant "${2:-}"; _alarga "$2"
     ;;
   rbac)
     _valida_tenant "${2:-}"; _rbac "$2"
