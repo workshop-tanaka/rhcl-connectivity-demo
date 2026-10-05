@@ -486,7 +486,7 @@ _graf_url() {
   local v; v="$(oc get clusterversion -o jsonpath='{.items[0].status.desired.version}' 2>/dev/null)"
   case "$v" in
     4.1[0-8].*|4.[0-9].*)
-      [[ -n "$k" ]] && { printf 'https://%s/console/graph/namespaces?namespaces=ingress-gateway%%2Ctravel-agency&duration=300' "$k"; return; } ;;
+      [[ -n "$k" ]] && { printf 'https://%s/console/graph/namespaces?namespaces=ingress-gateway,travel-agency&duration=300' "$k"; return; } ;;
   esac
   printf '%s/ossmconsole/graph' "$c"
 }
@@ -508,7 +508,11 @@ step_telas() {
   printf '  %-38s %s\n' "Editor" "base/policies-plans/travels-plans.yaml aberto"
   echo
   printf '  %sAba 1 — Grafana, dashboard "Planos comerciais"%s\n' "$_BLD" "$_RST"
-  printf '    %s\n' "${g:+https://$g}"
+  # O PAINEL, e nao a home: alem de ser o que a linha acima promete, e o que
+  # permite ao modo de turma filtrar o link pelo participante -- a regra do
+  # tenant.sh casa '/d/rhcl-negocio-planos' e acrescenta o 'var-ambiente'. Com
+  # a home nua, o participante abria o Grafana da TURMA inteira.
+  printf '    %s\n' "${g:+https://$g/d/rhcl-negocio-planos}"
   printf '  %sAba 2 — Policy Topology (precedencia), Traffic Graph e Traces (rastro)%s\n' "$_BLD" "$_RST"
   printf '    %s\n' "${c}/kuadrant/policy-topology"
   printf '    %s\n' "$(_graf_url)"
