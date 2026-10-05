@@ -983,6 +983,15 @@ fi
 # A regra agora e de comportamento: TODO namespace raspavel tem monitor, venha
 # ele do istio-monitors.yaml, da propria amostra ou do skeleton do golden
 # path. Este check e quem impede o proximo esquecimento de ficar mudo.
+# LEITURA NEGADA NAO E AUSENCIA. Este check le os pods do CLUSTER INTEIRO, e no
+# modo de turma o participante nao tem essa leitura (medido no cluster-x2gsq:
+# 'can-i list pods --all-namespaces' = no). Sem a abstencao a lista nascia
+# vazia, o laco nao rodava e o check caia no 'else' anunciando que TODO
+# namespace com sidecar tem PodMonitor -- sem ter visto um pod. E a classe da
+# secao 8 do docs/FROTA.md, a que produz resposta confiante e errada.
+if ! oc auth can-i list pods --all-namespaces >/dev/null 2>&1; then
+  _nota "PodMonitor por namespace: nao conferido (sem leitura de pod no cluster)"
+else
 _sem_monitor="$(oc get pods -A -o json 2>/dev/null | python3 -c '
 import sys, json
 ns = set()
@@ -999,6 +1008,7 @@ if [[ -n "$_faltando" ]]; then
   _warn "namespace(s) com sidecar e sem PodMonitor:${_faltando} — invisiveis no Kiali"         "copie o istio-proxies-monitor de um namespace que funciona (ver platform-reference/monitoring/istio-monitors.yaml)"
 else
   _ok "todo namespace com sidecar tem PodMonitor (Kiali enxerga o mesh inteiro)"
+fi
 fi
 
 # A emissão do span começa no Service Mesh, e é a metade que costuma faltar: o CR Istio
@@ -1306,6 +1316,13 @@ if [[ "$_plugins" == *'"kuadrant-console-plugin"'* ]]; then
       elif [[ "${_kmint:-0}" -gt 0 ]]; then
         _warn "${_kmint} Secret cunhado por aprovacao no portal -- classificado pela annotation, nao e fail-open" \
               "esperado depois do caminho pavimentado; para voltar ao estado 'ninguem aprovou': oc delete secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true && oc delete apikeyapproval --all -n travel-agency"
+      elif ! oc auth can-i list apikeys --all-namespaces >/dev/null 2>&1; then
+        # LEITURA NEGADA NAO E AUSENCIA -- e aqui ela era pior que em outros
+        # lugares, porque o ramo final afirma '(correto -- ninguem aprovou)'.
+        # Medido no cluster-x2gsq: 93 APIKey existem, o participante le 0, e
+        # com _kpend=0 e _ktot=0 o teste '0 -ne 0' e falso e o check anunciava
+        # um [OK] com a palavra 'correto' sem ter visto UMA chave.
+        _nota "APIKey: nao conferidas (sem leitura de apikey no cluster) -- o portal esta de pe"
       elif [[ "${_kpend:-0}" -ne "${_ktot:-0}" ]]; then
         _warn "APIKey fora de Pending (${_kpend}/${_ktot}) -- alguem aprovou um pedido" \
               "Pending e o estado inicial (approvalMode: manual); ver env/rhcl-1.4_ocp-4.21/devportal/apikeys.yaml"
