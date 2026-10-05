@@ -946,6 +946,25 @@ json.dump({"apiVersion": "v1", "kind": "List", "items": out}, sys.stdout)' \
       || _warn "nao consegui remover os scripts de administracao do terminal de ${t}"
   fi
 
+  # O GUARDA DO CORTE: todo script que o GUIA manda rodar existe no terminal?
+  # A lista de permissao acima e conhecimento DUPLICADO -- ela vive aqui e a
+  # verdade vive nas 45 paginas do outro repositorio. Uma pagina nova citando
+  # um script escondido daria ao participante 'No such file or directory' no
+  # meio do passo, e nada avisaria. Entao a conferencia e de ponta a ponta, e
+  # dentro do pod, onde o guia e o terminal se encontram.
+  local _faltam
+  _faltam="$(oc exec -n "showroom-${t}" deploy/showroom -c terminal -- bash -c '
+    d=/home/lab-user/rhcl-connectivity-demo
+    g=$(find / -maxdepth 6 -type d -name modules 2>/dev/null | head -1)
+    [ -n "$g" ] || exit 0
+    grep -rhoE "scripts/[a-z0-9-]+\.sh" "$g" 2>/dev/null | sort -u | while read -r r; do
+      [ -f "$d/$r" ] || echo "${r#scripts/}"
+    done' 2>/dev/null | tr '\r\n' ' ')"
+  if [[ -n "${_faltam// /}" ]]; then
+    _warn "o guia cita script que NAO esta no terminal: ${_faltam}" \
+          "acrescente a _SO_PARTICIPANTE neste script -- ou o participante leva 'No such file' no meio do passo"
+  fi
+
   # o veredito que vale: o participante, do terminal DELE, ve o ambiente DELE.
   # COM INSISTENCIA: subindo a turma do cluster-swsmt (2026-10-04), do 17o
   # participante em diante este veredito falhava na hora e fechava em OK um

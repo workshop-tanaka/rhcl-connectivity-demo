@@ -483,6 +483,17 @@ _graf_url() {
   k="$(_route kiali istio-system)"
   # Sem forma barata de saber se o plugin renderiza: a checagem e no navegador.
   # Entao a regra e a versao do console, que e o que decide.
+  # NUM CLUSTER DE TURMA, O GRAFO PRECISA ABRIR NOS NAMESPACES DESTE
+  # PARTICIPANTE. O plugin da console ('ossmconsole/graph') nao recebe
+  # namespace: no modelo de um cluster por pessoa isso era inofensivo, porque
+  # so existiam os dela -- aqui o grafo abre numa selecao que nao e a dela, e
+  # a tela parece vazia com tudo funcionando. A rota do Kiali aceita a lista
+  # (medido: 200), e os nomes abaixo passam pela troca do tenant.sh.
+  if [[ -f .tenant && -n "$k" ]]; then
+    printf 'https://%s/console/graph/namespaces?namespaces=ingress-gateway,travel-agency&duration=300' "$k"
+    return
+  fi
+  # Sem forma barata de saber se o plugin renderiza: a checagem e no navegador.
   local v; v="$(oc get clusterversion -o jsonpath='{.items[0].status.desired.version}' 2>/dev/null)"
   case "$v" in
     4.1[0-8].*|4.[0-9].*)
