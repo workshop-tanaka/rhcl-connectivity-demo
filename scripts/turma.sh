@@ -50,15 +50,25 @@
 # aula um Extra cria namespace novo, e isso nao pode esconder uma falha.
 #
 # POLICY QUE PISCA NAO E FALHA (so no --vigia). O Limitador e UM para o
-# cluster. Medido em 2026-10-04: no cluster-swsmt as 63 PlanPolicy e as 63
-# RateLimitPolicy -- as de todos os participantes -- voltaram a Enforced=True
-# no MESMO minuto, sem nenhum pod do kuadrant-system reiniciar; no x2gsq uma
-# rodada deu 24 participantes em falha e a seguinte, 30 OK. Com trinta pessoas
-# mexendo em limite ao mesmo tempo isso se repete, e uma tabela que fica
-# vermelha a cada vez ensina a ignorar o vermelho. Entao, no --vigia, quem
-# falha SO por policy sem Enforced sai como OSCILA na primeira rodada e vira
-# FALHA se continuar assim na seguinte. Pod, Gateway e namespace nao esperam:
-# falham na hora. Fora do --vigia nao ha rodada anterior, e vale o que se le.
+# cluster, e cada vez que QUALQUER participante muda um limite, TODAS as
+# RateLimitPolicy do cluster passam ate ~60s com Enforced=False. Medido em
+# 2026-10-05 na serie gatewayapi_ratelimitpolicy_status do Thanos, 12h:
+#   - cluster-swsmt: a fracao Enforced foi de 0,67 a 0 e voltou 5 vezes entre
+#     23:39 e 23:51 UTC, com UM participante (user2) fazendo o passo dele;
+#   - cluster-x2gsq: uma queda a cada lote do 'tenant.sh turma', e de novo
+#     quando alguem testou de madrugada.
+#   (0,67 e o repouso: o terco restante e 'Overridden', o desenho da demo.)
+# O que os dados dizem do plano de dados: limitador_up nunca saiu de 1, nenhum
+# pod do kuadrant-system reiniciou, e os erros do wasm (kuadrant_errors)
+# ficaram SO no Gateway de quem fez a mudanca -- zero nos dos outros. E indicio
+# de que para os demais so o status oscila; nao e prova, porque quase nao
+# havia trafego neles naquela hora.
+# Com trinta pessoas mexendo em limite, a tabela ficaria vermelha por um ciclo
+# a cada vez, e tabela que grita a toa ensina a ignorar o vermelho. Entao, no
+# --vigia, quem falha SO por policy sem Enforced sai como OSCILA na primeira
+# rodada e vira FALHA se continuar assim na seguinte. Pod, Gateway e namespace
+# nao esperam: falham na hora. Fora do --vigia nao ha rodada anterior, e vale
+# o que se le.
 #
 # LEITURA QUE FALHA NAO VIRA ZERO. Sem a lista de pods o cluster inteiro sai
 # sem veredito; sem Thanos a coluna mostra '-'. Concluir "0 pods" de um 'oc'
