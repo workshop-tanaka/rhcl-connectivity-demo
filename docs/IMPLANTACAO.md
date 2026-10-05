@@ -111,8 +111,13 @@ só, e os links do seu guia já abrem filtrados em você*. É o que transforma u
 limite em combinado.
 
 Ficam com o instrutor, por desenho: o Módulo 4 (Service Interconnect), a
-auditoria (1.8), a prova do alerta (3.5) e o Extra de DNS. A lista completa e
-o motivo de cada um estão na seção 4 do [TURMA.md](TURMA.md).
+auditoria (1.8), a prova do alerta (3.5) e o Extra de DNS. No guia do
+participante essas páginas vêm com um aviso de destaque, os comandos travados e
+a marca "— instrutor" no menu. A lista completa e o motivo de cada um estão na
+seção 4 do [TURMA.md](TURMA.md).
+
+A parte 1.7 é leitura, e o Módulo 5 aparece no guia como "em breve": o
+caminho pavimentado pede Developer Hub e GitLab, que este ambiente não tem.
 
 **Grafo vazio no Kiali não é defeito** — ele desenha a janela de tempo, e sem
 tráfego nela não há o que desenhar. Medido: 7 arestas antes, 17 depois de

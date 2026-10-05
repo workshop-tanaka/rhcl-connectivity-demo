@@ -135,7 +135,6 @@ a cópia que vai para o terminal, e ela carrega os hostnames do cluster.
 
 | passo | por quê |
 | --- | --- |
-| 1.7 "O caminho pavimentado" | pede Developer Hub e GitLab, que o chart não sobe |
 | 1.8 auditoria, e o Extra da chave vazada | leem o audit log do kube-apiserver, que exige cluster-admin e mostra as ações de todos |
 | a prova do alerta, no 3.5 | a regra `absent(limitador_up)` não dispara com o corte por `NetworkPolicy` |
 | Módulo 4, Service Interconnect | não foi levado para o modo de turma |
@@ -147,6 +146,17 @@ Eles criam e apagam o próprio namespace, o que é de cluster-admin; na cópia d
 participante `oc create namespace` vira `oc new-project`, e quem pede o projeto
 é admin dele. Medido no cluster-swsmt como `user2`: os seis terminam sem erro
 de permissão, com as medições de cada um, e limpam o que criaram.
+
+**No guia do participante essas páginas vêm travadas.** A troca de conteúdo do
+`tenant.sh` põe um aviso de destaque no topo de cada uma, tira o clique dos
+blocos de comando e marca a entrada no menu com "— instrutor". O texto
+continua lá, para quem acompanha a tela do instrutor. Sem isso o participante
+entra na página, roda o primeiro comando e leva `Forbidden`.
+
+**A 1.7, "O caminho pavimentado", saiu desta lista: virou leitura** (a partir
+da `workshop-v0.24`). Ela pedia Developer Hub e GitLab, que o chart nunca
+instalou, e não rodava em nenhum ambiente — nem no do instrutor. O percurso
+com as mãos fica para o Módulo 5, que o guia anuncia como "em breve".
 
 O ambiente sem sufixo (`travel-agency`, o Showroom `showroom-rhcl`) é o do
 instrutor, com cluster-admin.
