@@ -40,6 +40,7 @@
 #   bash scripts/tenant.sh remove user7           # apaga os namespaces e as chaves do tenant
 #   bash scripts/tenant.sh showroom user7         # o guia e o terminal dele, com a copia dentro
 #   bash scripts/tenant.sh turma 30               # user1..user30, em lotes (LARGURA=4)
+#   bash scripts/tenant.sh isola user7            # fecha a rede e as rotas dele para os outros ('abre' desfaz)
 #   bash scripts/tenant.sh traces                 # cada um le o conteudo so dos proprios traces (reinicia o Tempo)
 #   bash scripts/tenant.sh lista                  # tenants no cluster
 set -uo pipefail
@@ -802,6 +803,156 @@ _rbac() { # <tenant>
 }
 
 # ---------------------------------------------------------------------------
+# isola — a rede e as rotas de UM participante fechadas para os outros
+#
+# POR QUE ISTO EXISTE: medido em 2026-10-05 no cluster-x2gsq, com
+# 'scripts/isolamento.sh user29 user28' -- 12 tentativas abertas de 18. As duas
+# mais graves sao as que este passo fecha:
+#
+#   - um pod da aplicacao do user29 chamava 'travels' e 'flights' do user28 por
+#     DENTRO do cluster e recebia 200 sem chave. O Connectivity Link governa a
+#     borda; quem ja esta dentro nao passa por ela. Nao havia NetworkPolicy
+#     nenhuma nos namespaces de tenant.
+#   - o user29 criava uma HTTPRoute no namespace dele presa ao Gateway do
+#     user28, com o hostname do user28. O Gateway aceitava rota de qualquer
+#     namespace (allowedRoutes: All).
+#
+# TRES PECAS, e as tres sao necessarias:
+#
+#   NetworkPolicy   em cada namespace do participante, so entra trafego dos
+#                   namespaces DELE, do router do OpenShift (que e hostNetwork
+#                   neste tipo de cluster, dai as duas regras) e do
+#                   monitoramento. E so de ENTRADA: quem bloqueia e o destino.
+#   allowedRoutes   o Gateway dele so aceita rota de namespace com o rotulo
+#                   dele. E o que o Gateway API oferece para isto.
+#   admissao        o 'allowedRoutes' nao impede a rota de ser CRIADA, so de
+#                   ser aceita -- e nao olha hostname. A ValidatingAdmissionPolicy
+#                   recusa na criacao: o parentRef tem de ser um Gateway dele, e
+#                   o hostname tem de terminar em '-<tenant>'. O sufixo com
+#                   hifen na frente e o que impede 'user1' de casar 'user11'.
+#
+# A admissao vale so para namespace com o rotulo 'rhcl.demo/isolado', que este
+# passo poe. E o que permite ligar um participante de cada vez e conferir com
+# o isolamento.sh antes de ligar a turma -- e voltar atras em um ('abre').
+#
+# NAO ESTA NO 'sobe' AINDA, de proposito: entra quando o teste de isolamento
+# fechar numa turma inteira com o roteiro rodando. Ver docs/ISOLAMENTO.md.
+# ---------------------------------------------------------------------------
+_admissao_rotas() {
+  oc apply -f - >/dev/null <<'EOF' || _die "falha ao aplicar a admissao das rotas"
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: rhcl-tenant-rotas
+  labels: {rhcl.demo/multitenant: "true"}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+        - {key: rhcl.demo/tenant, operator: Exists}
+        - {key: rhcl.demo/isolado, operator: Exists}
+    resourceRules:
+      - apiGroups: [gateway.networking.k8s.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [httproutes, grpcroutes]
+  variables:
+    - name: tenant
+      expression: "namespaceObject.metadata.labels['rhcl.demo/tenant']"
+  validations:
+    - expression: "!has(object.spec.parentRefs) || object.spec.parentRefs.all(p, !has(p.__namespace__) || p.__namespace__.endsWith('-' + variables.tenant))"
+      messageExpression: "'a rota so pode se prender a um Gateway de ' + variables.tenant"
+    - expression: "!has(object.spec.hostnames) || object.spec.hostnames.all(h, h.split('.')[0].endsWith('-' + variables.tenant))"
+      messageExpression: "'o hostname da rota tem de terminar em -' + variables.tenant"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: rhcl-tenant-rotas
+  labels: {rhcl.demo/multitenant: "true"}
+spec:
+  policyName: rhcl-tenant-rotas
+  validationActions: [Deny]
+EOF
+}
+
+_isola() { # <tenant>
+  local t="$1" ns gw n i nss
+  _sec "isola ${t}: rede e rotas fechadas para os outros participantes"
+  nss="$(oc get ns -l "${ROTULO}=${t}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)"
+  [[ -n "$nss" ]] || _die "nenhum namespace com o rotulo ${ROTULO}=${t} -- o participante existe? (tenant.sh lista)"
+  _admissao_rotas
+  for ns in $nss; do
+    oc apply -f - >/dev/null <<EOF || _die "falha ao aplicar a NetworkPolicy em ${ns}"
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rhcl-tenant-isolamento
+  namespace: ${ns}
+  labels: {${ROTULO}: ${t}}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {${ROTULO}: ${t}}}
+        - namespaceSelector: {matchLabels: {policy-group.network.openshift.io/ingress: ""}}
+        - namespaceSelector: {matchLabels: {policy-group.network.openshift.io/host-network: ""}}
+        - namespaceSelector: {matchLabels: {network.openshift.io/policy-group: monitoring}}
+EOF
+    oc label namespace "$ns" rhcl.demo/isolado=true --overwrite >/dev/null || _die "nao consegui rotular ${ns}"
+  done
+  _ok "NetworkPolicy e admissao de rotas em: ${nss}"
+  for gw in $(oc get gateway -n "ingress-gateway-${t}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    n="$(oc get gateway "$gw" -n "ingress-gateway-${t}" -o jsonpath='{.spec.listeners[*].name}' | wc -w | tr -d ' ')"
+    i=0
+    while [[ "$i" -lt "$n" ]]; do
+      oc patch gateway "$gw" -n "ingress-gateway-${t}" --type=json \
+        -p "[{\"op\":\"replace\",\"path\":\"/spec/listeners/${i}/allowedRoutes\",\"value\":{\"namespaces\":{\"from\":\"Selector\",\"selector\":{\"matchLabels\":{\"${ROTULO}\":\"${t}\"}}}}}]" >/dev/null \
+        || _die "nao consegui restringir o listener ${i} de ${gw}"
+      i=$((i+1))
+    done
+    _ok "Gateway ${gw}: so aceita rota de namespace de ${t}"
+  done
+  # As rotas dele continuam aceitas? Uma rota que caisse aqui deixaria a API do
+  # participante sem resposta -- e isso tem de aparecer AGORA, nao na aula.
+  sleep 5
+  local ruim
+  ruim="$(oc get httproute -A -o json 2>/dev/null | TEN="$t" python3 -c '
+import json, os, sys
+t = os.environ["TEN"]; ruim = []
+for r in json.load(sys.stdin)["items"]:
+    for p in r.get("status", {}).get("parents", []):
+        if p.get("parentRef", {}).get("namespace", "") != "ingress-gateway-" + t: continue
+        ok = any(c["type"] == "Accepted" and c["status"] == "True" for c in p.get("conditions", []))
+        if not ok: ruim.append(r["metadata"]["namespace"] + "/" + r["metadata"]["name"])
+print(" ".join(sorted(set(ruim))))' 2>/dev/null)"
+  [[ -z "$ruim" ]] || _die "rota(s) que o Gateway de ${t} deixou de aceitar: ${ruim} -- desfaca com: tenant.sh abre ${t}"
+  _ok "as rotas de ${t} seguem aceitas pelo Gateway dele"
+  _log "confira: bash scripts/isolamento.sh <outro> ${t}   e   bash scripts/isolamento.sh ${t} <outro>"
+}
+
+_abre() { # <tenant> : desfaz o 'isola'
+  local t="$1" ns gw n i
+  _sec "abre ${t}: desfaz o isolamento de rede e de rotas"
+  for ns in $(oc get ns -l "${ROTULO}=${t}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    oc delete networkpolicy rhcl-tenant-isolamento -n "$ns" --ignore-not-found >/dev/null
+    oc label namespace "$ns" rhcl.demo/isolado- >/dev/null 2>&1
+  done
+  for gw in $(oc get gateway -n "ingress-gateway-${t}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    n="$(oc get gateway "$gw" -n "ingress-gateway-${t}" -o jsonpath='{.spec.listeners[*].name}' | wc -w | tr -d ' ')"
+    i=0
+    while [[ "$i" -lt "$n" ]]; do
+      oc patch gateway "$gw" -n "ingress-gateway-${t}" --type=json \
+        -p "[{\"op\":\"replace\",\"path\":\"/spec/listeners/${i}/allowedRoutes\",\"value\":{\"namespaces\":{\"from\":\"All\"}}}]" >/dev/null
+      i=$((i+1))
+    done
+  done
+  _ok "${t} voltou ao estado anterior (rede aberta entre participantes, Gateway aceitando qualquer namespace)"
+}
+
+# ---------------------------------------------------------------------------
 # traces — cada participante le o CONTEUDO so dos proprios traces
 #
 # POR QUE ISTO EXISTE: o Tempo tem um tenant so ('dev'), e a leitura dele vai
@@ -1236,6 +1387,12 @@ case "${1:-}" in
     ;;
   traces)
     _traces
+    ;;
+  isola)
+    _valida_tenant "${2:-}"; _isola "$2"
+    ;;
+  abre)
+    _valida_tenant "${2:-}"; _abre "$2"
     ;;
   rbac)
     _valida_tenant "${2:-}"; _rbac "$2"
