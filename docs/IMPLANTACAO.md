@@ -154,7 +154,9 @@ bash scripts/tenant.sh showroom user7      # republica o guia e o terminal
    admissão; a leitura, não.
 3. **Alguns passos não foram levados para o modo de turma** — os da seção 6.
 4. **Os traces são protegidos no conteúdo, não na existência**, e só depois de
-   `tenant.sh traces`: o vizinho vê que o trace existe, não o que há nele.
+   `tenant.sh traces`: o vizinho vê que o trace existe, não o que há nele. A
+   proteção vale para a pessoa na console; o token do terminal ainda lê tudo,
+   como já lê as chaves de API.
 
 O raciocínio, as medições e o que inverteria cada decisão estão na seção 8 do
 [TURMA.md](TURMA.md).

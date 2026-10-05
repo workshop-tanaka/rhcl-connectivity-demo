@@ -334,6 +334,25 @@ confira que não estão na mesma faixa (`dig +short api.cluster-<guid>...`).
   (o operator não aceita as duas coisas juntas), e o passo reinicia o Tempo.
   Os spans do Authorino e do Limitador, que são de `kuadrant-system`, também
   chegam vazios para o participante.
+
+  **A proteção vale para a pessoa, na console — não para o terminal.** O Tempo
+  decide o acesso a um namespace perguntando se quem lê pode fazer `get` no
+  namespace. A pessoa só pode nos dela. A ServiceAccount do terminal pode em
+  todos (o papel `rhcl-tenant-leitura` e o `cluster-monitoring-view` dão
+  `get namespaces` no cluster, e os scripts do roteiro dependem disso). Medido
+  no `cluster-x2gsq`: com o token da ServiceAccount do `user29`, um trace do
+  `user28` vem inteiro, 21 atributos de 21, com a chave de API. Quem quiser
+  consultar o Tempo com o token do terminal, consegue. É o mesmo limite das
+  chaves em `kuadrant-system` — a identidade do terminal já lê as chaves dos
+  outros — e fechar um sem fechar o outro não muda o que um participante
+  disposto alcança. O que a proteção resolve é o caso comum: ninguém mais abre
+  a aba de Traces e encontra a chave do colega.
+
+  **A marca de namespace é a de quem ENVIOU o span.** Um span forjado dizendo
+  ser de outro namespace chega marcado com a origem real (medido). Não foi
+  testado um envio com a chave do atributo repetida, nem com o atributo no
+  nível do span em vez do recurso; o que um forjador ganharia com isso é pôr
+  um span dele na visão de outro, não ler o que é do outro.
 - O texto do guia é trocado na construção, não na origem. Uma página nova que
   cite um namespace fora da lista de `NS_TENANT` em `tenant.sh` sai sem o
   sufixo.
