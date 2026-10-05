@@ -831,14 +831,31 @@ _rbac() { # <tenant>
 #                   o hostname tem de terminar em '-<tenant>'. O sufixo com
 #                   hifen na frente e o que impede 'user1' de casar 'user11'.
 #
-# A admissao vale so para namespace com o rotulo 'rhcl.demo/isolado', que este
-# passo poe. E o que permite ligar um participante de cada vez e conferir com
-# o isolamento.sh antes de ligar a turma -- e voltar atras em um ('abre').
+# A NetworkPolicy e o allowedRoutes sao POR PARTICIPANTE: liga-se um de cada
+# vez, confere-se com o isolamento.sh, e 'abre' volta atras. A admissao nao: e
+# uma so para o cluster e passa a valer para todos no primeiro 'isola' -- so
+# recusa rota que aponta para o que e de OUTRO participante, e as rotas da
+# turma ja obedecem a isso (medido: hostnames e parentRefs de todos os tenants
+# do cluster-x2gsq terminam no proprio sufixo).
 #
 # NAO ESTA NO 'sobe' AINDA, de proposito: entra quando o teste de isolamento
 # fechar numa turma inteira com o roteiro rodando. Ver docs/ISOLAMENTO.md.
 # ---------------------------------------------------------------------------
 _admissao_rotas() {
+  # A TRAVA OLHA O QUE E PROTEGIDO, NAO QUEM PEDE. A primeira versao so valia
+  # para namespace com um rotulo que o proprio 'isola' punha: um participante
+  # ainda nao isolado -- ou um projeto criado por ele, sem rotulo nenhum --
+  # ficava FORA da trava e podia apontar para o Gateway de quem ja estava
+  # isolado. Apontado pela revisao de seguranca do commit.
+  #
+  # Agora ela vale para toda rota do cluster, com tres regras:
+  #   1. Gateway num namespace '...-userN' so recebe rota de namespace de userN;
+  #   2. hostname terminado em '-userN' so pode ser pedido por namespace de userN;
+  #   3. se quem pede e um participante, todo Gateway apontado tem de ser dele
+  #      -- inclusive a partir de um projeto que ele mesmo criou, e inclusive o
+  #      Gateway do instrutor, que nao tem sufixo.
+  # As duas primeiras protegem o recurso; a terceira fecha o que sobra para
+  # quem age como participante. Rota do instrutor, sem sufixo, passa direto.
   oc apply -f - >/dev/null <<'EOF' || _die "falha ao aplicar a admissao das rotas"
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -848,23 +865,27 @@ metadata:
 spec:
   failurePolicy: Fail
   matchConstraints:
-    namespaceSelector:
-      matchExpressions:
-        - {key: rhcl.demo/tenant, operator: Exists}
-        - {key: rhcl.demo/isolado, operator: Exists}
     resourceRules:
       - apiGroups: [gateway.networking.k8s.io]
         apiVersions: ["*"]
         operations: [CREATE, UPDATE]
         resources: [httproutes, grpcroutes]
   variables:
-    - name: tenant
-      expression: "namespaceObject.metadata.labels['rhcl.demo/tenant']"
+    - name: dono
+      expression: "has(namespaceObject.metadata.labels) && 'rhcl.demo/tenant' in namespaceObject.metadata.labels ? namespaceObject.metadata.labels['rhcl.demo/tenant'] : ''"
+    - name: ator
+      expression: "request.userInfo.username.matches('^system:serviceaccount:showroom-user[0-9]{1,3}:showroom$') ? request.userInfo.username.split(':')[2].replace('showroom-', '') : (request.userInfo.username.matches('^user[0-9]{1,3}$') ? request.userInfo.username : '')"
+    - name: gateways
+      expression: "has(object.spec.parentRefs) ? object.spec.parentRefs.map(p, has(p.__namespace__) ? p.__namespace__ : object.metadata.namespace) : []"
+    - name: hosts
+      expression: "has(object.spec.hostnames) ? object.spec.hostnames.map(h, h.split('.')[0]) : []"
   validations:
-    - expression: "!has(object.spec.parentRefs) || object.spec.parentRefs.all(p, !has(p.__namespace__) || p.__namespace__.endsWith('-' + variables.tenant))"
-      messageExpression: "'a rota so pode se prender a um Gateway de ' + variables.tenant"
-    - expression: "!has(object.spec.hostnames) || object.spec.hostnames.all(h, h.split('.')[0].endsWith('-' + variables.tenant))"
-      messageExpression: "'o hostname da rota tem de terminar em -' + variables.tenant"
+    - expression: "variables.gateways.all(n, !n.matches('-user[0-9]{1,3}$') || (variables.dono != '' && n.endsWith('-' + variables.dono)))"
+      message: "o Gateway apontado e de outro participante"
+    - expression: "variables.hosts.all(h, !h.matches('-user[0-9]{1,3}$') || (variables.dono != '' && h.endsWith('-' + variables.dono)))"
+      message: "o hostname da rota e de outro participante"
+    - expression: "variables.ator == '' || variables.gateways.all(n, n.endsWith('-' + variables.ator))"
+      message: "um participante so pode prender rota a um Gateway dele"
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
@@ -901,7 +922,6 @@ spec:
         - namespaceSelector: {matchLabels: {policy-group.network.openshift.io/host-network: ""}}
         - namespaceSelector: {matchLabels: {network.openshift.io/policy-group: monitoring}}
 EOF
-    oc label namespace "$ns" rhcl.demo/isolado=true --overwrite >/dev/null || _die "nao consegui rotular ${ns}"
   done
   _ok "NetworkPolicy e admissao de rotas em: ${nss}"
   for gw in $(oc get gateway -n "ingress-gateway-${t}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
@@ -938,7 +958,6 @@ _abre() { # <tenant> : desfaz o 'isola'
   _sec "abre ${t}: desfaz o isolamento de rede e de rotas"
   for ns in $(oc get ns -l "${ROTULO}=${t}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
     oc delete networkpolicy rhcl-tenant-isolamento -n "$ns" --ignore-not-found >/dev/null
-    oc label namespace "$ns" rhcl.demo/isolado- >/dev/null 2>&1
   done
   for gw in $(oc get gateway -n "ingress-gateway-${t}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
     n="$(oc get gateway "$gw" -n "ingress-gateway-${t}" -o jsonpath='{.spec.listeners[*].name}' | wc -w | tr -d ' ')"
@@ -949,7 +968,8 @@ _abre() { # <tenant> : desfaz o 'isola'
       i=$((i+1))
     done
   done
-  _ok "${t} voltou ao estado anterior (rede aberta entre participantes, Gateway aceitando qualquer namespace)"
+  _ok "${t}: rede aberta entre participantes e Gateway aceitando qualquer namespace, como antes"
+  _log "a admissao das rotas continua valendo para o cluster; para tira-la: oc delete validatingadmissionpolicybinding rhcl-tenant-rotas"
 }
 
 # ---------------------------------------------------------------------------
