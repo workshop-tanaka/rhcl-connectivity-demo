@@ -214,6 +214,32 @@ if not achou: print("    (nenhuma regra nossa encontrada -- rode: bash scripts/a
 }
 
 cmd_prova() {
+  # NO CLUSTER DE TURMA ESTA PROVA NAO E DO PARTICIPANTE, e por dois motivos
+  # independentes -- o segundo e o que importa:
+  #
+  # 1. ela escala o Limitador de kuadrant-system para ZERO. O Limitador e UM
+  #    para a turma: o participante tiraria o rate limit dos trinta. Hoje so o
+  #    RBAC o impede, e depender do RBAC para nao derrubar a aula e sorte, nao
+  #    desenho.
+  # 2. mesmo com o corte por NetworkPolicy que o 'degrada' usa no lugar disso,
+  #    a regra 'absent(limitador_up)' NAO acende: o Limitador continua de pe,
+  #    so inalcancavel. Ja esta no docs/TURMA.md como passo do instrutor.
+  #
+  # Sem este guarda o participante ficava minutos vendo 'ainda nao avaliado'
+  # (medido: 240s sem concluir, no terminal do user29) -- um passo do guia que
+  # nunca termina e nao diz por que.
+  if [[ -f .tenant ]]; then
+    _sec "Esta prova e do instrutor"
+    _nota "ela escala o Limitador de kuadrant-system para zero, e ele e UM para a turma:"
+    _nota "derrubaria o rate limit de todos os participantes ao mesmo tempo."
+    _nota "e a regra 'absent(limitador_up)' nao acende com o corte por rede,"
+    _nota "porque o Limitador continua de pe -- so inalcancavel."
+    _log  "o que VOCE pode ver agora:"
+    _log  "  bash scripts/alerta.sh status      o que cada regra esta enxergando"
+    _log  "  bash scripts/demo.sh degrada       o rate limit falhando ABERTO no SEU ambiente"
+    return 0
+  fi
+
   _sec "A prova: o trafego fica verde e o alerta acende"
   _warn "MUDA ESTADO: o Limitador e escalado para zero e volta no fim,"
   _warn "inclusive com Ctrl-C."
