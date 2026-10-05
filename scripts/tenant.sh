@@ -40,6 +40,7 @@
 #   bash scripts/tenant.sh remove user7           # apaga os namespaces e as chaves do tenant
 #   bash scripts/tenant.sh showroom user7         # o guia e o terminal dele, com a copia dentro
 #   bash scripts/tenant.sh turma 30               # user1..user30, em lotes (LARGURA=4)
+#   bash scripts/tenant.sh traces                 # cada um le o conteudo so dos proprios traces (reinicia o Tempo)
 #   bash scripts/tenant.sh lista                  # tenants no cluster
 set -uo pipefail
 
@@ -165,6 +166,8 @@ s/o Grafana abre \*\*sem pedir nada\*\* -- acesso anônimo, com\s+papel de Admin
 # executar: um participante entrou na 1.7, levou Forbidden no Argo e ficou com
 # o terminal em /tmp (2026-10-05). A 1.7 saiu daqui na workshop-v0.24: virou
 # LEITURA no proprio conteudo, sem comando nenhum, e nao ha o que travar nela.
+# O Modulo 4 saiu na v0.25: o Interconnect nunca fez parte do provisionamento
+# do workshop, e a pagina dele virou o anuncio de "em breve".
 # Tres coisas, so nas paginas que restam:
 #   - um aviso de destaque logo abaixo do cabecalho;
 #   - os blocos de comando perdem o role execute, e o clique deixa de rodar;
@@ -172,12 +175,11 @@ s/o Grafana abre \*\*sem pedir nada\*\* -- acesso anônimo, com\s+papel de Admin
 # O aviso vai DEPOIS do cabecalho inteiro -- titulo e atributos, ate a primeira
 # linha em branco. Logo abaixo do titulo ele cortaria os atributos da pagina
 # (o navtitle), que so valem dentro do cabecalho.
-if (/\A= (?:1\.8 |Módulo 4 |4\.1 |4\.2 |O nome da API também é policy)/) {
+if (/\A= (?:1\.8 |O nome da API também é policy)/) {
   s/,\s*role="execute"//g;
   s/\A((?:[^\n]+\n)+)\n/$1\n[IMPORTANT]\n====\n*Nesta turma, esta parte é demonstrada pelo instrutor.* Ela usa componentes que são da plataforma inteira, e o seu ambiente não tem permissão sobre eles: os comandos desta página respondem \x60Forbidden\x60. Acompanhe pela tela do instrutor.\n====\n\n/;
 }
-s/^(\* xref:(?:m1-08-auditoria|m4-00-intro|m4-01-interconnect|m4-02-tunel|extra-dns)\.adoc\[[^\]\n]*)\]/$1 -- instrutor]/mg;
-s/^(\.Módulo 4 [^\n]*)$/$1 (instrutor)/mg;
+s/^(\* xref:(?:m1-08-auditoria|extra-dns)\.adoc\[[^\]\n]*)\]/$1 -- instrutor]/mg;
 # O painel consumo-plataforma e visao da plataforma INTEIRA por desenho, e o
 # Grafana de uma turma e filtrado, nao isolado (docs/TURMA.md, secao 8): e o
 # unico painel nao filtravel que o guia mandava o participante abrir.
@@ -800,6 +802,82 @@ _rbac() { # <tenant>
 }
 
 # ---------------------------------------------------------------------------
+# traces — cada participante le o CONTEUDO so dos proprios traces
+#
+# POR QUE ISTO EXISTE: o Tempo tem um tenant so ('dev'), e a leitura dele vai
+# para system:authenticated. Medido em 2026-10-05 no cluster-x2gsq, com o token
+# do user29: ele abria os traces do user28 e do user30 inteiros -- URL,
+# cabecalhos, a chave de API na query string.
+#
+# O Tempo sabe restringir por namespace (spec.query.rbac), mas pede duas coisas
+# que o ambiente nao tinha:
+#   1. o span precisa DIZER de que namespace e. O coletor so tinha o
+#      processador 'batch'; sem 'k8s.namespace.name' no span nao ha o que
+#      restringir. Entra o processador k8sattributes, que descobre o pod pela
+#      conexao, e a leitura de pods que ele pede.
+#   2. o controle por namespace e a tela do Jaeger sao EXCLUDENTES: o operator
+#      recusa ligar um com o outro de pe. A tela do Jaeger sai; a aba
+#      Observe > Traces da console continua, e e a que o guia usa.
+#
+# O QUE ISTO ENTREGA, e nao e invisibilidade: o participante ainda VE que o
+# trace do vizinho existe, com o nome do servico e o namespace. O que ele perde
+# e o conteudo -- medido, um trace do user28 lido pelo user29 cai de 55
+# atributos de span para 0. O proprio trace ele le inteiro (55 de 55), so com
+# o 'admin' que ja tem nos namespaces dele: nenhuma permissao nova.
+#
+# A leitura no tenant (o ClusterRoleBinding de system:authenticated) FICA: sem
+# ela o gateway do Tempo devolve 403 antes de olhar para o namespace -- medido.
+#
+# E um passo A PARTE, que ninguem chama por voce: ele reinicia o Tempo, e os
+# traces que estavam em memoria se perdem. Rode antes da aula, nao durante.
+# ---------------------------------------------------------------------------
+_traces() {
+  _sec "traces: o conteudo de cada trace so para o dono do namespace"
+  oc get tempomonolithic tempo -n tracing-system >/dev/null 2>&1 \
+    || _die "nao ha TempoMonolithic 'tempo' em tracing-system -- a etapa 'tracing' do provision.sh rodou?"
+  oc apply -f - >/dev/null <<'EOF' || _die "falha ao aplicar a leitura de pods do coletor"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector-k8sattributes
+  labels: {rhcl.demo/multitenant: "true"}
+rules:
+  - apiGroups: [""]
+    resources: [pods, namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector-k8sattributes
+  labels: {rhcl.demo/multitenant: "true"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: otel-collector-k8sattributes}
+subjects:
+  - {kind: ServiceAccount, name: otel-collector, namespace: tracing-system}
+EOF
+  oc patch opentelemetrycollector otel -n tracing-system --type=merge -p '{"spec":{"config":{"processors":{"k8sattributes":{"extract":{"metadata":["k8s.namespace.name","k8s.pod.name"]},"pod_association":[{"sources":[{"from":"connection"}]}]}},"service":{"pipelines":{"traces":{"processors":["k8sattributes","batch"]}}}}}}' >/dev/null \
+    || _die "nao consegui acrescentar o k8sattributes ao coletor"
+  oc rollout status deploy/otel-collector -n tracing-system --timeout=180s >/dev/null 2>&1 \
+    || _warn "o coletor nao confirmou o rollout em 180s"
+  _ok "o coletor grava k8s.namespace.name em cada span"
+  # a tela do Jaeger E a rota dela saem no MESMO patch do rbac: o operator
+  # valida os tres campos juntos e recusa qualquer combinacao parcial
+  oc patch tempomonolithic tempo -n tracing-system --type=merge \
+    -p '{"spec":{"jaegerui":{"enabled":false,"route":{"enabled":false}},"query":{"rbac":{"enabled":true}}}}' >/dev/null \
+    || _die "o Tempo recusou o controle por namespace. Veja: oc get tempomonolithic tempo -n tracing-system -o yaml"
+  local i
+  for i in $(seq 1 30); do
+    [[ "$(oc get tempomonolithic tempo -n tracing-system -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)" == "True" ]] && break
+    sleep 6
+  done
+  _ok "Tempo com spec.query.rbac ligado (a tela do Jaeger saiu; a aba de Traces da console fica)"
+  _log "os traces anteriores se perderam no reinicio -- gere trafego antes de abrir a tela"
+}
+
+# ---------------------------------------------------------------------------
 # showroom — o guia e o terminal do participante
 #
 # O ENDERECO NAO E ESCOLHA NOSSA: a pagina de workshop do RHDP entrega a cada
@@ -1153,6 +1231,9 @@ case "${1:-}" in
     ;;
   plataforma)
     _plataforma
+    ;;
+  traces)
+    _traces
     ;;
   rbac)
     _valida_tenant "${2:-}"; _rbac "$2"

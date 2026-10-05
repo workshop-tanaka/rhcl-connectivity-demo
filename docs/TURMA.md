@@ -137,7 +137,6 @@ a cópia que vai para o terminal, e ela carrega os hostnames do cluster.
 | --- | --- |
 | 1.8 auditoria, e o Extra da chave vazada | leem o audit log do kube-apiserver, que exige cluster-admin e mostra as ações de todos |
 | a prova do alerta, no 3.5 | a regra `absent(limitador_up)` não dispara com o corte por `NetworkPolicy` |
-| Módulo 4, Service Interconnect | não foi levado para o modo de turma |
 | Extra de DNS | cria `ClusterRole` |
 
 Os seis Extras que sobem laboratório próprio (certificado, contextos, listas,
@@ -153,7 +152,13 @@ blocos de comando e marca a entrada no menu com "— instrutor". O texto
 continua lá, para quem acompanha a tela do instrutor. Sem isso o participante
 entra na página, roda o primeiro comando e leva `Forbidden`.
 
-**A 1.7, "O caminho pavimentado", saiu desta lista: virou leitura** (a partir
+**O Módulo 4 saiu desta lista: virou "em breve" no guia** (a partir da
+`workshop-v0.25`). O Interconnect nunca fez parte do provisionamento do
+workshop — o banco roda dentro de `travel-agency`, no Service Mesh — e o
+módulo não rodava em ambiente nenhum. As duas partes escritas ficam em
+`em-breve/modulo-4/`, no repositório do workshop.
+
+**A 1.7, "O caminho pavimentado", também saiu: virou leitura** (a partir
 da `workshop-v0.24`). Ela pedia Developer Hub e GitLab, que o chart nunca
 instalou, e não rodava em nenhum ambiente — nem no do instrutor. O percurso
 com as mãos fica para o Módulo 5, que o guia anuncia como "em breve".
@@ -319,6 +324,16 @@ confira que não estão na mesma faixa (`dig +short api.cluster-<guid>...`).
   **O que inverte a decisão:** participantes de clientes DIFERENTES no mesmo
   cluster. Aí filtrado não serve — e a resposta não é reconstruir o Grafana, é
   um cluster por cliente, que é mais barato e resolve as chaves de API junto.
+- **Os traces são protegidos no conteúdo, não na existência** — e só depois de
+  `tenant.sh traces`. O Tempo tem um tenant para a turma. Sem esse passo, um
+  participante abre o trace do outro inteiro (medido com o token do `user29`:
+  URL, cabeçalhos e a chave de API na query string). Com ele, o Tempo restringe
+  por namespace: o trace do vizinho continua aparecendo na busca, com o nome do
+  serviço e o namespace, mas os spans vêm vazios — de 55 atributos para 0. O
+  próprio trace cada um lê inteiro. O preço: a tela do Jaeger deixa de existir
+  (o operator não aceita as duas coisas juntas), e o passo reinicia o Tempo.
+  Os spans do Authorino e do Limitador, que são de `kuadrant-system`, também
+  chegam vazios para o participante.
 - O texto do guia é trocado na construção, não na origem. Uma página nova que
   cite um namespace fora da lista de `NS_TENANT` em `tenant.sh` sai sem o
   sufixo.

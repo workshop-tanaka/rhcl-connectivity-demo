@@ -72,7 +72,12 @@ export KUBECONFIG="$PWD/frota/kc-<guid>"   # caminho ABSOLUTO: os scripts fazem 
 bash scripts/preflight.sh core             # a plataforma está de pé?
 bash scripts/tenant.sh turma 30            # user1..user30, quatro por vez (~40 min)
 bash scripts/tenant.sh confere-turma       # o preflight do terminal de cada um
+bash scripts/tenant.sh traces              # cada um lê o conteúdo só dos próprios traces
 ```
+
+O último passo é à parte de propósito: ele **reinicia o Tempo** e tira a tela
+do Jaeger (fica a aba de Traces da console). Sem ele, um participante abre o
+trace do outro inteiro, com a chave de API na URL. Rode antes da aula.
 
 ## 5. Conferir antes da aula
 
@@ -110,14 +115,15 @@ bash scripts/turma.sh --vigia              # repete a cada 30s
 só, e os links do seu guia já abrem filtrados em você*. É o que transforma um
 limite em combinado.
 
-Ficam com o instrutor, por desenho: o Módulo 4 (Service Interconnect), a
-auditoria (1.8), a prova do alerta (3.5) e o Extra de DNS. No guia do
+Ficam com o instrutor, por desenho: a auditoria (1.8), a prova do alerta (3.5)
+e o Extra de DNS. No guia do
 participante essas páginas vêm com um aviso de destaque, os comandos travados e
 a marca "— instrutor" no menu. A lista completa e o motivo de cada um estão na
 seção 4 do [TURMA.md](TURMA.md).
 
-A parte 1.7 é leitura, e o Módulo 5 aparece no guia como "em breve": o
-caminho pavimentado pede Developer Hub e GitLab, que este ambiente não tem.
+A parte 1.7 é leitura, e os Módulos 4 e 5 aparecem no guia como "em breve":
+o Service Interconnect e o caminho pavimentado pedem componentes que este
+ambiente não sobe (uma rede entre sites; Developer Hub e GitLab).
 
 **Grafo vazio no Kiali não é defeito** — ele desenha a janela de tempo, e sem
 tráfego nela não há o que desenhar. Medido: 7 arestas antes, 17 depois de
@@ -147,6 +153,8 @@ bash scripts/tenant.sh showroom user7      # republica o guia e o terminal
 2. **As chaves de API dos colegas são legíveis.** A escrita é travada por
    admissão; a leitura, não.
 3. **Alguns passos não foram levados para o modo de turma** — os da seção 6.
+4. **Os traces são protegidos no conteúdo, não na existência**, e só depois de
+   `tenant.sh traces`: o vizinho vê que o trace existe, não o que há nele.
 
 O raciocínio, as medições e o que inverteria cada decisão estão na seção 8 do
 [TURMA.md](TURMA.md).

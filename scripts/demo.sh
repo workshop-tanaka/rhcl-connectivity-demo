@@ -530,12 +530,17 @@ step_telas() {
   printf '    %s\n' "$(_traces_url)"
   printf '  %sAba 3 — API Catalog do console (planos): produtos, chaves, aprovacoes%s\n' "$_BLD" "$_RST"
   printf '    %s\n' "${c}/kuadrant/apiproducts"
-  printf '  %sAba 4 — RHDH (so no caminho pavimentado)%s\n' "$_BLD" "$_RST"
-  printf '    %s\n' "${r:+https://$r}"
+  # So com o portal instalado: sem ele sobrava o titulo da aba e uma linha vazia.
+  if [[ -n "$r" ]]; then
+    printf '  %sAba 4 — RHDH (so no caminho pavimentado)%s\n' "$_BLD" "$_RST"
+    printf '    %s\n' "https://$r"
+  fi
   echo
   _why "Planos B, se um plugin do console nao abrir:"
   printf '    %-14s %s\n' "Kiali" "${k:+https://$k}"
-  printf '    %-14s %s\n' "Jaeger UI" "${t:+https://$t/dev}  (deprecada; o /dev e o tenant)"
+  # A tela do Jaeger some quando o Tempo liga o controle por namespace
+  # ('tenant.sh traces'): sem a rota, a linha ficava com o rotulo e sem endereco.
+  [[ -n "$t" ]] && printf '    %-14s %s\n' "Jaeger UI" "https://$t/dev  (deprecada; o /dev e o tenant)"
   echo
   # NAO aponte o participante para o acessos.sh: e a folha de credenciais da
   # plataforma, e num cluster de turma ela nao e dele. O guia dele ja traz o
