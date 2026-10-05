@@ -856,6 +856,14 @@ _admissao_rotas() {
   #      Gateway do instrutor, que nao tem sufixo.
   # As duas primeiras protegem o recurso; a terceira fecha o que sobra para
   # quem age como participante. Rota do instrutor, sem sufixo, passa direto.
+  #
+  # O CAMPO E 'p.namespace', E NAO SO 'p.__namespace__'. A primeira versao
+  # usava a forma escapada (a das regras de CRD), e nesta admissao o objeto
+  # chega sem tipo: 'has(p.__namespace__)' era sempre falso, a regra caia no
+  # namespace da propria rota e a rota presa ao Gateway alheio PASSAVA, sem
+  # erro e sem aviso de tipo (medido no cluster-x2gsq: o isolamento.sh seguia
+  # com essa linha ABERTA enquanto a do hostname ja fechava). As duas formas
+  # ficam, porque qual delas vale depende de como o servidor tipa o objeto.
   oc apply -f - >/dev/null <<'EOF' || _die "falha ao aplicar a admissao das rotas"
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -876,7 +884,7 @@ spec:
     - name: ator
       expression: "request.userInfo.username.matches('^system:serviceaccount:showroom-user[0-9]{1,3}:showroom$') ? request.userInfo.username.split(':')[2].replace('showroom-', '') : (request.userInfo.username.matches('^user[0-9]{1,3}$') ? request.userInfo.username : '')"
     - name: gateways
-      expression: "has(object.spec.parentRefs) ? object.spec.parentRefs.map(p, has(p.__namespace__) ? p.__namespace__ : object.metadata.namespace) : []"
+      expression: "has(object.spec.parentRefs) ? object.spec.parentRefs.map(p, has(p.namespace) ? p.namespace : (has(p.__namespace__) ? p.__namespace__ : object.metadata.namespace)) : []"
     - name: hosts
       expression: "has(object.spec.hostnames) ? object.spec.hostnames.map(h, h.split('.')[0]) : []"
   validations:
@@ -941,12 +949,18 @@ EOF
   local ruim
   ruim="$(oc get httproute -A -o json 2>/dev/null | TEN="$t" python3 -c '
 import json, os, sys
-t = os.environ["TEN"]; ruim = []
+t = os.environ["TEN"]; gw = "ingress-gateway-" + t; ruim = []
 for r in json.load(sys.stdin)["items"]:
+    ns = r["metadata"]["namespace"]
+    if not any(p.get("namespace", ns) == gw for p in r["spec"].get("parentRefs", [])): continue
+    # status.parents tem UMA ENTRADA POR CONTROLADOR: a do Gateway traz
+    # Accepted; a do Kuadrant traz so as condicoes dele. Exigir Accepted de
+    # todas acusava toda rota do participante (foi o que a primeira versao fez).
+    aceita = False
     for p in r.get("status", {}).get("parents", []):
-        if p.get("parentRef", {}).get("namespace", "") != "ingress-gateway-" + t: continue
-        ok = any(c["type"] == "Accepted" and c["status"] == "True" for c in p.get("conditions", []))
-        if not ok: ruim.append(r["metadata"]["namespace"] + "/" + r["metadata"]["name"])
+        if p.get("parentRef", {}).get("namespace", ns) != gw: continue
+        if any(c["type"] == "Accepted" and c["status"] == "True" for c in p.get("conditions", [])): aceita = True
+    if not aceita: ruim.append(ns + "/" + r["metadata"]["name"])
 print(" ".join(sorted(set(ruim))))' 2>/dev/null)"
   [[ -z "$ruim" ]] || _die "rota(s) que o Gateway de ${t} deixou de aceitar: ${ruim} -- desfaca com: tenant.sh abre ${t}"
   _ok "as rotas de ${t} seguem aceitas pelo Gateway dele"
