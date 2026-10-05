@@ -16,9 +16,59 @@ se falta testar.
   existe, nem instalando o operator em cada namespace.
 
 Consequência: dá para isolar **dados** (ninguém lê nem altera o que é do
-outro). Não dá para isolar o **plano de controle** (seção 6).
+outro). Não dá para isolar o **plano de controle** (seção 7).
 
-## 2. O modelo: dois perfis e o instrutor
+## 2. Como o Connectivity Link trata multi-tenancy
+
+O produto não tem "tenant" como objeto. A unidade de isolamento é o
+**namespace**, e quem separa um do outro é o Kubernetes e o Gateway API. O
+Connectivity Link entra com quatro regras próprias, e é sobre elas que o
+desenho se apoia.
+
+**O que o produto dá**
+
+- **Papéis do Gateway API.** Quem é dono do `Gateway` e quem é dono da
+  `HTTPRoute` são pessoas diferentes por desenho. O `Gateway` declara, em
+  `allowedRoutes`, de quais namespaces aceita rotas.
+- **A policy só alcança o próprio namespace.** O `targetRef` de uma
+  `AuthPolicy`, `RateLimitPolicy` ou `PlanPolicy` aponta para um `Gateway` ou
+  uma rota **do mesmo namespace**. Um participante não consegue escrever uma
+  policy que governe a rota de outro.
+- **Padrão e teto.** Uma policy no `Gateway` pode valer como padrão, que a rota
+  substitui, ou como teto, que a rota não derruba. É assim que a plataforma
+  impõe uma regra a todas as rotas sem escrever em nenhuma. Neste workshop o
+  "nega tudo" do Gateway é um padrão, e a policy da rota o substitui: no
+  `cluster-swsmt` eram 93 policies nesse estado (`Overridden`).
+- **Contadores por rota.** O Limitador conta por namespace e policy. Medido: as
+  séries dele trazem `limitador_namespace="travel-agency-user7/..."`, e o reset
+  dos contadores de um participante não mexe nos dos outros.
+
+**O que o produto não dá**
+
+- **Um plano de controle por tenant.** Há um operator, um Authorino e um
+  Limitador por cluster (seção 1).
+- **Uma visão por tenant.** A Policy Topology desenha um objeto único, com os
+  Gateways, as rotas e as policies de todos.
+- **Chaves por tenant, de fábrica.** O Authorino procura as chaves de API no
+  namespace dele, salvo com `allNamespaces: true` na policy. Sem esse campo, as
+  chaves de todos moram juntas.
+- **Métricas por tenant.** As séries do Limitador nascem no namespace da
+  plataforma, não no do participante.
+- **Rede.** O produto governa a borda. Quem está dentro do cluster alcança o
+  serviço de outro namespace sem passar pelo Gateway, a menos que o Service
+  Mesh ou uma `NetworkPolicy` o impeça.
+
+**Em uma frase:** o Connectivity Link oferece multi-tenancy *por namespace e
+por papel*, sobre um plano de controle compartilhado. Isolamento de dados se
+constrói com o que ele dá mais RBAC, admissão e rede do OpenShift. Isolamento
+do plano de controle só existe com um cluster por tenant.
+
+As três primeiras regras de "o que o produto dá" vêm do desenho do Gateway API
+e do Kuadrant; neste material só a quarta e a contagem de `Overridden` foram
+medidas. A regra do `targetRef` local é a que o teste da seção 8 confere
+primeiro.
+
+## 3. O modelo: dois perfis e o instrutor
 
 Cada participante tem um Gateway próprio e dois perfis. É o modelo de papéis do
 Gateway API, e o guia já o nomeia no cabeçalho "A quem pertence" de cada parte.
@@ -41,7 +91,7 @@ Decisões tomadas:
   console e por comando.
 - **Console com dois logins por participante**, um por perfil.
 
-## 3. O que está aberto hoje
+## 4. O que está aberto hoje
 
 Tudo medido no `cluster-x2gsq` em 2026-10-05, com identidades reais de
 participantes.
@@ -56,20 +106,20 @@ participantes.
 | Métricas | Grafana único e anônimo; o filtro por `ambiente` não é fronteira |
 | Consumo | nenhuma `ResourceQuota` nem `LimitRange`; o terminal tem `self-provisioner` |
 
-## 4. O que sustenta o modelo
+## 5. O que sustenta o modelo
 
 | # | Camada | Mecanismo | Situação |
 | --- | --- | --- | --- |
 | 1 | O Gateway só aceita rotas do dono | `allowedRoutes` por seletor de namespace no listener; regra de admissão exigindo que o hostname da rota seja o do participante | a construir |
 | 2 | Rede fechada entre participantes | `NetworkPolicy` por namespace: entra só o tráfego do próprio ambiente, do Gateway dele e da plataforma | a construir |
-| 3 | Dois perfis | dois conjuntos de `RoleBinding` por participante, conforme a tabela da seção 2 | a construir |
+| 3 | Dois perfis | dois conjuntos de `RoleBinding` por participante, conforme a tabela da seção 3 | a construir |
 | 4 | Chaves no namespace de cada um | `allNamespaces: true` na `AuthPolicy` (o campo existe e o Authorino é de cluster); a regra de admissão impede usar o rótulo de outro participante | a testar |
 | 5 | Sem leitura de cluster no terminal | sai `rhcl-tenant-leitura` em escopo de cluster e o `cluster-monitoring-view`; os comandos com `-A` passam a olhar os namespaces do participante | padrão já usado no `preflight.sh` |
 | 6 | Traces | consequência da 5: o Tempo decide por `get namespace`, e o terminal deixa de ter isso nos alheios | o lado da pessoa já está medido |
 | 7 | Métricas e painéis | porta de isolamento do Thanos (existe: `tenancy`, 9092); um Grafana por participante; um repasse por participante para as séries do Limitador, que nascem em `kuadrant-system` | a parte mais incerta |
 | 8 | Limites de consumo | `ResourceQuota` por participante (pods, Gateways, policies); namespaces de laboratório pré-criados, sem `self-provisioner` | a construir |
 
-## 5. Como os perfis chegam ao participante
+## 6. Como os perfis chegam ao participante
 
 - **Terminal.** O guia já tem duas abas, que são sessões separadas. Uma vira
   "Infra" e a outra "Dev", cada uma com a própria identidade e o perfil no
@@ -87,7 +137,7 @@ O que muda no roteiro:
 - a degradação do rate limit, o endereço público da 1.6 e os extras com Gateway
   próprio são do Infra, e deixam de depender do instrutor.
 
-## 6. O que continua compartilhado, por construção
+## 7. O que continua compartilhado, por construção
 
 - **Disponibilidade.** Se o operator, o Authorino ou o Limitador caírem, caem
   para todos. A camada 8 reduz a chance de um participante causar isso.
@@ -99,7 +149,7 @@ O que muda no roteiro:
 
 Se isso for inaceitável para um público, a saída é um cluster por cliente.
 
-## 7. A prova
+## 8. A prova
 
 Um teste automático, com as identidades reais de dois participantes, em que um
 tenta tudo contra o outro: chamar a aplicação por dentro, anexar rota ao
@@ -110,9 +160,9 @@ portão de provisionamento: turma que não passa não é entregue.
 Leitura que falha não conta como "barrado": o teste distingue a recusa do
 servidor de uma consulta que não rodou (seção 8 do [FROTA.md](FROTA.md)).
 
-## 8. Ordem de construção
+## 9. Ordem de construção
 
-1. Camadas 1 e 2 e o teste da seção 7, em dois participantes. São as brechas
+1. Camadas 1 e 2 e o teste da seção 8, em dois participantes. São as brechas
    abertas mais graves.
 2. Camada 3, os dois perfis, com o terminal em duas identidades.
 3. Camadas 4, 5 e 6, que fecham chaves e traces.
