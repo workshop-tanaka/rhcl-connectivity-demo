@@ -33,6 +33,7 @@ funcionar ao vivo.
 | [docs/SAMPLES.md](docs/SAMPLES.md) | as amostras do Istio: o que dizer, o que medir, e as quatro armadilhas já medidas |
 | [docs/FROTA.md](docs/FROTA.md) | montar e validar o workshop em N ambientes: a onda como unidade, as cinco fases, e o que falta construir |
 | [docs/TURMA.md](docs/TURMA.md) | N participantes no MESMO cluster (`scripts/tenant.sh`): como subir e conferir a turma, o que fica com o instrutor, e as armadilhas medidas |
+| [docs/IMPLANTACAO.md](docs/IMPLANTACAO.md) | a entrada para quem ENTREGA o workshop: escolher o modo, o pedido no RHDP, subir, conferir e atualizar com a turma no ar |
 
 **O cluster é efêmero.** Hostname, senha e nome de cluster que aparecem em doc
 envelhecem; descobrir do cluster na hora, nunca copiar de documento. Nenhum

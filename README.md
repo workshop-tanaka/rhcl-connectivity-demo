@@ -18,6 +18,10 @@ que continuou anunciado como "ambiente atual" muito depois de expirar. O estado
 do cluster em uso está na §2 do [CONHECIMENTO](docs/CONHECIMENTO.md), que é
 descartável por definição.
 
+> **Vai entregar o workshop para uma turma?** Comece por
+> [docs/IMPLANTACAO.md](docs/IMPLANTACAO.md): o modo a escolher, o pedido no
+> RHDP, o que rodar e como saber que está pronto.
+
 ## Começar
 
 Com a plataforma de pé (é o caso do cluster atual):
