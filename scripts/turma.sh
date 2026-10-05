@@ -219,9 +219,13 @@ _cluster() { # <rotulo>
   rm -f "$TRAB"/ns "$TRAB"/pods "$TRAB"/gw "$TRAB"/pol "$TRAB"/req "$TRAB"/mem "$TRAB"/plat "$TRAB"/linhas "$TRAB"/pag "$TRAB"/pag.*
   PLAT_FALHA=0; PLAT_AVISO=0
 
-  if ! oc whoami >/dev/null 2>&1; then
+  # COM PRAZO: um cluster do inventario que ja foi desligado nao recusa a
+  # conexao, ele nao responde -- e sem prazo cada um segurava a tabela dos
+  # outros por minutos (medido com dois mortos no frota.local: a rodada
+  # 'todos' passou de 2 min; com o prazo, ~16s por cluster morto).
+  if ! oc whoami --request-timeout=8s >/dev/null 2>&1; then
     [[ "$TSV" == 1 ]] && printf 'RESUMO\t%s\tsem-sessao\n' "$nome"
-    _sec "$nome"; _bad "sem sessao neste cluster (oc whoami falhou) — nada foi medido"
+    _sec "$nome"; _bad "o cluster nao respondeu ou a sessao expirou (oc whoami, prazo de 8s) — nada foi medido"
     return 1
   fi
   dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
