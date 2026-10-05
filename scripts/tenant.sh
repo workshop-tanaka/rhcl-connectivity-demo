@@ -620,6 +620,30 @@ rules:
     resourceNames: [topology]
     verbs: [get]
 ---
+# A POLICY TOPOLOGY E TELA, E QUEM ABRE A TELA E A PESSOA -- nao a
+# ServiceAccount do terminal. O papel acima vai so para a SA (o log do
+# Authorino mostra as chamadas de todos, e o usuario da console nao precisa
+# dele), entao o participante abria Connectivity Link > Policy Topology e a
+# console respondia que ele nao tem permissao (visto com o user26, 2026-10-05).
+# Este e so o ConfigMap 'topology', pelo nome, e vai para a pessoa tambem.
+# 'list' e 'watch' entram porque a console OBSERVA o objeto: um watch de um
+# recurso nomeado e autorizado pelo resourceNames quando vem com o seletor de
+# nome, que e como ela pede.
+# O desenho mostra os Gateways, rotas e policies da turma inteira -- o mesmo
+# que 'oc get httproute -A' ja mostra (docs/TURMA.md, secao 8). Nao ha segredo
+# nele.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rhcl-tenant-topologia
+  namespace: kuadrant-system
+  labels: {rhcl.demo/multitenant: "true"}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [topology]
+    verbs: [get, list, watch]
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -761,6 +785,7 @@ _rbac() { # <tenant>
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-leitura, namespace: %s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-leitura-plataforma}\nsubjects:\n' "$t" "$ns" "$ROTULO" "$t"; _so_sa
     done
     printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-logs, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-logs}\nsubjects:\n' "$t"; _so_sa
+    printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-topologia, namespace: kuadrant-system, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-topologia}\nsubjects:\n' "$t" "$ROTULO" "$t"; _sujeitos
     # leitura da plataforma (enumerada, ver _plataforma) e das metricas: os
     # scripts do roteiro consultam nodes, operadores e Thanos, e nao escrevem la
     # 'self-provisioner' so para a ServiceAccount do terminal: os Extras pedem o
