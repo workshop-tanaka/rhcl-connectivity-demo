@@ -280,6 +280,35 @@ confira que não estão na mesma faixa (`dig +short api.cluster-<guid>...`).
   outro falha com "já existe". É incômodo, não vazamento: ele não ganha acesso
   a nada. Os namespaces de base de cada um são recusados se já existirem sem
   o rótulo do provisionamento.
+- **O Grafana é filtrado, não isolado — e a decisão é essa.** É um Grafana
+  para a turma. Os links do guia e do `demo.sh` abrem com
+  `?var-ambiente=ambiente|=|userN`, e os três painéis do roteiro
+  (`evidencia`, `negocio-planos`, `negocio-parceiros`) têm a variável. Mas
+  filtro **não é fronteira**: o participante pode limpar o `ambiente` e ver os
+  números da turma. Medido: a consulta da lista de parceiros devolve 64 sem
+  filtro e 4 com `ambiente=~"user29"`.
+
+  Por que não isolar, e não é economia: o participante **já lê a chave de API
+  de todos** (o limite acima). Fronteira no Grafana com as chaves legíveis
+  tranca uma porta numa casa de parede aberta — e garantia que o ambiente não
+  sustenta é pior que limite assumido, porque alguém confia nela. Os dois
+  caminhos de isolamento também custam o que o workshop usa: auth do OpenShift
+  quebra o *deep link*, que é justamente o mecanismo do filtro; e uma
+  instância por pessoa são 30 Grafanas num cluster já em 59% de memória, cada
+  um com o ciclo de reconciliação do operator (medido: 6 minutos de 404 em dois
+  painéis depois de um reinício).
+
+  **O que a decisão exige:** o painel `consumo-plataforma` sai do guia do
+  participante — é visão da plataforma inteira por desenho, as séries
+  `gatewayapi_*` não têm o rótulo `ambiente` e, filtrado, ele abriria vazio. E
+  dizer na abertura da aula, em uma frase: *os painéis são da turma; os links
+  do guia abrem filtrados em você*. Isso converte limite escondido em
+  combinado explícito, que é o que separa sala cooperativa de falha de
+  isolamento.
+
+  **O que inverte a decisão:** participantes de clientes DIFERENTES no mesmo
+  cluster. Aí filtrado não serve — e a resposta não é reconstruir o Grafana, é
+  um cluster por cliente, que é mais barato e resolve as chaves de API junto.
 - O texto do guia é trocado na construção, não na origem. Uma página nova que
   cite um namespace fora da lista de `NS_TENANT` em `tenant.sh` sai sem o
   sufixo.
