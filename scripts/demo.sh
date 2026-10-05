@@ -944,7 +944,12 @@ step_interconnect() {
 _KC_DEV=""
 _dev_login() {
   local senha="${PERSONA_PASSWORD:-redhat123}"
-  _KC_DEV="$(mktemp -t kubeconfig-app-dev)"
+  # XXXXXX OBRIGATORIO (ver traffic.sh): sem eles o mktemp do GNU nao imprime
+  # nada, _KC_DEV nasce vazio e o 'oc login' seguinte escreve em KUBECONFIG=""
+  # -- entao '_dev' deixaria de ser o app-dev e rodaria com a identidade de
+  # quem chamou, mostrando o RBAC ERRADO no passo que existe para contrasta-lo.
+  _KC_DEV="$(mktemp -t kubeconfig-app-dev.XXXXXX)" \
+    || { _warn "nao consegui criar o kubeconfig do app-dev"; return 1; }
   KUBECONFIG="$_KC_DEV" oc login -u app-dev -p "$senha" \
     --server="$(oc whoami --show-server)" --insecure-skip-tls-verify=true >/dev/null 2>&1
 }

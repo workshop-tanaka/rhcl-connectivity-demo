@@ -612,7 +612,14 @@ mode_reset() {
   # contadores diarios do vizinho ficaram exatamente onde estavam.
   if [[ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/.tenant" ]]; then
     local pp guarda i
-    guarda="$(mktemp -t planpolicy-travels)"
+    # XXXXXX OBRIGATORIO: o mktemp do GNU recusa um template sem eles
+    # ("too few X's in template"), imprime nada no stdout e devolve 0 -- e no
+    # macOS a mesma linha funciona. Medido no terminal de um participante
+    # (2026-10-05): 'guarda' nascia vazio, a escrita virava '> ""' e o 'reset'
+    # morria com duas linhas de erro cru na tela. A guarda '[[ -s ]]' abaixo
+    # impediu o pior, que seria deletar o PlanPolicy sem copia.
+    guarda="$(mktemp -t planpolicy-travels.XXXXXX)" \
+      || _die "nao consegui criar o arquivo de copia do PlanPolicy."
     _log "recriando o PlanPolicy travels-plans (zera so os contadores deste ambiente)"
     # A copia vai para um arquivo ANTES do delete: se o apply falhar, os planos
     # sumiram, e o caminho de volta tem de estar escrito em algum lugar.
