@@ -58,6 +58,28 @@ except Exception: print(0)' 2>/dev/null
 }
 
 cmd_aplica() {
+  # NO CLUSTER DE TURMA, DUAS DAS TRES SAO DO INSTRUTOR. As regras moram onde a
+  # metrica e coletada, e isso nao e escolha (ver o cabecalho): a de
+  # 'monitoring' e a de 'kuadrant-system' vivem em namespace de plataforma, que
+  # o participante nao escreve -- e NAO DA para mover para o namespace dele,
+  # porque o user-workload monitoring injeta o namespace na consulta e a regra
+  # ficaria 'inactive' com 0 serie, sem erro nenhum.
+  #
+  # Tambem nao se resolve alargando o RBAC: as tres tem nome FIXO, e trinta
+  # participantes escrevendo em namespace compartilhado sobrescreveriam a do
+  # vizinho. Entao o participante aplica a DELE e sabe por que as outras duas
+  # nao sao dele -- em vez de levar dois 'Error from server (Forbidden)' na
+  # tela e concluir que o ambiente esta quebrado.
+  if [[ -f .tenant ]]; then
+    _sec "Uma regra para voce, duas para a plataforma"
+    _nota "o alerta mora onde a metrica e coletada; as duas de plataforma sao do instrutor"
+    cmd_aplica_parceiros
+    _ok "a regra do SEU ambiente esta no ar"
+    _nota "monitoring/rhcl-protecao e kuadrant-system/rhcl-limitador: o instrutor as aplica uma vez, para a turma"
+    _nota "'alerta.sh status' mostra as tres, inclusive as que nao sao suas"
+    return 0
+  fi
+
   _sec "Tres regras, em tres namespaces"
   _nota "cada uma vive onde a metrica dela e coletada -- ver o cabecalho do script"
 
@@ -118,6 +140,13 @@ spec:
 EOF
   _ok "kuadrant-system/rhcl-limitador   (o rate limit falhando aberto)"
 
+  cmd_aplica_parceiros
+}
+
+# A regra do ambiente do participante. Vive em 'travel-agency' -- que na copia
+# do tenant ja virou 'travel-agency-<user>' pela troca do tenant.sh, e e por
+# isso que esta funciona para ele e as outras duas nao.
+cmd_aplica_parceiros() {
   oc apply -f - >/dev/null <<'EOF'
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
