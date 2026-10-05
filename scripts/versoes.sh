@@ -29,9 +29,19 @@ else _BLD=""; _DIM=""; _BLU=""; _RST=""; fi
 command -v oc >/dev/null || { echo "oc nao encontrado" >&2; exit 1; }
 oc whoami >/dev/null 2>&1 || { echo "sem sessao no cluster" >&2; exit 1; }
 
+# A LISTA DE CSV E LIDA UMA VEZ. Medido em 2026-10-05 no cluster-x2gsq, com 30
+# participantes: 'oc get csv -A' devolve 3.279 CSVs e leva 19s -- o OLM COPIA o
+# CSV de cada operator 'AllNamespaces' para TODOS os 272 namespaces, e o numero
+# cresce com a turma. Como _csv era chamada 16 vezes, o script levava 351s: um
+# relatorio de versoes que o guia manda rodar e que estourava o tempo de
+# qualquer paciencia. Com uma leitura so, sao os mesmos 19s uma vez.
+# O CACHE E PREENCHIDO AQUI, E NAO DENTRO DE _csv: a funcao e sempre chamada
+# dentro de $( ), que roda em SUBSHELL -- uma atribuicao feita la dentro morre
+# com a subshell, e as 16 chamadas pagariam a leitura de novo. Foi assim que a
+# primeira versao deste conserto economizou 25s em vez de 300s.
+_CSVS="$(oc get csv -A --no-headers 2>/dev/null | awk '{print $2}' | sort -u)"
 _csv() { # versao de um operador pelo prefixo do CSV
-  oc get csv -A --no-headers 2>/dev/null | awk '{print $2}' | sort -u \
-    | grep -m1 "^$1" | sed 's/.*\.v//'
+  printf '%s\n' "$_CSVS" | grep -m1 "^$1" | sed 's/.*\.v//'
 }
 _img() { # tag da imagem de um deployment: <ns> <deploy>
   # Imagem fixada por DIGEST nao tem tag legivel. Imprimir o sha e pior que
