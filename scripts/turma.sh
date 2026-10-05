@@ -49,6 +49,17 @@
 # do travel-agency de proposito, e nao a do namespace mais novo: no dia da
 # aula um Extra cria namespace novo, e isso nao pode esconder uma falha.
 #
+# POLICY QUE PISCA NAO E FALHA (so no --vigia). O Limitador e UM para o
+# cluster. Medido em 2026-10-04: no cluster-swsmt as 63 PlanPolicy e as 63
+# RateLimitPolicy -- as de todos os participantes -- voltaram a Enforced=True
+# no MESMO minuto, sem nenhum pod do kuadrant-system reiniciar; no x2gsq uma
+# rodada deu 24 participantes em falha e a seguinte, 30 OK. Com trinta pessoas
+# mexendo em limite ao mesmo tempo isso se repete, e uma tabela que fica
+# vermelha a cada vez ensina a ignorar o vermelho. Entao, no --vigia, quem
+# falha SO por policy sem Enforced sai como OSCILA na primeira rodada e vira
+# FALHA se continuar assim na seguinte. Pod, Gateway e namespace nao esperam:
+# falham na hora. Fora do --vigia nao ha rodada anterior, e vale o que se le.
+#
 # LEITURA QUE FALHA NAO VIRA ZERO. Sem a lista de pods o cluster inteiro sai
 # sem veredito; sem Thanos a coluna mostra '-'. Concluir "0 pods" de um 'oc'
 # que caiu acusaria os trinta de uma vez (docs/FROTA.md, secao 8).
@@ -280,7 +291,8 @@ for r in d["data"]["result"]:
     [[ -f "$TRAB/req" ]] && { echo "TEM req"; sed 's/^/R /' "$TRAB/req"; }
     [[ -f "$TRAB/pag" ]] && { echo "TEM pag"; sed 's/^/V /' "$TRAB/pag"; }
   } | awk -v agora="$(date -u +%s)" -v nova="$SUBINDO_MIN" '
-    function falha(t, msg) { ruim[t] = 1; nd[t]++; d[t, nd[t]] = msg }
+    function falha(t, msg) { ruim[t] = 1; nd[t]++; d[t, nd[t]] = msg; outras[t]++ }
+    function pisca(t, msg) { ruim[t] = 1; nd[t]++; d[t, nd[t]] = msg }
     # epoch de "2026-10-04T23:22:00Z" na mao: o awk do macOS nao tem mktime
     function epoch(s,  p, m, y, era, yoe, doy, doe) {
       split(s, p, /[-T:Z]/); m = p[2] + 0; y = p[1] - (m <= 2)
@@ -313,7 +325,7 @@ for r in d["data"]["result"]:
       t = dono[$3]; split($5, e, ":")
       if (e[1] == "True") { yt[t]++; yp[t]++ }
       else if (e[2] == "Overridden") ys[t]++
-      else { yt[t]++; falha(t, $2 " " $3 "/" $4 ": " (e[2] == "" ? "sem condicao Enforced" : e[2])) }
+      else { yt[t]++; pisca(t, $2 " " $3 "/" $4 ": " (e[2] == "" ? "sem condicao Enforced" : e[2])) }
       next
     }
     $1 == "R" { req[$2] = $3; next }
@@ -330,7 +342,7 @@ for r in d["data"]["result"]:
         # sem travel-agency ainda, vale o namespace mais novo que ele tem
         vida = (t in base) ? base[t] : menor[t]
         if (ruim[t] && vida < nova) ruim[t] = 2
-        printf "L\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n", t, (ruim[t] == 2 ? "subindo" : ruim[t] ? "falha" : "ok"), nns[t], pp[t], pt[t],
+        printf "L\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n", t, (ruim[t] == 2 ? "subindo" : !ruim[t] ? "ok" : outras[t] ? "falha" : "so-policy"), nns[t], pp[t], pt[t],
           (tem["gw"] ? gp[t] + 0 : "-"), (tem["gw"] ? gt[t] + 0 : "-"),
           (tem["pol"] ? yp[t] + 0 : "-"), (tem["pol"] ? yt[t] + 0 : "-"), ys[t], guia[t],
           (tem["req"] ? req[t] + 0 : "-"), ((t in pag) ? pag[t] : "-")
@@ -339,13 +351,20 @@ for r in d["data"]["result"]:
     }' > "$TRAB/linhas"
 
   local e t est nn a b g1 g2 y1 y2 ys gu rq pg cor pol_txt
-  local n_ok=0 n_falha=0 n_sub=0 n_ativos=0 n_total=0 rot
+  local n_ok=0 n_falha=0 n_sub=0 n_osc=0 n_ativos=0 n_total=0 rot
+  : > "$TRAB/agora.${nome}"
   [[ "$TSV" == 1 ]] || { _sec "participantes"; printf '  %s%-8s %-3s %-7s %-8s %-18s %-6s %-7s %-7s %s%s\n' "$_DIM" TENANT NS PODS GATEWAY POLICIES GUIA 'REQ 5m' '' "$([[ "$AVANCO" == 1 ]] && echo PAGINA)" "$_RST"; }
   # user2 antes de user10: a ordem e a do numero
   grep "^L${tab}" "$TRAB/linhas" | sed "s/^L${tab}user//" | sort -n | sed 's/^/user/' > "$TRAB/ord"
   while IFS="$tab" read -r t est nn a b g1 g2 y1 y2 ys gu rq pg; do
     n_total=$((n_total + 1))
+    if [[ "$est" == so-policy ]]; then
+      echo "$t" >> "$TRAB/agora.${nome}"
+      # so e FALHA se ja estava assim na rodada anterior deste cluster
+      if [[ "$VIGIA" -gt 0 ]] && ! grep -qx "$t" "$TRAB/antes.${nome}" 2>/dev/null; then est=oscila; else est=falha; fi
+    fi
     case "$est" in
+      oscila)  n_osc=$((n_osc + 1));     cor="$_YEL"; rot=OSCILA ;;
       ok)      n_ok=$((n_ok + 1));       cor="$_GRN"; rot=OK ;;
       subindo) n_sub=$((n_sub + 1));     cor="$_YEL"; rot=SUBINDO ;;
       *)       n_falha=$((n_falha + 1)); cor="$_RED"; rot=FALHA ;;
@@ -367,6 +386,7 @@ for r in d["data"]["result"]:
     fi
   done < "$TRAB/ord"
 
+  mv "$TRAB/agora.${nome}" "$TRAB/antes.${nome}"
   if [[ "$TSV" == 1 ]]; then
     printf 'RESUMO\t%s\t%d\t%d\t%d\n' "$nome" "$n_ok" "$n_falha" "$n_sub"
   else
@@ -376,6 +396,7 @@ for r in d["data"]["result"]:
     [[ "$AVANCO" != 1 || -f "$TRAB/pag" ]] || _nota "PAGINA '-': nenhum log de Showroom respondeu neste ciclo — avanco nao medido"
     printf '\n  %s%d participantes%s: %s%d OK%s' "$_BLD" "$n_total" "$_RST" "$_GRN" "$n_ok" "$_RST"
     [[ "$n_falha" -gt 0 ]] && printf ', %s%d com falha%s' "$_RED" "$n_falha" "$_RST"
+    [[ "$n_osc" -gt 0 ]] && printf ', %s%d oscilando%s (policy sem Enforced nesta rodada; vira FALHA se repetir)' "$_YEL" "$n_osc" "$_RST"
     [[ "$n_sub" -gt 0 ]] && printf ', %s%d subindo%s' "$_YEL" "$n_sub" "$_RST"
     [[ -f "$TRAB/req" ]] && printf ' — %d com trafego nos ultimos 5 min' "$n_ativos"
     [[ "$PLAT_FALHA" -gt 0 ]] && printf ' — %splataforma com %d falha(s)%s' "$_RED" "$PLAT_FALHA" "$_RST"
