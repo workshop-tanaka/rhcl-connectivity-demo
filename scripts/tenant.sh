@@ -849,25 +849,41 @@ _admissao_rotas() {
   # ficava FORA da trava e podia apontar para o Gateway de quem ja estava
   # isolado. Apontado pela revisao de seguranca do commit.
   #
-  # Agora ela vale para toda rota do cluster, com tres regras:
+  # Agora ela vale para toda rota do cluster, com quatro regras:
   #   1. Gateway num namespace '...-userN' so recebe rota de namespace de userN;
   #   2. hostname terminado em '-userN' so pode ser pedido por namespace de userN;
-  #   3. se quem pede e um participante, todo Gateway apontado tem de ser dele
-  #      -- inclusive a partir de um projeto que ele mesmo criou, e inclusive o
-  #      Gateway do instrutor, que nao tem sufixo.
-  # As duas primeiras protegem o recurso; a terceira fecha o que sobra para
-  # quem age como participante. Rota do instrutor, sem sufixo, passa direto.
+  #   3. rota em namespace de participante so aponta para Gateway dele --
+  #      inclusive a partir de um projeto que ele mesmo criou, e inclusive o
+  #      Gateway do instrutor, que nao tem sufixo;
+  #   4. o mesmo, por quem faz a chamada (terminal ou pessoa do participante).
+  # As duas primeiras protegem o recurso; as outras fecham o que sobra para
+  # quem age como participante. Rota do instrutor, em namespace sem dono, passa.
   #
-  # O DONO DO NAMESPACE VEM DO ROTULO E, NA FALTA DELE, DO NOME. Os Extras com
-  # laboratorio proprio (contextos, listas, prefixos, tokens de IA, DNS) criam
-  # o projeto na hora, e projeto pedido pelo participante nasce SEM o rotulo de
-  # tenant. Exigindo o rotulo, a regra 1 recusava a rota do laboratorio no
-  # Gateway do proprio laboratorio: os cinco quebraram para os trinta
-  # participantes assim que a admissao entrou (medido rodando os comandos do
-  # guia como user29, 2026-10-05). O nome nao e prova de posse -- qualquer um
-  # pede um projeto 'x-user28' -- e nao precisa ser: quem age como participante
-  # ja esta preso aos proprios Gateways pela regra 3, e o Gateway de cada um so
-  # aceita namespace com o ROTULO dele (allowedRoutes).
+  # O DONO DO NAMESPACE VEM DO ROTULO E, NA FALTA DELE, DE QUEM PEDIU O PROJETO
+  # -- NUNCA DO NOME. Os Extras com laboratorio proprio (contextos, listas,
+  # prefixos, tokens de IA, DNS) criam o projeto na hora, e projeto pedido pelo
+  # participante nasce SEM o rotulo de tenant. Exigindo o rotulo, a regra 1
+  # recusava a rota do laboratorio no Gateway do proprio laboratorio: os cinco
+  # quebraram para os trinta participantes assim que a admissao entrou (medido
+  # rodando os comandos do guia como user29, 2026-10-05).
+  #
+  # A primeira correcao tirava o dono do sufixo do nome, e isso e forjavel: o
+  # terminal do user29 pede um projeto chamado 'teste-iso-user28' e o servidor
+  # cria (medido no cluster-x2gsq). O que o participante NAO muda e o rotulo
+  # e a anotacao 'openshift.io/requester', que o servidor grava com a
+  # identidade de quem pediu -- medido com a identidade do terminal: 'patch' em
+  # 'namespaces' e negado por RBAC, e pelo 'project' o servidor responde que
+  # rotulo e anotacao sao imutaveis; rotulo enviado no pedido do projeto e
+  # descartado. Apontado pela revisao de seguranca do commit.
+  #
+  # A REGRA 3 OLHA O NAMESPACE DA ROTA, E NAO QUEM FAZ A CHAMADA. O participante
+  # cria RoleBinding no proprio namespace, entao outra ServiceAccount dele (a
+  # 'default' de um pod, por exemplo) escreve rotas ali sem casar o padrao do
+  # terminal -- e uma regra presa ao nome de quem chama nao a via. Presa ao dono
+  # do namespace, vale para qualquer identidade que escreva nele. O Gateway do
+  # proprio namespace sempre pode. A regra 4, por identidade, fica como segunda
+  # barreira: e a que segura um participante que receba acesso a um namespace
+  # sem dono.
   #
   # O CAMPO E 'p.namespace', E NAO SO 'p.__namespace__'. A primeira versao
   # usava a forma escapada (a das regras de CRD), e nesta admissao o objeto
@@ -891,8 +907,10 @@ spec:
         operations: [CREATE, UPDATE]
         resources: [httproutes, grpcroutes]
   variables:
+    - name: pediu
+      expression: "has(namespaceObject.metadata.annotations) && 'openshift.io/requester' in namespaceObject.metadata.annotations ? namespaceObject.metadata.annotations['openshift.io/requester'] : ''"
     - name: dono
-      expression: "has(namespaceObject.metadata.labels) && 'rhcl.demo/tenant' in namespaceObject.metadata.labels ? namespaceObject.metadata.labels['rhcl.demo/tenant'] : (object.metadata.namespace.matches('-user[0-9]{1,3}$') ? object.metadata.namespace.substring(object.metadata.namespace.lastIndexOf('-') + 1) : '')"
+      expression: "has(namespaceObject.metadata.labels) && 'rhcl.demo/tenant' in namespaceObject.metadata.labels ? namespaceObject.metadata.labels['rhcl.demo/tenant'] : (variables.pediu.matches('^system:serviceaccount:showroom-user[0-9]{1,3}:showroom$') ? variables.pediu.split(':')[2].replace('showroom-', '') : (variables.pediu.matches('^user[0-9]{1,3}$') ? variables.pediu : ''))"
     - name: ator
       expression: "request.userInfo.username.matches('^system:serviceaccount:showroom-user[0-9]{1,3}:showroom$') ? request.userInfo.username.split(':')[2].replace('showroom-', '') : (request.userInfo.username.matches('^user[0-9]{1,3}$') ? request.userInfo.username : '')"
     - name: gateways
@@ -904,6 +922,8 @@ spec:
       message: "o Gateway apontado e de outro participante"
     - expression: "variables.hosts.all(h, !h.matches('-user[0-9]{1,3}$') || (variables.dono != '' && h.endsWith('-' + variables.dono)))"
       message: "o hostname da rota e de outro participante"
+    - expression: "variables.dono == '' || variables.gateways.all(n, n == object.metadata.namespace || n.endsWith('-' + variables.dono))"
+      message: "rota em namespace de participante so pode apontar para um Gateway dele"
     - expression: "variables.ator == '' || variables.gateways.all(n, n.endsWith('-' + variables.ator))"
       message: "um participante so pode prender rota a um Gateway dele"
 ---
