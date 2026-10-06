@@ -233,7 +233,7 @@ else
   else _sai INDETERMINADO traces "o atacante busca os traces da vitima" "HTTP ${c}"; fi
 fi
 
-_sec "proxy: o que o sidecar do atacante sabe sobre a vitima"
+_sec "proxy: o que o sidecar e o Gateway do atacante sabem sobre a vitima"
 # O control plane entrega a cada sidecar os servicos do mesh INTEIRO, a menos
 # que um recurso Sidecar restrinja. Medido em 2026-10-06: o proxy do user29
 # listava 588 destinos, 540 de outros participantes -- nome, porta e endereco
@@ -259,6 +259,31 @@ else
     if   [[ ! "$n" =~ ^[0-9]+$ ]]; then _sai INDETERMINADO proxy "o sidecar do atacante lista servicos da vitima" "contagem invalida"
     elif [[ "$n" -eq 0 ]];         then _sai BARRADO proxy "o sidecar do atacante lista servicos da vitima" "0 de $(printf '%s\n' "$_DEST" | wc -l | tr -d ' ') destino(s)"
     else _sai ABERTO proxy "o sidecar do atacante lista servicos da vitima" "${n} destino(s)"; fi
+  fi
+fi
+
+# O mesmo, no Gateway do atacante. O recurso Sidecar nao alcanca Gateway: quem
+# restringe e PILOT_FILTER_GATEWAY_CLUSTER_CONFIG no istiod. Medido em
+# 2026-10-06: o prod-web do user29 foi de 588 destinos para 3.
+_GWPOD="$(oc get pods -n "ingress-gateway-${A}" -l gateway.networking.k8s.io/gateway-name=prod-web \
+           --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
+_DEST=""
+[[ -n "$_GWPOD" ]] && _DEST="$(oc exec -n "ingress-gateway-${A}" "$_GWPOD" $T -- pilot-agent request GET clusters 2>/dev/null \
+                               | grep -oE '^outbound\|[0-9]+\|[^|]*\|[^:]+' | sort -u)"
+if [[ -z "$_GWPOD" ]]; then
+  _sai INDETERMINADO proxy "Gateway prod-web em ingress-gateway-${A}" "nenhum pod Running"
+elif [[ -z "$_DEST" ]]; then
+  _sai INDETERMINADO proxy "ler a configuracao do Gateway do atacante" "a leitura voltou vazia -- o teste de Gateway nao vale"
+else
+  ctl="$(_destinos "\\.travel-agency-${A}\\.svc")"
+  if [[ "${ctl:-0}" -lt 1 ]]; then
+    _sai INDETERMINADO proxy "CONTROLE: o Gateway lista os servicos do proprio atacante" "${ctl:-0} destino(s) -- o teste de Gateway nao vale"
+  else
+    [[ "$TSV" == "1" ]] || printf '    %scontrole%s      %-58s %s\n' "$_BLU" "$_RST" "o Gateway lista os servicos do proprio atacante" "${ctl} destino(s)"
+    n="$(_destinos "-${V}\\.svc")"
+    if   [[ ! "$n" =~ ^[0-9]+$ ]]; then _sai INDETERMINADO proxy "o Gateway do atacante lista servicos da vitima" "contagem invalida"
+    elif [[ "$n" -eq 0 ]];         then _sai BARRADO proxy "o Gateway do atacante lista servicos da vitima" "0 de $(printf '%s\n' "$_DEST" | wc -l | tr -d ' ') destino(s)"
+    else _sai ABERTO proxy "o Gateway do atacante lista servicos da vitima" "${n} destino(s)"; fi
   fi
 fi
 

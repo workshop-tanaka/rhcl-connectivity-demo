@@ -228,7 +228,7 @@ o Gateway nativo, o egress gateway e o `preflight.sh core`. A queda de memória
 é menor que a dos sidecars, e o motivo do piso mais alto do Gateway não foi
 isolado (o proxy recém-reiniciado declara 66 MB em uso e 197 MB de heap; a
 suspeita é o módulo wasm do Connectivity Link). O bloco **proxy** do
-`isolamento.sh` ainda lê só o sidecar; o Gateway fica por acrescentar.
+`isolamento.sh` lê os dois, o sidecar e o Gateway.
 
 O `Sidecar` é do namespace do participante, que tem `admin` ali: ele pode
 apagá-lo. Isso devolve a **ele** a visão dos outros, então é uma brecha de
