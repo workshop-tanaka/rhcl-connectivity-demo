@@ -1708,6 +1708,54 @@ fi
 # anterior (PERMISSIVE e fault injection nao revertidos).
 _sec "Service Mesh leste-oeste"
 
+# discoverySelectors. Com eles, o control plane so enxerga os namespaces que
+# casam -- e um namespace que NAO casa some do mesh em silencio: o Gateway nao
+# programa, a rota fica sem backend, e nada acusa. Entraram em 2026-10-06
+# porque o istiod observava os 276 namespaces de um cluster de turma e
+# precisava de 97. Aqui: todo namespace com Gateway da classe 'istio', com
+# 'istio-injection=enabled' ou que seja backend de rota desses Gateways tem de
+# casar com algum seletor. Sem seletores no CR, nao ha o que conferir.
+_ds_fora="$( { oc get istio default -o json 2>/dev/null; echo; oc get ns -o json 2>/dev/null; echo
+               oc get gateway -A -o json 2>/dev/null; echo; oc get httproute -A -o json 2>/dev/null; } | python3 -c '
+import json, sys
+dec = json.JSONDecoder(); txt = sys.stdin.read(); docs = []; i = 0
+while i < len(txt):
+    while i < len(txt) and txt[i].isspace(): i += 1
+    if i >= len(txt): break
+    try: d, i = dec.raw_decode(txt, i)
+    except ValueError: break
+    docs.append(d)
+if len(docs) != 4: print("?"); sys.exit(0)
+istio, nss, gws, rts = docs
+sel = (((istio.get("spec") or {}).get("values") or {}).get("meshConfig") or {}).get("discoverySelectors")
+if not sel: print("-"); sys.exit(0)
+rot = {n["metadata"]["name"]: (n["metadata"].get("labels") or {}) for n in nss["items"]}
+def casa(l):
+    for s in sel:
+        ok = all(l.get(k) == v for k, v in (s.get("matchLabels") or {}).items())
+        for e in (s.get("matchExpressions") or []):
+            k, op, vs = e["key"], e["operator"], e.get("values") or []
+            ok = ok and ((op == "In" and l.get(k) in vs) or (op == "NotIn" and l.get(k) not in vs)
+                         or (op == "Exists" and k in l) or (op == "DoesNotExist" and k not in l))
+        if ok: return True
+    return False
+gwns = {g["metadata"]["namespace"] for g in gws["items"] if g["spec"].get("gatewayClassName") == "istio"}
+precisa = set(gwns) | {n for n, l in rot.items() if l.get("istio-injection") == "enabled"}
+for r in rts["items"]:
+    ns = r["metadata"]["namespace"]
+    if not any(p.get("namespace", ns) in gwns for p in r["spec"].get("parentRefs") or []): continue
+    precisa.add(ns)
+    for regra in r["spec"].get("rules") or []:
+        for b in regra.get("backendRefs") or []: precisa.add(b.get("namespace", ns))
+print(" ".join(sorted(n for n in precisa if n in rot and not casa(rot[n]))) or "ok")' 2>/dev/null)"
+case "$_ds_fora" in
+  -)   _nota "Istio/default sem discoverySelectors — o control plane observa o cluster inteiro" ;;
+  ok)  _ok "discoverySelectors cobrem todo namespace com Gateway, sidecar ou backend de rota" ;;
+  ""|"?") _warn "não deu para conferir os discoverySelectors" "oc get istio default -o yaml" ;;
+  *)   _bad "namespace(s) do mesh FORA dos discoverySelectors: ${_ds_fora}" \
+            "o control plane não os enxerga: Gateway não programa e rota fica sem backend. Rotule o namespace ou acrescente o nome em spec.values.meshConfig.discoverySelectors do Istio/default" ;;
+esac
+
 _pa_mode="$(oc get peerauthentication travel-agency-mtls -n travel-agency \
              -o jsonpath='{.spec.mtls.mode}' 2>/dev/null)"
 _ap="$(oc get authorizationpolicy discounts-only-sellers -n travel-agency \

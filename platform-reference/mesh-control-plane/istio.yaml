@@ -62,6 +62,32 @@ spec:
           opentelemetry:
             service: otel-collector.tracing-system.svc.cluster.local
             port: 4317
+      # O control plane so observa os namespaces que casam com ALGUM destes
+      # seletores. Sem eles, o istiod observa o cluster inteiro: medido em
+      # 2026-10-06 num cluster de turma, 276 namespaces para 97 necessarios.
+      #
+      # CUIDADO: namespace que nao casa some do mesh EM SILENCIO -- o Gateway
+      # nao programa, a rota fica sem backend. Os dois primeiros seletores
+      # acompanham rotulos que provision.sh, tenant.sh e o golden path ja
+      # poem; a lista de nomes e o ponto fragil, e e o que o preflight.sh
+      # confere (secao "Service Mesh leste-oeste").
+      #
+      # Para o modo ambient, 'istio-cni' e 'ztunnel' tem de entrar na lista.
+      discoverySelectors:
+        - matchLabels:
+            istio-injection: enabled
+        - matchExpressions:
+            - key: rhcl.demo/tenant
+              operator: Exists
+        - matchExpressions:
+            - key: kubernetes.io/metadata.name
+              operator: In
+              values:
+                - istio-system
+                - kuadrant-system
+                - tracing-system
+                - ingress-gateway
+                - echo-api
 ---
 apiVersion: sailoperator.io/v1
 kind: IstioCNI

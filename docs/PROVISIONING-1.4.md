@@ -259,6 +259,14 @@ EOF
 oc get gatewayclass    # istio  Accepted=True
 ```
 
+O arquivo do repositório ([platform-reference/mesh-control-plane/istio.yaml](../platform-reference/mesh-control-plane/istio.yaml))
+traz ainda `discoverySelectors`: o control plane só observa namespace com
+`istio-injection=enabled`, com o rótulo `rhcl.demo/tenant`, ou de uma lista
+curta de nomes. **Namespace que não casa some do mesh em silêncio** — Gateway
+que não programa, rota sem backend. O `preflight.sh` confere isso na seção
+"Service Mesh leste-oeste"; ao criar um namespace de plataforma novo que
+precise do mesh, rotule-o ou acrescente o nome à lista.
+
 > ⚠️ **Este heredoc não basta para o Ato 5.** Ele sobe o Service Mesh e registra a
 > `GatewayClass`, mas não declara o `extensionProvider` para onde o proxy manda
 > o span, nem a `Telemetry` que manda emitir. Com só isto, o Service Mesh funciona, o
