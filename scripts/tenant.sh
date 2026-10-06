@@ -42,6 +42,7 @@
 #   bash scripts/tenant.sh turma 30               # user1..user30, em lotes (LARGURA=4)
 #   bash scripts/tenant.sh isola user7            # fecha a rede e as rotas dele para os outros ('abre' desfaz)
 #   bash scripts/tenant.sh restringe user7        # EXPERIMENTO: o terminal dele sem leitura de cluster ('alarga' desfaz)
+#   bash scripts/tenant.sh chaves user7           # EXPERIMENTO: as chaves de API dele saem de kuadrant-system ('chaves-volta' desfaz)
 #   bash scripts/tenant.sh traces                 # cada um le o conteudo so dos proprios traces (reinicia o Tempo)
 #   bash scripts/tenant.sh lista                  # tenants no cluster
 set -uo pipefail
@@ -102,6 +103,30 @@ s{(/d/rhcl-(?:evidencia|negocio-planos|negocio-parceiros))(?![\w/?-])}{$1?var-am
 # a lista 'Parceiro' e consulta de VARIAVEL, que o filtro ad hoc nao alcanca:
 # o mesmo nome vai de novo, na variavel oculta que ela usa
 s{(/d/rhcl-negocio-parceiros\?var-ambiente=ambiente%7C%3D%7C\Q$t\E)(?![\w&])}{$1&var-tenant=$t}g;
+# CHAVES NO NAMESPACE DO PARTICIPANTE (CHAVES=1, ligado por 'tenant.sh chaves').
+# Sem isto as chaves de API de TODOS moram em kuadrant-system e cada
+# participante le e escreve nos Secrets de la. Com isto elas moram em
+# 'travel-agency-<tenant>', a AuthPolicy procura em todos os namespaces
+# (allNamespaces) e uma regra de admissao impede o rotulo de um servir a outro.
+# So muda o que e CHAVE DE PARCEIRO: o que o developer portal cunha
+# ('devportal.kuadrant.io/enforcement') continua em kuadrant-system, e la o
+# participante deixa de ler.
+if ($ENV{CHAVES}) {
+  my $kns = "travel-agency-$t";
+  # comandos (scripts, guia e as dicas impressas por eles)
+  s/(\boc\s+(?:get|delete|label|create|annotate|patch)\s+secrets?\b[^|;]*?-n\s+)kuadrant-system\b/$1$kns/g
+    unless m{devportal\.kuadrant\.io/enforcement};
+  s/(\bsecrets?\s+-n\s+)"\$KNS"(?=\s+-l\s+\x27app=partner)/$1$kns/g;
+  # tres lugares que guardam o namespace das chaves sem o comando ao lado
+  s/^(\s*local line ns=)kuadrant-system( sel)$/$1$kns$2/ if $ARGV =~ m{traffic\.sh$};
+  s/(\boc delete "\$_s" -n )kuadrant-system\b/$1$kns/ if $ARGV =~ m{golden-path-limpa\.sh$};
+  s/^NS="kuadrant-system"$/NS="$kns"/ if $ARGV =~ m{chave-vazada\.sh$};
+  # manifestos: os Secrets, o alvo do patch que os rotula, e as duas policies
+  s/^(\s*namespace:\s*)kuadrant-system(\s*)$/$1$kns$2/
+    if $ARGV =~ m{(?:base/identity/|env/[^/]+/kustomization\.yaml$|03-echo-exposta-chave\.yaml$)};
+  s/^(\s*allNamespaces:\s*)false\b/$1true/
+    if $ARGV =~ m{(?:travel-agency-authpolicy|bookings-grpc-policies)\.yaml$};
+}
 # SO NOS SCRIPTS (fora do conteudo): os Extras com laboratorio proprio criam e
 # apagam o namespace deles, e 'create namespace' e de cluster-admin. Projeto,
 # o participante pode pedir -- e quem pede vira admin dele, que e exatamente o
@@ -210,6 +235,13 @@ _valida_tenant() {
 # ---------------------------------------------------------------------------
 # render — a copia do repositorio com os nomes do tenant
 # ---------------------------------------------------------------------------
+# As chaves de API deste participante ja moram no namespace dele? Quem diz e o
+# cluster (um rotulo que 'tenant.sh chaves' poe), e nao um arquivo local: a
+# copia e o guia sao gerados de novo a cada 'showroom', de qualquer maquina.
+_chaves_no_tenant() { # <tenant>
+  [[ "$(oc get ns "travel-agency-${1}" -o jsonpath='{.metadata.labels.rhcl\.demo/chaves}' 2>/dev/null)" == "tenant" ]]
+}
+
 _render() { # <tenant> <destino>
   local t="$1" dest="$2" f rel novo
   command -v perl >/dev/null || _die "perl nao encontrado (a troca usa lookbehind, que o sed do macOS nao tem)."
@@ -233,7 +265,7 @@ _render() { # <tenant> <destino>
 
   # 1. conteudo. A ordem das regras importa: as chaves primeiro, porque a
   #    regra dos namespaces nao pode ver 'apikey-user7-...' como token novo.
-  find "$dest" -type f -print0 | TENANT="$t" ALT_NS="$alt_ns" ALT_HOST="$alt_host" xargs -0 perl -pi -e "$_PERL_TROCA" \
+  find "$dest" -type f -print0 | TENANT="$t" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" xargs -0 perl -pi -e "$_PERL_TROCA" \
     || _die "a troca de conteudo falhou"
 
   # 2. caminhos: arquivo ou diretorio cujo nome e o token. De baixo para cima,
@@ -783,7 +815,11 @@ _rbac() { # <tenant>
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-admin, namespace: %s}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: admin}\nsubjects:\n' "$ns"; _sujeitos
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-extra, namespace: %s}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-extra}\nsubjects:\n' "$ns"; _sujeitos
     done
-    printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-chaves}\nsubjects:\n' "$t"; _so_sa
+    # com as chaves no namespace dele ('tenant.sh chaves'), o participante nao
+    # escreve mais em kuadrant-system -- e este binding nao volta
+    if ! _chaves_no_tenant "$t"; then
+      printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-chaves}\nsubjects:\n' "$t"; _so_sa
+    fi
     for ns in $NS_PLATAFORMA; do
       oc get ns "$ns" >/dev/null 2>&1 || continue
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-leitura, namespace: %s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-leitura-plataforma}\nsubjects:\n' "$t" "$ns" "$ROTULO" "$t"; _so_sa
@@ -1257,7 +1293,7 @@ _showroom() { # <tenant> <dir da copia>
     # e, nele, um KeycloakRealmImport com o nome de outro participante -- com
     # '-A' a "senha" plantada iria parar no guia da vitima.
     oc get keycloakrealmimport -n "${KEYCLOAK_NS:-keycloak}" -o json 2>/dev/null || printf '{"items":[]}'
-  } | TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
+  } | TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
 import sys, json, os, re, base64
 t, dom = os.environ["TENANT"], os.environ["DOM"]
 objs, chaves, rotas, realms = sys.stdin.read().split("\x1e")
@@ -1354,7 +1390,7 @@ for o in itens:
             "name": "troca-conteudo", "image": term["image"],
             "env": [{"name": "TENANT", "value": t}, {"name": "ALT_NS", "value": os.environ["ALT_NS"]},
                     {"name": "ALT_HOST", "value": os.environ["ALT_HOST"]}, {"name": "PERL_TROCA", "value": os.environ["PERL_TROCA"]},
-                    {"name": "CONTEUDO", "value": "1"}, {"name": "VAZIOS", "value": "|".join(vazios)},
+                    {"name": "CONTEUDO", "value": "1"}, {"name": "CHAVES", "value": os.environ.get("CHAVES", "")}, {"name": "VAZIOS", "value": "|".join(vazios)},
                     {"name": "PERL_VAZIOS", "value": os.environ["PERL_VAZIOS"]}],
             "command": ["bash", "-c", "set -e; d=%s; n=$(find \"$d\" -name \"*.adoc\" | wc -l); [ \"$n\" -gt 0 ]; find \"$d\" -name \"*.adoc\" -print0 | xargs -0 perl -pi -e \"$PERL_TROCA\"; find \"$d\" -name \"*.adoc\" -print0 | VAZIOS=\"${VAZIOS:-__nenhum__}\" xargs -0 perl -0777 -pi -e \"$PERL_VAZIOS\"; echo \"troca aplicada a $n paginas; links sem destino: ${VAZIOS:-nenhum}\"" % repo[0]["mountPath"]],
             "volumeMounts": repo})
@@ -1543,6 +1579,224 @@ _lista() {
 }
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# chaves — as chaves de API de UM participante saem de kuadrant-system
+#
+# POR QUE ISTO EXISTE: as chaves da turma inteira moram em kuadrant-system,
+# porque e la que o Connectivity Link cria o AuthConfig e, sem 'allNamespaces',
+# o Authorino so procura chave no namespace dele. Para os scripts lerem a
+# chave, cada participante ganhou um papel sobre os Secrets de la -- TODOS os
+# Secrets. Escrever na chave do vizinho a admissao 'rhcl-tenant-chaves' ja
+# impede; LER, nao: medido no cluster-x2gsq em 2026-10-06, o terminal do
+# user29 le as 217 chaves, e chave lida e chave que entra na API do vizinho.
+#
+# O QUE MUDA, e as quatro pecas sao necessarias:
+#
+#   allNamespaces   a AuthPolicy dele passa a procurar chave em todos os
+#                   namespaces. Medido antes de escrever isto: chave no
+#                   namespace dele leva 401 sem o campo, e com ele 200, 200,
+#                   200 e depois 429 -- o plano 'free' segue valendo.
+#   as chaves       mudam de kuadrant-system para travel-agency-<tenant>.
+#   admissao        com 'allNamespaces' ligado, QUALQUER namespace pode
+#                   guardar uma chave valida para a API dele. A regra recusa a
+#                   chave de parceiro ('app: partner-userN') que nao esteja no
+#                   namespace de userN. Sem ela, este passo ABRE uma brecha em
+#                   vez de fechar uma.
+#   RBAC            ele perde o papel sobre os Secrets de kuadrant-system.
+#
+# O rotulo 'rhcl.demo/chaves=tenant' no namespace e o que avisa o 'render' e o
+# 'showroom': a copia e o guia dele passam a enderecar o namespace novo.
+# DEPOIS DESTE PASSO: bash scripts/tenant.sh showroom <tenant>.
+#
+# EXPERIMENTO, um participante de cada vez. 'chaves-volta' desfaz.
+# ---------------------------------------------------------------------------
+_admissao_chaves() {
+  # SO SECRET QUE O AUTHORINO ENXERGA. O objectSelector limita a regra aos
+  # Secrets com o rotulo 'authorino.kuadrant.io/managed-by' -- sem ele o
+  # Authorino ignora o Secret, entao nao ha chave fora da regra, e um erro de
+  # avaliacao aqui nao trava a escrita dos outros Secrets do cluster.
+  #
+  # O DONO DO NAMESPACE vem do rotulo e, na falta dele, de quem pediu o projeto
+  # -- nunca do nome. E a mesma leitura da admissao das rotas, pelo mesmo motivo.
+  #
+  # kuadrant-system FICA DE FORA, e de proposito: la ja vale a
+  # 'rhcl-tenant-chaves' (em 'plataforma'), que e por quem faz a chamada --
+  # o namespace nao tem dono. Esta e a outra metade: fora de la, a regra e
+  # pelo dono do namespace. O nome e outro para uma nao sobrescrever a outra
+  # (a primeira versao deste passo usava o mesmo nome; o dry-run de servidor
+  # respondeu 'configured' em vez de 'created', e foi o que denunciou).
+  #
+  # UPDATE e DELETE olham TAMBEM o objeto antigo: trocar o rotulo da chave de
+  # outro, ou apaga-la, e tao ruim quanto criar uma.
+  oc apply -f - >/dev/null <<'EOF' || _die "falha ao aplicar a admissao das chaves"
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: rhcl-tenant-chaves-dono
+  labels: {rhcl.demo/multitenant: "true"}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [secrets]
+    objectSelector:
+      matchExpressions:
+        - {key: authorino.kuadrant.io/managed-by, operator: Exists}
+  variables:
+    - name: pediu
+      expression: "has(namespaceObject.metadata.annotations) && 'openshift.io/requester' in namespaceObject.metadata.annotations ? namespaceObject.metadata.annotations['openshift.io/requester'] : ''"
+    - name: dono
+      expression: "has(namespaceObject.metadata.labels) && 'rhcl.demo/tenant' in namespaceObject.metadata.labels ? namespaceObject.metadata.labels['rhcl.demo/tenant'] : (variables.pediu.matches('^system:serviceaccount:showroom-user[0-9]{1,3}:showroom$') ? variables.pediu.split(':')[2].replace('showroom-', '') : (variables.pediu.matches('^user[0-9]{1,3}$') ? variables.pediu : ''))"
+    - name: novo
+      expression: "request.operation == 'DELETE' ? '' : (has(object.metadata.labels) && 'app' in object.metadata.labels && object.metadata.labels['app'].matches('^partner-user[0-9]{1,3}$') ? object.metadata.labels['app'].substring(8) : '')"
+    - name: velho
+      expression: "request.operation == 'CREATE' ? '' : (has(oldObject.metadata.labels) && 'app' in oldObject.metadata.labels && oldObject.metadata.labels['app'].matches('^partner-user[0-9]{1,3}$') ? oldObject.metadata.labels['app'].substring(8) : '')"
+  validations:
+    - expression: "variables.novo == '' || variables.novo == variables.dono"
+      message: "chave de parceiro de um participante so pode existir no namespace dele"
+    - expression: "variables.velho == '' || variables.velho == variables.dono"
+      message: "esta chave de parceiro e de outro participante"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: rhcl-tenant-chaves-dono
+  labels: {rhcl.demo/multitenant: "true"}
+spec:
+  policyName: rhcl-tenant-chaves-dono
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - {key: kubernetes.io/metadata.name, operator: NotIn, values: [kuadrant-system]}
+EOF
+}
+
+# Liga ou desliga 'allNamespaces' em toda autenticacao por chave das
+# AuthPolicies do participante. O caminho varia (rules, defaults, overrides) e
+# o nome da regra tambem, entao o patch e montado a partir do que esta la.
+_chaves_policies() { # <tenant> <true|false>
+  local t="$1" v="$2" ns nome patch
+  for ns in $(oc get ns -l "${ROTULO}=${t}" -o jsonpath='{.items[*].metadata.name}'); do
+    oc get authpolicy -n "$ns" -o json 2>/dev/null | VALOR="$v" python3 -c '
+import json, os, sys
+v = os.environ["VALOR"] == "true"
+for p in json.load(sys.stdin).get("items", []):
+    spec, patch = p.get("spec", {}), {}
+    for caminho in (("rules",), ("defaults", "rules"), ("overrides", "rules")):
+        no = spec
+        for c in caminho: no = (no or {}).get(c) or {}
+        alvo = {n: {"apiKey": {"allNamespaces": v}} for n, a in (no.get("authentication") or {}).items() if "apiKey" in a}
+        if not alvo: continue
+        d = patch
+        for c in caminho: d = d.setdefault(c, {})
+        d["authentication"] = alvo
+    if patch: print(p["metadata"]["name"] + "\t" + json.dumps({"spec": patch}))
+' | while IFS=$'\t' read -r nome patch; do
+      oc patch authpolicy "$nome" -n "$ns" --type=merge -p "$patch" >/dev/null \
+        || _die "nao consegui mudar allNamespaces em ${ns}/${nome}"
+      _ok "AuthPolicy ${ns}/${nome}: allNamespaces=${v}"
+    done
+  done
+}
+
+# Leva as chaves de parceiro do participante de um namespace para o outro.
+# Cria no destino ANTES de apagar na origem: nesse intervalo a mesma chave
+# existe duas vezes, o que e melhor do que nao existir.
+_chaves_move() { # <tenant> <de> <para> <espera em s antes de apagar a origem>
+  local t="$1" de="$2" para="$3" espera="$4" sel n m
+  sel="app=partner-${t},!devportal.kuadrant.io/enforcement"
+  n="$(oc get secret -n "$de" -l "$sel" --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+  [[ "$n" -gt 0 ]] || { _log "nenhuma chave de ${t} em ${de}"; return 0; }
+  oc get secret -n "$de" -l "$sel" -o json | PARA="$para" python3 -c '
+import json, os, sys
+d = json.load(sys.stdin)
+for s in d["items"]:
+    m = s["metadata"]
+    an = {k: v for k, v in (m.get("annotations") or {}).items() if "last-applied-configuration" not in k}
+    s["metadata"] = {"name": m["name"], "namespace": os.environ["PARA"], "labels": m.get("labels") or {}, "annotations": an}
+json.dump(d, sys.stdout)' | oc apply -f - >/dev/null || _die "nao consegui criar as chaves de ${t} em ${para}"
+  m="$(oc get secret -n "$para" -l "$sel" --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+  [[ "$m" -ge "$n" ]] || _die "so ${m} de ${n} chaves chegaram a ${para} -- nada foi apagado em ${de}"
+  sleep "$espera"
+  oc delete secret -n "$de" -l "$sel" >/dev/null || _die "as chaves foram copiadas para ${para}, mas nao sairam de ${de}"
+  _ok "${n} chave(s) de ${t}: de ${de} para ${para}"
+}
+
+# A prova: a chave gold que mora em <namespace> autentica na API do participante?
+_chaves_prova() { # <tenant> <namespace das chaves>
+  local t="$1" kns="$2" host chave c i
+  host="$(oc get httproute -n "travel-agency-${t}" -o jsonpath='{range .items[*]}{range .spec.hostnames[*]}{@}{"\n"}{end}{end}' 2>/dev/null | grep '^api-travels' | head -1)"
+  chave="$(oc get secrets -n "$kns" -l "app=partner-${t},kuadrant.io/plan-id=gold" -o jsonpath='{.items[0].data.api_key}' 2>/dev/null | base64 -d)"
+  [[ -n "$host" && -n "$chave" ]] || { _warn "sem hostname ou sem chave gold de ${t} em ${kns} -- a prova nao rodou"; return 1; }
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    c="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "https://${host}/travels/Rome?APIKEY=${chave}")"
+    [[ "$c" == "200" ]] && { _ok "a chave gold de ${kns} autentica em ${host} (HTTP 200)"; return 0; }
+    sleep 5
+  done
+  _warn "a chave gold de ${kns} nao autenticou em 60s (ultimo HTTP ${c})"; return 1
+}
+
+_chaves() { # <tenant>
+  local t="$1" ns="travel-agency-${1}" sa="system:serviceaccount:showroom-${1}:showroom"
+  _sec "chaves ${t}: as chaves de API dele saem de kuadrant-system (experimento)"
+  oc get ns "$ns" >/dev/null 2>&1 || _die "nao ha namespace ${ns}"
+  _admissao_chaves
+  _ok "admissao das chaves aplicada (vale para o cluster)"
+  _chaves_policies "$t" true
+  # 25s: o tempo medido para o Authorino passar a aceitar a chave do outro
+  # namespace depois de o campo mudar. So entao a origem e apagada.
+  _chaves_move "$t" kuadrant-system "$ns" 25
+  if ! _chaves_prova "$t" "$ns"; then
+    _die "a chave no namespace novo nao autenticou. Volte atras: bash scripts/tenant.sh chaves-volta ${t}"
+  fi
+  oc label ns "$ns" rhcl.demo/chaves=tenant --overwrite >/dev/null || _die "nao consegui marcar ${ns}"
+  # O papel de chaves carregava tambem o port-forward com que o traffic.sh le
+  # os contadores do Limitador. Ele fica, num papel so dele -- e fica como
+  # divida: os contadores sao da turma inteira (camada 7 do docs/ISOLAMENTO.md).
+  { cat <<'EOF'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rhcl-tenant-contadores
+  namespace: kuadrant-system
+  labels: {rhcl.demo/multitenant: "true"}
+rules:
+  - apiGroups: [""]
+    resources: [pods/portforward]
+    verbs: [create]
+EOF
+    printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-contadores, namespace: kuadrant-system, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-contadores}\nsubjects:\n  - {kind: ServiceAccount, name: showroom, namespace: showroom-%s}\n' "$t" "$ROTULO" "$t" "$t"
+  } | oc apply -f - >/dev/null || _die "nao consegui manter o port-forward do Limitador para ${t}"
+  oc delete rolebinding "rhcl-tenant-${t}" -n kuadrant-system --ignore-not-found >/dev/null
+  # can-i, e nao a leitura em si: aqui a resposta 'no' e o resultado esperado
+  [[ "$(oc auth can-i list secrets -n kuadrant-system --as="$sa" 2>/dev/null | head -1)" == "no" ]] \
+    || _die "${t} ainda lista Secrets em kuadrant-system -- ha outro binding dando isso"
+  [[ "$(oc auth can-i list secrets -n "$ns" --as="$sa" 2>/dev/null | head -1)" == "yes" ]] \
+    || _die "${t} nao le Secrets em ${ns} -- os scripts dele ficam sem chave"
+  _ok "${t} nao le mais os Secrets de kuadrant-system, e le os de ${ns}"
+  _log "falta levar a copia e o guia novos ao terminal dele:"
+  _log "  bash scripts/tenant.sh showroom ${t}"
+}
+
+_chaves_volta() { # <tenant> : desfaz o 'chaves'
+  local t="$1" ns="travel-agency-${1}"
+  _sec "chaves-volta ${t}: as chaves de API dele voltam para kuadrant-system"
+  oc label ns "$ns" rhcl.demo/chaves- >/dev/null 2>&1
+  _rbac "$t"
+  oc delete rolebinding "rhcl-tenant-${t}-contadores" -n kuadrant-system --ignore-not-found >/dev/null
+  # a origem (o namespace dele) so e apagada depois de a copia existir; com
+  # allNamespaces ainda ligado as duas valem, e nao ha janela sem chave
+  _chaves_move "$t" "$ns" kuadrant-system 5
+  _chaves_policies "$t" false
+  _chaves_prova "$t" kuadrant-system || _die "a chave em kuadrant-system nao autenticou depois da volta"
+  _log "a admissao das chaves fica: ela so recusa chave de um participante no namespace de outro"
+  _log "falta devolver a copia e o guia ao terminal dele: bash scripts/tenant.sh showroom ${t}"
+}
+
 case "${1:-}" in
   sobe)
     _valida_tenant "${2:-}"; _sobe "$2" "${3:-${_TDIR}/$2}"
@@ -1573,6 +1827,12 @@ case "${1:-}" in
     ;;
   rbac)
     _valida_tenant "${2:-}"; _rbac "$2"
+    ;;
+  chaves)
+    _valida_tenant "${2:-}"; _chaves "$2"
+    ;;
+  chaves-volta)
+    _valida_tenant "${2:-}"; _chaves_volta "$2"
     ;;
   confere-turma)
     _confere_turma

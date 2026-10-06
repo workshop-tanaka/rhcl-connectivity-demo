@@ -133,8 +133,34 @@ _api objetos "criar ConfigMap no namespace da vitima"     create configmap teste
 
 # ---------------------------------------------------------------------------
 _sec "chaves de API da vitima"
-_api chaves "ler as chaves de API da vitima"              get secrets -n kuadrant-system -l "app=partner-${V}"
+# Lista vazia nao e brecha: com as chaves da vitima no namespace dela
+# ('tenant.sh chaves'), o atacante que ainda le kuadrant-system nao acha
+# nenhuma la -- e o rc=0 do 'oc get' diria ABERTO.
+o="$(oc get secrets -n kuadrant-system -l "app=partner-${V}" -o name --as="$SA" $T 2>&1)"; rc=$?
+if [[ $rc -eq 0 && -n "$o" ]]; then _sai ABERTO chaves "ler as chaves de API da vitima" "$(printf '%s\n' "$o" | wc -l | tr -d ' ') chave(s) em kuadrant-system"
+elif [[ $rc -eq 0 ]]; then _sai BARRADO chaves "ler as chaves de API da vitima" "nenhuma em kuadrant-system (moram no namespace dela)"
+elif printf '%s' "$o" | grep -qi forbidden; then _sai BARRADO chaves "ler as chaves de API da vitima" "Forbidden"
+else _sai INDETERMINADO chaves "ler as chaves de API da vitima" "$(printf '%s' "$o" | head -1 | cut -c1-70)"; fi
 _api chaves "listar todos os Secrets de kuadrant-system"  get secrets -n kuadrant-system
+# Com 'allNamespaces' na AuthPolicy da vitima, uma chave com o rotulo dela vale
+# em QUALQUER namespace. O atacante tenta cunhar uma no proprio.
+_chave() { # <rotulo app>
+  cat <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-${A}-teste-de-isolamento
+  namespace: travel-agency-${A}
+  labels: {authorino.kuadrant.io/managed-by: authorino, app: $1, kuadrant.io/plan-id: gold}
+stringData: {api_key: teste-de-isolamento-nao-e-uma-chave}
+EOF
+}
+if _chave "partner-${A}" | oc create --dry-run=server --as="$SA" $T -f - >/dev/null 2>&1; then
+  [[ "$TSV" == "1" ]] || printf '    %scontrole%s      %-58s %s\n' "$_BLU" "$_RST" "o atacante cria chave DELE no proprio namespace" "passou"
+  _api chaves "cunhar, no namespace dele, chave com o rotulo da vitima" create --dry-run=server -f <(_chave "partner-${V}")
+else
+  _sai INDETERMINADO chaves "CONTROLE: o atacante cria chave dele no proprio namespace" "nao passou -- o teste de cunhagem nao vale"
+fi
 
 # ---------------------------------------------------------------------------
 _sec "leitura de cluster (o que da acesso a traces e metricas alheios)"
