@@ -221,13 +221,16 @@ só os destinos que as rotas dele referenciam. Aplicada no `Istio/default` do
 | o Gateway de um lista serviços de outro | sim | não |
 | tamanho da configuração | 2,65 MB | 0,16 MB |
 | memória do pod, depois de reiniciado | 319 MiB | 233 MiB |
+| memória dos 60 Gateways de participante, reiniciados | 19,2 GiB (320 MiB cada) | 13,8 GiB (236 MiB cada) |
+| memória de todos os proxies do mesh | 32,9 GiB | 28,5 GiB |
 
 Conferido depois do filtro, nos 30: `401` sem chave, `200` com chave e o
 fan-out; no `user29`, o `429` do plano `free` e o envio de traces pelo Gateway;
 o Gateway nativo, o egress gateway e o `preflight.sh core`. A queda de memória
-é menor que a dos sidecars, e o motivo do piso mais alto do Gateway não foi
-isolado (o proxy recém-reiniciado declara 66 MB em uso e 197 MB de heap; a
-suspeita é o módulo wasm do Connectivity Link). O bloco **proxy** do
+é menor que a dos sidecars porque o piso do Gateway é outro, e ele vem do
+Connectivity Link: o Gateway de saída da sonda, mesma classe e mesmo filtro mas
+sem policy presa, ficou em 33 MiB depois de reiniciado, contra 236 MiB dos que
+carregam o módulo wasm. Nenhuma configuração do mesh reduz esse piso. O bloco **proxy** do
 `isolamento.sh` lê os dois, o sidecar e o Gateway.
 
 O `Sidecar` é do namespace do participante, que tem `admin` ali: ele pode
