@@ -1723,21 +1723,39 @@ json.dump(d, sys.stdout)' | oc apply -f - >/dev/null || _die "nao consegui criar
   [[ "$m" -ge "$n" ]] || _die "so ${m} de ${n} chaves chegaram a ${para} -- nada foi apagado em ${de}"
   sleep "$espera"
   oc delete secret -n "$de" -l "$sel" >/dev/null || _die "as chaves foram copiadas para ${para}, mas nao sairam de ${de}"
+  # APAGAR A ORIGEM TIRA A CHAVE DO AUTHORINO, MESMO COM A COPIA DE PE. Ele
+  # indexa pelo VALOR: o evento de remocao da origem derruba o valor, e nada
+  # avisa que outro Secret ainda o carrega. Medido na primeira execucao: seis
+  # das sete chaves seguiram valendo e a 'blue' passou a levar 401, sem erro em
+  # lugar nenhum; um rotulo novo na copia a trouxe de volta em segundos. Por
+  # isso toda copia e tocada depois da remocao -- o evento de alteracao faz o
+  # Authorino ler de novo.
+  oc label secret -n "$para" -l "$sel" "rhcl.demo/reindexa=$(date +%s)" --overwrite >/dev/null \
+    || _warn "nao consegui tocar as chaves em ${para} -- alguma pode levar 401 ate ser alterada"
   _ok "${n} chave(s) de ${t}: de ${de} para ${para}"
 }
 
-# A prova: a chave gold que mora em <namespace> autentica na API do participante?
+# A prova: TODA chave de parceiro que mora em <namespace> autentica na API do
+# participante? Todas, e nao uma amostra: a primeira versao provava so a gold,
+# deu OK, e a 'blue' estava em 401. 429 conta como autenticada -- e o plano.
 _chaves_prova() { # <tenant> <namespace das chaves>
-  local t="$1" kns="$2" host chave c i
+  local t="$1" kns="$2" host n chave c i ruins
   host="$(oc get httproute -n "travel-agency-${t}" -o jsonpath='{range .items[*]}{range .spec.hostnames[*]}{@}{"\n"}{end}{end}' 2>/dev/null | grep '^api-travels' | head -1)"
-  chave="$(oc get secrets -n "$kns" -l "app=partner-${t},kuadrant.io/plan-id=gold" -o jsonpath='{.items[0].data.api_key}' 2>/dev/null | base64 -d)"
-  [[ -n "$host" && -n "$chave" ]] || { _warn "sem hostname ou sem chave gold de ${t} em ${kns} -- a prova nao rodou"; return 1; }
+  [[ -n "$host" ]] || { _warn "sem hostname da API de ${t} -- a prova nao rodou"; return 1; }
   for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
-    c="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "https://${host}/travels/Rome?APIKEY=${chave}")"
-    [[ "$c" == "200" ]] && { _ok "a chave gold de ${kns} autentica em ${host} (HTTP 200)"; return 0; }
+    ruins=""; n=0
+    while read -r chave nome; do
+      [[ -n "$chave" ]] || continue
+      n=$((n+1))
+      c="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "https://${host}/travels/Rome?APIKEY=$(printf '%s' "$chave" | base64 -d)")"
+      [[ "$c" == "200" || "$c" == "429" ]] || ruins="${ruins} ${nome}(${c})"
+    done < <(oc get secrets -n "$kns" -l "app=partner-${t},!devportal.kuadrant.io/enforcement" \
+               -o jsonpath='{range .items[*]}{.data.api_key}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+    [[ "$n" -gt 0 ]] || { _warn "nenhuma chave de ${t} em ${kns} -- a prova nao rodou"; return 1; }
+    [[ -z "$ruins" ]] && { _ok "as ${n} chaves de ${kns} autenticam em ${host}"; return 0; }
     sleep 5
   done
-  _warn "a chave gold de ${kns} nao autenticou em 60s (ultimo HTTP ${c})"; return 1
+  _warn "chave(s) que nao autenticaram em 60s:${ruins}"; return 1
 }
 
 _chaves() { # <tenant>
@@ -1751,7 +1769,7 @@ _chaves() { # <tenant>
   # namespace depois de o campo mudar. So entao a origem e apagada.
   _chaves_move "$t" kuadrant-system "$ns" 25
   if ! _chaves_prova "$t" "$ns"; then
-    _die "a chave no namespace novo nao autenticou. Volte atras: bash scripts/tenant.sh chaves-volta ${t}"
+    _die "ha chave que nao autentica no namespace novo. Volte atras: bash scripts/tenant.sh chaves-volta ${t}"
   fi
   oc label ns "$ns" rhcl.demo/chaves=tenant --overwrite >/dev/null || _die "nao consegui marcar ${ns}"
   # O papel de chaves carregava tambem o port-forward com que o traffic.sh le
@@ -1778,8 +1796,14 @@ EOF
   [[ "$(oc auth can-i list secrets -n "$ns" --as="$sa" 2>/dev/null | head -1)" == "yes" ]] \
     || _die "${t} nao le Secrets em ${ns} -- os scripts dele ficam sem chave"
   _ok "${t} nao le mais os Secrets de kuadrant-system, e le os de ${ns}"
+  # A COPIA LOCAL E GERADA DE NOVO AQUI. O 'showroom' leva ao terminal a copia
+  # que encontrar em disco, sem gerar outra -- e a que existe foi feita antes
+  # da marca, enderecando kuadrant-system. Medido na primeira execucao: o
+  # preflight do terminal fechou com "nenhum Secret com app: partner-user29".
+  _render "$t" "${_TDIR}/${t}"
   _log "falta levar a copia e o guia novos ao terminal dele:"
   _log "  bash scripts/tenant.sh showroom ${t}"
+  _log "o 'showroom' reaplica o RBAC: se ${t} estava com 'restringe', repita-o depois"
 }
 
 _chaves_volta() { # <tenant> : desfaz o 'chaves'
@@ -1792,8 +1816,9 @@ _chaves_volta() { # <tenant> : desfaz o 'chaves'
   # allNamespaces ainda ligado as duas valem, e nao ha janela sem chave
   _chaves_move "$t" "$ns" kuadrant-system 5
   _chaves_policies "$t" false
-  _chaves_prova "$t" kuadrant-system || _die "a chave em kuadrant-system nao autenticou depois da volta"
+  _chaves_prova "$t" kuadrant-system || _die "ha chave que nao autentica em kuadrant-system depois da volta"
   _log "a admissao das chaves fica: ela so recusa chave de um participante no namespace de outro"
+  _render "$t" "${_TDIR}/${t}"
   _log "falta devolver a copia e o guia ao terminal dele: bash scripts/tenant.sh showroom ${t}"
 }
 

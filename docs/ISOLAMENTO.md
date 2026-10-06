@@ -113,7 +113,7 @@ participantes.
 | 1 | O Gateway só aceita rotas do dono | `allowedRoutes` por seletor de namespace no listener; regra de admissão, válida para o cluster, que recusa a rota que aponta para Gateway ou hostname de outro participante | **medido** em dois participantes (`tenant.sh isola`) |
 | 2 | Rede fechada entre participantes | `NetworkPolicy` de entrada por namespace: só os namespaces do participante, o router e o monitoramento | **medido** em dois participantes (`tenant.sh isola`) |
 | 3 | Dois perfis | dois conjuntos de `RoleBinding` por participante, conforme a tabela da seção 3 | a construir |
-| 4 | Chaves no namespace de cada um | `allNamespaces: true` na `AuthPolicy` (o campo existe e o Authorino é de cluster); a regra de admissão impede usar o rótulo de outro participante | a testar |
+| 4 | Chaves no namespace de cada um | `allNamespaces: true` na `AuthPolicy`; as chaves em `travel-agency-<tenant>`; a regra de admissão `rhcl-tenant-chaves-dono` recusa a chave de parceiro fora do namespace do dono; o participante perde o papel sobre os Secrets de `kuadrant-system` | **medido** em um participante (`tenant.sh chaves`) |
 | 5 | Sem leitura de cluster no terminal | sai `rhcl-tenant-leitura` em escopo de cluster e o `cluster-monitoring-view`; os comandos com `-A` passam a olhar os namespaces do participante | padrão já usado no `preflight.sh` |
 | 6 | Traces | consequência da 5: o Tempo decide por `get namespace`, e o terminal deixa de ter isso nos alheios | conteúdo **medido**; a busca ainda devolve o nome do serviço alheio |
 | 7 | Métricas e painéis | porta de isolamento do Thanos (existe: `tenancy`, 9092); um Grafana por participante; um repasse por participante para as séries do Limitador, que nascem em `kuadrant-system` | a parte mais incerta |
@@ -129,6 +129,7 @@ participantes.
 | depois do `isola` nos dois | 8 | 10 |
 | depois do `restringe` no `user29` | 2 | 16 |
 | com as linhas de métrica e trace no teste (2026-10-06) | 5 | 18 |
+| depois do `chaves` no `user29` (o teste ganhou a tentativa de cunhar chave) | 3 | 21 |
 
 As quatro que fecharam: as duas chamadas por dentro do cluster (de `200` sem
 chave para sem resposta) e as duas de rota. As oito que restam são leituras, e
@@ -155,6 +156,21 @@ nunca do nome, que é forjável (o terminal do `user29` criou um projeto chamado
 `teste-iso-user28`). Com ela aplicada, os seis Extras de laboratório rodam como
 participante restrito; o `dns-nome.sh` segue pedindo `ClusterRole`, que é
 assunto da camada 8.
+
+A camada 4 (`tenant.sh chaves user29`) fechou as duas linhas das chaves. Três
+coisas que só a medição mostrou:
+
+- sem `allNamespaces` a chave no namespace do participante leva `401`; com ele,
+  `200 200 200` e depois `429` -- o plano continua valendo;
+- **apagar a chave de origem tira o valor do Authorino mesmo com a cópia de
+  pé.** Ele indexa pelo valor da chave; seis das sete seguiram valendo e a
+  `blue` passou a `401`, sem erro em lugar nenhum. Um rótulo novo na cópia a
+  trouxe de volta. O passo agora toca toda cópia depois da remoção e prova as
+  sete, não só a `gold` -- a primeira versão provava uma e deu OK;
+- o `showroom` leva ao terminal a cópia que estiver em disco e reaplica o RBAC:
+  o `chaves` gera a cópia de novo, e o `restringe` tem de ser repetido depois.
+
+Restam abertas as duas de métrica de plataforma e a busca de traces.
 
 Nada quebrou para o dono: a API responde `401` sem chave e `200` com chave, o
 `preflight.sh core` de dentro do terminal fecha em OK, e o monitoramento coleta
