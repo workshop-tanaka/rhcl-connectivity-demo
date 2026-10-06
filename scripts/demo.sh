@@ -1409,6 +1409,17 @@ step_trace() {
   _pause || return 0
 
   local base; base="$(_tempo_api)"
+  if [[ -z "$base" ]] && oc get svc tempo-tempo-gateway -n tracing-system >/dev/null 2>&1; then
+    # Tempo com 'query.rbac' (tenant.sh traces): a Jaeger UI e a rota dela nao
+    # coexistem com a protecao por participante, e os tres movimentos abaixo
+    # falam a API do Jaeger. O Tempo ESTA de pe -- o que falta e este passo
+    # ler pela API do proprio Tempo. Ate la, o passo e o da tela.
+    _log "neste cluster cada participante so ve os traces dos proprios namespaces;"
+    _log "a leitura pelo terminal deste passo depende da Jaeger UI, que nao existe"
+    _log "nesse desenho. Os mesmos tres movimentos, na tela:"
+    _log "  $(_traces_url)"
+    return 0
+  fi
   if [[ -z "$base" ]]; then
     _warn "sem rota do Tempo em tracing-system — o passo fica sem tela"
     _log  "platform-reference/tracing/ monta o Tempo; 'provision.sh tracing' aplica"

@@ -770,11 +770,48 @@ _sec "observabilidade (métrica de negócio e rastro)"
 # A métrica com o label 'plan' é o que sustenta o Ato 4. Se o TelemetryPolicy
 # não estiver rotulando, o Grafana só mostra agregado e o ato perde o ponto.
 _thanos="$(oc get route thanos-querier -n openshift-monitoring -o jsonpath='{.spec.host}' 2>/dev/null)"
-if [[ -n "$_thanos" ]]; then
-  _plans="$(curl -sk --max-time 10 -H "Authorization: Bearer $(oc whoami -t)" \
-             "https://${_thanos}/api/v1/query" \
-             --data-urlencode 'query=sum by (plan) (authorized_calls)' 2>/dev/null \
-           | python3 -c "
+
+# _prom <consulta> <namespace>: imprime o JSON da resposta.
+#   rc 0  respondeu      rc 3  leitura NEGADA      rc 1  sem resposta
+#
+# DOIS CAMINHOS, e o segundo existe por causa do modo de turma. A rota do
+# thanos-querier responde pelo cluster inteiro e pede leitura de cluster; o
+# terminal de um participante restrito ('tenant.sh restringe') nao tem, e leva
+# 403. Antes disto o 403 virava resposta vazia e a resposta vazia virava
+# "a metrica nao existe": quatro avisos falsos de uma vez, com as series la
+# (medido como user29 no cluster-x2gsq, 2026-10-05). A porta 9092 do mesmo
+# servico responde POR NAMESPACE e so pede leitura naquele namespace -- e ela
+# que o participante usa. So existe de dentro do cluster, que e onde o
+# terminal dele esta.
+#
+# E GET, NAO POST: na porta por namespace o POST e autorizado como 'create' e
+# o participante so tem 'get' (medido: POST 403, GET 200, mesma consulta).
+#
+# rc 3 e o que faz quem chama se ABSTER. Leitura negada nao e ausencia.
+_PROM_TOK="$(oc whoami -t 2>/dev/null)"
+_prom() {
+  local q="$1" ns="$2" o c c1=""
+  if [[ -n "$_thanos" ]]; then
+    o="$(curl -skG --max-time 10 -w '\n%{http_code}' -H "Authorization: Bearer ${_PROM_TOK}" \
+          "https://${_thanos}/api/v1/query" --data-urlencode "query=${q}" 2>/dev/null)"
+    c1="${o##*$'\n'}"
+    [[ "$c1" == "200" ]] && { printf '%s' "${o%$'\n'*}"; return 0; }
+  fi
+  o="$(curl -skG --max-time 10 -w '\n%{http_code}' -H "Authorization: Bearer ${_PROM_TOK}" \
+        "https://thanos-querier.openshift-monitoring.svc:9092/api/v1/query?namespace=${ns}" \
+        --data-urlencode "query=${q}" 2>/dev/null)"
+  c="${o##*$'\n'}"
+  [[ "$c" == "200" ]] && { printf '%s' "${o%$'\n'*}"; return 0; }
+  [[ "$c" == "401" || "$c" == "403" || "$c1" == "401" || "$c1" == "403" ]] && return 3
+  return 1
+}
+
+# 'authorized_calls' e do Limitador, entao o namespace e o da plataforma.
+_plans="$(_prom 'sum by (plan) (authorized_calls)' kuadrant-system)"; _prc=$?
+if [[ $_prc -eq 3 ]]; then
+  _nota "metrica por plano: nao conferida (sem leitura de metrica daqui)"
+elif [[ $_prc -eq 0 ]]; then
+  _plans="$(printf '%s' "$_plans" | python3 -c "
 import json,sys
 try: d=json.load(sys.stdin)
 except Exception: sys.exit()
@@ -786,8 +823,10 @@ print(' '.join(sorted(r['metric']['plan'] for r in d.get('data',{}).get('result'
     _warn "métrica 'authorized_calls' sem label 'plan' no Thanos" \
           "gere tráfego (bash scripts/traffic.sh tiers) e reexecute; a coleta leva ~30s"
   fi
-else
+elif [[ -z "$_thanos" ]]; then
   _warn "route do thanos-querier não encontrada" "a métrica de negócio via Grafana pode não funcionar"
+else
+  _warn "o Thanos não respondeu" "oc get pods -n openshift-monitoring -l app.kubernetes.io/name=thanos-query"
 fi
 
 # Dashboards do Grafana. Os tres de fabrica (Business User, App Developer,
@@ -800,11 +839,11 @@ fi
 # (o 'rhcl-negocio-planos' em si tem checagem propria mais abaixo, incluindo sync)
 _dashlist="$(oc get grafanadashboards -n monitoring -o jsonpath='{range .items[*]}{.metadata.name}{" "}{end}' 2>/dev/null)"
 if [[ "$_dashlist" == *business-user* || "$_dashlist" == *platform-engineer* || "$_dashlist" == *app-developer* ]]; then
-  if [[ -n "$_thanos" ]]; then
-    _gapi="$(curl -sk --max-time 10 -H "Authorization: Bearer $(oc whoami -t)" \
-              "https://${_thanos}/api/v1/query" \
-              --data-urlencode 'query=count(gatewayapi_httproute_labels)' 2>/dev/null \
-            | python3 -c "
+  _gapi="$(_prom 'count(gatewayapi_httproute_labels)' monitoring)"; _prc=$?
+  if [[ $_prc -eq 3 ]]; then
+    _nota "dashboards de fabrica: metrica nao conferida (sem leitura de metrica daqui)"
+  elif [[ $_prc -eq 0 ]]; then
+    _gapi="$(printf '%s' "$_gapi" | python3 -c "
 import json,sys
 try: d=json.load(sys.stdin); r=d.get('data',{}).get('result',[])
 except Exception: r=[]
@@ -854,6 +893,13 @@ for r in "grafana-route:monitoring:Grafana" "kiali:istio-system:Kiali" "tempo-te
   done
   if [[ -n "$_h" ]]; then
     _ok "${_label}: https://${_h}"
+  elif [[ "$_ns" == "tracing-system" ]] && oc get svc tempo-tempo-gateway -n tracing-system >/dev/null 2>&1 \
+       && oc get consoleplugin distributed-tracing-console-plugin >/dev/null 2>&1; then
+    # TERCEIRO DESENHO: Tempo com 'query.rbac' (tenant.sh traces). A Jaeger UI
+    # e a rota dela NAO coexistem com ele -- o operator recusa as duas juntas --
+    # entao rota ausente aqui e o estado correto, e a tela e a do console, que
+    # mostra a cada um so os traces dos proprios namespaces.
+    _ok "${_label}: sem rota, de proposito (traces por participante) -- a tela e Observe > Traces no console"
   else
     _warn "${_label}: route ausente em ${_ns}" "o passo correspondente fica sem tela"
   fi
@@ -958,11 +1004,12 @@ fi
 
 # Kiali conectado com grafo vazio é pior do que erro na tela: no palco lê-se como
 # "não há tráfego". Sem PodMonitor nada raspa os proxies e não existe série istio_*.
-if [[ -n "$_thanos" ]]; then
-  _istio="$(curl -sk --max-time 10 -H "Authorization: Bearer $(oc whoami -t)" \
-             "https://${_thanos}/api/v1/query" \
-             --data-urlencode 'query=count(istio_requests_total)' 2>/dev/null \
-           | python3 -c "
+# O namespace e o do Gateway: e onde o participante sempre tem serie propria.
+_istio="$(_prom 'count(istio_requests_total)' ingress-gateway)"; _prc=$?
+if [[ $_prc -eq 3 ]]; then
+  _nota "series 'istio_*': nao conferidas (sem leitura de metrica daqui)"
+elif [[ $_prc -eq 0 ]]; then
+  _istio="$(printf '%s' "$_istio" | python3 -c "
 import json,sys
 try: d=json.load(sys.stdin)
 except Exception: sys.exit()
@@ -1085,7 +1132,24 @@ else
   _tempo="$(oc get route tracing-ui -n tracing-system -o jsonpath='{.spec.host}' 2>/dev/null)"
   [[ -n "$_tempo" ]] && _tempo_url="https://${_tempo}/api/services"
 fi
-if [[ -z "$_tempo" ]]; then
+if [[ -z "$_tempo" ]] && oc get svc tempo-tempo-gateway -n tracing-system >/dev/null 2>&1; then
+  # Tempo com 'query.rbac': sem rota nenhuma, a consulta e pela API do proprio
+  # Tempo (TraceQL), no Service do gateway -- que so resolve de DENTRO do
+  # cluster. Do terminal do participante funciona; de fora nao ha como
+  # perguntar, e nao ha como perguntar nao e "sem traces".
+  _agora="$(date +%s)"
+  _svcs="$(curl -skG --max-time 20 -H "Authorization: Bearer $(oc whoami -t)" \
+            "https://tempo-tempo-gateway.tracing-system.svc:8080/api/traces/v1/${TEMPO_TENANT:-dev}/tempo/api/search" \
+            --data-urlencode 'q={resource.service.name=~"prod-web-istio.*"}' \
+            --data-urlencode limit=5 --data-urlencode "start=$((_agora-3600))" --data-urlencode "end=$((_agora+60))" 2>/dev/null)"
+  if grep -q 'ingress-gateway' <<< "$_svcs"; then
+    _ok "Tempo tem traces do gateway (o caminho rastreável)"
+  elif [[ -z "$_svcs" ]]; then
+    _nota "Tempo sem rota (traces por participante): so responde de dentro do cluster -- nao conferido daqui"
+  else
+    _warn "Tempo sem traces do prod-web na ultima hora" "gere tráfego e aguarde ~30s"
+  fi
+elif [[ -z "$_tempo" ]]; then
   _warn "route do Tempo não encontrada em tracing-system" \
         "o rastro fica sem tela — platform-reference/tracing/tempo-monolithic.yaml"
 else
@@ -1110,11 +1174,11 @@ fi
 # uma, a serie continua existindo -- so que sem o rotulo, ou com ele vazio. O
 # dashboard rhcl-negocio-parceiros abre com uma linha so, chamada 'unknown', e isso se
 # le como "todo mundo e o mesmo cliente".
-if [[ -n "$_thanos" ]]; then
-  _part="$(curl -sk --max-time 10 -H "Authorization: Bearer $(oc whoami -t)" \
-             "https://${_thanos}/api/v1/query" \
-             --data-urlencode 'query=count(count by (partner) (istio_requests_total{partner!="",partner!="unknown"}))' 2>/dev/null \
-           | python3 -c "
+_part="$(_prom 'count(count by (partner) (istio_requests_total{partner!="",partner!="unknown"}))' ingress-gateway)"; _prc=$?
+if [[ $_prc -eq 3 ]]; then
+  _nota "dimensao 'partner': nao conferida (sem leitura de metrica daqui)"
+elif [[ $_prc -eq 0 ]]; then
+  _part="$(printf '%s' "$_part" | python3 -c "
 import json,sys
 try: d=json.load(sys.stdin)
 except Exception: sys.exit()
@@ -1241,7 +1305,11 @@ if [[ "$_plugins" == *'"kuadrant-console-plugin"'* ]]; then
     # -o em vez de -c: o jsonpath concatena sem newline, e 'grep -c' conta LINHA
     # -- com duas chaves falhando reportaria 1.
     _kfail="$(oc get apikey -A -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Failed")].status}{"\n"}{end}' 2>/dev/null | grep -c '^True$')"
-    if [[ -z "$_prod" ]]; then
+    if [[ -z "$_prod" ]] && ! oc auth can-i list apiproducts.devportal.kuadrant.io --all-namespaces >/dev/null 2>&1; then
+      # LEITURA NEGADA NAO E AUSENCIA: o participante restrito nao lista
+      # APIProduct no cluster, e a lista vazia anunciava as abas como vazias.
+      _nota "APIProduct: nao conferidos (sem leitura de apiproduct no cluster)"
+    elif [[ -z "$_prod" ]]; then
       _warn "developer portal ligado, mas sem APIProduct — as 3 abas de API Catalog abrem vazias" \
             "oc apply -k env/rhcl-1.4_ocp-4.21/devportal"
     elif [[ "${_kfail:-0}" -gt 0 ]]; then
