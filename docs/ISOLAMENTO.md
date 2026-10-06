@@ -115,7 +115,7 @@ participantes.
 | 3 | Dois perfis | dois conjuntos de `RoleBinding` por participante, conforme a tabela da seção 3 | a construir |
 | 4 | Chaves no namespace de cada um | `allNamespaces: true` na `AuthPolicy` (o campo existe e o Authorino é de cluster); a regra de admissão impede usar o rótulo de outro participante | a testar |
 | 5 | Sem leitura de cluster no terminal | sai `rhcl-tenant-leitura` em escopo de cluster e o `cluster-monitoring-view`; os comandos com `-A` passam a olhar os namespaces do participante | padrão já usado no `preflight.sh` |
-| 6 | Traces | consequência da 5: o Tempo decide por `get namespace`, e o terminal deixa de ter isso nos alheios | o lado da pessoa já está medido |
+| 6 | Traces | consequência da 5: o Tempo decide por `get namespace`, e o terminal deixa de ter isso nos alheios | conteúdo **medido**; a busca ainda devolve o nome do serviço alheio |
 | 7 | Métricas e painéis | porta de isolamento do Thanos (existe: `tenancy`, 9092); um Grafana por participante; um repasse por participante para as séries do Limitador, que nascem em `kuadrant-system` | a parte mais incerta |
 | 8 | Limites de consumo | `ResourceQuota` por participante (pods, Gateways, policies); namespaces de laboratório pré-criados, sem `self-provisioner` | a construir |
 
@@ -127,11 +127,34 @@ participantes.
 | --- | --- | --- |
 | antes | 12 | 6 |
 | depois do `isola` nos dois | 8 | 10 |
+| depois do `restringe` no `user29` | 2 | 16 |
+| com as linhas de métrica e trace no teste (2026-10-06) | 5 | 18 |
 
 As quatro que fecharam: as duas chamadas por dentro do cluster (de `200` sem
 chave para sem resposta) e as duas de rota. As oito que restam são leituras, e
 pertencem às camadas 4 e 5: rotas, policies e Gateway do outro, chaves de API
 e leitura de cluster.
+
+O `restringe` (camada 5) fechou as seis leituras; ficaram as duas das chaves
+de API. O teste ganhou então cinco linhas que ele não fazia, e três delas
+nasceram abertas -- não são brechas novas, são brechas que o teste não via:
+
+- pela porta por namespace do Thanos, o terminal restrito lê as séries de
+  `kuadrant-system` (o consumo da turma inteira, por plano) e as de
+  `monitoring` (as rotas de todos). As séries dos namespaces do outro
+  participante estão barradas. A origem é a leitura que o `restringe` mantém
+  nos namespaces de plataforma, a mesma das chaves; fecham com as camadas 4 e 7;
+- a busca de traces devolve os traces do outro participante com o nome do
+  serviço. O conteúdo segue protegido (0 de 21 atributos), mas a existência e
+  o nome vazam. O `query.rbac` do Tempo protege atributo, não resultado de
+  busca; a camada 6 não fecha isto como está descrita.
+
+A admissão da camada 1 foi reescrita depois da primeira medição: o dono do
+namespace vem do rótulo e, sem ele, da anotação `openshift.io/requester` --
+nunca do nome, que é forjável (o terminal do `user29` criou um projeto chamado
+`teste-iso-user28`). Com ela aplicada, os seis Extras de laboratório rodam como
+participante restrito; o `dns-nome.sh` segue pedindo `ClusterRole`, que é
+assunto da camada 8.
 
 Nada quebrou para o dono: a API responde `401` sem chave e `200` com chave, o
 `preflight.sh core` de dentro do terminal fecha em OK, e o monitoramento coleta

@@ -21,7 +21,8 @@
 # de passar. Sem o controle, uma rede fora do ar pareceria isolamento perfeito.
 #
 # NAO GRAVA NADA: as escritas sao 'dry-run' de servidor, que passam por RBAC e
-# admissao e param antes de persistir.
+# admissao e param antes de persistir. As perguntas de metrica e de trace
+# pedem um token de dez minutos do terminal de cada um, e so leem.
 #
 # Uso (com sessao de admin no cluster -- ele personifica o atacante):
 #   bash scripts/isolamento.sh <atacante> <vitima>      # ex.: user29 user28
@@ -140,6 +141,70 @@ _sec "leitura de cluster (o que da acesso a traces e metricas alheios)"
 _api cluster "ler o namespace da vitima (o Tempo decide por isto)" get namespace "travel-agency-${V}"
 _api cluster "listar as rotas do cluster inteiro"                   get httproute -A
 _api cluster "listar namespaces"                                    get namespaces
+
+# ---------------------------------------------------------------------------
+# METRICAS E TRACES: os dois so se perguntam de DENTRO do cluster (a porta por
+# namespace do Thanos e o Service do Tempo nao tem rota), entao a pergunta sai
+# do pod da aplicacao de cada um, com um token de dez minutos do terminal
+# dele. O token entra pela entrada padrao, para nao ficar na linha de comando.
+# Pedir o token nao grava objeto nenhum no cluster.
+_de_dentro() { # <user> <url> [args do curl...]  ->  corpo, e o codigo HTTP na ultima linha
+  local u="$1" pod tok; shift
+  pod="$(oc get pods -n "travel-agency-${u}" $T --no-headers 2>/dev/null | awk '/^travels-/ && $3=="Running"{print $1; exit}')"
+  tok="$(oc create token showroom -n "showroom-${u}" --duration=10m $T 2>/dev/null)"
+  [[ -n "$pod" && -n "$tok" ]] || { printf '\n000'; return; }
+  printf '%s\n' "$tok" | oc exec -i -n "travel-agency-${u}" "$pod" $T -- \
+    sh -c 'read -r K; exec curl -skG -m 20 -w "\n%{http_code}" -H "Authorization: Bearer $K" "$@"' sh "$@" 2>/dev/null
+}
+_cod() { printf '%s' "$1" | tail -n 1 | tr -d '\r'; }
+_PROM="https://thanos-querier.openshift-monitoring.svc:9092/api/v1/query"
+
+_sec "metricas: consultar as series da vitima e as da plataforma"
+r="$(_de_dentro "$A" "${_PROM}?namespace=ingress-gateway-${A}" --data-urlencode 'query=count(istio_requests_total)')"
+if [[ "$(_cod "$r")" != "200" ]]; then
+  _sai INDETERMINADO metricas "CONTROLE: o atacante consulta as proprias series" "HTTP $(_cod "$r") -- os testes de metrica nao valem"
+else
+  [[ "$TSV" == "1" ]] || printf '    %scontrole%s      %-58s %s\n' "$_BLU" "$_RST" "o atacante consulta as proprias series" "HTTP 200"
+  _metrica() { # <tentativa> <namespace> <consulta>
+    local c; c="$(_cod "$(_de_dentro "$A" "${_PROM}?namespace=$2" --data-urlencode "query=$3")")"
+    case "$c" in
+      200)     _sai ABERTO        metricas "$1" "HTTP 200" ;;
+      401|403) _sai BARRADO       metricas "$1" "HTTP $c" ;;
+      *)       _sai INDETERMINADO metricas "$1" "HTTP ${c:-sem resposta}" ;;
+    esac
+  }
+  _metrica "series do Gateway da vitima"                  "ingress-gateway-${V}" 'count(istio_requests_total)'
+  _metrica "series da aplicacao da vitima"                "travel-agency-${V}"   'count(istio_requests_total)'
+  _metrica "consumo da turma inteira (kuadrant-system)"   "kuadrant-system"      'count(authorized_calls)'
+  _metrica "series de 'monitoring' (rotas de todos)"      "monitoring"           'count(gatewayapi_httproute_labels)'
+fi
+
+_sec "traces: buscar os traces da vitima"
+# A busca devolve o NOME do servico mesmo quando o conteudo esta protegido, e
+# o nome leva o participante. Por isso conta-se trace devolvido, nao atributo.
+_agora="$(date +%s)"
+_traces() { # <quem pergunta> <de quem>  ->  "codigo quantidade"
+  _de_dentro "$1" "https://tempo-tempo-gateway.tracing-system.svc:8080/api/traces/v1/${TEMPO_TENANT:-dev}/tempo/api/search" \
+      --data-urlencode "q={resource.service.name=~\".*-$2\"}" --data-urlencode limit=5 \
+      --data-urlencode "start=$((_agora-86400))" --data-urlencode "end=$((_agora+60))" \
+    | python3 -c '
+import sys, json
+corpo, _, cod = sys.stdin.read().rpartition("\n")
+try: n = len(json.loads(corpo).get("traces") or [])
+except Exception: n = -1
+print(cod.strip() or "000", n)'
+}
+read -r c n <<< "$(_traces "$V" "$V")"
+if [[ "$c" != "200" || "$n" -lt 1 ]]; then
+  # sem trace da vitima para achar, "nao achou" nao prova protecao
+  _sai INDETERMINADO traces "CONTROLE: a vitima acha os proprios traces (24h)" "HTTP ${c}, ${n} trace(s) -- gere trafego nela e repita"
+else
+  [[ "$TSV" == "1" ]] || printf '    %scontrole%s      %-58s %s\n' "$_BLU" "$_RST" "a vitima acha os proprios traces (24h)" "${n} trace(s)"
+  read -r c n <<< "$(_traces "$A" "$V")"
+  if   [[ "$c" == "200" && "$n" -ge 1 ]]; then _sai ABERTO  traces "o atacante busca os traces da vitima" "${n} trace(s) devolvido(s)"
+  elif [[ "$c" == "200" || "$c" == "401" || "$c" == "403" ]]; then _sai BARRADO traces "o atacante busca os traces da vitima" "HTTP ${c}, 0 trace"
+  else _sai INDETERMINADO traces "o atacante busca os traces da vitima" "HTTP ${c}"; fi
+fi
 
 # ---------------------------------------------------------------------------
 if [[ "$TSV" == "1" ]]; then
