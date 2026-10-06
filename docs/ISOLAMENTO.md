@@ -196,8 +196,9 @@ plane entrega a cada proxy os serviços do mesh **inteiro**. O sidecar do
 `user29` carregava 588 destinos, 540 de outros participantes, com nome, porta e
 endereço de cada serviço. O participante lê isso do próprio pod.
 
-`tenant.sh escopo <userN>` aplica um recurso `Sidecar` no namespace de
-aplicação dele, restringindo o que os proxies dali recebem ao próprio
+`tenant.sh escopo <userN>` aplica um recurso `Sidecar` em **cada namespace
+dele** (não só no da aplicação: um pod com sidecar num namespace de laboratório
+receberia o mesh inteiro do mesmo jeito), restringindo o que os proxies dali recebem ao próprio
 namespace, aos outros namespaces dele, a `istio-system` e a `tracing-system`.
 Aplicado aos 30 no `cluster-x2gsq`:
 

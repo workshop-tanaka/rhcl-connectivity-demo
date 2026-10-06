@@ -238,12 +238,17 @@ _sec "proxy: o que o sidecar do atacante sabe sobre a vitima"
 # que um recurso Sidecar restrinja. Medido em 2026-10-06: o proxy do user29
 # listava 588 destinos, 540 de outros participantes -- nome, porta e endereco
 # de cada servico de cada um. O participante le isso do proprio pod.
-_destinos() { # <padrao>  ->  quantos destinos do sidecar casam
-  oc exec -n "travel-agency-${A}" "$POD" -c istio-proxy $T -- pilot-agent request GET clusters 2>/dev/null \
-    | grep -oE '^outbound\|[0-9]+\|[^|]*\|[^:]+' | sort -u | grep -cE "$1"
-}
+# UMA leitura so, e as duas contagens saem dela. Com duas chamadas, a segunda
+# falhando devolveria 0 destino da vitima e o teste diria BARRADO -- a falha
+# aberta que este script existe para nao ter.
+_DEST=""
+[[ -n "$POD" ]] && _DEST="$(oc exec -n "travel-agency-${A}" "$POD" -c istio-proxy $T -- pilot-agent request GET clusters 2>/dev/null \
+                             | grep -oE '^outbound\|[0-9]+\|[^|]*\|[^:]+' | sort -u)"
+_destinos() { printf '%s\n' "$_DEST" | grep -cE "$1"; }
 if [[ -z "$POD" ]]; then
   _sai INDETERMINADO proxy "sidecar de origem em travel-agency-${A}" "nenhum pod 'travels' Running"
+elif [[ -z "$_DEST" ]]; then
+  _sai INDETERMINADO proxy "ler a configuracao do sidecar do atacante" "a leitura voltou vazia -- o teste de proxy nao vale"
 else
   ctl="$(_destinos "\\.travel-agency-${A}\\.svc")"
   if [[ "${ctl:-0}" -lt 1 ]]; then
@@ -251,7 +256,8 @@ else
   else
     [[ "$TSV" == "1" ]] || printf '    %scontrole%s      %-58s %s\n' "$_BLU" "$_RST" "o sidecar lista os servicos do proprio atacante" "${ctl} destino(s)"
     n="$(_destinos "-${V}\\.svc")"
-    if [[ "${n:-0}" -eq 0 ]]; then _sai BARRADO proxy "o sidecar do atacante lista servicos da vitima" "0 destino"
+    if   [[ ! "$n" =~ ^[0-9]+$ ]]; then _sai INDETERMINADO proxy "o sidecar do atacante lista servicos da vitima" "contagem invalida"
+    elif [[ "$n" -eq 0 ]];         then _sai BARRADO proxy "o sidecar do atacante lista servicos da vitima" "0 de $(printf '%s\n' "$_DEST" | wc -l | tr -d ' ') destino(s)"
     else _sai ABERTO proxy "o sidecar do atacante lista servicos da vitima" "${n} destino(s)"; fi
   fi
 fi

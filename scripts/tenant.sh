@@ -1080,8 +1080,18 @@ _abre() { # <tenant> : desfaz o 'isola'
 # A MEMORIA SO CAI NO PROXIMO REINICIO do pod: o Envoy para de receber a
 # configuracao na hora, mas nao devolve o que ja alocou.
 #
-# O QUE ELE NAO ALCANCA: os Gateways. Sidecar nao se aplica a Gateway, e os
-# dois de cada participante seguem com a turma inteira na configuracao.
+# O QUE ELE NAO ALCANCA, e sao duas coisas:
+#
+#   os Gateways    Sidecar nao se aplica a Gateway, e os dois de cada
+#                  participante seguem com a turma inteira na configuracao.
+#   o proprio dono o Sidecar mora em namespace onde o participante e 'admin':
+#                  ele pode apaga-lo ou alarga-lo, e volta a ver os outros.
+#                  Isto REDUZ o que ele ve por padrao; nao e barreira contra
+#                  ele ate a admissao proteger o objeto (docs/ISOLAMENTO.md).
+#
+# EM TODOS OS NAMESPACES DELE, nao so no da aplicacao: um pod com sidecar num
+# namespace de laboratorio do mesmo participante receberia o mesh inteiro do
+# mesmo jeito. Onde nao ha sidecar o objeto e inerte.
 #
 # A LISTA E FEITA NA HORA, dos namespaces que levam o rotulo dele. Namespace
 # de laboratorio criado DEPOIS nao entra: quem chamar um servico la a partir
@@ -1089,34 +1099,46 @@ _abre() { # <tenant> : desfaz o 'isola'
 # refaz a lista.
 # ---------------------------------------------------------------------------
 _escopo() { # <tenant>
-  local t="$1" ns="travel-agency-$1" nss hosts n pod antes depois i cod
+  local t="$1" ns="travel-agency-$1" nss pod antes depois i cod
   _sec "escopo ${t}: o sidecar dele so conhece o que e dele"
   oc get ns "$ns" >/dev/null 2>&1 || _die "nao existe o namespace ${ns} -- o participante existe? (tenant.sh lista)"
   nss="$(oc get ns -l "${ROTULO}=${t}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)"
-  hosts='        - "./*"'$'\n''        - "istio-system/*"'$'\n''        - "tracing-system/*"'
-  for n in $nss; do [[ "$n" == "$ns" ]] || hosts="${hosts}"$'\n'"        - \"${n}/*\""; done
   pod="$(oc get pods -n "$ns" --no-headers 2>/dev/null | awk '/^travels-/ && $3=="Running"{print $1; exit}')"
   _conta() { oc exec -n "$ns" "$pod" -c istio-proxy -- pilot-agent request GET clusters 2>/dev/null \
                | grep -oE '^outbound\|[0-9]+\|[^|]*\|[^:]+' | sort -u | wc -l | tr -d ' '; }
   [[ -n "$pod" ]] && antes="$(_conta)" || antes="?"
-  oc apply -f - >/dev/null <<EOF || _die "falha ao aplicar o Sidecar em ${ns}"
+  local alvo outros o
+  [[ -n "$nss" ]] || _die "nenhum namespace com o rotulo ${ROTULO}=${t}"
+  for alvo in $nss; do
+    # a lista e a mesma em todos, escrita do ponto de vista de cada um: './*'
+    # e o proprio, e os demais do participante entram pelo nome
+    outros=""
+    for o in $nss; do [[ "$o" == "$alvo" ]] || outros="${outros}"$'\n'"        - \"${o}/*\""; done
+    oc apply -f - >/dev/null <<EOF || _die "falha ao aplicar o Sidecar em ${alvo}"
 apiVersion: networking.istio.io/v1
 kind: Sidecar
 metadata:
   name: default
-  namespace: ${ns}
+  namespace: ${alvo}
   labels: {${ROTULO}: ${t}}
 spec:
   egress:
     - hosts:
-${hosts}
+        - "./*"
+        - "istio-system/*"
+        - "tracing-system/*"${outros}
 EOF
-  _ok "Sidecar em ${ns}: o proprio namespace, os outros de ${t}, istio-system e tracing-system"
+  done
+  _ok "Sidecar em: ${nss}"
+  _log "cada um conhece o proprio namespace, os outros de ${t}, istio-system e tracing-system"
   if [[ -n "$pod" ]]; then
     # o control plane leva alguns segundos para reenviar; sem esperar, a
     # contagem de 'depois' seria a de 'antes' e o passo pareceria nao ter efeito
+    # (so se espera quando ha o que mudar: abaixo de 100 destinos o escopo ja
+    # estava de pe, e repetir o passo nao deve custar um minuto por participante)
     i=0; depois="$antes"
-    while [[ "$i" -lt 20 ]]; do depois="$(_conta)"; [[ "$depois" != "$antes" ]] && break; sleep 3; i=$((i+1)); done
+    while [[ "$antes" =~ ^[0-9]+$ && "$antes" -ge 100 && "$i" -lt 20 ]]; do depois="$(_conta)"; [[ "$depois" != "$antes" ]] && break; sleep 3; i=$((i+1)); done
+    [[ "$depois" == "$antes" ]] && depois="$(_conta)"
     _ok "destinos no sidecar de 'travels': ${antes} -> ${depois}"
   else
     _warn "nenhum pod 'travels' Running em ${ns} -- nao deu para contar os destinos"
@@ -1136,8 +1158,11 @@ EOF
 _escopo_volta() { # <tenant> : desfaz o 'escopo'
   local t="$1"
   _sec "escopo-volta ${t}: o sidecar dele volta a receber o mesh inteiro"
-  oc delete sidecar.networking.istio.io default -n "travel-agency-${t}" --ignore-not-found >/dev/null
-  _ok "${t}: Sidecar removido de travel-agency-${t}"
+  local ns
+  for ns in $(oc get ns -l "${ROTULO}=${t}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    oc delete sidecar.networking.istio.io default -n "$ns" --ignore-not-found >/dev/null
+  done
+  _ok "${t}: Sidecar removido dos namespaces dele"
 }
 
 # ---------------------------------------------------------------------------
