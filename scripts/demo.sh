@@ -299,9 +299,7 @@ _checa_mesh_base() { # ato7/canario/resiliencia/falha: o estado que base/mesh de
 _checa_traces_fanout() { # trace: ha trace do travels (fan-out) na ultima hora?
   local base tok n
   base="$(_tempo_api)"; [[ -n "$base" ]] || return 0
-  tok="$(oc whoami -t 2>/dev/null)"
-  n="$(curl -sk --max-time 15 -H "Authorization: Bearer ${tok}" \
-        "${base}/traces?service=travels.travel-agency&lookback=1h&limit=5" 2>/dev/null \
+  n="$(_tempo_get "$base" travels.travel-agency 5 1h \
       | python3 -c 'import sys,json; print(len(json.load(sys.stdin).get("data") or []))' 2>/dev/null)"
   [[ -n "$n" ]] || return 0
   if [[ "$n" -eq 0 ]]; then
@@ -1392,7 +1390,63 @@ _tempo_api() { # imprime a URL base da API de traces, ou vazio
   h="$(_route tempo-tempo-jaegerui tracing-system)"
   if [[ -n "$h" ]]; then printf 'https://%s/api/traces/v1/%s/api' "$h" "${TEMPO_TENANT:-dev}"; return; fi
   h="$(_route tracing-ui tracing-system)"
-  [[ -n "$h" ]] && printf 'https://%s/api' "$h"
+  [[ -n "$h" ]] && { printf 'https://%s/api' "$h"; return; }
+  # TERCEIRO DESENHO: Tempo com 'query.rbac' (tenant.sh traces), em que cada
+  # participante so le os traces dos proprios namespaces. A Jaeger UI e a rota
+  # dela nao coexistem com isso -- o operator recusa -- e nao sobra rota
+  # nenhuma: a leitura e pela API do proprio Tempo, no Service do gateway, que
+  # so resolve de DENTRO do cluster. O prefixo 'tempo:' marca o dialeto.
+  oc get svc tempo-tempo-gateway -n tracing-system >/dev/null 2>&1 \
+    && printf 'tempo:https://tempo-tempo-gateway.tracing-system.svc:8080/api/traces/v1/%s/tempo/api' "${TEMPO_TENANT:-dev}"
+}
+
+# Os traces de um servico, SEMPRE no formato do Jaeger ({"data":[...]}), para
+# que os leitores abaixo nao precisem saber qual dos tres desenhos responde.
+# No dialeto do Tempo sao duas idas: a busca (TraceQL) devolve os IDs, e cada
+# trace vem inteiro em OTLP -- convertido aqui para o que os leitores esperam
+# (duracao em microssegundos, 'span.kind' como tag, processo por servico).
+# Sem resposta, imprime vazio: quem chama decide o que isso significa.
+_tempo_get() { # <base> <servico> <limite> [1h]
+  local base="$1" svc="$2" lim="$3" jan="${4:-}" tok; tok="$(oc whoami -t 2>/dev/null)"
+  if [[ "$base" != tempo:* ]]; then
+    curl -sk --max-time 30 -H "Authorization: Bearer ${tok}" \
+      "${base}/traces?service=${svc}${jan:+&lookback=${jan}}&limit=${lim}" 2>/dev/null
+    return
+  fi
+  TOK="$tok" python3 - "${base#tempo:}" "$svc" "$lim" "${jan:+3600}" <<'PY' 2>/dev/null
+import json, os, ssl, sys, time, urllib.parse, urllib.request
+base, svc, lim, jan = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4] or 21600)
+ctx = ssl._create_unverified_context()
+def get(url):
+    r = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['TOK']})
+    return json.load(urllib.request.urlopen(r, timeout=20, context=ctx))
+agora = int(time.time())
+q = urllib.parse.urlencode({'q': '{resource.service.name="%s"}' % svc, 'limit': lim,
+                            'start': agora - jan, 'end': agora + 60})
+try:
+    achados = get(base + '/search?' + q).get('traces') or []
+except Exception:
+    sys.exit(0)
+saida = []
+for a in achados:
+    try: t = get(base + '/traces/' + a['traceID'])
+    except Exception: continue
+    lotes = t.get('batches') or t.get('resourceSpans') or (t.get('trace') or {}).get('resourceSpans') or []
+    procs, spans = {}, []
+    for i, b in enumerate(lotes):
+        nome = next((x['value'].get('stringValue') for x in (b.get('resource') or {}).get('attributes', [])
+                     if x['key'] == 'service.name'), None)
+        pid = 'p%d' % i
+        procs[pid] = {'serviceName': nome or '?'}
+        for ss in b.get('scopeSpans') or b.get('instrumentationLibrarySpans') or []:
+            for sp in ss.get('spans', []):
+                dur = (int(sp.get('endTimeUnixNano', 0)) - int(sp.get('startTimeUnixNano', 0))) // 1000
+                kind = str(sp.get('kind', '')).replace('SPAN_KIND_', '').lower()
+                spans.append({'processID': pid, 'duration': dur,
+                              'tags': [{'key': 'span.kind', 'value': kind}]})
+    saida.append({'processes': procs, 'spans': spans})
+print(json.dumps({'data': saida}))
+PY
 }
 
 step_trace() {
@@ -1409,23 +1463,20 @@ step_trace() {
   _pause || return 0
 
   local base; base="$(_tempo_api)"
-  if [[ -z "$base" ]] && oc get svc tempo-tempo-gateway -n tracing-system >/dev/null 2>&1; then
-    # Tempo com 'query.rbac' (tenant.sh traces): a Jaeger UI e a rota dela nao
-    # coexistem com a protecao por participante, e os tres movimentos abaixo
-    # falam a API do Jaeger. O Tempo ESTA de pe -- o que falta e este passo
-    # ler pela API do proprio Tempo. Ate la, o passo e o da tela.
-    _log "neste cluster cada participante so ve os traces dos proprios namespaces;"
-    _log "a leitura pelo terminal deste passo depende da Jaeger UI, que nao existe"
-    _log "nesse desenho. Os mesmos tres movimentos, na tela:"
-    _log "  $(_traces_url)"
-    return 0
-  fi
   if [[ -z "$base" ]]; then
     _warn "sem rota do Tempo em tracing-system — o passo fica sem tela"
     _log  "platform-reference/tracing/ monta o Tempo; 'provision.sh tracing' aplica"
     return 0
   fi
-  local tok; tok="$(oc whoami -t 2>/dev/null || true)"
+  if [[ "$base" == tempo:* && -z "$(_tempo_get "$base" prod-web-istio.ingress-gateway 1)" ]]; then
+    # O Tempo ESTA de pe; e este terminal que nao o alcanca. Sem rota, a API
+    # so responde de dentro do cluster -- do terminal do participante.
+    _log "neste cluster os traces sao protegidos por participante e o Tempo nao tem"
+    _log "rota: a leitura deste passo so funciona de DENTRO do cluster (o terminal"
+    _log "do guia). Os mesmos tres movimentos, na tela:"
+    _log "  $(_traces_url)"
+    return 0
+  fi
   local api gold; api="$(_api_host)"; gold="$(_key_of gold)"
 
   _why "1. Meia duzia de chamadas limpas, para ter o que olhar."
@@ -1437,18 +1488,24 @@ step_trace() {
 
   _why "2. O mesmo salto, visto das duas pontas:"
   _pause || return 0
+  local TRJ; TRJ="$(_tempo_get "$base" prod-web-istio.ingress-gateway 12)"; export TRJ
   _do_as "os spans pai e filho de cada requisicao, e a diferenca" \
-    bash -c "curl -sk --max-time 30 -H 'Authorization: Bearer ${tok}' '${base}/traces?service=prod-web-istio.ingress-gateway&limit=12' 2>/dev/null | python3 -c \"
+    bash -c "printf '%s' \"\$TRJ\" | python3 -c \"
 import sys, json
 d = json.load(sys.stdin)
 pares = []
 for t in (d.get('data') or []):
     procs = {k: v.get('serviceName') for k, v in (t.get('processes') or {}).items()}
+    # o par e o do PRIMEIRO salto: o span cliente do Gateway e o span servidor
+    # do travels. O trace inteiro tem outros pares (travels -> hotels), e
+    # pegar 'o ultimo de cada tipo' casava a borda com o salto errado quando
+    # a ordem dos spans mudava -- a diferenca saia negativa.
     cli = srv = None
     for sp in t.get('spans', []):
         kind = next((x['value'] for x in sp.get('tags', []) if x['key'] == 'span.kind'), None)
-        if kind == 'client': cli = sp
-        elif kind == 'server': srv = sp
+        dono = procs.get(sp.get('processID')) or ''
+        if kind == 'client' and dono.startswith('prod-web-istio'): cli = sp
+        elif kind == 'server' and dono.startswith('travels.'): srv = sp
     if cli and srv:
         pares.append((cli.get('duration',0)/1000.0, srv.get('duration',0)/1000.0))
 if not pares:
@@ -1475,8 +1532,9 @@ else:
 
   _why "3. E agora a parte que quase ninguem mostra: ONDE a visibilidade acaba."
   _pause || return 0
+  TRJ="$(_tempo_get "$base" travels.travel-agency 12)"
   _do_as "quantos servicos cada trace do travels alcanca" \
-    bash -c "curl -sk --max-time 30 -H 'Authorization: Bearer ${tok}' '${base}/traces?service=travels.travel-agency&limit=12' 2>/dev/null | python3 -c \"
+    bash -c "printf '%s' \"\$TRJ\" | python3 -c \"
 import sys, json
 from collections import Counter
 d = json.load(sys.stdin)
