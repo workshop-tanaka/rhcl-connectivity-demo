@@ -858,6 +858,17 @@ _admissao_rotas() {
   # As duas primeiras protegem o recurso; a terceira fecha o que sobra para
   # quem age como participante. Rota do instrutor, sem sufixo, passa direto.
   #
+  # O DONO DO NAMESPACE VEM DO ROTULO E, NA FALTA DELE, DO NOME. Os Extras com
+  # laboratorio proprio (contextos, listas, prefixos, tokens de IA, DNS) criam
+  # o projeto na hora, e projeto pedido pelo participante nasce SEM o rotulo de
+  # tenant. Exigindo o rotulo, a regra 1 recusava a rota do laboratorio no
+  # Gateway do proprio laboratorio: os cinco quebraram para os trinta
+  # participantes assim que a admissao entrou (medido rodando os comandos do
+  # guia como user29, 2026-10-05). O nome nao e prova de posse -- qualquer um
+  # pede um projeto 'x-user28' -- e nao precisa ser: quem age como participante
+  # ja esta preso aos proprios Gateways pela regra 3, e o Gateway de cada um so
+  # aceita namespace com o ROTULO dele (allowedRoutes).
+  #
   # O CAMPO E 'p.namespace', E NAO SO 'p.__namespace__'. A primeira versao
   # usava a forma escapada (a das regras de CRD), e nesta admissao o objeto
   # chega sem tipo: 'has(p.__namespace__)' era sempre falso, a regra caia no
@@ -881,7 +892,7 @@ spec:
         resources: [httproutes, grpcroutes]
   variables:
     - name: dono
-      expression: "has(namespaceObject.metadata.labels) && 'rhcl.demo/tenant' in namespaceObject.metadata.labels ? namespaceObject.metadata.labels['rhcl.demo/tenant'] : ''"
+      expression: "has(namespaceObject.metadata.labels) && 'rhcl.demo/tenant' in namespaceObject.metadata.labels ? namespaceObject.metadata.labels['rhcl.demo/tenant'] : (object.metadata.namespace.matches('-user[0-9]{1,3}$') ? object.metadata.namespace.substring(object.metadata.namespace.lastIndexOf('-') + 1) : '')"
     - name: ator
       expression: "request.userInfo.username.matches('^system:serviceaccount:showroom-user[0-9]{1,3}:showroom$') ? request.userInfo.username.split(':')[2].replace('showroom-', '') : (request.userInfo.username.matches('^user[0-9]{1,3}$') ? request.userInfo.username : '')"
     - name: gateways
