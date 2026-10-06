@@ -22,7 +22,8 @@
 #
 # NAO GRAVA NADA: as escritas sao 'dry-run' de servidor, que passam por RBAC e
 # admissao e param antes de persistir. As perguntas de metrica e de trace
-# pedem um token de dez minutos do terminal de cada um, e so leem.
+# pedem um token de dez minutos do terminal de cada um, e so leem. A de proxy
+# le a configuracao do sidecar do proprio atacante.
 #
 # Uso (com sessao de admin no cluster -- ele personifica o atacante):
 #   bash scripts/isolamento.sh <atacante> <vitima>      # ex.: user29 user28
@@ -230,6 +231,29 @@ else
   if   [[ "$c" == "200" && "$n" -ge 1 ]]; then _sai ABERTO  traces "o atacante busca os traces da vitima" "${n} trace(s) devolvido(s)"
   elif [[ "$c" == "200" || "$c" == "401" || "$c" == "403" ]]; then _sai BARRADO traces "o atacante busca os traces da vitima" "HTTP ${c}, 0 trace"
   else _sai INDETERMINADO traces "o atacante busca os traces da vitima" "HTTP ${c}"; fi
+fi
+
+_sec "proxy: o que o sidecar do atacante sabe sobre a vitima"
+# O control plane entrega a cada sidecar os servicos do mesh INTEIRO, a menos
+# que um recurso Sidecar restrinja. Medido em 2026-10-06: o proxy do user29
+# listava 588 destinos, 540 de outros participantes -- nome, porta e endereco
+# de cada servico de cada um. O participante le isso do proprio pod.
+_destinos() { # <padrao>  ->  quantos destinos do sidecar casam
+  oc exec -n "travel-agency-${A}" "$POD" -c istio-proxy $T -- pilot-agent request GET clusters 2>/dev/null \
+    | grep -oE '^outbound\|[0-9]+\|[^|]*\|[^:]+' | sort -u | grep -cE "$1"
+}
+if [[ -z "$POD" ]]; then
+  _sai INDETERMINADO proxy "sidecar de origem em travel-agency-${A}" "nenhum pod 'travels' Running"
+else
+  ctl="$(_destinos "\\.travel-agency-${A}\\.svc")"
+  if [[ "${ctl:-0}" -lt 1 ]]; then
+    _sai INDETERMINADO proxy "CONTROLE: o sidecar lista os servicos do proprio atacante" "${ctl:-0} destino(s) -- o teste de proxy nao vale"
+  else
+    [[ "$TSV" == "1" ]] || printf '    %scontrole%s      %-58s %s\n' "$_BLU" "$_RST" "o sidecar lista os servicos do proprio atacante" "${ctl} destino(s)"
+    n="$(_destinos "-${V}\\.svc")"
+    if [[ "${n:-0}" -eq 0 ]]; then _sai BARRADO proxy "o sidecar do atacante lista servicos da vitima" "0 destino"
+    else _sai ABERTO proxy "o sidecar do atacante lista servicos da vitima" "${n} destino(s)"; fi
+  fi
 fi
 
 # ---------------------------------------------------------------------------

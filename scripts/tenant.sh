@@ -41,6 +41,7 @@
 #   bash scripts/tenant.sh showroom user7         # o guia e o terminal dele, com a copia dentro
 #   bash scripts/tenant.sh turma 30               # user1..user30, em lotes (LARGURA=4)
 #   bash scripts/tenant.sh isola user7            # fecha a rede e as rotas dele para os outros ('abre' desfaz)
+#   bash scripts/tenant.sh escopo user7           # o sidecar dele so conhece o que e dele ('escopo-volta' desfaz)
 #   bash scripts/tenant.sh restringe user7        # EXPERIMENTO: o terminal dele sem leitura de cluster ('alarga' desfaz)
 #   bash scripts/tenant.sh chaves user7           # EXPERIMENTO: as chaves de API dele saem de kuadrant-system ('chaves-volta' desfaz)
 #   bash scripts/tenant.sh traces                 # cada um le o conteudo so dos proprios traces (reinicia o Tempo)
@@ -1055,6 +1056,91 @@ _abre() { # <tenant> : desfaz o 'isola'
 }
 
 # ---------------------------------------------------------------------------
+# escopo — o sidecar de UM participante so recebe o que e dele
+#
+# POR QUE ISTO EXISTE: medido em 2026-10-06 no cluster-x2gsq, com 30
+# participantes. O control plane entrega a cada proxy os servicos do mesh
+# inteiro, e isso custa duas vezes:
+#
+#   memoria      316 proxies somavam 63,5 GiB, ~200 MiB cada. O sidecar do
+#                user29 carregava 588 destinos, 540 de OUTROS participantes, e
+#                um config_dump de 4 MB. A cada mudanca de qualquer um, o
+#                istiod reenviava para todos (o HPA dele ia a 5 replicas).
+#   isolamento   o participante le a configuracao do proprio sidecar, e nela
+#                estavam nome, porta e endereco dos servicos de todos.
+#
+# O recurso Sidecar diz ao control plane o que os proxies de um namespace
+# precisam conhecer. Medido no travel-agency-user29, antes e depois:
+#
+#   destinos no proxy ............... 588 -> 25
+#   servicos do user28 visiveis ..... sim -> nenhum
+#   memoria de um sidecar novo ...... 164-175 MiB -> 40 MiB
+#   API dele com chave .............. 200 -> 200
+#
+# A MEMORIA SO CAI NO PROXIMO REINICIO do pod: o Envoy para de receber a
+# configuracao na hora, mas nao devolve o que ja alocou.
+#
+# O QUE ELE NAO ALCANCA: os Gateways. Sidecar nao se aplica a Gateway, e os
+# dois de cada participante seguem com a turma inteira na configuracao.
+#
+# A LISTA E FEITA NA HORA, dos namespaces que levam o rotulo dele. Namespace
+# de laboratorio criado DEPOIS nao entra: quem chamar um servico la a partir
+# da aplicacao sai pelo PassthroughCluster, sem mTLS de origem. Rodar de novo
+# refaz a lista.
+# ---------------------------------------------------------------------------
+_escopo() { # <tenant>
+  local t="$1" ns="travel-agency-$1" nss hosts n pod antes depois i cod
+  _sec "escopo ${t}: o sidecar dele so conhece o que e dele"
+  oc get ns "$ns" >/dev/null 2>&1 || _die "nao existe o namespace ${ns} -- o participante existe? (tenant.sh lista)"
+  nss="$(oc get ns -l "${ROTULO}=${t}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)"
+  hosts='        - "./*"'$'\n''        - "istio-system/*"'$'\n''        - "tracing-system/*"'
+  for n in $nss; do [[ "$n" == "$ns" ]] || hosts="${hosts}"$'\n'"        - \"${n}/*\""; done
+  pod="$(oc get pods -n "$ns" --no-headers 2>/dev/null | awk '/^travels-/ && $3=="Running"{print $1; exit}')"
+  _conta() { oc exec -n "$ns" "$pod" -c istio-proxy -- pilot-agent request GET clusters 2>/dev/null \
+               | grep -oE '^outbound\|[0-9]+\|[^|]*\|[^:]+' | sort -u | wc -l | tr -d ' '; }
+  [[ -n "$pod" ]] && antes="$(_conta)" || antes="?"
+  oc apply -f - >/dev/null <<EOF || _die "falha ao aplicar o Sidecar em ${ns}"
+apiVersion: networking.istio.io/v1
+kind: Sidecar
+metadata:
+  name: default
+  namespace: ${ns}
+  labels: {${ROTULO}: ${t}}
+spec:
+  egress:
+    - hosts:
+${hosts}
+EOF
+  _ok "Sidecar em ${ns}: o proprio namespace, os outros de ${t}, istio-system e tracing-system"
+  if [[ -n "$pod" ]]; then
+    # o control plane leva alguns segundos para reenviar; sem esperar, a
+    # contagem de 'depois' seria a de 'antes' e o passo pareceria nao ter efeito
+    i=0; depois="$antes"
+    while [[ "$i" -lt 20 ]]; do depois="$(_conta)"; [[ "$depois" != "$antes" ]] && break; sleep 3; i=$((i+1)); done
+    _ok "destinos no sidecar de 'travels': ${antes} -> ${depois}"
+  else
+    _warn "nenhum pod 'travels' Running em ${ns} -- nao deu para contar os destinos"
+  fi
+  # A aplicacao continua falando consigo mesma? E o caminho que passa pelo
+  # sidecar: 'travels' chama 'flights' no proprio namespace. (O 401 da borda
+  # nao serviria: ele sai do Authorino, antes de chegar a qualquer sidecar.)
+  if [[ -n "$pod" ]]; then
+    cod="$(oc exec -n "$ns" "$pod" -- curl -s -m 15 -o /dev/null -w '%{http_code}' "http://flights.${ns}:8000/flights/Amsterdam" 2>/dev/null | tr -d '\r' | tail -c 3)"
+    [[ "$cod" == 200 ]] && _ok "'travels' segue alcancando 'flights' pelo sidecar (200)" \
+      || _warn "'travels' -> 'flights' devolveu ${cod:-nada} (esperado 200) -- desfaca com: tenant.sh escopo-volta ${t}"
+  fi
+  _log "a memoria cai quando os pods reiniciarem: oc rollout restart deploy -n ${ns}"
+  _log "confira: bash scripts/isolamento.sh ${t} <outro>   (bloco 'proxy')"
+}
+
+_escopo_volta() { # <tenant> : desfaz o 'escopo'
+  local t="$1"
+  _sec "escopo-volta ${t}: o sidecar dele volta a receber o mesh inteiro"
+  oc delete sidecar.networking.istio.io default -n "travel-agency-${t}" --ignore-not-found >/dev/null
+  _ok "${t}: Sidecar removido de travel-agency-${t}"
+}
+
+# ---------------------------------------------------------------------------
 # restringe — o terminal de UM participante sem leitura de cluster (experimento)
 #
 # POR QUE ISTO EXISTE: depois do 'isola', sobram 8 tentativas abertas no
@@ -1843,6 +1929,12 @@ case "${1:-}" in
     ;;
   abre)
     _valida_tenant "${2:-}"; _abre "$2"
+    ;;
+  escopo)
+    _valida_tenant "${2:-}"; _escopo "$2"
+    ;;
+  escopo-volta)
+    _valida_tenant "${2:-}"; _escopo_volta "$2"
     ;;
   restringe)
     _valida_tenant "${2:-}"; _restringe "$2"

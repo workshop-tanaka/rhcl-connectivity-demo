@@ -189,6 +189,36 @@ tipo de regra nunca existe, e aprovava tudo; e a conferência de rotas do
 `isola` exigia `Accepted` de uma entrada de status que é do Connectivity Link,
 não do Gateway, e reprovava rotas aceitas.
 
+### O que o sidecar de cada um sabia dos outros (2026-10-06)
+
+Fora das oito camadas, e achado por acaso ao medir o custo do mesh: o control
+plane entrega a cada proxy os serviços do mesh **inteiro**. O sidecar do
+`user29` carregava 588 destinos, 540 de outros participantes, com nome, porta e
+endereço de cada serviço. O participante lê isso do próprio pod.
+
+`tenant.sh escopo <userN>` aplica um recurso `Sidecar` no namespace de
+aplicação dele, restringindo o que os proxies dali recebem ao próprio
+namespace, aos outros namespaces dele, a `istio-system` e a `tracing-system`.
+Aplicado aos 30 no `cluster-x2gsq`:
+
+| Medida | Antes | Depois |
+| --- | --- | --- |
+| destinos no sidecar | 588 | 34 |
+| o sidecar de um lista serviços de outro | sim | não (`isolamento.sh`, bloco **proxy**) |
+| memória dos 240 sidecars de aplicação | 38,4 GiB (164 MiB cada) | 10,4 GiB (44 MiB cada) |
+| memória de todos os proxies do mesh | 60,8 GiB | 32,9 GiB |
+
+A memória só cai depois de reiniciar os pods. O que o `Sidecar` **não** alcança
+são os Gateways: os 60 dos participantes seguem com a turma inteira na
+configuração, 19,2 GiB no total, e continuam listando os serviços de todos.
+O `Sidecar` é do namespace do participante, que tem `admin` ali: ele pode
+apagá-lo. Isso devolve a **ele** a visão dos outros, então é uma brecha de
+leitura a fechar por admissão quando a camada 3 separar os perfis.
+
+Os `discoverySelectors` do `Istio/default`, aplicados no mesmo dia, são outra
+coisa: decidem o que o control plane observa (187 de 276 namespaces), não o
+que cada proxy recebe.
+
 ## 6. Como os perfis chegam ao participante
 
 - **Terminal.** O guia já tem duas abas, que são sessões separadas. Uma vira
