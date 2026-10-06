@@ -287,6 +287,23 @@ else
   fi
 fi
 
+# O atacante contra o PROPRIO escopo: o Sidecar mora num namespace onde ele e
+# 'admin'. Apagando-o, ou criando outro com workloadSelector (que vence o do
+# namespace), ele voltaria a receber o mesh inteiro. Quem recusa e a admissao
+# 'rhcl-tenant-escopo'. Sem o Sidecar de pe nao ha o que proteger, e a linha
+# acima ja acusa.
+if oc get sidecar.networking.istio.io default -n "travel-agency-${A}" $T >/dev/null 2>&1; then
+  _api proxy "o atacante apaga o Sidecar do proprio namespace" \
+    delete sidecar.networking.istio.io default -n "travel-agency-${A}" --dry-run=server
+  o="$(printf 'apiVersion: networking.istio.io/v1\nkind: Sidecar\nmetadata: {name: teste-iso, namespace: travel-agency-%s}\nspec:\n  workloadSelector: {labels: {app: travels}}\n  egress: [{hosts: ["*/*"]}]\n' "$A" \
+        | oc create --dry-run=server --as="$SA" $T -f - 2>&1)"; rc=$?
+  if   [[ $rc -eq 0 ]]; then _sai ABERTO proxy "o atacante cria um Sidecar que alarga a propria visao" "passou"
+  elif printf '%s' "$o" | grep -qiE 'forbidden|denied|ValidatingAdmissionPolicy'; then _sai BARRADO proxy "o atacante cria um Sidecar que alarga a propria visao" "recusado na admissao"
+  else _sai INDETERMINADO proxy "o atacante cria um Sidecar que alarga a propria visao" "$(printf '%s' "$o" | head -1 | cut -c1-70)"; fi
+else
+  _sai INDETERMINADO proxy "Sidecar 'default' em travel-agency-${A}" "nao existe -- rode: tenant.sh escopo ${A}"
+fi
+
 # ---------------------------------------------------------------------------
 if [[ "$TSV" == "1" ]]; then
   printf 'RESUMO\t-\tabertos=%d barrados=%d indeterminados=%d\t%s contra %s\n' "$N_ABERTO" "$N_BARRADO" "$N_INDET" "$A" "$V"

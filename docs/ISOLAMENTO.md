@@ -233,9 +233,16 @@ sem policy presa, ficou em 33 MiB depois de reiniciado, contra 236 MiB dos que
 carregam o módulo wasm. Nenhuma configuração do mesh reduz esse piso. O bloco **proxy** do
 `isolamento.sh` lê os dois, o sidecar e o Gateway.
 
-O `Sidecar` é do namespace do participante, que tem `admin` ali: ele pode
-apagá-lo. Isso devolve a **ele** a visão dos outros, então é uma brecha de
-leitura a fechar por admissão quando a camada 3 separar os perfis.
+O `Sidecar` é do namespace do participante, que tem `admin` ali: sem mais nada
+ele o apagaria, ou criaria um segundo com `workloadSelector` (que vence o do
+namespace), e voltaria a receber o mesh inteiro. A admissão
+`rhcl-tenant-escopo`, que o `tenant.sh escopo` aplica uma vez para o cluster,
+recusa as duas coisas: em namespace de participante, `Sidecar` só é criado,
+alterado ou apagado por quem pode alterar o `Istio/default`. Medido com o
+`isolamento.sh` no `user29`: as duas tentativas davam `ABERTO` antes da
+admissão e `BARRADO` depois, também pela identidade pessoal dele; o admin
+segue alterando, e um namespace de participante com `Sidecar` dentro é apagado
+normalmente (a regra abre exceção para namespace em remoção).
 
 Os `discoverySelectors` do `Istio/default`, aplicados no mesmo dia, são outra
 coisa: decidem o que o control plane observa (187 de 276 namespaces), não o

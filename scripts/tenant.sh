@@ -1084,10 +1084,11 @@ _abre() { # <tenant> : desfaz o 'isola'
 #
 #   os Gateways    Sidecar nao se aplica a Gateway, e os dois de cada
 #                  participante seguem com a turma inteira na configuracao.
-#   o proprio dono o Sidecar mora em namespace onde o participante e 'admin':
-#                  ele pode apaga-lo ou alarga-lo, e volta a ver os outros.
-#                  Isto REDUZ o que ele ve por padrao; nao e barreira contra
-#                  ele ate a admissao proteger o objeto (docs/ISOLAMENTO.md).
+#   o proprio dono o Sidecar mora em namespace onde o participante e 'admin'.
+#                  Sem mais nada ele o apagaria, ou criaria outro com
+#                  'workloadSelector' (que vence o do namespace), e voltaria a
+#                  ver os outros. A admissao 'rhcl-tenant-escopo', aplicada
+#                  aqui, recusa as duas coisas -- ver _admissao_escopo.
 #
 # EM TODOS OS NAMESPACES DELE, nao so no da aplicacao: um pod com sidecar num
 # namespace de laboratorio do mesmo participante receberia o mesh inteiro do
@@ -1098,10 +1099,66 @@ _abre() { # <tenant> : desfaz o 'isola'
 # da aplicacao sai pelo PassthroughCluster, sem mTLS de origem. Rodar de novo
 # refaz a lista.
 # ---------------------------------------------------------------------------
+_admissao_escopo() {
+  # UMA SO PARA O CLUSTER, como a das rotas: vale para todos no primeiro
+  # 'escopo'. Em namespace de participante, Sidecar so e criado, alterado ou
+  # apagado por quem pode alterar o control plane do mesh.
+  #
+  # A REGRA OLHA O NAMESPACE E UMA PERMISSAO, NAO O NOME DE QUEM CHAMA. O
+  # participante cria RoleBinding no proprio namespace, entao uma regra presa
+  # ao nome do terminal dele nao veria outra ServiceAccount dele. E "quem pode
+  # mexer no escopo" fica definido pelo RBAC que ja existe (update no CR Istio),
+  # sem lista de nomes de instrutor aqui: o participante nao consegue se dar
+  # essa permissao, porque o RBAC nao deixa conceder o que nao se tem.
+  #
+  # CREATE ENTRA, E NAO SO O 'default': um Sidecar com 'workloadSelector' vence
+  # o do namespace para os pods que seleciona. Proteger so o objeto 'default'
+  # deixaria o participante alargar a propria visao com um segundo objeto.
+  #
+  # NAMESPACE SENDO APAGADO PASSA. Quem apaga o conteudo e o namespace-controller,
+  # que nao tem a permissao acima: sem esta excecao o namespace ficaria preso em
+  # Terminating e o 'tenant.sh remove' nunca terminaria.
+  oc apply -f - >/dev/null <<'EOF' || _die "falha ao aplicar a admissao do escopo"
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: rhcl-tenant-escopo
+  labels: {rhcl.demo/multitenant: "true"}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [networking.istio.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [sidecars]
+  variables:
+    - name: pediu
+      expression: "has(namespaceObject.metadata.annotations) && 'openshift.io/requester' in namespaceObject.metadata.annotations ? namespaceObject.metadata.annotations['openshift.io/requester'] : ''"
+    - name: deParticipante
+      expression: "(has(namespaceObject.metadata.labels) && 'rhcl.demo/tenant' in namespaceObject.metadata.labels) || variables.pediu.matches('^system:serviceaccount:showroom-user[0-9]{1,3}:showroom$') || variables.pediu.matches('^user[0-9]{1,3}$')"
+    - name: saindo
+      expression: "has(namespaceObject.metadata.deletionTimestamp)"
+  validations:
+    - expression: "!variables.deParticipante || variables.saindo || authorizer.group('sailoperator.io').resource('istios').name('default').check('update').allowed()"
+      message: "o Sidecar deste namespace define o que os proxies do participante recebem do mesh; so quem administra o Service Mesh o altera"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: rhcl-tenant-escopo
+  labels: {rhcl.demo/multitenant: "true"}
+spec:
+  policyName: rhcl-tenant-escopo
+  validationActions: [Deny]
+EOF
+}
+
 _escopo() { # <tenant>
   local t="$1" ns="travel-agency-$1" nss pod antes depois i cod
   _sec "escopo ${t}: o sidecar dele so conhece o que e dele"
   oc get ns "$ns" >/dev/null 2>&1 || _die "nao existe o namespace ${ns} -- o participante existe? (tenant.sh lista)"
+  _admissao_escopo
   nss="$(oc get ns -l "${ROTULO}=${t}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)"
   pod="$(oc get pods -n "$ns" --no-headers 2>/dev/null | awk '/^travels-/ && $3=="Running"{print $1; exit}')"
   _conta() { oc exec -n "$ns" "$pod" -c istio-proxy -- pilot-agent request GET clusters 2>/dev/null \
@@ -1163,6 +1220,7 @@ _escopo_volta() { # <tenant> : desfaz o 'escopo'
     oc delete sidecar.networking.istio.io default -n "$ns" --ignore-not-found >/dev/null
   done
   _ok "${t}: Sidecar removido dos namespaces dele"
+  _log "a admissao do escopo continua valendo para o cluster; para tira-la: oc delete validatingadmissionpolicybinding rhcl-tenant-escopo"
 }
 
 # ---------------------------------------------------------------------------
