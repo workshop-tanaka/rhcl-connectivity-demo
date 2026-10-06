@@ -52,6 +52,23 @@ spec:
   updateStrategy:
     type: InPlace
   values:
+    # Cada Gateway recebe so os destinos que as rotas DELE referenciam, em vez
+    # do mesh inteiro. O recurso Sidecar nao alcanca Gateway; isto alcanca.
+    # Medido em 2026-10-06 num cluster de turma (30 participantes): o Gateway
+    # de um participante foi de 588 destinos para 3, e a configuracao de
+    # 2,65 MB para 0,16 MB. Sobreviveram, conferidos: o collector do
+    # extensionProvider abaixo, os tres clusters que o Connectivity Link
+    # injeta por EnvoyFilter, e o destino externo de um egress gateway.
+    #
+    # CUIDADO: destino que nenhuma rota do Gateway referencia deixa de existir
+    # nele. Um EnvoyFilter que aponte para um cluster 'outbound|...' pelo nome
+    # quebraria em silencio -- conferir antes de acrescentar um.
+    #
+    # Mudar este valor reinicia o istiod; a memoria dos Gateways so cai quando
+    # os pods deles reiniciam.
+    pilot:
+      env:
+        PILOT_FILTER_GATEWAY_CLUSTER_CONFIG: "true"
     meshConfig:
       # O Service abaixo so passa a existir quando platform-reference/tracing/
       # for aplicado. Declara-lo antes nao quebra nada: o proxy resolve o

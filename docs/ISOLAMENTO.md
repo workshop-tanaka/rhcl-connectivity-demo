@@ -210,8 +210,26 @@ Aplicado aos 30 no `cluster-x2gsq`:
 | memória de todos os proxies do mesh | 60,8 GiB | 32,9 GiB |
 
 A memória só cai depois de reiniciar os pods. O que o `Sidecar` **não** alcança
-são os Gateways: os 60 dos participantes seguem com a turma inteira na
-configuração, 19,2 GiB no total, e continuam listando os serviços de todos.
+são os Gateways; quem os alcança é a variável
+`PILOT_FILTER_GATEWAY_CLUSTER_CONFIG` do `istiod`, que entrega a cada Gateway
+só os destinos que as rotas dele referenciam. Aplicada no `Istio/default` do
+`cluster-x2gsq`:
+
+| Medida, no Gateway `prod-web` do `user29` | Antes | Depois |
+| --- | --- | --- |
+| destinos | 588 | 3 (a aplicação dele e as duas portas do collector) |
+| o Gateway de um lista serviços de outro | sim | não |
+| tamanho da configuração | 2,65 MB | 0,16 MB |
+| memória do pod, depois de reiniciado | 319 MiB | 233 MiB |
+
+Conferido depois do filtro, nos 30: `401` sem chave, `200` com chave e o
+fan-out; no `user29`, o `429` do plano `free` e o envio de traces pelo Gateway;
+o Gateway nativo, o egress gateway e o `preflight.sh core`. A queda de memória
+é menor que a dos sidecars, e o motivo do piso mais alto do Gateway não foi
+isolado (o proxy recém-reiniciado declara 66 MB em uso e 197 MB de heap; a
+suspeita é o módulo wasm do Connectivity Link). O bloco **proxy** do
+`isolamento.sh` ainda lê só o sidecar; o Gateway fica por acrescentar.
+
 O `Sidecar` é do namespace do participante, que tem `admin` ali: ele pode
 apagá-lo. Isso devolve a **ele** a visão dos outros, então é uma brecha de
 leitura a fechar por admissão quando a camada 3 separar os perfis.
