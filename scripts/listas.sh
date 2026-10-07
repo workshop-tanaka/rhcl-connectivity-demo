@@ -24,11 +24,15 @@
 # barra a REDE DE PODS na porta do Gateway -- medido aqui, junto com as duas
 # formas erradas de escreve-la.
 #
+# O ENDERECO DA CONEXAO ('source.address' na AuthPolicy) nao se forja, e
+# distingue um pod de outro dentro do cluster (medido em 2026-10-07). Pelo
+# router ele e sempre o do router -- por isso nao substitui o resto.
+#
 # ISOLADO: namespace proprio, Gateway proprio, Routes proprias. Nao toca no
 # prod-web. Limpa no fim (MANTER=1 mantem).
 #
 # Uso:
-#   bash scripts/listas.sh          # a prova inteira (~3 min)
+#   bash scripts/listas.sh          # a prova inteira (alguns minutos)
 #   bash scripts/listas.sh limpa
 set -uo pipefail
 
@@ -257,7 +261,63 @@ EOF
   _nota "quem fala direto com o Gateway escreve o cabecalho que quiser."
   _nota "o 'x-envoy-external-address' nao salva: ele nao chega a AuthPolicy."
 
-  _sec "5. O que fecha a forja e REDE, nao policy"
+  _sec "5. O endereco da CONEXAO nao se forja"
+  # 'source.address' e quem abriu a conexao com o Gateway, no formato IP:porta
+  # -- nao e cabecalho, entao nao ha o que o cliente escrever. Medido em
+  # 2026-10-07: do pod liberado 200; de outro pod, do router e forjando o
+  # cabecalho em qualquer um deles, 403.
+  # O LIMITE E O MESMO DA SECAO 2, visto do outro lado: pelo router, quem abre
+  # a conexao e sempre o router. Esta lista distingue um pod de outro DENTRO do
+  # cluster; na borda publica ela so sabe dizer "veio do router".
+  local MEU
+  MEU="$(oc get pod cliente -n "$LAB_NS" -o jsonpath='{.status.podIP}' 2>/dev/null)"
+  if [[ -z "$MEU" ]]; then
+    _warn "nao consegui ler o IP do pod 'cliente' -- pulando"
+  else
+    oc apply -f - >/dev/null <<EOF
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata: {name: lista-por-ip, namespace: ${LAB_NS}}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: HTTPRoute, name: edge, sectionName: restrito}
+  rules:
+    authentication:
+      anonimo: {anonymous: {}}
+    authorization:
+      so-este-pod:
+        patternMatching:
+          patterns:
+          - predicate: 'source.address.startsWith("${MEU}:")'
+EOF
+    # a troca leva alguns segundos alem do Enforced: espera o caminho pelo
+    # router, que estava em 200, virar 403
+    for i in $(seq 1 30); do [[ "$(_fora "https://${HE}/restrito")" == "403" ]] && break; sleep 3; done
+    _log "liberando so a conexao que vem de ${MEU} (o pod 'cliente')"
+    printf '    %-34s %s\n' "/restrito do pod liberado, direto"  "$(_dentro /restrito)"
+    printf '    %-34s %s\n' "/restrito pelo router"              "$(_fora "https://${HE}/restrito")"
+    printf '    %-34s %s\n' "/restrito pelo router, FORJANDO"    "$(curl -sk -m 15 -o /dev/null -w '%{http_code}' -H "x-forwarded-for: ${MEU}" "https://${HE}/restrito" 2>/dev/null)"
+    _nota "pelo router a conexao e do router: forjar o cabecalho nao muda quem conectou."
+    _nota "dentro do cluster isto separa um pod do outro; na borda publica, nao."
+    # a secao seguinte fecha a forja da lista POR CABECALHO: ela volta
+    oc apply -f - >/dev/null <<EOF
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata: {name: lista-por-ip, namespace: ${LAB_NS}}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: HTTPRoute, name: edge, sectionName: restrito}
+  rules:
+    authentication:
+      anonimo: {anonymous: {}}
+    authorization:
+      so-quem-vem-da-borda:
+        patternMatching:
+          patterns:
+          - predicate: 'request.headers["x-forwarded-for"].startsWith("${PREFIXO}")'
+EOF
+    for i in $(seq 1 30); do [[ "$(_fora "https://${HE}/restrito")" == "200" ]] && break; sleep 3; done
+  fi
+
+  _sec "6. O que fecha a forja da lista por cabecalho e REDE, nao policy"
   # TRES TENTATIVAS ERRADAS ANTES DESTA, todas MEDIDAS (2026-09-24), e o
   # motivo de cada uma e a propria licao:
   #   namespaceSelector openshift-ingress  -> bloqueou tudo. O router roda em
@@ -304,7 +364,7 @@ NP
   _nota "codigo 000 com exit 28 e a conexao morrendo no timeout: a NetworkPolicy"
   _nota "cortou o caminho direto. Sem caminho direto, nao ha o que forjar."
 
-  _sec "6. A lista que nao depende de rede: por identidade"
+  _sec "7. A lista que nao depende de rede: por identidade"
   oc apply -f - >/dev/null <<EOF
 apiVersion: v1
 kind: Secret
