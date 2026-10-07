@@ -218,7 +218,8 @@ EOF
   printf '    %-26s %s\n' "Route passthrough" "$(_fora_c "https://${HP}/aberto")"
   printf '    %-26s %s\n' "de dentro, direto" "$(_dentro_c /aberto)"
   _nota "com passthrough nao ha XFF do cliente: o router repassa bytes."
-  _nota "com edge ha -- mas o primeiro endereco e o NAT da borda, nao o cliente."
+  _nota "com edge ha -- mas o primeiro endereco e o de quem chegou ao router"
+  _nota "(um NAT, ou o no onde este terminal roda), nao o do cliente."
 
   # A LISTA E MONTADA COM O QUE DE FATO CHEGA, e nao com um valor escrito aqui:
   # do Mac o primeiro endereco do XFF e o NAT da RHDP (100.64.x); do terminal
