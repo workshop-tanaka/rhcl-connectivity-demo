@@ -575,6 +575,16 @@ st_gitlab() {
     # turma: do apply ate o webservice ficar disponivel foram ~17 min, e com os
     # 600s de fabrica (900s no Job do workshop) a etapa desistia, saia sem
     # emitir o token e so uma segunda execucao o emitia.
+    # E ANTES DISSO O DEPLOYMENT TEM DE EXISTIR. Quem o cria e o operator,
+    # minutos depois do apply, quando as migrations ja rodaram; 'rollout
+    # status' num deployment que ainda nao existe devolve "not found" NA HORA,
+    # e a espera de meia hora acima nem comecava. Medido no primeiro cluster
+    # limpo da workshop-v0.30 (2026-10-07): a etapa saiu em segundos, sem
+    # token, e o GitLab ficou pronto sozinho minutos depois.
+    if [[ $DRY_RUN -eq 0 ]]; then
+      local _e=0
+      until oc get deploy gitlab-webservice-default -n gitlab-system >/dev/null 2>&1 || [[ $_e -ge 1500 ]]; do sleep 15; _e=$((_e + 15)); done
+    fi
     TIMEOUT=$(( TIMEOUT > 1800 ? TIMEOUT : 1800 )) _rollout gitlab-webservice-default gitlab-system || {
       _warn "webservice nao ficou pronto; veja: oc logs -n gitlab-system deploy/gitlab-controller-manager --tail=5"
       return 0
