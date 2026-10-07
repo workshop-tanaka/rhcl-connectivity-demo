@@ -211,11 +211,11 @@ s/o Grafana abre \*\*sem pedir nada\*\* -- acesso anônimo, com\s+papel de Admin
 # O aviso vai DEPOIS do cabecalho inteiro -- titulo e atributos, ate a primeira
 # linha em branco. Logo abaixo do titulo ele cortaria os atributos da pagina
 # (o navtitle), que so valem dentro do cabecalho.
-if (/\A= 1\.8 /) {
+if (/\A= 3\.6 /) {
   s/,\s*role="execute"//g;
-  s/\A((?:[^\n]+\n)+)\n/$1\n[IMPORTANT]\n====\n*Nesta turma, esta parte é demonstrada pelo instrutor.* Ela usa componentes que são da plataforma inteira, e o seu ambiente não tem permissão sobre eles: os comandos desta página respondem \x60Forbidden\x60. Acompanhe pela tela do instrutor.\n====\n\n/;
+  s/\A((?:[^\n]+\n)+)\n/$1\n[IMPORTANT]\n====\n*Nesta turma, esta parte é leitura.* Ela consulta o registro de auditoria do cluster inteiro, que mostra as ações de todos os participantes, e o seu ambiente não tem acesso a ele: os comandos desta página respondem \x60Forbidden\x60. As saídas de exemplo estão na própria página.\n====\n\n/;
 }
-s/^(\* xref:m1-08-auditoria\.adoc\[[^\]\n]*)\]/$1 -- instrutor]/mg;
+s/^(\* xref:m3-06-auditoria\.adoc\[[^\]\n]*)\]/$1 -- leitura]/mg;
 # O painel consumo-plataforma e visao da plataforma INTEIRA por desenho, e o
 # Grafana de uma turma e filtrado, nao isolado (docs/TURMA.md, secao 8): e o
 # unico painel nao filtravel que o guia mandava o participante abrir.

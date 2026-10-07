@@ -170,7 +170,7 @@ próprio projeto e não lê o do vizinho. Não coberto: `git clone` pelo termina
 
 | passo | por quê |
 | --- | --- |
-| 1.8 auditoria, e o Extra da chave vazada | leem o audit log do kube-apiserver, que exige cluster-admin e mostra as ações de todos |
+| 3.6 auditoria (até a v0.30 era a 1.8), e o Extra da chave vazada | leem o audit log do kube-apiserver, que exige cluster-admin e mostra as ações de todos |
 | a prova do alerta, no 3.5 | a regra `absent(limitador_up)` não dispara com o corte por `NetworkPolicy` |
 
 Os oito Extras que sobem laboratório próprio (certificado, contextos, listas,

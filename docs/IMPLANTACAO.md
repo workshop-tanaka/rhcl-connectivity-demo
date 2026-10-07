@@ -122,7 +122,7 @@ participante essas páginas vêm com um aviso de destaque, os comandos travados 
 a marca "— instrutor" no menu. A lista completa e o motivo de cada um estão na
 seção 4 do [TURMA.md](TURMA.md).
 
-A parte 1.7 é leitura, e os Módulos 4 e 5 aparecem no guia como "em breve":
+A parte 5.1 é leitura, e os Módulos 4 e 5 aparecem no guia como "em breve":
 o Service Interconnect e o caminho pavimentado pedem componentes que este
 ambiente não sobe (uma rede entre sites; Developer Hub e GitLab).
 

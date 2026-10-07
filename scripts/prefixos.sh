@@ -329,7 +329,7 @@ EOF
   _nota "o tempo acima varia: medido ~1s numa execucao e mais de um minuto"
   _nota "noutra, com o operador ocupado. Enquanto a rota nao e coberta, ela"
   _nota "responde sem policy -- por isso, em producao, rota e policy nascem"
-  _nota "juntas, que e o que o golden path da parte 1.7 faz."
+  _nota "juntas, que e o que o golden path da parte 5.1 descreve."
 }
 
 case "${1:-prova}" in
