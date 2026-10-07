@@ -474,7 +474,107 @@ _keycloak_sem_registro() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# modelo-projeto — todo projeto PEDIDO nasce com o rotulo que o mesh observa
+#
+# POR QUE ISTO EXISTE: o Istio de referencia tem 'discoverySelectors', e o
+# istiod so observa namespace que casa com um deles. Os Extras com laboratorio
+# proprio criam o projeto na hora, com um Gateway dentro, e o participante NAO
+# rotula namespace (o RBAC nega o patch; rotulo enviado no pedido e
+# descartado). Medido em 2026-10-07 como user29: projeto pedido, Gateway
+# criado, e o Gateway fica em 'Pending' para sempre -- o script do Extra espera
+# 120s e desiste sem dizer por que. Sete Extras, trinta participantes.
+#
+# O que o participante nao muda, o cluster poe: o modelo de projeto grava o
+# rotulo 'rhcl.demo/lab' em todo projeto pedido por 'oc new-project', e o
+# seletor do Istio casa com a CHAVE. Projeto criado por admin com
+# 'oc create namespace' nao passa pelo modelo; ali o proprio script rotula.
+#
+# NAO SOBRESCREVE modelo que ja exista com outro nome: avisa e sai. Trocar o
+# modelo reinicia os pods do openshift-apiserver, um de cada vez (minutos); ate
+# terminar, projeto novo ainda pode nascer sem o rotulo.
+# ---------------------------------------------------------------------------
+_modelo_projeto() {
+  local atual
+  # O ESCOPO PADRAO VEM ANTES, E SEM ELE O MODELO NAO ENTRA. Rotular o projeto
+  # pedido o poe no mesh, e o participante injeta sidecar com um rotulo no POD
+  # ('sidecar.istio.io/inject'), sem precisar do rotulo de namespace. Medido em
+  # 2026-10-07 como user29, num projeto pedido por ele e com o rotulo deste
+  # modelo: o sidecar recebeu 588 destinos, 522 de outros participantes -- o
+  # 'escopo' inteiro contornado por um projeto novo, onde nao ha Sidecar.
+  # (Sem o rotulo, o mesmo pod nem sobe: o istiod nao o enxerga.)
+  #
+  # Um Sidecar no namespace RAIZ do mesh vale para todo namespace que nao tem o
+  # seu: quem nao foi escopado ve so a si mesmo. O participante nao o derruba
+  # criando outro -- a admissao 'rhcl-tenant-escopo' recusa Sidecar em projeto
+  # pedido por participante. Os namespaces dele tem Sidecar proprio (do
+  # 'escopo'), que vence este.
+  _admissao_escopo
+  oc apply -f - >/dev/null <<'EOF' || _die "nao consegui gravar o escopo padrao do mesh (Sidecar em istio-system) -- sem ele o modelo de projeto abriria o mesh inteiro a qualquer projeto pedido; nada foi alterado"
+apiVersion: networking.istio.io/v1
+kind: Sidecar
+metadata:
+  name: default
+  namespace: istio-system
+  labels: {rhcl.demo/multitenant: "true"}
+spec:
+  egress:
+    - hosts: ["./*", "istio-system/*", "tracing-system/*"]
+EOF
+  _ok "escopo padrao do mesh: namespace sem Sidecar proprio so conhece a si mesmo"
+  atual="$(oc get project.config.openshift.io cluster -o jsonpath='{.spec.projectRequestTemplate.name}' 2>/dev/null)"
+  if [[ -n "$atual" && "$atual" != "rhcl-projeto" ]]; then
+    _warn "o cluster ja usa o modelo de projeto '${atual}' — nao troquei. Acrescente nele o rotulo 'rhcl.demo/lab' no objeto Project, ou os Extras com laboratorio proprio ficam com o Gateway em Pending"
+    return 0
+  fi
+  oc apply -n openshift-config -f - >/dev/null <<'EOF' || { _warn "nao consegui gravar o modelo de projeto em openshift-config"; return 0; }
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: rhcl-projeto
+  labels: {rhcl.demo/multitenant: "true"}
+objects:
+  - apiVersion: project.openshift.io/v1
+    kind: Project
+    metadata:
+      name: ${PROJECT_NAME}
+      labels:
+        rhcl.demo/lab: pedido
+      annotations:
+        openshift.io/description: ${PROJECT_DESCRIPTION}
+        openshift.io/display-name: ${PROJECT_DISPLAYNAME}
+        openshift.io/requester: ${PROJECT_REQUESTING_USER}
+    spec: {}
+    status: {}
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: admin
+      namespace: ${PROJECT_NAME}
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: admin
+    subjects:
+      - apiGroup: rbac.authorization.k8s.io
+        kind: User
+        name: ${PROJECT_ADMIN_USER}
+parameters:
+  - name: PROJECT_NAME
+  - name: PROJECT_DISPLAYNAME
+  - name: PROJECT_DESCRIPTION
+  - name: PROJECT_ADMIN_USER
+  - name: PROJECT_REQUESTING_USER
+EOF
+  if [[ "$atual" != "rhcl-projeto" ]]; then
+    oc patch project.config.openshift.io cluster --type=merge -p '{"spec":{"projectRequestTemplate":{"name":"rhcl-projeto"}}}' >/dev/null 2>&1 \
+      || { _warn "nao consegui apontar o cluster para o modelo de projeto 'rhcl-projeto'"; return 0; }
+  fi
+  _ok "modelo de projeto 'rhcl-projeto': projeto pedido nasce com o rotulo rhcl.demo/lab"
+}
+
 _plataforma() {
+  _modelo_projeto
   # O OPERATOR DO KUADRANT NAO CABE NO LIMITE DE FABRICA. O CSV do RHCL 1.4.3
   # da a ele 200m de CPU e 300Mi de memoria. Subindo 30 participantes no
   # cluster-swsmt (2026-10-04, 364 policies) ele passou de 300Mi por volta do
@@ -2003,6 +2103,9 @@ case "${1:-}" in
     ;;
   plataforma)
     _plataforma
+    ;;
+  modelo-projeto)
+    _modelo_projeto
     ;;
   traces)
     _traces

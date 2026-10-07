@@ -245,8 +245,22 @@ segue alterando, e um namespace de participante com `Sidecar` dentro é apagado
 normalmente (a regra abre exceção para namespace em remoção).
 
 Os `discoverySelectors` do `Istio/default`, aplicados no mesmo dia, são outra
-coisa: decidem o que o control plane observa (187 de 276 namespaces), não o
-que cada proxy recebe.
+coisa: decidem o que o control plane observa, não o que cada proxy recebe. E
+custaram uma regressão e um furo, os dois medidos em 2026-10-07:
+
+- **A regressão.** Os Extras com laboratório próprio criam um projeto com um
+  Gateway dentro, e esse namespace não casava com seletor nenhum: o Gateway
+  ficava em `Pending`. O seletor `rhcl.demo/lab` cobre o projeto rotulado pelo
+  script; o projeto **pedido pelo participante**, que ele não pode rotular,
+  recebe o rótulo do modelo de projeto do cluster (`tenant.sh modelo-projeto`).
+- **O furo que a correção abriria.** Projeto rotulado entra no mesh, e o
+  participante injeta sidecar com um rótulo no pod. Num projeto novo não há
+  `Sidecar`, e o proxy recebia o mesh inteiro: 588 destinos, 522 de outros
+  participantes. Por isso o `modelo-projeto` aplica antes um `Sidecar` no
+  namespace raiz (`istio-system`), que vale para todo namespace sem o seu: o
+  mesmo pod passou a receber 16 destinos, nenhum de outro participante. A
+  admissão `rhcl-tenant-escopo` recusa o `Sidecar` com que ele tentaria
+  alargar isso.
 
 ## 6. Como os perfis chegam ao participante
 
