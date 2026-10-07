@@ -21,6 +21,14 @@ set -uo pipefail
 
 USUARIO="${USUARIO:-sistema-teste}"
 SENHA="${SENHA:-redhat123}"
+# NUM WORKSHOP o usuario de teste e a senha dele nao sao os da demo: o Keycloak
+# e o do ambiente, e quem monta a turma cria um usuario so para este exercicio
+# e deixa a credencial num Secret do namespace do echo (tenant.sh identidade).
+# Havendo o Secret, e ele que vale -- e a senha continua sem aparecer na tela.
+if _cred="$(oc get secret identidade-teste -n echo-api -o jsonpath='{.data.username}{" "}{.data.password}' 2>/dev/null)" && [[ -n "${_cred// /}" ]]; then
+  USUARIO="$(printf '%s' "${_cred%% *}" | base64 -d 2>/dev/null)"
+  SENHA="$(printf '%s' "${_cred##* }" | base64 -d 2>/dev/null)"
+fi
 
 if [[ -t 1 ]]; then
   _GRN=$'\033[0;32m'; _YEL=$'\033[0;33m'; _BLU=$'\033[0;34m'
@@ -47,9 +55,10 @@ API="$(oc get httproute travel-agency -n travel-agency -o jsonpath='{.spec.hostn
 [[ -n "$ISSUER" && -n "$ECHO_HOST" ]] || { _warn "sem OIDCPolicy ou sem echo-api neste cluster"; exit 0; }
 
 _token() {
-  curl -sk --max-time 25 "${ISSUER}/protocol/openid-connect/token" \
+  # a senha vai por stdin, e nao na linha de comando (onde a lista de processos a mostra)
+  printf '%s' "$SENHA" | curl -sk --max-time 25 "${ISSUER}/protocol/openid-connect/token" \
     -d "client_id=${CLIENTE}" -d "grant_type=password" \
-    -d "username=${USUARIO}" -d "password=${SENHA}" -d "scope=openid" 2>/dev/null \
+    --data-urlencode "username=${USUARIO}" --data-urlencode password@- -d "scope=openid" 2>/dev/null \
     | python3 -c 'import sys,json
 try: print(json.load(sys.stdin).get("access_token",""))
 except Exception: print("")' 2>/dev/null
@@ -60,7 +69,8 @@ cmd_token() {
   local t; t="$(_token)"
   if [[ -z "$t" ]]; then
     _warn "nao consegui obter token para ${USUARIO}"
-    _nota "confira o usuario: bash scripts/setup-identity.sh --lista"
+    _nota "o usuario de teste existe no Keycloak deste ambiente? Quem monta o"
+    _nota "ambiente o cria: 'provision.sh identity' na demo, 'tenant.sh identidade' na turma."
     return 1
   fi
   _ok "token obtido (${#t} caracteres, prefixo ${t:0:12}...)"

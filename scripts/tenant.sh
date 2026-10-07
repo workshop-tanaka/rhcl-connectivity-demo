@@ -417,6 +417,9 @@ print("\n---\n".join(d for d in docs if re.search(r"(?m)^\s*namespace:\s*\S+-%s\
   [[ "$cod" == 401 ]] && _ok "https://${host} responde 401 sem chave — fechada por padrao" \
     || _die "https://${host} responde ${cod:-nada} sem chave; o esperado e 401. Veja 'oc logs deploy/prod-web-istio -n ingress-gateway-${t}'."
 
+  # o client e o usuario de teste que a parte 'Chave ou identidade' usa
+  _identidade "$t"
+
   # O ESCOPO DELE, por ultimo. A plataforma ja traz um Sidecar padrao (ver
   # _modelo_projeto): sem o dele, cada namespace do participante so conhece a
   # si mesmo. O 'escopo' acrescenta os OUTROS namespaces dele -- e portanto
@@ -503,6 +506,93 @@ _keycloak_sem_registro() {
   else
     _warn "o Keycloak recusou a troca — o autocadastro do realm ${realm} segue ligado"
   fi
+  [[ ${#ca[@]} -eq 0 ]] || rm -f "${ca[1]}"
+}
+
+# ---------------------------------------------------------------------------
+# identidade — o que a parte "Chave ou identidade" precisa no Keycloak
+#
+# POR QUE ISTO EXISTE: a OIDCPolicy do echo de cada participante aponta para um
+# client 'echo-api-<tenant>' e a parte do guia pede token de um usuario de
+# teste. Na demo quem cria os dois e a etapa de identidade do provisionamento,
+# que o workshop NAO roda -- o realm e o do RHDP, com user1..userN e mais nada.
+# Medido em 2026-10-07 pelo terminal de um participante: o script da parte
+# parava na primeira secao ("nao consegui obter token"), e quem abria o echo
+# pelo navegador caia numa tela de erro do Keycloak (client inexistente).
+#
+# O que este passo cria, por participante, no realm onde ele ja existe:
+#   client  echo-api-<tenant>   publico, com o callback do echo DELE
+#   usuario teste-<tenant>      so para o exercicio; senha aleatoria
+# e grava usuario e senha num Secret do namespace do echo dele, de onde o
+# script da parte le. A senha nunca e impressa, e nao e a do console dele.
+#
+# Idempotente: o client e reconciliado; a senha do usuario de teste e trocada a
+# cada execucao, junto com o Secret.
+# ---------------------------------------------------------------------------
+_identidade() { # <tenant>
+  local t="$1" ns="echo-api-$1" kns="${KEYCLOAK_NS:-keycloak}" host realm u pw tok dom
+  oc get ns "$ns" >/dev/null 2>&1 || { _warn "sem o namespace ${ns} — pulei a identidade de ${t}"; return 0; }
+  host="$(oc get route -n "$kns" -o jsonpath='{.items[0].spec.host}' 2>/dev/null)"
+  realm="$(oc get keycloakrealmimport -n "$kns" -o jsonpath='{.items[0].spec.realm.realm}' 2>/dev/null)"
+  u="$(oc get secret keycloak-initial-admin -n "$kns" -o jsonpath='{.data.username}' 2>/dev/null | base64 -d)"
+  pw="$(oc get secret keycloak-initial-admin -n "$kns" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)"
+  dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
+  [[ -n "$host" && -n "$realm" && -n "$u" && -n "$pw" && -n "$dom" ]] \
+    || { _warn "sem Keycloak de plataforma — a parte 'Chave ou identidade' de ${t} fica sem token"; return 0; }
+  # o certificado e conferido: por aqui passa a senha de admin do Keycloak
+  local ca=()
+  if ! curl -s -m 15 -o /dev/null "https://${host}/realms/master" 2>/dev/null; then
+    local caf; caf="$(mktemp)"
+    oc get cm default-ingress-cert -n openshift-config-managed -o jsonpath='{.data.ca-bundle\.crt}' > "$caf" 2>/dev/null
+    if curl -s -m 15 -o /dev/null --cacert "$caf" "https://${host}/realms/master" 2>/dev/null; then ca=(--cacert "$caf")
+    else rm -f "$caf"; _warn "o certificado do Keycloak (${host}) nao valida — nao criei a identidade de ${t}"; return 0; fi
+  fi
+  tok="$(printf '%s' "$pw" | curl -s ${ca[@]+"${ca[@]}"} -m 20 "https://${host}/realms/master/protocol/openid-connect/token" \
+           -d grant_type=password -d client_id=admin-cli --data-urlencode "username=${u}" --data-urlencode password@- 2>/dev/null \
+         | python3 -c 'import sys, json; print(json.load(sys.stdin).get("access_token", ""))' 2>/dev/null)"
+  [[ -n "$tok" ]] || { _warn "nao consegui autenticar na API de admin do Keycloak — sem identidade para ${t}"; [[ ${#ca[@]} -eq 0 ]] || rm -f "${ca[1]}"; return 0; }
+  # Tudo o que fala com o Keycloak vai num processo so, com o token no
+  # ambiente; a senha do usuario de teste nasce aqui e sai so como Secret.
+  if KC="https://${host}/admin/realms/${realm}" TOK="$tok" T="$t" DOM="$dom" NS="$ns" ROT="$ROTULO" CAF="${ca[1]:-}" python3 - <<'PY' | oc apply -f - >/dev/null
+import os, sys, json, ssl, secrets, urllib.request, urllib.error, urllib.parse
+KC, TOK, T, DOM, NS = (os.environ[k] for k in ("KC", "TOK", "T", "DOM", "NS"))
+CTX = ssl.create_default_context(cafile=os.environ.get("CAF") or None)
+def call(method, path, body=None):
+    req = urllib.request.Request(KC + path, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": "Bearer " + TOK, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, context=CTX, timeout=30) as r:
+            raw = r.read(); return r.status, (json.loads(raw) if raw else None)
+    except urllib.error.HTTPError as e:
+        return e.code, None
+cid_nome, usuario = "echo-api-" + T, "teste-" + T
+def falha(passo, st):
+    sys.stderr.write("    identidade: %s respondeu HTTP %s\n" % (passo, st)); sys.exit(1)
+corpo = {"clientId": cid_nome, "name": "echo do " + T, "enabled": True, "protocol": "openid-connect",
+         "publicClient": True, "directAccessGrantsEnabled": True, "standardFlowEnabled": True,
+         "redirectUris": ["https://echo-travels-%s.%s/auth/callback" % (T, DOM)], "webOrigins": ["+"]}
+st, d = call("GET", "/clients?clientId=" + urllib.parse.quote(cid_nome))
+if st != 200: falha("listar clients", st)
+st = call("PUT", "/clients/" + d[0]["id"], corpo)[0] if d else call("POST", "/clients", corpo)[0]
+if st not in (201, 204): falha("gravar o client", st)
+senha = secrets.token_urlsafe(18)
+st, d = call("GET", "/users?exact=true&username=" + urllib.parse.quote(usuario))
+if st != 200: falha("procurar o usuario", st)
+if not d:
+    # nome sem parenteses nem pontuacao: o realm do RHDP recusa com HTTP 400
+    st = call("POST", "/users", {"username": usuario, "enabled": True, "emailVerified": True,
+              "firstName": "Sistema", "lastName": "de Teste " + T, "email": "%s@example.invalid" % usuario})[0]
+    if st != 201: falha("criar o usuario", st)
+    st, d = call("GET", "/users?exact=true&username=" + urllib.parse.quote(usuario))
+    if st != 200 or not d: falha("reler o usuario", st)
+st = call("PUT", "/users/%s/reset-password" % d[0]["id"], {"type": "password", "value": senha, "temporary": False})[0]
+if st != 204: falha("definir a senha", st)
+json.dump({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+           "metadata": {"name": "identidade-teste", "namespace": NS, "labels": {os.environ["ROT"]: T}},
+           "stringData": {"username": usuario, "password": senha, "client": cid_nome}}, sys.stdout)
+PY
+  then _ok "identidade de teste de ${t}: client echo-api-${t} e usuario teste-${t} no Keycloak; credencial em ${ns}/identidade-teste"
+  else _warn "nao consegui criar a identidade de teste de ${t} — a parte 'Chave ou identidade' fica sem token"; fi
   [[ ${#ca[@]} -eq 0 ]] || rm -f "${ca[1]}"
 }
 
@@ -2248,6 +2338,9 @@ case "${1:-}" in
     ;;
   modelo-projeto)
     _modelo_projeto
+    ;;
+  identidade)
+    _valida_tenant "${2:-}"; _identidade "$2"
     ;;
   traces)
     _traces
