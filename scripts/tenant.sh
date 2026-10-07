@@ -410,6 +410,14 @@ print("\n---\n".join(d for d in docs if re.search(r"(?m)^\s*namespace:\s*\S+-%s\
   done
   [[ "$cod" == 401 ]] && _ok "https://${host} responde 401 sem chave — fechada por padrao" \
     || _die "https://${host} responde ${cod:-nada} sem chave; o esperado e 401. Veja 'oc logs deploy/prod-web-istio -n ingress-gateway-${t}'."
+
+  # O ESCOPO DELE, por ultimo. A plataforma ja traz um Sidecar padrao (ver
+  # _modelo_projeto): sem o dele, cada namespace do participante so conhece a
+  # si mesmo. O 'escopo' acrescenta os OUTROS namespaces dele -- e portanto
+  # mais largo que o padrao, nunca mais estreito, e por isso entra aqui sem
+  # esperar as outras camadas do isolamento. Aplicado aos 30 do cluster-x2gsq
+  # em 2026-10-06 com a turma de pe; dentro do 'sobe' ainda nao foi exercitado.
+  _escopo "$t"
 }
 
 _remove() { # <tenant>
