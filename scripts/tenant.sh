@@ -157,7 +157,7 @@ s{\x60\\(https?://[^\x60\s]+)\x60}{$1\[$1^\]}g if $ENV{CONTEUDO};
 # duplicacao de 'base' ainda nao existe (ela nasce porque o atributo JA termina
 # em '/base'). Primeira versao deste conserto tentou colapsar e nao disparou --
 # o link seguiu em 404. A regra tem de conhecer o atributo.
-if ($ENV{CONTEUDO}) {
+if ($ENV{CONTEUDO} && !$ENV{COM_GITLAB}) {
   s{(\{repo_policies\})/-/(?:blob|tree)/[^/\s\]]+/base/}{$1/}g;
   s{(\{repo_no_ambiente\}|\{repo_policies\})/-/(?:blob|tree)/[^/\s\]]+/}{$1/}g;
   s{/-/(?:blob|tree)/[^/\s\]]+/}{/}g;
@@ -1587,6 +1587,19 @@ _showroom() { # <tenant> <dir da copia>
   alt_ns="$(printf '%s' "$NS_TENANT" | tr -s ' \\\n' '|' | sed 's/^|//; s/|$//; s/|parceiros|/|/')"
   alt_host="$(printf '%s %s' "$HOSTS_TENANT" "$NOMES_TENANT" | tr -s ' ' '|')"
 
+  # O PROJETO DELE NO GITLAB DO CLUSTER, se existir. Perguntado a API com o
+  # token de administracao: projeto privado responde igual a projeto
+  # inexistente para quem nao esta autenticado.
+  local gl_host gl_tok gl_proj="" gl_roteiro="" gl_url=""
+  gl_host="$(oc get route -n "${GL_NS:-gitlab-system}" -o jsonpath='{range .items[?(@.spec.to.name=="gitlab-webservice-default")]}{.spec.host}{"\n"}{end}' 2>/dev/null | head -1)"
+  gl_tok="$(oc get secret golden-path-gitlab-token -n openshift-gitops -o jsonpath='{.data.token}' 2>/dev/null | base64 -d 2>/dev/null)"
+  if [[ -n "$gl_host" && -n "$gl_tok" ]] && \
+     [[ "$(printf 'header = "PRIVATE-TOKEN: %s"\n' "$gl_tok" | curl -sk -m 15 -o /dev/null -w '%{http_code}' -K - \
+            "https://${gl_host}/api/v4/projects/workshop%2Fparticipantes%2F${t}%2Fambiente" 2>/dev/null)" == 200 ]]; then
+    gl_url="https://${gl_host}"; gl_proj="${gl_url}/workshop/participantes/${t}/ambiente"; gl_roteiro="${gl_url}/workshop/roteiro"
+    _ok "repositorio de ${t} no GitLab do cluster: os links do guia apontam para ele"
+  fi
+
   {
     oc get deploy/showroom svc/showroom route/showroom pvc/showroom-terminal-lab-user-home rolebinding/edit-showroom-sa \
        cm/showroom-userdata cm/showroom-traefik-static cm/showroom-traefik-dynamic -n "$orig" -o json
@@ -1601,7 +1614,7 @@ _showroom() { # <tenant> <dir da copia>
     # e, nele, um KeycloakRealmImport com o nome de outro participante -- com
     # '-A' a "senha" plantada iria parar no guia da vitima.
     oc get keycloakrealmimport -n "${KEYCLOAK_NS:-keycloak}" -o json 2>/dev/null || printf '{"items":[]}'
-  } | TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
+  } | GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
 import sys, json, os, re, base64
 t, dom = os.environ["TENANT"], os.environ["DOM"]
 objs, chaves, rotas, realms = sys.stdin.read().split("\x1e")
@@ -1642,21 +1655,24 @@ for o in itens:
             if "@" in v: continue
             dados[ch] = v
 dados.update(troca); dados.update(novos)
-# SEM GITLAB NO CLUSTER, a configuracao que as paginas linkam esta no
-# repositorio publico, na mesma tag que este ambiente clonou. Os caminhos sao
-# os mesmos (base/...), entao os 14 links de arquivo voltam a funcionar.
-base = re.sub(r"\.git$", "", dados.get("demo_repo_url", "")); ref = dados.get("demo_ref", "")
-if base.startswith("https://") and ref and not dados.get("config_url"):
-    dados["config_url"] = base + "/blob/" + ref
-    dados["repo_policies"] = base + "/tree/" + ref + "/base"
-    dados["repo_no_ambiente"] = base + "/tree/" + ref
+# O REPOSITORIO E O DO CLUSTER, OU NENHUM. Ate a workshop-v0.28 a falta de
+# GitLab fazia estes atributos apontarem para o repositorio publico, de fora
+# do ambiente. Agora ou o participante tem o projeto dele no GitLab do cluster
+# (scripts/gitlab-turma.sh semeia) e os links vao para la, ou os atributos
+# saem VAZIOS e a pagina tira as linhas -- nada aponta para fora.
+gl = os.environ.get("GL_PROJ", "")
+dados["repo_no_ambiente"] = gl
+dados["repo_policies"]    = gl
+dados["config_url"]       = gl + "/-/blob/main" if gl else ""
+dados["roteiro_url"]      = os.environ.get("GL_ROTEIRO", "") if gl else ""
+dados["gitlab_url"]       = os.environ.get("GL_URL", "") if gl else ""
 # Parte destes valores vem do cluster (hostname de Route, senha do usuario). O
 # arquivo e montado por concatenacao, entao valor com aspas, barra invertida ou
 # caractere de controle quebraria a string e injetaria atributo: nesse caso o
 # atributo sai vazio.
 for ch in list(dados):
     if not re.fullmatch(r"[\x20\x21\x23-\x5b\x5d-\x7e\u00a0-\uffff]*", dados[ch]): dados[ch] = ""
-vazios = sorted(ch for ch in ("ide_url", "rhdh_url", "repo_policies", "repo_no_ambiente", "config_url",
+vazios = sorted(ch for ch in ("ide_url", "rhdh_url", "repo_policies", "repo_no_ambiente", "config_url", "roteiro_url", "gitlab_url",
                               "interconnect_console_url", "portal_free_url", "portal_silver_url", "portal_gold_url",
                               "keycloak_url", "grafana_url", "kiali_url", "traces_url", "tempo_url")
                 if dados.get(ch, "") in ("", "https://"))
@@ -1698,7 +1714,7 @@ for o in itens:
             "name": "troca-conteudo", "image": term["image"],
             "env": [{"name": "TENANT", "value": t}, {"name": "ALT_NS", "value": os.environ["ALT_NS"]},
                     {"name": "ALT_HOST", "value": os.environ["ALT_HOST"]}, {"name": "PERL_TROCA", "value": os.environ["PERL_TROCA"]},
-                    {"name": "CONTEUDO", "value": "1"}, {"name": "CHAVES", "value": os.environ.get("CHAVES", "")}, {"name": "VAZIOS", "value": "|".join(vazios)},
+                    {"name": "CONTEUDO", "value": "1"}, {"name": "COM_GITLAB", "value": "1" if gl else ""}, {"name": "CHAVES", "value": os.environ.get("CHAVES", "")}, {"name": "VAZIOS", "value": "|".join(vazios)},
                     {"name": "PERL_VAZIOS", "value": os.environ["PERL_VAZIOS"]}],
             "command": ["bash", "-c", "set -e; d=%s; n=$(find \"$d\" -name \"*.adoc\" | wc -l); [ \"$n\" -gt 0 ]; find \"$d\" -name \"*.adoc\" -print0 | xargs -0 perl -pi -e \"$PERL_TROCA\"; find \"$d\" -name \"*.adoc\" -print0 | VAZIOS=\"${VAZIOS:-__nenhum__}\" xargs -0 perl -0777 -pi -e \"$PERL_VAZIOS\"; echo \"troca aplicada a $n paginas; links sem destino: ${VAZIOS:-nenhum}\"" % repo[0]["mountPath"]],
             "volumeMounts": repo})
