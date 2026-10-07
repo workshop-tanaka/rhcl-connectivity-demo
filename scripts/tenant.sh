@@ -769,6 +769,25 @@ rules:
 # O desenho mostra os Gateways, rotas e policies da turma inteira -- o mesmo
 # que 'oc get httproute -A' ja mostra (docs/TURMA.md, secao 8). Nao ha segredo
 # nele.
+# O Extra de DNS sobe um CoreDNS no laboratorio do participante, e o plugin
+# do Kuadrant lista DNSRecord NO CLUSTER INTEIRO: com permissao so no proprio
+# namespace ele recusa subir a zona ("Forbidden access to kuadrant.io API",
+# medido em 2026-10-07). O script do Extra criava o proprio ClusterRole, e o
+# participante nao cria ClusterRole: o nome respondia NXDOMAIN. O papel fica
+# aqui, e a ligacao de cada participante em _rbac.
+# O QUE ISTO ABRE: pela ServiceAccount do laboratorio, cada participante le os
+# DNSRecords de todos. Sao registros de laboratorio (zona de mentira), sem
+# credencial; nao ha DNSPolicy no roteiro principal.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rhcl-tenant-dns
+  labels: {rhcl.demo/multitenant: "true"}
+rules:
+  - apiGroups: [kuadrant.io]
+    resources: [dnsrecords, dnsrecords/status]
+    verbs: [get, list, watch]
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -931,9 +950,19 @@ _rbac() { # <tenant>
     # scripts do roteiro consultam nodes, operadores e Thanos, e nao escrevem la
     # 'self-provisioner' so para a ServiceAccount do terminal: os Extras pedem o
     # proprio projeto (ver a regra de 'create namespace' na troca)
-    for r in rhcl-tenant-leitura cluster-monitoring-view self-provisioner; do
+    # QUEM JA FOI RESTRINGIDO CONTINUA RESTRINGIDO. O 'restringe' tira as duas
+    # leituras de cluster e deixa a marca 'rhcl-tenant-<t>-fatos'; reaplicar o
+    # RBAC as devolvia em silencio (medido no user29 em 2026-10-07: um 'rbac'
+    # para acrescentar a ligacao de DNS desfez o 'restringe').
+    local largos="rhcl-tenant-leitura cluster-monitoring-view"
+    oc get clusterrolebinding "rhcl-tenant-${t}-fatos" >/dev/null 2>&1 && largos=""
+    for r in $largos self-provisioner; do
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata: {name: rhcl-tenant-%s-%s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: %s}\nsubjects:\n' "$t" "$r" "$ROTULO" "$t" "$r"; _so_sa
     done
+    # o CoreDNS do Extra de DNS (ver 'rhcl-tenant-dns' em _plataforma). O
+    # namespace 'dns-lab-<tenant>' so existe enquanto o Extra roda; ligacao a
+    # uma ServiceAccount que ainda nao existe e valida e fica esperando por ela
+    printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata: {name: rhcl-tenant-%s-dns, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-dns}\nsubjects:\n  - {kind: ServiceAccount, name: coredns-kuadrant, namespace: dns-lab-%s}\n' "$t" "$ROTULO" "$t" "$t"
   } | oc apply -f - >/dev/null || _die "falha ao aplicar o RBAC de ${t}"
   # o binding da primeira versao deste script, que dava leitura do cluster inteiro
   oc delete clusterrolebinding "rhcl-tenant-${t}-cluster-reader" --ignore-not-found >/dev/null 2>&1

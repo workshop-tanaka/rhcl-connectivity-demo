@@ -145,11 +145,12 @@ cmd_prova() {
   oc create namespace "$LAB_NS" >/dev/null || { _no "namespace ${LAB_NS} ja existe -- rode 'limpa' antes"; trap - EXIT; exit 1; }
   oc label namespace "$LAB_NS" "rhcl.demo/lab=dns-nome" --overwrite >/dev/null 2>&1
   local SC="securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: [ALL]}, seccompProfile: {type: RuntimeDefault}}"
-  oc apply -f - >/dev/null <<EOF
-apiVersion: v1
-kind: ServiceAccount
-metadata: {name: coredns-kuadrant, namespace: ${LAB_NS}}
----
+  # O PLUGIN DO KUADRANT LISTA DNSRecord NO CLUSTER INTEIRO: com permissao so
+  # no namespace ele nao sobe a zona (medido em 2026-10-07). Quem roda como
+  # admin cria o papel aqui. O participante de uma turma nao cria ClusterRole:
+  # para ele a ligacao ja existe, feita pelo tenant.sh, e esta tentativa e
+  # recusada em silencio -- a conferencia vem logo abaixo, pelo log do CoreDNS.
+  oc apply -f - >/dev/null 2>&1 <<EOF || true
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata: {name: coredns-kuadrant-${LAB_NS}}
@@ -163,6 +164,11 @@ kind: ClusterRoleBinding
 metadata: {name: coredns-kuadrant-${LAB_NS}}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: coredns-kuadrant-${LAB_NS}}
 subjects: [{kind: ServiceAccount, name: coredns-kuadrant, namespace: ${LAB_NS}}]
+EOF
+  oc apply -f - >/dev/null <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: coredns-kuadrant, namespace: ${LAB_NS}}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -249,6 +255,14 @@ EOF
     && oc wait --for=condition=Programmed gateway/lab -n "$LAB_NS" --timeout=120s >/dev/null \
     && oc wait --for=condition=Ready pod/cliente -n "$LAB_NS" --timeout=180s >/dev/null \
     || { _no "o laboratorio nao ficou de pe"; exit 1; }
+  # SEM A PERMISSAO O COREDNS SOBE DO MESMO JEITO e serve a zona vazia: o pod
+  # fica Ready, e o exercicio seguiria ate um NXDOMAIN sem explicacao. Era o
+  # que acontecia no terminal do participante, com um '✓' nesta linha.
+  if oc logs deploy/coredns -n "$LAB_NS" 2>/dev/null | grep -q 'Forbidden access to kuadrant.io'; then
+    _no "o CoreDNS do laboratorio nao consegue ler DNSRecord: falta a permissao de cluster"
+    _log "quem monta a turma resolve com: bash scripts/tenant.sh rbac <participante>"
+    exit 1
+  fi
   _ok "zona ${ZONA} no ar, e um Gateway que responde por ${NOME}"
 
   _sec "2. O nome ainda nao existe"
