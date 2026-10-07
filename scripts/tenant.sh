@@ -1590,11 +1590,14 @@ _showroom() { # <tenant> <dir da copia>
   # O PROJETO DELE NO GITLAB DO CLUSTER, se existir. Perguntado a API com o
   # token de administracao: projeto privado responde igual a projeto
   # inexistente para quem nao esta autenticado.
+  # SEM '-k': a chamada leva o token de administracao. Se o certificado do
+  # GitLab nao validar nesta maquina, a resposta nao e 200 e o guia sai sem os
+  # links -- falha para o lado seguro.
   local gl_host gl_tok gl_proj="" gl_roteiro="" gl_url=""
   gl_host="$(oc get route -n "${GL_NS:-gitlab-system}" -o jsonpath='{range .items[?(@.spec.to.name=="gitlab-webservice-default")]}{.spec.host}{"\n"}{end}' 2>/dev/null | head -1)"
   gl_tok="$(oc get secret golden-path-gitlab-token -n openshift-gitops -o jsonpath='{.data.token}' 2>/dev/null | base64 -d 2>/dev/null)"
   if [[ -n "$gl_host" && -n "$gl_tok" ]] && \
-     [[ "$(printf 'header = "PRIVATE-TOKEN: %s"\n' "$gl_tok" | curl -sk -m 15 -o /dev/null -w '%{http_code}' -K - \
+     [[ "$(printf 'header = "PRIVATE-TOKEN: %s"\n' "$gl_tok" | curl -s -m 15 -o /dev/null -w '%{http_code}' -K - \
             "https://${gl_host}/api/v4/projects/workshop%2Fparticipantes%2F${t}%2Fambiente" 2>/dev/null)" == 200 ]]; then
     gl_url="https://${gl_host}"; gl_proj="${gl_url}/workshop/participantes/${t}/ambiente"; gl_roteiro="${gl_url}/workshop/roteiro"
     _ok "repositorio de ${t} no GitLab do cluster: os links do guia apontam para ele"

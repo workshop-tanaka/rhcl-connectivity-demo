@@ -59,6 +59,19 @@ GITLAB_HOST="$(oc get route -n "$GL_NS" -o jsonpath='{range .items[?(@.spec.to.n
 [[ -n "$GITLAB_HOST" ]] || _die "nao achei a rota do GitLab em ${GL_NS} -- rode: bash scripts/provision.sh gitlab"
 TOKEN="$(oc get secret golden-path-gitlab-token -n openshift-gitops -o jsonpath='{.data.token}' 2>/dev/null | base64 -d)"
 [[ -n "$TOKEN" ]] || _die "token de administracao do GitLab ausente (openshift-gitops/golden-path-gitlab-token) -- rode: bash scripts/provision.sh gitlab"
+# O CERTIFICADO E CONFERIDO. Por aqui passam a senha de admin do Keycloak e o
+# token de administracao do GitLab; com '-k' qualquer um no caminho os leria.
+# Primeiro a cadeia de confianca da maquina (o wildcard de um cluster do RHDP
+# e publico); se ela nao bastar, a CA do proprio ingress, lida do cluster. Se
+# nenhuma das duas valida o host, o script para em vez de seguir sem conferir.
+CA_BUNDLE=""
+if ! curl -s -m 15 -o /dev/null "https://${GITLAB_HOST}/users/sign_in" 2>/dev/null; then
+  CA_BUNDLE="$(mktemp)"; trap 'rm -f "$CA_BUNDLE"' EXIT
+  oc get cm default-ingress-cert -n openshift-config-managed -o jsonpath='{.data.ca-bundle\.crt}' > "$CA_BUNDLE" 2>/dev/null
+  curl -s -m 15 -o /dev/null --cacert "$CA_BUNDLE" "https://${GITLAB_HOST}/users/sign_in" 2>/dev/null \
+    || _die "o certificado de https://${GITLAB_HOST} nao valida nem com a CA do ingress do cluster -- nao sigo sem conferir"
+fi
+_curl() { if [[ -n "$CA_BUNDLE" ]]; then curl -s --cacert "$CA_BUNDLE" "$@"; else curl -s "$@"; fi; }
 CLUSTER="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null | sed 's/^apps\.//' | cut -d. -f1 | tr -c 'a-z0-9-\n' '-')"
 TDIR="${_here}/tenants/${CLUSTER}"
 
@@ -79,7 +92,7 @@ cmd_login() {
   pw="$(oc get secret keycloak-initial-admin -n "$KC_NS" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)"
   [[ -n "$kc_host" && -n "$realm" && -n "$u" && -n "$pw" ]] || _die "nao achei o Keycloak da plataforma em ${KC_NS}"
   # a senha vai por stdin, e nao na linha de comando
-  tok="$(printf '%s' "$pw" | curl -sk -m 20 "https://${kc_host}/realms/master/protocol/openid-connect/token" \
+  tok="$(printf '%s' "$pw" | _curl -m 20 "https://${kc_host}/realms/master/protocol/openid-connect/token" \
            -d grant_type=password -d client_id=admin-cli --data-urlencode "username=${u}" --data-urlencode password@- 2>/dev/null \
          | python3 -c 'import sys, json; print(json.load(sys.stdin).get("access_token", ""))' 2>/dev/null)"
   [[ -n "$tok" ]] || _die "nao consegui autenticar na API de admin do Keycloak"
@@ -87,20 +100,20 @@ cmd_login() {
   # O client 'gitlab' no realm dos participantes. O segredo nasce aqui, vai
   # direto para o Secret do provider e nunca e impresso. Reexecutar reaproveita
   # o client e so le o segredo de volta.
-  cid="$(curl -sk -m 20 -H "Authorization: Bearer ${tok}" "https://${kc_host}/admin/realms/${realm}/clients?clientId=gitlab" \
+  cid="$(_curl -m 20 -H "Authorization: Bearer ${tok}" "https://${kc_host}/admin/realms/${realm}/clients?clientId=gitlab" \
          | python3 -c 'import sys, json; d = json.load(sys.stdin); print(d[0]["id"] if d else "")' 2>/dev/null)"
   if [[ -z "$cid" ]]; then
-    code="$(curl -sk -m 20 -o /dev/null -w '%{http_code}' -X POST "https://${kc_host}/admin/realms/${realm}/clients" \
+    code="$(_curl -m 20 -o /dev/null -w '%{http_code}' -X POST "https://${kc_host}/admin/realms/${realm}/clients" \
               -H "Authorization: Bearer ${tok}" -H 'Content-Type: application/json' \
               -d "{\"clientId\":\"gitlab\",\"name\":\"GitLab do workshop\",\"protocol\":\"openid-connect\",\"publicClient\":false,\"standardFlowEnabled\":true,\"directAccessGrantsEnabled\":false,\"redirectUris\":[\"https://${GITLAB_HOST}/users/auth/openid_connect/callback\"],\"webOrigins\":[\"https://${GITLAB_HOST}\"]}")"
     [[ "$code" == 201 ]] || _die "o Keycloak recusou criar o client 'gitlab' (HTTP ${code})"
-    cid="$(curl -sk -m 20 -H "Authorization: Bearer ${tok}" "https://${kc_host}/admin/realms/${realm}/clients?clientId=gitlab" \
+    cid="$(_curl -m 20 -H "Authorization: Bearer ${tok}" "https://${kc_host}/admin/realms/${realm}/clients?clientId=gitlab" \
            | python3 -c 'import sys, json; d = json.load(sys.stdin); print(d[0]["id"] if d else "")' 2>/dev/null)"
     _ok "client 'gitlab' criado no realm ${realm}"
   else
     _ok "client 'gitlab' ja existe no realm ${realm}"
   fi
-  sec="$(curl -sk -m 20 -H "Authorization: Bearer ${tok}" "https://${kc_host}/admin/realms/${realm}/clients/${cid}/client-secret" \
+  sec="$(_curl -m 20 -H "Authorization: Bearer ${tok}" "https://${kc_host}/admin/realms/${realm}/clients/${cid}/client-secret" \
          | python3 -c 'import sys, json; print(json.load(sys.stdin).get("value", ""))' 2>/dev/null)"
   [[ -n "$sec" ]] || _die "nao consegui ler o segredo do client 'gitlab'"
 
@@ -154,9 +167,9 @@ args:
   oc rollout status deploy/gitlab-webservice-default -n "$GL_NS" --timeout=900s >/dev/null 2>&1 || _warn "o webservice demorou mais que o esperado"
   n=0
   while [[ $n -lt 30 ]]; do
-    curl -sk -m 20 "https://${GITLAB_HOST}/users/sign_in" 2>/dev/null | grep -qi openid_connect && break; n=$((n+1)); sleep 10
+    _curl -m 20 "https://${GITLAB_HOST}/users/sign_in" 2>/dev/null | grep -qi openid_connect && break; n=$((n+1)); sleep 10
   done
-  curl -sk -m 20 "https://${GITLAB_HOST}/users/sign_in" 2>/dev/null | grep -qi openid_connect \
+  _curl -m 20 "https://${GITLAB_HOST}/users/sign_in" 2>/dev/null | grep -qi openid_connect \
     && _ok "a tela de login do GitLab oferece o usuario do console" \
     || _die "a tela de login NAO mostra o provedor -- o webservice nao recarregou a configuracao"
 }
@@ -173,7 +186,7 @@ _api_py() {
   local versionados
   versionados="$(git -C "$_here" ls-files base env overlays postman 2>/dev/null)"
   [[ -n "$versionados" ]] || _die "nao consegui listar os arquivos versionados (git ls-files) -- o roteiro nao e publicado de um diretorio sem git"
-  GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" RAIZ="$_here" TDIR="$TDIR" SCRIPTS_ROTEIRO="$SCRIPTS_ROTEIRO" VERSIONADOS="$versionados" \
+  CA_BUNDLE="$CA_BUNDLE" GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" RAIZ="$_here" TDIR="$TDIR" SCRIPTS_ROTEIRO="$SCRIPTS_ROTEIRO" VERSIONADOS="$versionados" \
   MODO="$1" ALVOS="${2:-}" python3 - <<'PY'
 import os, sys, json, ssl, base64, secrets, urllib.request, urllib.error, urllib.parse
 
@@ -181,8 +194,7 @@ HOST, TOKEN = os.environ["GITLAB_HOST"], os.environ["TOKEN"]
 RAIZ, TDIR  = os.environ["RAIZ"], os.environ["TDIR"]
 SCRIPTS     = os.environ["SCRIPTS_ROTEIRO"].split()
 MODO, ALVOS = os.environ["MODO"], os.environ["ALVOS"].split()
-API, CTX    = "https://%s/api/v4" % HOST, ssl.create_default_context()
-CTX.check_hostname = False; CTX.verify_mode = ssl.CERT_NONE   # o certificado e o do proprio cluster
+API, CTX    = "https://%s/api/v4" % HOST, ssl.create_default_context(cafile=os.environ.get("CA_BUNDLE") or None)
 G, Y, R, Z = ("\033[0;32m", "\033[0;33m", "\033[0;31m", "\033[0m") if sys.stdout.isatty() else ("", "", "", "")
 def ok(m):   print("  %s✓%s %s" % (G, Z, m))
 def warn(m): print("  %s!%s %s" % (Y, Z, m))
