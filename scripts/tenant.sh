@@ -2033,6 +2033,31 @@ json.dump(d, sys.stdout)' | oc apply -f - >/dev/null || _die "nao consegui criar
   _ok "${n} chave(s) de ${t}: de ${de} para ${para}"
 }
 
+_chaves_move_pedidos() { # <tenant> <de> <para>
+  local t="$1" de="$2" para="$3"
+  # FUNCAO A PARTE, e nao o fim de _chaves_move: aquela sai cedo quando nao ha
+  # mais Secret na origem, e um participante movido por uma versao anterior
+  # ficaria com as APIKey para tras para sempre.
+  # AS APIKey DO DEVELOPER PORTAL VAO JUNTO. O 'secretRef' delas so tem nome:
+  # o Secret e procurado no namespace da propria APIKey. Movendo so os Secrets,
+  # as tres do participante ficaram em 'Failed (SecretNotFound)' e o preflight
+  # passou a reprovar o cluster (medido no user29, 2026-10-07). No namespace
+  # de destino o controller as aceita do mesmo jeito (voltam a 'Pending').
+  local ks k
+  ks="$(oc get apikeys.devportal.kuadrant.io -n "$de" -o name 2>/dev/null | grep -- "-${t}\$" || true)"
+  [[ -n "$ks" ]] || return 0
+  for k in $ks; do
+    oc get "$k" -n "$de" -o json | PARA="$para" python3 -c '
+import json, os, sys
+d = json.load(sys.stdin); m = d["metadata"]
+d["metadata"] = {"name": m["name"], "namespace": os.environ["PARA"], "labels": m.get("labels") or {}}
+d.pop("status", None); json.dump(d, sys.stdout)' | oc apply -f - >/dev/null \
+      && oc delete "$k" -n "$de" >/dev/null \
+      || _warn "nao consegui levar ${k#*/} de ${de} para ${para} -- ela fica em Failed (SecretNotFound)"
+  done
+  _ok "APIKey do developer portal de ${t}: de ${de} para ${para}"
+}
+
 # A prova: TODA chave de parceiro que mora em <namespace> autentica na API do
 # participante? Todas, e nao uma amostra: a primeira versao provava so a gold,
 # deu OK, e a 'blue' estava em 401. 429 conta como autenticada -- e o plano.
@@ -2066,6 +2091,7 @@ _chaves() { # <tenant>
   # 25s: o tempo medido para o Authorino passar a aceitar a chave do outro
   # namespace depois de o campo mudar. So entao a origem e apagada.
   _chaves_move "$t" kuadrant-system "$ns" 25
+  _chaves_move_pedidos "$t" kuadrant-system "$ns"
   if ! _chaves_prova "$t" "$ns"; then
     _die "ha chave que nao autentica no namespace novo. Volte atras: bash scripts/tenant.sh chaves-volta ${t}"
   fi
@@ -2101,7 +2127,6 @@ EOF
   _render "$t" "${_TDIR}/${t}"
   _log "falta levar a copia e o guia novos ao terminal dele:"
   _log "  bash scripts/tenant.sh showroom ${t}"
-  _log "o 'showroom' reaplica o RBAC: se ${t} estava com 'restringe', repita-o depois"
 }
 
 _chaves_volta() { # <tenant> : desfaz o 'chaves'
@@ -2113,6 +2138,7 @@ _chaves_volta() { # <tenant> : desfaz o 'chaves'
   # a origem (o namespace dele) so e apagada depois de a copia existir; com
   # allNamespaces ainda ligado as duas valem, e nao ha janela sem chave
   _chaves_move "$t" "$ns" kuadrant-system 5
+  _chaves_move_pedidos "$t" "$ns" kuadrant-system
   _chaves_policies "$t" false
   _chaves_prova "$t" kuadrant-system || _die "ha chave que nao autentica em kuadrant-system depois da volta"
   _log "a admissao das chaves fica: ela so recusa chave de um participante no namespace de outro"
