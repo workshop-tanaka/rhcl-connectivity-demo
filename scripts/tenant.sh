@@ -64,10 +64,10 @@ _die()  { printf '\n%s[X]%s %s\n' "$_RED" "$_RST" "$*" >&2; exit 1; }
 # entram na mesma lista: cada script de Extra sobe o proprio namespace com
 # nome fixo, e dois participantes no mesmo Extra colidiriam.
 NS_TENANT="travel-agency ingress-gateway echo-api echo-exposta parceiros travel-db-remoto travel-db \
-tls-lab mtls-lab listas-lab ia-lab dns-lab ctx-lab pfx-gw pfx-equipe-a pfx-equipe-b"
+tls-lab mtls-lab listas-lab saida-lab ia-lab dns-lab ctx-lab pfx-gw pfx-equipe-a pfx-equipe-b"
 # Rotulos de hostname: o curinga *.apps cobre UM nivel, entao o tenant entra
 # com hifen no primeiro rotulo, nunca como subdominio.
-HOSTS_TENANT="api-travels echo-travels listas-edge listas-pass"
+HOSTS_TENANT="api-travels echo-travels listas-edge listas-pass saida-destino"
 # Objetos que moram em namespace COMPARTILHADO com nome fixo e conteudo do
 # tenant: as APIKey do developer portal ficam em kuadrant-system e apontam
 # para o APIProduct de travel-agency. Sem o tenant no nome, o segundo
@@ -196,18 +196,20 @@ s/o Grafana abre \*\*sem pedir nada\*\* -- acesso anônimo, com\s+papel de Admin
 # LEITURA no proprio conteudo, sem comando nenhum, e nao ha o que travar nela.
 # O Modulo 4 saiu na v0.25: o Interconnect nunca fez parte do provisionamento
 # do workshop, e a pagina dele virou o anuncio de "em breve".
-# Tres coisas, so nas paginas que restam:
+# O Extra de DNS saiu em 2026-10-07: o papel que o CoreDNS do laboratorio
+# precisa passou a ser da plataforma ('rhcl-tenant-dns'), e o participante roda.
+# Tres coisas, so na pagina que resta:
 #   - um aviso de destaque logo abaixo do cabecalho;
 #   - os blocos de comando perdem o role execute, e o clique deixa de rodar;
 #   - a entrada no menu ganha a marca, para ninguem chegar la sem saber.
 # O aviso vai DEPOIS do cabecalho inteiro -- titulo e atributos, ate a primeira
 # linha em branco. Logo abaixo do titulo ele cortaria os atributos da pagina
 # (o navtitle), que so valem dentro do cabecalho.
-if (/\A= (?:1\.8 |O nome da API também é policy)/) {
+if (/\A= 1\.8 /) {
   s/,\s*role="execute"//g;
   s/\A((?:[^\n]+\n)+)\n/$1\n[IMPORTANT]\n====\n*Nesta turma, esta parte é demonstrada pelo instrutor.* Ela usa componentes que são da plataforma inteira, e o seu ambiente não tem permissão sobre eles: os comandos desta página respondem \x60Forbidden\x60. Acompanhe pela tela do instrutor.\n====\n\n/;
 }
-s/^(\* xref:(?:m1-08-auditoria|extra-dns)\.adoc\[[^\]\n]*)\]/$1 -- instrutor]/mg;
+s/^(\* xref:m1-08-auditoria\.adoc\[[^\]\n]*)\]/$1 -- instrutor]/mg;
 # O painel consumo-plataforma e visao da plataforma INTEIRA por desenho, e o
 # Grafana de uma turma e filtrado, nao isolado (docs/TURMA.md, secao 8): e o
 # unico painel nao filtravel que o guia mandava o participante abrir.
@@ -423,7 +425,7 @@ _remove() { # <tenant>
   oc delete rolebinding -A -l "${ROTULO}=${t}" --ignore-not-found >/dev/null 2>&1
   # os projetos de laboratorio que o proprio participante pediu (Extras):
   # nao tem o nosso rotulo, entao vao pelo nome, que termina no tenant
-  oc get ns -o name 2>/dev/null | grep -E -- "-${t}\$" | grep -E '/(tls|mtls|listas|ia|dns|ctx)-lab-|/pfx-' \
+  oc get ns -o name 2>/dev/null | grep -E -- "-${t}\$" | grep -E '/(tls|mtls|listas|saida|ia|dns|ctx)-lab-|/pfx-' \
     | while read -r ns; do oc delete "$ns" --wait=false >/dev/null 2>&1; done
   rm -rf "${_TDIR:?}/${t}" "${_TDIR:?}/.${t}.log"
 }
@@ -1721,7 +1723,7 @@ json.dump({"apiVersion": "v1", "kind": "List", "items": out}, sys.stdout)' \
     chave-vazada.sh contextos.sh demo.sh dns-nome.sh exposta-checklist.sh
     golden-path-limpa.sh grpc.sh identidade.sh interconnect.sh labs.sh listas.sh
     mapa-mtls.sh mtls-kuadrant.sh negado.sh parceiro-certificado.sh postman-env.sh
-    prefixos.sh preflight.sh tokens-ia.sh traffic.sh tunel-protege.sh versoes.sh"
+    prefixos.sh preflight.sh saida.sh tokens-ia.sh traffic.sh tunel-protege.sh versoes.sh"
   local _excl=() _tira=() _b
   for _b in "$d"/scripts/*.sh; do
     _b="$(basename "$_b")"

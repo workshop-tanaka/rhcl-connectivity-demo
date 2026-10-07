@@ -137,10 +137,13 @@ a cópia que vai para o terminal, e ela carrega os hostnames do cluster.
 | --- | --- |
 | 1.8 auditoria, e o Extra da chave vazada | leem o audit log do kube-apiserver, que exige cluster-admin e mostra as ações de todos |
 | a prova do alerta, no 3.5 | a regra `absent(limitador_up)` não dispara com o corte por `NetworkPolicy` |
-| Extra de DNS | cria `ClusterRole` |
 
-Os seis Extras que sobem laboratório próprio (certificado, contextos, listas,
-prefixos, tokens de IA, parceiro com certificado) **rodam como participante**.
+Os oito Extras que sobem laboratório próprio (certificado, contextos, listas,
+prefixos, tokens de IA, parceiro com certificado, DNS e saída) **rodam como
+participante**. O de DNS dependia de um `ClusterRole` criado pelo próprio
+script; desde 2026-10-07 o papel é da plataforma e a ligação de cada
+participante sai no `tenant.sh rbac`. Os oito foram rodados pelo terminal do
+`user29` no cluster-x2gsq, com o isolamento ligado.
 Eles criam e apagam o próprio namespace, o que é de cluster-admin; na cópia do
 participante `oc create namespace` vira `oc new-project`, e quem pede o projeto
 é admin dele. Medido no cluster-swsmt como `user2`: os seis terminam sem erro
