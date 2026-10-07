@@ -140,6 +140,12 @@ s/\boc delete (?:namespace|ns) /oc delete project /g unless $ENV{CONTEUDO};
 # \x60 e a crase: escrita por extenso ela quebra o parser do bash 3.2, que
 # procura o par dela mesmo dentro de um heredoc citado.
 s{\x60\\(https?://[^\x60\s]+)\x60}{$1\[$1^\]}g if $ENV{CONTEUDO};
+# SO NO CONTEUDO: 'oc get <tipo> -A' vira 'bash scripts/meus.sh <tipo>'. O
+# terminal de uma turma nao le o cluster inteiro (e nao deve: o comando
+# mostrava o que e dos colegas), e sete linhas do guia respondiam Forbidden
+# (medido como participante restrito, 2026-10-07). O script percorre so os
+# namespaces do ambiente dele. Os argumentos depois do -A sao preservados.
+s{\boc get ([A-Za-z][A-Za-z0-9.,-]*) -A\b}{bash scripts/meus.sh $1}g if $ENV{CONTEUDO};
 # SO NO CONTEUDO: o caminho de arquivo das paginas e escrito em sintaxe de
 # GITLAB ('/-/blob/main/<path>'), porque o golden path nasceu nele. Sem GitLab
 # no cluster, os atributos repo_* apontam para o GitHub publico na tag do
@@ -1775,7 +1781,7 @@ json.dump({"apiVersion": "v1", "kind": "List", "items": out}, sys.stdout)' \
     chave-vazada.sh contextos.sh demo.sh dns-nome.sh exposta-checklist.sh
     golden-path-limpa.sh grpc.sh identidade.sh interconnect.sh labs.sh listas.sh
     mapa-mtls.sh mtls-kuadrant.sh negado.sh parceiro-certificado.sh postman-env.sh
-    prefixos.sh preflight.sh saida.sh tokens-ia.sh traffic.sh tunel-protege.sh versoes.sh"
+    meus.sh prefixos.sh preflight.sh saida.sh tokens-ia.sh traffic.sh tunel-protege.sh versoes.sh"
   local _excl=() _tira=() _b
   for _b in "$d"/scripts/*.sh; do
     _b="$(basename "$_b")"

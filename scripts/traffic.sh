@@ -636,11 +636,18 @@ json.dump(o, sys.stdout)' > "$guarda" 2>/dev/null
     sleep 3
     oc apply -f "$guarda" >/dev/null \
       || _die "o PlanPolicy NAO voltou. Reaplique: oc apply -f ${guarda}"
-    for i in $(seq 1 30); do
-      [[ "$(oc get ratelimitpolicy travels-plans -n travel-agency -o jsonpath='{.status.conditions[?(@.type=="Enforced")].status}' 2>/dev/null)" == True ]] && break
+    # ATE 3 MINUTOS, e nao 1. Num cluster de turma o operador reconcilia as
+    # policies de todos, e o limite recriado levou mais de 60s para voltar a
+    # 'Enforced': o passo morria com [X] e, conferido logo depois, o limite
+    # estava de pe (medido em 2026-10-07, 30 participantes). O veredito e uma
+    # variavel, e nao o contador do laco -- 'i -lt 30' reprovava tambem quem
+    # ficava pronto exatamente na ultima volta.
+    local pronto=0
+    for i in $(seq 1 90); do
+      [[ "$(oc get ratelimitpolicy travels-plans -n travel-agency -o jsonpath='{.status.conditions[?(@.type=="Enforced")].status}' 2>/dev/null)" == True ]] && { pronto=1; break; }
       sleep 2
     done
-    [[ $i -lt 30 ]] || _die "o PlanPolicy voltou mas o limite nao ficou Enforced. Veja: oc get ratelimitpolicy -n travel-agency"
+    [[ $pronto -eq 1 ]] || _die "o PlanPolicy voltou mas o limite nao ficou Enforced em 3 min. Veja: oc get ratelimitpolicy -n travel-agency"
     rm -f "$guarda"; sleep 3
     _ok "contadores deste ambiente zerados -- cotas diarias incluidas."
     _log "confirme com: bash scripts/traffic.sh tiers"
