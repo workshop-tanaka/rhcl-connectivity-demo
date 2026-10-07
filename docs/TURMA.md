@@ -131,6 +131,41 @@ KUBECONFIG=tenants/<cluster>/user7/.kubeconfig oc ...
 As cópias locais ficam em `tenants/<cluster>/<user>/` e são **por cluster**: é
 a cópia que vai para o terminal, e ela carrega os hostnames do cluster.
 
+## 3b. O repositório do workshop, no GitLab do cluster
+
+Quando o cluster tem GitLab (`provision.sh gitlab`, que o chart do workshop
+roda a partir da `workshop-v0.29`), o `tenant.sh turma` monta o repositório
+sozinho; os passos soltos são do [gitlab-turma.sh](../scripts/gitlab-turma.sh).
+
+```
+workshop/
+├── roteiro                 o que o guia manda abrir; quem entrou lê, ninguém escreve
+└── participantes/
+    └── <userN>/ambiente    a cópia dele, com os namespaces e hostnames dele; só ele entra
+```
+
+- **O que entra:** `base/`, o `env/` e o `overlays/` da release, a coleção do
+  Postman e os scripts que o terminal do participante recebe (a lista é lida
+  do `tenant.sh`). Nada de provisionamento, plataforma ou administração.
+- **O roteiro sai de `git ls-files`**, nunca de uma varredura do diretório:
+  arquivo ignorado pelo git não é publicado.
+- **O login é o do console.** O GitLab é federado ao Keycloak dos
+  participantes, e cada conta nasce ligada à identidade dele antes do primeiro
+  login. O formulário de senha continua na tela, para o `root`.
+- **O guia aponta para o projeto do participante**, ou não aponta para nada:
+  sem GitLab, as linhas de repositório saem da página "Seus acessos".
+
+```bash
+bash scripts/gitlab-turma.sh confere user7     # o que ele lê e escreve, perguntado ao GitLab como ele
+bash scripts/gitlab-turma.sh semeia user7      # republica o projeto dele (depois de um 'render')
+bash scripts/gitlab-turma.sh remove user7      # o 'tenant.sh remove' já chama
+```
+
+Medido no cluster-x2gsq em 2026-10-07: login pelo Keycloak como `user29` cai na
+conta pré-criada; nos 30, cada um lê o roteiro, não escreve nele, escreve no
+próprio projeto e não lê o do vizinho. Não coberto: `git clone` pelo terminal
+(pede um token do participante) e abrir o projeto no Dev Spaces.
+
 ## 4. O que fica com o instrutor
 
 | passo | por quê |
