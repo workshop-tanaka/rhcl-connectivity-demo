@@ -452,18 +452,24 @@ cmd_confere() {
 cmd_remove() {
   [[ $# -ge 1 ]] || _die "uso: bash scripts/gitlab-turma.sh remove <userN> [userM...]"
   _sec "remove: o que e do participante sai do GitLab"
-  local wpod u out
+  local wpod u out sobrou=0
   wpod="$(oc get pod -n "$GL_NS" -l app=webservice --field-selector=status.phase=Running -o name 2>/dev/null | head -1 | sed 's|pod/||')"
   [[ -n "$wpod" ]] || _die "nenhum pod do webservice Running em ${GL_NS}"
   for u in "$@"; do
-    [[ "$u" =~ ^user[0-9]{1,3}$ ]] || { _warn "${u}: nao e um nome de participante -- pulei"; continue; }
+    [[ "$u" =~ ^user[0-9]{1,3}$ ]] || { _warn "${u}: nao e um nome de participante -- pulei"; sobrou=$((sobrou+1)); continue; }
     out="$(oc exec -n "$GL_NS" "$wpod" -c webservice -- sh -c "cd /srv/gitlab && ./bin/rails runner '
       p = Project.find_by_full_path(\"workshop/participantes/${u}/ambiente\"); p.destroy! if p
       g = Group.find_by_full_path(\"workshop/participantes/${u}\"); g.destroy! if g
       x = User.find_by_username(\"${u}\"); x.destroy! if x
       puts \"RESTO=#{[Project.find_by_full_path(\"workshop/participantes/${u}/ambiente\"), Group.find_by_full_path(\"workshop/participantes/${u}\"), User.find_by_username(\"${u}\")].compact.size}\"'" 2>/dev/null | grep '^RESTO=')"
-    [[ "$out" == "RESTO=0" ]] && _ok "${u}: projeto, grupo e conta removidos" || _warn "${u}: sobrou algo no GitLab (${out:-sem resposta do Rails})"
+    [[ "$out" == "RESTO=0" ]] && _ok "${u}: projeto, grupo e conta removidos" \
+      || { _warn "${u}: sobrou algo no GitLab (${out:-sem resposta do Rails})"; sobrou=$((sobrou+1)); }
   done
+  # SOBRA E FALHA, e nao aviso. A conta fica ligada ao NOME do usuario no
+  # Keycloak: se ela (ou o projeto) sobrevive e a proxima turma traz outro
+  # 'user7', essa pessoa entra pelo console e herda a conta, o acesso e os
+  # arquivos da anterior. Quem chama precisa saber que nao limpou.
+  [[ $sobrou -eq 0 ]] || _die "${sobrou} participante(s) nao sairam do GitLab por inteiro -- nao reutilize esses nomes antes de limpar"
 }
 
 case "${1:-}" in

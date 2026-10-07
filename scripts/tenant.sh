@@ -437,7 +437,7 @@ _remove() { # <tenant>
     | while read -r ns; do oc delete "$ns" --wait=false >/dev/null 2>&1; done
   # o projeto, o grupo e a conta dele no GitLab do cluster, se houver
   if oc get secret golden-path-gitlab-token -n openshift-gitops >/dev/null 2>&1; then
-    bash "${_here}/scripts/gitlab-turma.sh" remove "$t" >/dev/null 2>&1 || _warn "nao consegui tirar ${t} do GitLab — rode: bash scripts/gitlab-turma.sh remove ${t}"
+    bash "${_here}/scripts/gitlab-turma.sh" remove "$t" >/dev/null 2>&1 || _warn "${t} NAO saiu do GitLab por inteiro — a conta dele segue ligada ao nome '${t}' no Keycloak, e um proximo participante com esse nome a herdaria. Rode: bash scripts/gitlab-turma.sh remove ${t}"
   fi
   rm -rf "${_TDIR:?}/${t}" "${_TDIR:?}/.${t}.log"
 }
