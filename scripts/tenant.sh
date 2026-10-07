@@ -435,6 +435,10 @@ _remove() { # <tenant>
   # nao tem o nosso rotulo, entao vao pelo nome, que termina no tenant
   oc get ns -o name 2>/dev/null | grep -E -- "-${t}\$" | grep -E '/(tls|mtls|listas|saida|ia|dns|ctx)-lab-|/pfx-' \
     | while read -r ns; do oc delete "$ns" --wait=false >/dev/null 2>&1; done
+  # o projeto, o grupo e a conta dele no GitLab do cluster, se houver
+  if oc get secret golden-path-gitlab-token -n openshift-gitops >/dev/null 2>&1; then
+    bash "${_here}/scripts/gitlab-turma.sh" remove "$t" >/dev/null 2>&1 || _warn "nao consegui tirar ${t} do GitLab — rode: bash scripts/gitlab-turma.sh remove ${t}"
+  fi
   rm -rf "${_TDIR:?}/${t}" "${_TDIR:?}/.${t}.log"
 }
 
@@ -467,21 +471,33 @@ _keycloak_sem_registro() {
   u="$(oc get secret keycloak-initial-admin -n "$ns" -o jsonpath='{.data.username}' 2>/dev/null | base64 -d)"
   pw="$(oc get secret keycloak-initial-admin -n "$ns" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)"
   [[ -n "$host" && -n "$realm" && -n "$u" && -n "$pw" ]] || return 0   # sem Keycloak de plataforma, nada a fazer
+  # O CERTIFICADO E CONFERIDO: por aqui passa a senha de admin do Keycloak.
+  # Vale a cadeia de confianca da maquina e, se ela nao bastar, a CA do ingress
+  # lida do cluster; se nenhuma valida o host, o passo desiste em vez de mandar
+  # a senha sem conferir (apontado pela revisao de seguranca, 2026-10-07).
+  local ca=()
+  if ! curl -s -m 15 -o /dev/null "https://${host}/realms/master" 2>/dev/null; then
+    local caf; caf="$(mktemp)"
+    oc get cm default-ingress-cert -n openshift-config-managed -o jsonpath='{.data.ca-bundle\.crt}' > "$caf" 2>/dev/null
+    if curl -s -m 15 -o /dev/null --cacert "$caf" "https://${host}/realms/master" 2>/dev/null; then ca=(--cacert "$caf")
+    else rm -f "$caf"; _warn "o certificado do Keycloak (${host}) nao valida — nao mando a senha de admin; o autocadastro do realm ${realm} segue ligado"; return 0; fi
+  fi
   # a senha vai por stdin (--data-urlencode @-), e nao na linha de comando,
   # onde ficaria visivel na lista de processos
-  tok="$(printf '%s' "$pw" | curl -sk -m 20 "https://${host}/realms/master/protocol/openid-connect/token" \
+  tok="$(printf '%s' "$pw" | curl -s ${ca[@]+"${ca[@]}"} -m 20 "https://${host}/realms/master/protocol/openid-connect/token" \
            -d grant_type=password -d client_id=admin-cli --data-urlencode "username=${u}" --data-urlencode password@- 2>/dev/null \
          | python3 -c 'import sys, json; print(json.load(sys.stdin).get("access_token", ""))' 2>/dev/null)"
   if [[ -z "$tok" ]]; then
     _warn "nao consegui autenticar na API de admin do Keycloak — o autocadastro do realm ${realm} segue ligado"; return 0
   fi
-  if [[ "$(curl -sk -m 20 -o /dev/null -w '%{http_code}' -X PUT "https://${host}/admin/realms/${realm}" \
+  if [[ "$(curl -s ${ca[@]+"${ca[@]}"} -m 20 -o /dev/null -w '%{http_code}' -X PUT "https://${host}/admin/realms/${realm}" \
             -H "Authorization: Bearer ${tok}" -H 'Content-Type: application/json' \
             -d '{"registrationAllowed": false}')" == 204 ]]; then
     _ok "autocadastro desligado no realm ${realm}"
   else
     _warn "o Keycloak recusou a troca — o autocadastro do realm ${realm} segue ligado"
   fi
+  [[ ${#ca[@]} -eq 0 ]] || rm -f "${ca[1]}"
 }
 
 # ---------------------------------------------------------------------------
@@ -1669,6 +1685,9 @@ dados["repo_policies"]    = gl
 dados["config_url"]       = gl + "/-/blob/main" if gl else ""
 dados["roteiro_url"]      = os.environ.get("GL_ROTEIRO", "") if gl else ""
 dados["gitlab_url"]       = os.environ.get("GL_URL", "") if gl else ""
+# O Dev Spaces ainda nao abre o projeto do participante: o link que o molde
+# do instrutor traz aponta para um repositorio que nao e o dele.
+dados["ide_url"]          = ""
 # Parte destes valores vem do cluster (hostname de Route, senha do usuario). O
 # arquivo e montado por concatenacao, entao valor com aspas, barra invertida ou
 # caractere de controle quebraria a string e injetaria atributo: nesse caso o
@@ -1862,13 +1881,27 @@ _turma() { # <N> [primeiro=1]
   [[ "$n" =~ ^[0-9]+$ && "$ini" =~ ^[0-9]+$ && $n -ge $ini ]] || _die "uso: tenant.sh turma <N> [primeiro]"
   _plataforma
   mkdir -p "${_TDIR}"
+  # O REPOSITORIO DO WORKSHOP, se o cluster tem GitLab ('provision.sh gitlab').
+  # A federacao e o roteiro saem UMA vez, antes dos lotes; o projeto de cada
+  # participante sai entre o 'sobe' (que gera a copia dele) e o 'showroom' (que
+  # aponta o guia para o projeto). Sem GitLab nada disto roda e o guia sai sem
+  # as linhas de repositorio.
+  local gitlab=0
+  if oc get secret golden-path-gitlab-token -n openshift-gitops >/dev/null 2>&1 \
+     && [[ -n "$(oc get route -n "${GL_NS:-gitlab-system}" -o name 2>/dev/null | head -1)" ]]; then
+    _sec "turma: repositorio do workshop no GitLab do cluster"
+    if bash "${_here}/scripts/gitlab-turma.sh" login && bash "${_here}/scripts/gitlab-turma.sh" semeia roteiro; then gitlab=1
+    else _warn "o GitLab existe mas nao ficou pronto para a turma -- sigo sem o repositorio; depois: gitlab-turma.sh login, semeia, e 'showroom' de cada um"; fi
+  fi
   _sec "turma: user${ini}..user${n}, ${larg} por vez"
   i=$ini
   while [[ $i -le $n ]]; do
     for j in $(seq "$i" $(( i + larg - 1 ))); do
       [[ $j -le $n ]] || break
       t="user${j}"
-      ( bash "${BASH_SOURCE[0]}" sobe "$t" && bash "${BASH_SOURCE[0]}" showroom "$t" ) > "${_TDIR}/.${t}.log" 2>&1 &
+      ( bash "${BASH_SOURCE[0]}" sobe "$t" \
+          && { [[ $gitlab -eq 0 ]] || bash "${_here}/scripts/gitlab-turma.sh" semeia "$t" || echo "  ! o projeto de ${t} no GitLab nao foi publicado"; } \
+          && bash "${BASH_SOURCE[0]}" showroom "$t" ) > "${_TDIR}/.${t}.log" 2>&1 &
     done
     wait
     for j in $(seq "$i" $(( i + larg - 1 ))); do

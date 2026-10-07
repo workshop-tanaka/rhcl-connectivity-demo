@@ -571,7 +571,11 @@ st_gitlab() {
       fi
     fi
     _log "o Job de migrations monta o schema inteiro — varios minutos"
-    _rollout gitlab-webservice-default gitlab-system || {
+    # MEIA HORA, e nao o TIMEOUT geral. Medido em 2026-10-07 num cluster de
+    # turma: do apply ate o webservice ficar disponivel foram ~17 min, e com os
+    # 600s de fabrica (900s no Job do workshop) a etapa desistia, saia sem
+    # emitir o token e so uma segunda execucao o emitia.
+    TIMEOUT=$(( TIMEOUT > 1800 ? TIMEOUT : 1800 )) _rollout gitlab-webservice-default gitlab-system || {
       _warn "webservice nao ficou pronto; veja: oc logs -n gitlab-system deploy/gitlab-controller-manager --tail=5"
       return 0
     }

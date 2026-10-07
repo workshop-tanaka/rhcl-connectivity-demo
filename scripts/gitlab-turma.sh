@@ -32,9 +32,11 @@
 #
 # Uso (com sessao de admin no cluster):
 #   bash scripts/gitlab-turma.sh login            # federa o GitLab ao Keycloak
-#   bash scripts/gitlab-turma.sh semeia           # 'roteiro' + todos os participantes com copia renderizada
-#   bash scripts/gitlab-turma.sh semeia user7     # so o roteiro e o user7
+#   bash scripts/gitlab-turma.sh semeia           # o roteiro + todos os participantes com copia renderizada
+#   bash scripts/gitlab-turma.sh semeia roteiro   # so o roteiro (e a estrutura de grupos)
+#   bash scripts/gitlab-turma.sh semeia user7     # so o projeto do user7 -- pode rodar varios em paralelo
 #   bash scripts/gitlab-turma.sh confere user7    # o que o user7 enxerga, e o que nao
+#   bash scripts/gitlab-turma.sh remove user7     # apaga o projeto, o grupo e a conta dele
 #
 # Pre-requisitos: 'provision.sh gitlab' concluido (ele grava o token de
 # administracao) e, para cada participante, 'tenant.sh render <userN>'.
@@ -146,6 +148,14 @@ args:
 
   cr="$(oc get gitlab -n "$GL_NS" --no-headers 2>/dev/null | awk '{print $1}' | head -1)"
   [[ -n "$cr" ]] || _die "CR do GitLab nao encontrado em ${GL_NS}"
+  # JA FEDERADO? Entao nao ha o que mudar, e NAO se reinicia o GitLab: o passo
+  # e chamado a cada 'tenant.sh turma', e reiniciar o webservice derruba a
+  # tela de quem esta usando (medido: cerca de um minuto fora).
+  if [[ "$(oc get gitlab "$cr" -n "$GL_NS" -o jsonpath='{.spec.chart.values.global.appConfig.omniauth.enabled}' 2>/dev/null)" == "true" ]] \
+     && _curl -m 20 "https://${GITLAB_HOST}/users/sign_in" 2>/dev/null | grep -qi openid_connect; then
+    _ok "o GitLab ja oferece o usuario do console -- nada a mudar"
+    return 0
+  fi
   # 'autoSignInWithProvider' fica de fora: ele some com o formulario local, que
   # e por onde o root entra se a federacao sair errada.
   oc patch gitlab "$cr" -n "$GL_NS" --type merge -p '{"spec":{"chart":{"values":{"global":{"appConfig":{"omniauth":{"enabled":true,"allowSingleSignOn":["openid_connect"],"autoLinkUser":["openid_connect"],"blockAutoCreatedUsers":false,"providers":[{"secret":"gitlab-oidc-provider","key":"provider"}]}}}}}}}' >/dev/null \
@@ -337,18 +347,25 @@ def usuario(u):
     return d["id"]
 
 def semeia():
-    # o cadastro livre sai, e projeto novo nasce privado
-    call("PUT", "/application/settings", {"signup_enabled": False, "default_project_visibility": "private",
-                                           "default_group_visibility": "private"})
+    # TRES MODOS, para a turma poder subir em paralelo: 'roteiro' so publica o
+    # que e de todos (e cria os grupos); um ou mais <userN> so publicam o
+    # projeto de cada um; sem argumento, tudo. Quatro participantes subindo ao
+    # mesmo tempo publicariam o MESMO roteiro quatro vezes, um por cima do outro.
+    so_roteiro = ALVOS == ["roteiro"]
+    faz_roteiro = so_roteiro or not ALVOS
     raiz = grupo("workshop", "Workshop", "internal")
-    pid = projeto("workshop/roteiro", raiz, "internal", "Os arquivos que o guia manda abrir. Somente leitura.")
-    url = "https://%s/workshop/roteiro" % HOST
-    arqs, sobras = arquivos(RAIZ, url, True); arqs["README.md"] = LEIAME_ROTEIRO
-    publica(pid, "workshop/roteiro", arqs, "roteiro do workshop")
-    if sobras: warn("workshop/roteiro: %d referencia(s) a github.com sobraram nos arquivos" % sobras)
     part = grupo("workshop/participantes", "Participantes", "private", raiz)
-    alvos = ALVOS or sorted((d for d in os.listdir(TDIR) if os.path.isfile(os.path.join(TDIR, d, ".tenant"))),
-                            key=lambda s: (len(s), s)) if os.path.isdir(TDIR) else ALVOS
+    if faz_roteiro:
+        # o cadastro livre sai, e projeto novo nasce privado
+        call("PUT", "/application/settings", {"signup_enabled": False, "default_project_visibility": "private",
+                                               "default_group_visibility": "private"})
+        pid = projeto("workshop/roteiro", raiz, "internal", "Os arquivos que o guia manda abrir. Somente leitura.")
+        arqs, sobras = arquivos(RAIZ, "https://%s/workshop/roteiro" % HOST, True); arqs["README.md"] = LEIAME_ROTEIRO
+        publica(pid, "workshop/roteiro", arqs, "roteiro do workshop")
+        if sobras: warn("workshop/roteiro: %d referencia(s) a github.com sobraram nos arquivos" % sobras)
+    if so_roteiro: return
+    alvos = ALVOS or (sorted((d for d in os.listdir(TDIR) if os.path.isfile(os.path.join(TDIR, d, ".tenant"))),
+                             key=lambda x: (len(x), x)) if os.path.isdir(TDIR) else [])
     if not alvos: warn("nenhuma copia de participante em %s -- rode: bash scripts/tenant.sh render <userN>" % TDIR)
     for u in alvos:
         orig = os.path.join(TDIR, u)
@@ -427,10 +444,33 @@ cmd_confere() {
   _api_py confere "$*" && _ok "acessos como esperado" || _die "ha acesso diferente do esperado"
 }
 
+# APAGAR NAO E PELA API. Este GitLab roda sem registry de conteiner, e o
+# delete da API e um soft-delete que renomeia o projeto e consulta o registry:
+# responde 400 "failed to connect to the container registry" (medido em
+# 2026-08-25 e de novo em 2026-10-07). O que funciona e o destroy direto, pelo
+# app Rails do pod do webservice. O nome e validado antes de entrar no comando.
+cmd_remove() {
+  [[ $# -ge 1 ]] || _die "uso: bash scripts/gitlab-turma.sh remove <userN> [userM...]"
+  _sec "remove: o que e do participante sai do GitLab"
+  local wpod u out
+  wpod="$(oc get pod -n "$GL_NS" -l app=webservice --field-selector=status.phase=Running -o name 2>/dev/null | head -1 | sed 's|pod/||')"
+  [[ -n "$wpod" ]] || _die "nenhum pod do webservice Running em ${GL_NS}"
+  for u in "$@"; do
+    [[ "$u" =~ ^user[0-9]{1,3}$ ]] || { _warn "${u}: nao e um nome de participante -- pulei"; continue; }
+    out="$(oc exec -n "$GL_NS" "$wpod" -c webservice -- sh -c "cd /srv/gitlab && ./bin/rails runner '
+      p = Project.find_by_full_path(\"workshop/participantes/${u}/ambiente\"); p.destroy! if p
+      g = Group.find_by_full_path(\"workshop/participantes/${u}\"); g.destroy! if g
+      x = User.find_by_username(\"${u}\"); x.destroy! if x
+      puts \"RESTO=#{[Project.find_by_full_path(\"workshop/participantes/${u}/ambiente\"), Group.find_by_full_path(\"workshop/participantes/${u}\"), User.find_by_username(\"${u}\")].compact.size}\"'" 2>/dev/null | grep '^RESTO=')"
+    [[ "$out" == "RESTO=0" ]] && _ok "${u}: projeto, grupo e conta removidos" || _warn "${u}: sobrou algo no GitLab (${out:-sem resposta do Rails})"
+  done
+}
+
 case "${1:-}" in
   login)   cmd_login ;;
+  remove)  shift; cmd_remove "$@" ;;
   semeia)  shift; cmd_semeia "$@" ;;
   confere) shift; cmd_confere "$@" ;;
   ""|-h|--help) sed -n '2,/^set -uo pipefail/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//' ;;
-  *) _die "subcomando desconhecido: $1 (login | semeia | confere)" ;;
+  *) _die "subcomando desconhecido: $1 (login | semeia | confere | remove)" ;;
 esac
