@@ -96,6 +96,15 @@ spec:
         - matchExpressions:
             - key: rhcl.demo/tenant
               operator: Exists
+        # Os Extras com laboratorio proprio criam o projeto na hora, com um
+        # Gateway dentro. Sem este seletor o Gateway fica em 'Pending' para
+        # sempre e o script desiste sem dizer por que (medido em 2026-10-06
+        # com o listas.sh). O rotulo vem do proprio script quando quem roda e
+        # admin; projeto pedido por participante nao pode ser rotulado por
+        # ele, e recebe o rotulo do modelo de projeto do cluster.
+        - matchExpressions:
+            - key: rhcl.demo/lab
+              operator: Exists
         - matchExpressions:
             - key: kubernetes.io/metadata.name
               operator: In
