@@ -17,7 +17,7 @@ Showroom e a apresentação de abertura.
 | --- | --- | --- |
 | Quando usar | poucos participantes, ou clientes diferentes | uma turma do mesmo cliente |
 | Pedidos no RHDP | um por pessoa | um por cluster, até 30 participantes cada |
-| Quem monta | o `Job` do Argo, sozinho (25 a 40 min) | o `Job` monta a base (10 a 15 min); você sobe a turma (~40 min) |
+| Quem monta | o `Job` do Argo, sozinho (25 a 40 min) | o `Job` monta a base (10 a 15 min, mais ~20 do GitLab a partir da `workshop-v0.29`); você sobe a turma (~40 min) |
 | Isolamento | real | de sala de aula — ver a seção 7 |
 
 **Clientes diferentes nunca dividem cluster.** O modo de turma deixa um
@@ -71,6 +71,7 @@ Modo de turma, depois que o `Job` da base fechar:
 export KUBECONFIG="$PWD/frota/kc-<guid>"   # caminho ABSOLUTO: os scripts fazem cd
 bash scripts/preflight.sh core             # a plataforma está de pé?
 bash scripts/tenant.sh turma 30            # user1..user30, quatro por vez (~40 min)
+bash scripts/gitlab-turma.sh confere $(seq -f 'user%g' 1 30)   # cada um lê o roteiro e só o próprio projeto
 bash scripts/tenant.sh confere-turma       # o preflight do terminal de cada um
 bash scripts/tenant.sh traces              # cada um lê o conteúdo só dos próprios traces
 ```
