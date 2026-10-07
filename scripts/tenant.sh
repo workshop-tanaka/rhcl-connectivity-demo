@@ -1618,6 +1618,10 @@ _showroom() { # <tenant> <dir da copia>
     gl_url="https://${gl_host}"; gl_proj="${gl_url}/workshop/participantes/${t}/ambiente"; gl_roteiro="${gl_url}/workshop/roteiro"
     _ok "repositorio de ${t} no GitLab do cluster: os links do guia apontam para ele"
   fi
+  local che_url=""
+  if [[ -n "$gl_proj" ]] && oc get secret gitlab-oauth-config -n "${CHE_NS:-openshift-devspaces}" >/dev/null 2>&1; then
+    che_url="$(oc get checluster -n "${CHE_NS:-openshift-devspaces}" -o jsonpath='{.items[0].status.cheURL}' 2>/dev/null)"
+  fi
 
   {
     oc get deploy/showroom svc/showroom route/showroom pvc/showroom-terminal-lab-user-home rolebinding/edit-showroom-sa \
@@ -1633,7 +1637,7 @@ _showroom() { # <tenant> <dir da copia>
     # e, nele, um KeycloakRealmImport com o nome de outro participante -- com
     # '-A' a "senha" plantada iria parar no guia da vitima.
     oc get keycloakrealmimport -n "${KEYCLOAK_NS:-keycloak}" -o json 2>/dev/null || printf '{"items":[]}'
-  } | GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
+  } | CHE_URL="$che_url" GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
 import sys, json, os, re, base64
 t, dom = os.environ["TENANT"], os.environ["DOM"]
 objs, chaves, rotas, realms = sys.stdin.read().split("\x1e")
@@ -1685,9 +1689,11 @@ dados["repo_policies"]    = gl
 dados["config_url"]       = gl + "/-/blob/main" if gl else ""
 dados["roteiro_url"]      = os.environ.get("GL_ROTEIRO", "") if gl else ""
 dados["gitlab_url"]       = os.environ.get("GL_URL", "") if gl else ""
-# O Dev Spaces ainda nao abre o projeto do participante: o link que o molde
-# do instrutor traz aponta para um repositorio que nao e o dele.
-dados["ide_url"]          = ""
+# O link do Dev Spaces e o do projeto DELE, e so quando o Dev Spaces esta
+# configurado para clonar do GitLab (gitlab-turma.sh devspaces). O que o molde
+# do instrutor traz aponta para outro repositorio, e nunca e copiado.
+che = os.environ.get("CHE_URL", "")
+dados["ide_url"]          = (che.rstrip("/") + "/#" + gl) if (gl and che) else ""
 # Parte destes valores vem do cluster (hostname de Route, senha do usuario). O
 # arquivo e montado por concatenacao, entao valor com aspas, barra invertida ou
 # caractere de controle quebraria a string e injetaria atributo: nesse caso o
@@ -1806,6 +1812,15 @@ json.dump({"apiVersion": "v1", "kind": "List", "items": out}, sys.stdout)' \
   # meio do passo, e nada avisaria. Entao a conferencia e de ponta a ponta, e
   # dentro do pod, onde o guia e o terminal se encontram.
   local _faltam
+  # O TERMINAL VIRA UM CLONE DO PROJETO DELE no GitLab do cluster, quando ha
+  # projeto: 'git status', 'commit' e 'push' funcionam sem credencial digitada.
+  # Depois da copia, porque e ela que poe os arquivos no lugar.
+  if [[ -n "$gl_proj" ]]; then
+    bash "${_here}/scripts/gitlab-turma.sh" terminal "$t" >/dev/null 2>&1 \
+      && _ok "terminal de ${t} ligado ao projeto dele (git push funciona de la)" \
+      || _warn "o terminal de ${t} nao ficou ligado ao GitLab — o projeto existe e abre pelo navegador; para ligar: bash scripts/gitlab-turma.sh terminal ${t}"
+  fi
+
   _faltam="$(oc exec -n "showroom-${t}" deploy/showroom -c terminal -- bash -c '
     d=/home/lab-user/rhcl-connectivity-demo
     g=$(find / -maxdepth 6 -type d -name modules 2>/dev/null | head -1)
@@ -1890,7 +1905,11 @@ _turma() { # <N> [primeiro=1]
   if oc get secret golden-path-gitlab-token -n openshift-gitops >/dev/null 2>&1 \
      && [[ -n "$(oc get route -n "${GL_NS:-gitlab-system}" -o name 2>/dev/null | head -1)" ]]; then
     _sec "turma: repositorio do workshop no GitLab do cluster"
-    if bash "${_here}/scripts/gitlab-turma.sh" login && bash "${_here}/scripts/gitlab-turma.sh" semeia roteiro; then gitlab=1
+    if bash "${_here}/scripts/gitlab-turma.sh" login && bash "${_here}/scripts/gitlab-turma.sh" semeia roteiro; then
+      gitlab=1
+      # o Dev Spaces, se o cluster tem: passa a clonar o projeto privado de cada um
+      [[ -z "$(oc get checluster -A -o name 2>/dev/null | head -1)" ]] || bash "${_here}/scripts/gitlab-turma.sh" devspaces \
+        || _warn "o Dev Spaces nao ficou ligado ao GitLab -- o guia sai sem o link dele"
     else _warn "o GitLab existe mas nao ficou pronto para a turma -- sigo sem o repositorio; depois: gitlab-turma.sh login, semeia, e 'showroom' de cada um"; fi
   fi
   _sec "turma: user${ini}..user${n}, ${larg} por vez"

@@ -36,6 +36,8 @@
 #   bash scripts/gitlab-turma.sh semeia roteiro   # so o roteiro (e a estrutura de grupos)
 #   bash scripts/gitlab-turma.sh semeia user7     # so o projeto do user7 -- pode rodar varios em paralelo
 #   bash scripts/gitlab-turma.sh confere user7    # o que o user7 enxerga, e o que nao
+#   bash scripts/gitlab-turma.sh terminal user7   # o terminal dele vira um clone do projeto dele
+#   bash scripts/gitlab-turma.sh devspaces        # o Dev Spaces passa a clonar projeto privado do GitLab
 #   bash scripts/gitlab-turma.sh remove user7     # apaga o projeto, o grupo e a conta dele
 #
 # Pre-requisitos: 'provision.sh gitlab' concluido (ele grava o token de
@@ -196,7 +198,14 @@ _api_py() {
   local versionados
   versionados="$(git -C "$_here" ls-files base env overlays postman 2>/dev/null)"
   [[ -n "$versionados" ]] || _die "nao consegui listar os arquivos versionados (git ls-files) -- o roteiro nao e publicado de um diretorio sem git"
-  CA_BUNDLE="$CA_BUNDLE" GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" RAIZ="$_here" TDIR="$TDIR" SCRIPTS_ROTEIRO="$SCRIPTS_ROTEIRO" VERSIONADOS="$versionados" \
+  # A IMAGEM DO DEVFILE e a que o operador do Dev Spaces INSTALADO referencia,
+  # lida do CSV dele: fixar uma tag aqui a deixaria para tras no primeiro
+  # upgrade. Sem Dev Spaces no cluster o projeto nao leva devfile.
+  local udi=""
+  if [[ -n "$(oc get checluster -A -o jsonpath='{.items[0].status.cheURL}' 2>/dev/null)" ]]; then
+    udi="$(oc get csv -A -o json 2>/dev/null | grep -o 'registry.redhat.io/devspaces/udi-rhel9@sha256:[0-9a-f]*' | sort -u | head -1)"
+  fi
+  UDI_IMG="$udi" CA_BUNDLE="$CA_BUNDLE" GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" RAIZ="$_here" TDIR="$TDIR" SCRIPTS_ROTEIRO="$SCRIPTS_ROTEIRO" VERSIONADOS="$versionados" \
   MODO="$1" ALVOS="${2:-}" python3 - <<'PY'
 import os, sys, json, ssl, base64, secrets, urllib.request, urllib.error, urllib.parse
 
@@ -334,6 +343,27 @@ os comandos do guia.
 | `postman/` | a colecao de chamadas da sua API |
 """
 
+# O que o Dev Spaces abre quando o participante clica no link do guia. Sem
+# devfile na raiz o painel avisa "Failed to fetch devfile" e sobe o padrao.
+# SEM 'commands': dentro do workspace quem age e o usuario do participante, e
+# um comando pronto que pedisse o cluster inteiro responderia Forbidden.
+# A imagem e a que o operador do Dev Spaces instalado referencia (ver _api_py).
+DEVFILE = """schemaVersion: 2.2.0
+metadata:
+  name: ambiente-%(u)s
+  displayName: Ambiente de %(u)s
+  description: As policies e os scripts do roteiro, com os nomes do ambiente de %(u)s.
+components:
+  - name: tools
+    container:
+      image: %(img)s
+      mountSources: true
+      memoryRequest: 512Mi
+      memoryLimit: 2Gi
+      cpuRequest: 100m
+      cpuLimit: 1000m
+"""
+
 def usuario(u):
     st, d = call("GET", "/users?username=" + q(u))
     if st == 200 and d: return d[0]["id"]
@@ -375,6 +405,7 @@ def semeia():
         p = projeto("workshop/participantes/%s/ambiente" % u, g, "private", "O ambiente de %s: os arquivos do roteiro com os namespaces e hostnames dele." % u)
         arqs, sobras = arquivos(orig, "https://%s/workshop/participantes/%s/ambiente" % (HOST, u), False)
         arqs["README.md"] = LEIAME_AMBIENTE % {"u": u}
+        if os.environ.get("UDI_IMG"): arqs["devfile.yaml"] = DEVFILE % {"u": u, "img": os.environ["UDI_IMG"]}
         publica(p, "workshop/participantes/%s/ambiente" % u, arqs, "ambiente de %s" % u)
         uid = usuario(u)
         st, _ = call("POST", "/groups/%d/members" % g, {"user_id": uid, "access_level": 40})
@@ -444,6 +475,131 @@ cmd_confere() {
   _api_py confere "$*" && _ok "acessos como esperado" || _die "ha acesso diferente do esperado"
 }
 
+# ---------------------------------------------------------------------------
+# terminal — o diretorio de trabalho do participante vira um clone do projeto
+#
+# O terminal do guia ja traz os arquivos em /home/lab-user/rhcl-connectivity-demo,
+# e o projeto 'ambiente' dele no GitLab tem os mesmos. Sem ligar um ao outro, o
+# participante edita no terminal e nada chega ao GitLab -- e para clonar ele
+# precisaria fabricar um token na tela. Aqui o diretorio que ja existe ganha
+# um '.git' apontando para o projeto dele: 'git status', 'commit' e 'push'
+# funcionam sem ele digitar credencial.
+#
+# A CREDENCIAL E UM TOKEN DELE, so de repositorio (ler e escrever), que vence em
+# 30 dias. Fica num arquivo do volume do terminal dele -- onde ja estao as
+# chaves de API dele. Vai por stdin, nunca na linha de comando. Reexecutar
+# revoga o token anterior antes de emitir outro.
+#
+# O QUE NAO E DO PROJETO fica fora do git por '.git/info/exclude': a copia do
+# terminal tem arquivos de apoio que nao foram publicados.
+cmd_terminal() {
+  [[ $# -ge 1 ]] || _die "uso: bash scripts/gitlab-turma.sh terminal <userN> [userM...]"
+  local u tok falhou=0
+  for u in "$@"; do
+    [[ "$u" =~ ^user[0-9]{1,3}$ ]] || { _warn "${u}: nao e um nome de participante -- pulei"; falhou=$((falhou+1)); continue; }
+    tok="$(CA_BUNDLE="$CA_BUNDLE" GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" U="$u" python3 - <<'PY'
+import os, sys, json, ssl, datetime, urllib.request, urllib.error, urllib.parse
+HOST, TOKEN, U = os.environ["GITLAB_HOST"], os.environ["TOKEN"], os.environ["U"]
+CTX = ssl.create_default_context(cafile=os.environ.get("CA_BUNDLE") or None)
+def call(method, path, body=None):
+    req = urllib.request.Request("https://%s/api/v4%s" % (HOST, path), data=json.dumps(body).encode() if body is not None else None,
+                                 method=method, headers={"PRIVATE-TOKEN": TOKEN, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, context=CTX, timeout=60) as r:
+            raw = r.read(); return r.status, (json.loads(raw) if raw else None)
+    except urllib.error.HTTPError as e:
+        return e.code, None
+st, d = call("GET", "/users?username=" + urllib.parse.quote(U))
+if st != 200 or not d: sys.exit(1)
+uid = d[0]["id"]
+st, ts = call("GET", "/personal_access_tokens?user_id=%d&state=active&per_page=100" % uid)
+for t in (ts or []) if st == 200 else []:
+    if t.get("name") == "terminal-do-guia": call("DELETE", "/personal_access_tokens/%d" % t["id"])
+venc = (datetime.date.today() + datetime.timedelta(days=30)).isoformat()
+st, t = call("POST", "/users/%d/personal_access_tokens" % uid,
+             {"name": "terminal-do-guia", "scopes": ["read_repository", "write_repository"], "expires_at": venc})
+if st not in (200, 201): sys.exit(1)
+sys.stdout.write(t["token"])
+PY
+)" || tok=""
+    [[ -n "$tok" ]] || { _warn "${u}: nao consegui emitir o token dele (existe no GitLab? rode 'semeia ${u}')"; falhou=$((falhou+1)); continue; }
+    if printf '%s' "$tok" | oc exec -i -n "showroom-${u}" deploy/showroom -c terminal -- env GL_HOST="$GITLAB_HOST" GL_USER="$u" bash -c '
+        set -e
+        read -r TK || true      # sem quebra de linha no fim, o read devolve erro mesmo tendo lido
+        [ -n "$TK" ]
+        D=/home/lab-user/rhcl-connectivity-demo; C=/home/lab-user/.git-credenciais-ambiente
+        cd "$D"
+        [ -d .git ] || git init -q -b main .
+        git remote remove origin 2>/dev/null || true
+        git remote add origin "https://${GL_HOST}/workshop/participantes/${GL_USER}/ambiente.git"
+        ( umask 077; printf "https://%s:%s@%s\n" "$GL_USER" "$TK" "$GL_HOST" > "$C" )
+        git config credential.helper "store --file=$C"
+        git config user.name "$GL_USER"; git config user.email "${GL_USER}@workshop.invalid"
+        git config core.fileMode false; git config pull.rebase false
+        printf "%s\\n" ".tenant" ".kubeconfig" ".provision.log" ".out-*" "platform-reference/" "env/cluster-*/" "env/rhcl-1.2*/" "overlays/cluster-*/" "overlays/provisioned/" "postman/*.local.*" > .git/info/exclude
+        git fetch -q origin main
+        git reset -q --mixed origin/main
+        # o participante pode ter mexido no terminal: o que ele mudou FICA; so volta
+        # o que existe no projeto e sumiu do terminal (o README, na primeira vez)
+        git ls-files -d -z | xargs -0 -r git checkout -q --
+        git branch -q --set-upstream-to=origin/main main 2>/dev/null || true
+        echo "LIGADO $(git rev-parse --short HEAD) $(git status --porcelain | wc -l)"' 2>/dev/null | grep -q '^LIGADO '; then
+      _ok "${u}: o terminal dele e um clone de workshop/participantes/${u}/ambiente"
+    else
+      _warn "${u}: nao consegui ligar o terminal dele ao projeto"; falhou=$((falhou+1))
+    fi
+  done
+  [[ $falhou -eq 0 ]] || _die "${falhou} terminal(is) nao ficaram ligados ao GitLab"
+}
+
+# ---------------------------------------------------------------------------
+# devspaces — o Dev Spaces do cluster passa a abrir o projeto do participante
+#
+# O projeto dele e PRIVADO, e o Dev Spaces clona em nome de quem abriu o
+# workspace: precisa de uma aplicacao OAuth no GitLab e do par id/segredo num
+# Secret que o operador do Dev Spaces reconhece pelos rotulos. E uma
+# configuracao so, para o cluster -- nao ha nada por participante aqui; o que e
+# dele e o link do guia (tenant.sh showroom) e o devfile.yaml do projeto
+# (semeia).
+#
+# O SEGREDO DA APLICACAO SO E DEVOLVIDO NA CRIACAO. Por isso o Secret e a
+# marca de "ja feito": existindo, nada e recriado. Para refazer, apague o
+# Secret e a aplicacao 'Dev Spaces' no GitLab (Admin -> Applications).
+cmd_devspaces() {
+  _sec "devspaces: o Dev Spaces clona projeto privado do GitLab"
+  local che ns="${CHE_NS:-openshift-devspaces}"
+  che="$(oc get checluster -n "$ns" -o jsonpath='{.items[0].status.cheURL}' 2>/dev/null)"
+  [[ -n "$che" ]] || _die "nao ha Dev Spaces ativo em ${ns} (CheCluster sem cheURL)"
+  if oc get secret gitlab-oauth-config -n "$ns" >/dev/null 2>&1; then
+    _ok "o Dev Spaces ja tem a aplicacao OAuth do GitLab (${ns}/gitlab-oauth-config) -- nada a mudar"
+    return 0
+  fi
+  CA_BUNDLE="$CA_BUNDLE" GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" CHE="$che" NS="$ns" python3 - <<'PY' | oc apply -f - >/dev/null || _die "nao consegui criar a aplicacao OAuth ou gravar o Secret"
+import os, sys, json, ssl, urllib.request, urllib.error
+HOST, TOKEN, CHE, NS = os.environ["GITLAB_HOST"], os.environ["TOKEN"], os.environ["CHE"], os.environ["NS"]
+CTX = ssl.create_default_context(cafile=os.environ.get("CA_BUNDLE") or None)
+req = urllib.request.Request("https://%s/api/v4/applications" % HOST, method="POST",
+        headers={"PRIVATE-TOKEN": TOKEN, "Content-Type": "application/json"},
+        data=json.dumps({"name": "Dev Spaces", "redirect_uri": CHE.rstrip("/") + "/api/oauth/callback",
+                         "scopes": "api write_repository openid", "confidential": True}).encode())
+try:
+    with urllib.request.urlopen(req, context=CTX, timeout=60) as r: a = json.loads(r.read())
+except urllib.error.HTTPError as e:
+    sys.stderr.write("GitLab recusou criar a aplicacao: HTTP %s\n" % e.code); sys.exit(1)
+json.dump({"apiVersion": "v1", "kind": "Secret",
+    "metadata": {"name": "gitlab-oauth-config", "namespace": NS,
+        "labels": {"app.kubernetes.io/part-of": "che.eclipse.org", "app.kubernetes.io/component": "oauth-scm-configuration"},
+        "annotations": {"che.eclipse.org/oauth-scm-server": "gitlab", "che.eclipse.org/scm-server-endpoint": "https://" + HOST}},
+    "type": "Opaque", "stringData": {"id": a["application_id"], "secret": a["secret"]}}, sys.stdout)
+PY
+  _ok "aplicacao 'Dev Spaces' criada no GitLab e gravada em ${ns}/gitlab-oauth-config"
+  # o operador reconfigura e reinicia o servidor do Dev Spaces sozinho
+  sleep 20
+  oc rollout status deploy/devspaces -n "$ns" --timeout=600s >/dev/null 2>&1 \
+    && _ok "servidor do Dev Spaces no ar com a nova configuracao" \
+    || _warn "o servidor do Dev Spaces nao confirmou o rollout -- confira: oc get pods -n ${ns}"
+}
+
 # APAGAR NAO E PELA API. Este GitLab roda sem registry de conteiner, e o
 # delete da API e um soft-delete que renomeia o projeto e consulta o registry:
 # responde 400 "failed to connect to the container registry" (medido em
@@ -475,8 +631,10 @@ cmd_remove() {
 case "${1:-}" in
   login)   cmd_login ;;
   remove)  shift; cmd_remove "$@" ;;
+  terminal) shift; cmd_terminal "$@" ;;
+  devspaces) cmd_devspaces ;;
   semeia)  shift; cmd_semeia "$@" ;;
   confere) shift; cmd_confere "$@" ;;
   ""|-h|--help) sed -n '2,/^set -uo pipefail/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//' ;;
-  *) _die "subcomando desconhecido: $1 (login | semeia | confere | remove)" ;;
+  *) _die "subcomando desconhecido: $1 (login | semeia | confere | terminal | devspaces | remove)" ;;
 esac
