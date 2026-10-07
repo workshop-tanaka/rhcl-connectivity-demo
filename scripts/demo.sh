@@ -953,6 +953,28 @@ _dev_login() {
   # quem chamou, mostrando o RBAC ERRADO no passo que existe para contrasta-lo.
   _KC_DEV="$(mktemp -t kubeconfig-app-dev.XXXXXX)" \
     || { _warn "nao consegui criar o kubeconfig do app-dev"; return 1; }
+  # NUMA TURMA nao ha persona no Keycloak: o desenvolvedor e a ServiceAccount
+  # 'dev' do ambiente do participante, criada pelo tenant.sh com o mesmo papel
+  # que o app-dev tem na demo. O participante e admin do namespace e emite um
+  # token dela -- curto, e que nunca aparece na linha de comando: vai direto
+  # para o arquivo de kubeconfig.
+  if [[ -f "${_here}/.tenant" ]]; then
+    local tk srv
+    tk="$(oc create token dev -n travel-agency --duration=20m 2>/dev/null)" || return 1
+    srv="$(oc whoami --show-server)"
+    [[ -n "$tk" && -n "$srv" ]] || return 1
+    ( umask 077; cat > "$_KC_DEV" <<KC
+apiVersion: v1
+kind: Config
+clusters: [{name: c, cluster: {server: "${srv}", insecure-skip-tls-verify: true}}]
+users: [{name: dev, user: {token: "${tk}"}}]
+contexts: [{name: dev, context: {cluster: c, user: dev}}]
+current-context: dev
+KC
+    )
+    _dev whoami >/dev/null 2>&1
+    return $?
+  fi
   KUBECONFIG="$_KC_DEV" oc login -u app-dev -p "$senha" \
     --server="$(oc whoami --show-server)" --insecure-skip-tls-verify=true >/dev/null 2>&1
 }
@@ -963,13 +985,25 @@ _dev_fim() { [[ -n "$_KC_DEV" ]] && rm -f "$_KC_DEV"; _KC_DEV=""; }
 # funcao, e nao inline no ato: com heredoc dentro de heredoc os escapes ficam
 # ilegiveis e um deles quebrou na primeira execucao (2026-09-18).
 _papeis_matriz() {
-  printf '  %-46s %-9s %s\n' 'ACAO' 'app-dev' 'plat-eng'
+  # Numa turma as duas colunas sao identidades de verdade deste ambiente: o
+  # 'dev' responde pelo token dele (ver _dev_login) e a segunda coluna e VOCE,
+  # o terminal, que cuida do Gateway. Sem '--as': o participante nao
+  # personifica ninguem, e a primeira versao desta matriz respondia 'yes' em
+  # tudo porque a persona nem existia (medido em 2026-10-07).
+  local turma=0; [[ -f "${_here}/.tenant" ]] && turma=1
+  if [[ $turma -eq 1 ]]; then printf '  %-46s %-9s %s\n' 'ACAO' 'dev' 'voce (Infra)'
+  else printf '  %-46s %-9s %s\n' 'ACAO' 'app-dev' 'plat-eng'; fi
   printf '  %-46s %-9s %s\n' '----------------------------------------------' '-------' '--------'
   local d c a p
   while IFS='|' read -r d c; do
     [[ -z "$d" ]] && continue
+    if [[ $turma -eq 1 ]]; then
+      a="$(_dev auth can-i $c 2>/dev/null || true)"
+      p="$(oc auth can-i $c 2>/dev/null || true)"
+    else
     a="$(oc auth can-i $c --as=app-dev 2>/dev/null || true)"
     p="$(oc auth can-i $c --as=plat-eng 2>/dev/null || true)"
+    fi
     printf '  %-46s %-9s %s\n' "$d" "${a:-no}" "${p:-no}"
   done <<'MATRIZ'
 editar a AuthPolicy do GATEWAY|patch authpolicy -n ingress-gateway
@@ -1000,23 +1034,33 @@ step_papeis() {
   _pause || return 0
 
   printf '\n  %s1. A matriz, perguntada ao proprio cluster%s\n' "$_BLD" "$_RST"
-  _cmd "oc auth can-i <acao> --as=app-dev   # e --as=plat-eng, lado a lado"
+  if [[ -f "${_here}/.tenant" ]]; then
+    _cmd "oc auth can-i <acao>   # como o 'dev' deste ambiente, e como voce"
+    # a matriz da turma pergunta COMO o dev: o token dele vem antes
+    [[ $DRY_RUN -eq 0 ]] && { _dev_login || { _warn "nao consegui um token do 'dev' deste ambiente -- quem monta a turma o cria: tenant.sh rbac"; return 0; }; }
+  else
+    _cmd "oc auth can-i <acao> --as=app-dev   # e --as=plat-eng, lado a lado"
+  fi
   [[ $DRY_RUN -eq 0 ]] && _papeis_matriz
   _look "o desenvolvedor NAO toca no teto, mas declara a policy da rota dele"
   _say  "Repare na linha do meio: ele pode VER o Gateway. Sem isso ele nao descobre o nome para o parentRefs, e o modelo viraria abrir um ticket para a plataforma -- que e exatamente o que o Gateway API existe para eliminar."
 
   printf '\n  %s2. Agora de verdade: entramos COMO o desenvolvedor%s\n' "$_BLD" "$_RST"
-  _why "Login real pelo Keycloak, que e o provedor de identidade deste cluster."
+  if [[ -f "${_here}/.tenant" ]]; then
+    _why "Um token de verdade, da identidade 'dev' do seu ambiente."
+  else
+    _why "Login real pelo Keycloak, que e o provedor de identidade deste cluster."
+  fi
   _why "A sessao vai para um KUBECONFIG proprio -- a sua continua intacta."
   _pause || return 0
-  if ! _dev_login; then
+  if [[ -z "$_KC_DEV" ]] && ! _dev_login; then
     _warn "nao consegui logar como app-dev -- as personas existem?"
     _warn "  as personas do Keycloak nao estao no ar -- avise o instrutor"
     return 0
   fi
   _cmd oc whoami
   [[ $DRY_RUN -eq 0 ]] && printf '    %s\n' "$(_dev whoami)"
-  _ok "somos o app-dev nesta sessao"
+  if [[ -f "${_here}/.tenant" ]]; then _ok "somos o 'dev' nesta sessao"; else _ok "somos o app-dev nesta sessao"; fi
 
   printf '\n  %s3. O teto da plataforma, visto de baixo%s\n' "$_BLD" "$_RST"
   _cmd oc patch authpolicy prod-web-deny-all -n ingress-gateway --type=merge -p '{...}'
@@ -1046,8 +1090,13 @@ step_papeis() {
   _why "E a delegacao nao e combinado verbal. Esta escrita no proprio Gateway:"
   _do oc get gateway prod-web -n ingress-gateway \
       -o jsonpath='{.spec.listeners[0].allowedRoutes.namespaces.from}{"\n"}'
-  _look "All -- o operador da plataforma declarou que qualquer namespace pode"
-  _look "anexar rota. O desenvolvedor publica sem pedir nada a ninguem."
+  if [[ -f "${_here}/.tenant" ]]; then
+    _look "Selector -- o Gateway aceita rota dos namespaces DESTE ambiente, e so"
+    _look "deles. O desenvolvedor publica ali sem pedir nada a ninguem."
+  else
+    _look "All -- o operador da plataforma declarou que qualquer namespace pode"
+    _look "anexar rota. O desenvolvedor publica sem pedir nada a ninguem."
+  fi
 
   _dev_fim
   echo

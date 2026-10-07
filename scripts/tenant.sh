@@ -146,6 +146,17 @@ s{\x60\\(https?://[^\x60\s]+)\x60}{$1\[$1^\]}g if $ENV{CONTEUDO};
 # (medido como participante restrito, 2026-10-07). O script percorre so os
 # namespaces do ambiente dele. Os argumentos depois do -A sao preservados.
 s{\boc get ([A-Za-z][A-Za-z0-9.,-]*) -A\b}{bash scripts/meus.sh $1}g if $ENV{CONTEUDO};
+# SO NO CONTEUDO: numa turma nao ha as personas 'app-dev' e 'plat-eng'. O
+# desenvolvedor e a ServiceAccount 'dev' do ambiente do participante, e o
+# engenheiro de plataforma e o proprio participante. As perguntas ao cluster
+# deixam de usar '--as' (ele nao personifica ninguem): como dev, vao com um
+# token dele; como plataforma, vao sem nada.
+if ($ENV{CONTEUDO}) {
+  # o namespace vai com o sufixo escrito aqui: a troca dos namespaces ja passou
+  # por esta linha, e a primeira versao deixou 'travel-agency' sem dono
+  s{ --as=app-dev\b}{ --token="\$(oc create token dev -n travel-agency-$ENV{TENANT})"}g;
+  s{ --as=plat-eng\b}{}g;
+}
 # SO NO CONTEUDO: o caminho de arquivo das paginas e escrito em sintaxe de
 # GITLAB ('/-/blob/main/<path>'), porque o golden path nasceu nele. Sem GitLab
 # no cluster, os atributos repo_* apontam para o GitHub publico na tag do
@@ -211,6 +222,9 @@ s/o Grafana abre \*\*sem pedir nada\*\* -- acesso anônimo, com\s+papel de Admin
 # O aviso vai DEPOIS do cabecalho inteiro -- titulo e atributos, ate a primeira
 # linha em branco. Logo abaixo do titulo ele cortaria os atributos da pagina
 # (o navtitle), que so valem dentro do cabecalho.
+if (/\A= 1\.4 /) {
+  s/\A((?:[^\n]+\n)+)\n/$1\n[NOTE]\n====\n*Nesta turma, os dois papéis são identidades do seu ambiente.* O engenheiro de plataforma é você, pelo terminal do guia: é quem cuida do Gateway. O desenvolvedor é a identidade \x60dev\x60 do seu ambiente, e onde a página diz \x60app-dev\x60 é ela que responde. Os comandos abaixo já vêm ajustados.\n====\n\n/;
+}
 if (/\A= 3\.6 /) {
   s/,\s*role="execute"//g;
   s/\A((?:[^\n]+\n)+)\n/$1\n[IMPORTANT]\n====\n*Nesta turma, esta parte é leitura.* Ela consulta o registro de auditoria do cluster inteiro, que mostra as ações de todos os participantes, e o seu ambiente não tem acesso a ele: os comandos desta página respondem \x60Forbidden\x60. As saídas de exemplo estão na própria página.\n====\n\n/;
@@ -1068,6 +1082,57 @@ _rbac() { # <tenant>
     done
     printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-logs, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-logs}\nsubjects:\n' "$t"; _so_sa
     printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-topologia, namespace: kuadrant-system, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-topologia}\nsubjects:\n' "$t" "$ROTULO" "$t"; _sujeitos
+    # O PERFIL DEV DELE: a ServiceAccount 'dev' no namespace da aplicacao, com o
+    # mesmo papel que a persona 'app-dev' tem na demo -- dono da rota e das
+    # policies que miram a rota, e so LEITOR do Gateway. O participante (que
+    # cuida do Gateway: e o perfil Infra) emite um token dela para agir como
+    # desenvolvedor na parte 'Quem pode o que'. Sem isto a parte perguntava ao
+    # cluster por uma persona que nao existe, e a resposta era 'yes' em tudo
+    # (medido em 2026-10-07). E so o comeco dos dois perfis: nao ha ainda uma
+    # segunda aba de terminal nem um segundo login de console.
+    if oc get ns "travel-agency-${t}" >/dev/null 2>&1 && oc get ns "ingress-gateway-${t}" >/dev/null 2>&1; then
+      cat <<DEV
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: dev, namespace: travel-agency-${t}, labels: {${ROTULO}: ${t}}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: app-dev-dono-da-rota, namespace: travel-agency-${t}, labels: {${ROTULO}: ${t}}}
+rules:
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes, grpcroutes]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [kuadrant.io, extensions.kuadrant.io]
+    resources: [authpolicies, ratelimitpolicies, planpolicies, telemetrypolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: ["", apps]
+    resources: [pods, pods/log, services, deployments, configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: app-dev-em-travel-agency, namespace: travel-agency-${t}, labels: {${ROTULO}: ${t}}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: app-dev-dono-da-rota}
+subjects: [{kind: ServiceAccount, name: dev, namespace: travel-agency-${t}}]
+---
+# ver o Gateway a que se anexa, sem poder muda-lo
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: dev-ve-o-gateway, namespace: ingress-gateway-${t}, labels: {${ROTULO}: ${t}}}
+rules:
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [gateways]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: dev-ve-o-gateway, namespace: ingress-gateway-${t}, labels: {${ROTULO}: ${t}}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: dev-ve-o-gateway}
+subjects: [{kind: ServiceAccount, name: dev, namespace: travel-agency-${t}}]
+DEV
+    fi
     # leitura da plataforma (enumerada, ver _plataforma) e das metricas: os
     # scripts do roteiro consultam nodes, operadores e Thanos, e nao escrevem la
     # 'self-provisioner' so para a ServiceAccount do terminal: os Extras pedem o
