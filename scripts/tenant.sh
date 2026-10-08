@@ -1815,6 +1815,12 @@ _showroom() { # <tenant> <dir da copia>
     gl_url="https://${gl_host}"; gl_proj="${gl_url}/workshop/participantes/${t}/ambiente"; gl_roteiro="${gl_url}/workshop/roteiro"
     _ok "repositorio de ${t} no GitLab do cluster: os links do guia apontam para ele"
   fi
+  # A SESSAO: a do pedido, que o provisionamento grava no cluster; FOCO no
+  # ambiente vence (inclusive vazio, que pede a completa para este participante).
+  local foco
+  if [[ -n "${FOCO+x}" ]]; then foco="$FOCO"
+  else foco="$(oc get cm rhcl-workshop-sessao -n rhcl-workshop-runner -o jsonpath='{.data.foco}' 2>/dev/null)"; fi
+  case "$foco" in rhcl|ossm|rhsi) _log "sessao de ${t}: ${foco}" ;; *) foco="" ;; esac
   local che_url=""
   if [[ -n "$gl_proj" ]] && oc get secret gitlab-oauth-config -n "${CHE_NS:-openshift-devspaces}" >/dev/null 2>&1; then
     che_url="$(oc get checluster -n "${CHE_NS:-openshift-devspaces}" -o jsonpath='{.items[0].status.cheURL}' 2>/dev/null)"
@@ -1834,7 +1840,7 @@ _showroom() { # <tenant> <dir da copia>
     # e, nele, um KeycloakRealmImport com o nome de outro participante -- com
     # '-A' a "senha" plantada iria parar no guia da vitima.
     oc get keycloakrealmimport -n "${KEYCLOAK_NS:-keycloak}" -o json 2>/dev/null || printf '{"items":[]}'
-  } | FOCO="${FOCO:-}" CHE_URL="$che_url" GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
+  } | FOCO="$foco" CHE_URL="$che_url" GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
 import sys, json, os, re, base64
 t, dom = os.environ["TENANT"], os.environ["DOM"]
 objs, chaves, rotas, realms = sys.stdin.read().split("\x1e")
