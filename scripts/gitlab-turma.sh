@@ -203,7 +203,15 @@ _api_py() {
   # upgrade. Sem Dev Spaces no cluster o projeto nao leva devfile.
   local udi=""
   if [[ -n "$(oc get checluster -A -o jsonpath='{.items[0].status.cheURL}' 2>/dev/null)" ]]; then
-    udi="$(oc get csv -A -o json 2>/dev/null | grep -o 'registry.redhat.io/devspaces/udi-rhel9@sha256:[0-9a-f]*' | sort -u | head -1)"
+    # UM CSV, e nao 'oc get csv -A': o OLM copia cada CSV para todos os
+    # namespaces, e num cluster de turma a lista inteira em JSON passou de
+    # centenas de megabytes -- o Job de provisionamento, com 2Gi, morreu por
+    # falta de memoria neste ponto (medido em 2026-10-08, workshop-v0.31).
+    local csv_ns csv_nome
+    read -r csv_ns csv_nome < <(oc get subscription.operators.coreos.com -A -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.status.installedCSV}{"\n"}{end}' 2>/dev/null | grep -i ' devspacesoperator' | head -1)
+    if [[ -n "${csv_nome:-}" ]]; then
+      udi="$(oc get csv "$csv_nome" -n "$csv_ns" -o json 2>/dev/null | grep -o 'registry.redhat.io/devspaces/udi-rhel9@sha256:[0-9a-f]*' | sort -u | head -1)"
+    fi
   fi
   UDI_IMG="$udi" CA_BUNDLE="$CA_BUNDLE" GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" RAIZ="$_here" TDIR="$TDIR" SCRIPTS_ROTEIRO="$SCRIPTS_ROTEIRO" VERSIONADOS="$versionados" \
   MODO="$1" ALVOS="${2:-}" python3 - <<'PY'
