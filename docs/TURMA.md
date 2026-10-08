@@ -307,6 +307,24 @@ coisa a olhar: `oc get pods -n kuadrant-system`.
 Gateway pode não conseguir baixar o módulo do Kuadrant, que falha fechado: a
 borda fica em 503 e não se recupera. `sobe` confere o 401 e troca o pod.
 
+**Depois de o cluster parar e voltar, TODAS as bordas ficam em 503.** É a mesma
+causa do item acima, na turma inteira: quando o cluster é religado (o RHDP para
+ambientes sozinho, e um cluster parado some da rede sem aviso dentro dele), os
+Gateways sobem antes de o módulo do Kuadrant estar disponível, ele falha
+fechado, e nenhum se recupera sozinho. Medido em 2026-10-08 no cluster-fk75d,
+que ficou cerca de 13 horas inacessível: na volta, o instrutor e os 10
+participantes respondiam `503` sem chave, com os pods `Running` e os Gateways
+`Programmed`. Reiniciar os pods dos Gateways devolveu o `401` a todos:
+
+```bash
+oc get deploy -A -l gateway.istio.io/managed=istio.io-gateway-controller \
+  -o custom-columns=NS:.metadata.namespace,N:.metadata.name --no-headers \
+  | while read -r ns d; do oc -n "$ns" rollout restart "deploy/$d"; done
+```
+
+Antes de entregar uma turma num cluster que passou a noite parado, confira o
+`401` de cada participante (`tenant.sh confere-turma`).
+
 **Mexer no Grafana apaga os painéis por alguns minutos.** O pod não tem
 volume; depois de um reinício o operator devolve cada painel no ciclo de 10
 minutos dele.
