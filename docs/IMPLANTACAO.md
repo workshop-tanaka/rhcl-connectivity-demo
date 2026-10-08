@@ -47,6 +47,21 @@ Item **Field Sourced Content - OpenShift Base**.
 | Create users | o número de participantes, até 30 (só no modo de turma) |
 | Interface de workshop | ligada |
 
+**A sessão.** O workshop tem um menu por sessão: três dedicadas a um produto
+(`rhcl`, `ossm`, `rhsi`) e a completa. Quem escolhe é o valor `workshop.foco`
+do chart; vazio é a completa. O `Job` põe o menu certo no guia do instrutor e
+grava a sessão no cluster, e o `tenant.sh` lê de lá a de cada participante.
+
+- Para um participante diferente da turma: `FOCO=rhcl bash scripts/tenant.sh
+  showroom user7` (`FOCO=` vazio pede a completa).
+- **Hoje só o menu muda.** O provisionamento instala os três produtos em
+  qualquer sessão; habilitar ou não cada um é trabalho em curso.
+- Não sei se o formulário do item no RHDP deixa passar um valor de chart. Num
+  cluster já criado, o valor entra pelo `Application`:
+  `oc patch application field-content -n openshift-gitops --type=merge -p
+  '{"spec":{"source":{"helm":{"parameters":[{"name":"workshop.foco","value":"ossm"}]}}}}'`
+  e uma sincronização.
+
 Três coisas que falham em silêncio:
 
 - **O campo de revision é a quarta ref da onda, e nenhum arquivo a guarda.** As

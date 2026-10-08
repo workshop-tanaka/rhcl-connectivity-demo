@@ -262,6 +262,17 @@ custaram uma regressão e um furo, os dois medidos em 2026-10-07:
   admissão `rhcl-tenant-escopo` recusa o `Sidecar` com que ele tentaria
   alargar isso.
 
+### O Gateway nativo do OpenShift não tem escopo (2026-10-08)
+
+Vale para a sessão de Connectivity Link sem Service Mesh, que usa o provedor
+`openshift-default`. O plano de controle desse provedor é do Cluster Ingress
+Operator: os `discoverySelectors` e o filtro de configuração acima são do
+`Istio/default` e não chegam a ele. Medido no `cluster-fk75d`: um Gateway
+nativo num namespace de sonda conhecia **478 destinos, 180 de participantes**.
+Quem lê a configuração do Gateway do próprio namespace vê nomes, portas e
+endereços dos serviços dos colegas. Não há ajuste conhecido; é limite assumido
+dessa sessão até aparecer um.
+
 ## 6. Como os perfis chegam ao participante
 
 - **Terminal.** O guia já tem duas abas, que são sessões separadas. Uma vira
