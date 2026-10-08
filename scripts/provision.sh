@@ -254,7 +254,9 @@ _has_crd() { oc get crd "$1" >/dev/null 2>&1; }
 # instala e mantem). Medido em 2026-10-08, num cluster sem balanceador:
 #
 #   - o provedor nativo aceita GatewayClass com QUALQUER nome, e chama o
-#     Deployment e o Service de '<gateway>-<classe>';
+#     Deployment e o Service de '<gateway>-<classe>' -- mas so INSTALA o
+#     istiod dele quando existe uma classe chamada 'openshift-default'
+#     (ver st_operators: e por isso que a etapa cria as duas);
 #   - com 'networking.istio.io/service-type: ClusterIP' o Gateway fica
 #     Programmed sem balanceador, e publica por Route passthrough;
 #   - as policies respondem 401 / aplicacao / 429 -- com 'mtls.enable: false'
@@ -478,14 +480,24 @@ st_operators() {
     # O PROVEDOR DE GATEWAY VEM ANTES DO KUADRANT. O operator do Kuadrant
     # procura o provedor so quando sobe; criada a GatewayClass, o Cluster
     # Ingress Operator instala o Istio dele e os tipos que o Kuadrant usa.
-    printf 'apiVersion: gateway.networking.k8s.io/v1\nkind: GatewayClass\nmetadata:\n  name: istio\n  labels: {rhcl.demo/provedor: openshift}\nspec:\n  controllerName: openshift.io/gateway-controller/v1\n' \
-      | _pipe_apply && _ok "GatewayClass 'istio', do provedor nativo do OpenShift"
+    #
+    # SAO DUAS CLASSES, E A SEGUNDA E O GATILHO. Medido no 4.22.16 (instalacao
+    # sem OLM): so com a 'istio' o operator registra a classe (poe o
+    # finalizador) e para ai -- 'Accepted=Unknown, Waiting for controller' por
+    # 20 min, sem linha de erro. Criada a 'openshift-default', o istiod sobe
+    # em segundos e as DUAS ficam Accepted. A 'istio' continua sendo a que os
+    # manifests usam; a 'openshift-default' fica, sem Gateway nenhum.
+    local _gc
+    for _gc in openshift-default istio; do
+      printf 'apiVersion: gateway.networking.k8s.io/v1\nkind: GatewayClass\nmetadata:\n  name: %s\n  labels: {rhcl.demo/provedor: openshift}\nspec:\n  controllerName: openshift.io/gateway-controller/v1\n' "$_gc" \
+        | _pipe_apply && _ok "GatewayClass '$_gc', do provedor nativo do OpenShift"
+    done
     if [[ $DRY_RUN -eq 0 ]]; then
       local _g=0
       until [[ "$(oc get gatewayclass istio -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null)" == "True" ]] || [[ $_g -ge 300 ]]; do sleep 10; _g=$((_g + 10)); done
       [[ "$(oc get gatewayclass istio -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null)" == "True" ]] \
         && _ok "gatewayclass istio Accepted" \
-        || _die "a GatewayClass do provedor nativo nao foi aceita em 5 min. Veja: oc get co ingress; oc get pods -n openshift-ingress"
+        || _die "a GatewayClass do provedor nativo nao foi aceita em 5 min. Veja: oc get gatewayclass; oc get pods -n openshift-ingress; oc logs -n openshift-ingress-operator deploy/ingress-operator -c ingress-operator | grep gatewayclass"
       # espera com teto e AVISO, sem derrubar: nao esta medido, num cluster sem
       # Service Mesh, em que momento o provedor nativo cria este tipo
       _g=0
