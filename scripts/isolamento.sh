@@ -50,6 +50,23 @@ oc whoami $T >/dev/null 2>&1 || { echo "[X] sem sessao no cluster (oc login)" >&
 oc auth can-i impersonate serviceaccounts $T >/dev/null 2>&1 \
   || { echo "[X] esta sessao nao personifica ServiceAccount -- rode como admin do cluster" >&2; exit 2; }
 
+# A sessao so de Connectivity Link sobe SEM Service Mesh: nao ha sidecar, nem
+# recurso Sidecar, nem trace saindo da borda. Medido no cqfs4 em 2026-10-08:
+# esses tres testes saiam INDETERMINADO e reprovavam o veredito por coisas que
+# a sessao nao tem. La eles viram 'nao se aplica' e nao entram na conta. A
+# sessao vem de FOCO ou do ConfigMap do playbook, como no tenant.sh.
+_sem_mesh() {
+  local f
+  if [[ -n "${FOCO+x}" ]]; then f="$FOCO"
+  else f="$(oc get cm rhcl-workshop-sessao -n rhcl-workshop-runner -o jsonpath='{.data.foco}' $T 2>/dev/null)"; fi
+  [[ "$f" == "rhcl" ]]
+}
+SEM_MESH=0; _sem_mesh && SEM_MESH=1
+_na() { # <camada> <tentativa> <motivo>  -- fora da conta
+  if [[ "$TSV" == "1" ]]; then printf 'NAO_SE_APLICA\t%s\t%s\t%s\n' "$1" "$2" "$3"
+  else printf '    %-13s %-58s %s\n' "nao se aplica" "$2" "$3"; fi
+}
+
 _sec() { [[ "$TSV" == "1" ]] || printf '\n  %s%s%s\n' "$_BLU$_BLD" "$*" "$_RST"; }
 _sai() { # <estado> <camada> <tentativa> <detalhe>
   case "$1" in
@@ -221,8 +238,12 @@ try: n = len(json.loads(corpo).get("traces") or [])
 except Exception: n = -1
 print(cod.strip() or "000", n)'
 }
-read -r c n <<< "$(_traces "$V" "$V")"
-if [[ "$c" != "200" || "$n" -lt 1 ]]; then
+if [[ $SEM_MESH -eq 1 ]]; then
+  _na traces "o atacante busca os traces da vitima" "sessao sem Service Mesh: a borda nao emite trace"
+  c=""; n=0
+else read -r c n <<< "$(_traces "$V" "$V")"; fi
+if [[ $SEM_MESH -eq 1 ]]; then :
+elif [[ "$c" != "200" || "$n" -lt 1 ]]; then
   # sem trace da vitima para achar, "nao achou" nao prova protecao
   _sai INDETERMINADO traces "CONTROLE: a vitima acha os proprios traces (24h)" "HTTP ${c}, ${n} trace(s) -- gere trafego nela e repita"
 else
@@ -242,10 +263,12 @@ _sec "proxy: o que o sidecar e o Gateway do atacante sabem sobre a vitima"
 # falhando devolveria 0 destino da vitima e o teste diria BARRADO -- a falha
 # aberta que este script existe para nao ter.
 _DEST=""
-[[ -n "$POD" ]] && _DEST="$(oc exec -n "travel-agency-${A}" "$POD" -c istio-proxy $T -- pilot-agent request GET clusters 2>/dev/null \
+[[ $SEM_MESH -eq 0 && -n "$POD" ]] && _DEST="$(oc exec -n "travel-agency-${A}" "$POD" -c istio-proxy $T -- pilot-agent request GET clusters 2>/dev/null \
                              | grep -oE '^outbound\|[0-9]+\|[^|]*\|[^:]+' | sort -u)"
 _destinos() { printf '%s\n' "$_DEST" | grep -cE "$1"; }
-if [[ -z "$POD" ]]; then
+if [[ $SEM_MESH -eq 1 ]]; then
+  _na proxy "o sidecar do atacante lista servicos da vitima" "sessao sem Service Mesh: nao ha sidecar"
+elif [[ -z "$POD" ]]; then
   _sai INDETERMINADO proxy "sidecar de origem em travel-agency-${A}" "nenhum pod 'travels' Running"
 elif [[ -z "$_DEST" ]]; then
   _sai INDETERMINADO proxy "ler a configuracao do sidecar do atacante" "a leitura voltou vazia -- o teste de proxy nao vale"
@@ -292,7 +315,9 @@ fi
 # namespace), ele voltaria a receber o mesh inteiro. Quem recusa e a admissao
 # 'rhcl-tenant-escopo'. Sem o Sidecar de pe nao ha o que proteger, e a linha
 # acima ja acusa.
-if oc get sidecar.networking.istio.io default -n "travel-agency-${A}" $T >/dev/null 2>&1; then
+if [[ $SEM_MESH -eq 1 ]]; then
+  _na proxy "o atacante alarga o proprio escopo (recurso Sidecar)" "sessao sem Service Mesh: o Gateway nativo nao tem filtro de escopo"
+elif oc get sidecar.networking.istio.io default -n "travel-agency-${A}" $T >/dev/null 2>&1; then
   _api proxy "o atacante apaga o Sidecar do proprio namespace" \
     delete sidecar.networking.istio.io default -n "travel-agency-${A}" --dry-run=server
   o="$(printf 'apiVersion: networking.istio.io/v1\nkind: Sidecar\nmetadata: {name: teste-iso, namespace: travel-agency-%s}\nspec:\n  workloadSelector: {labels: {app: travels}}\n  egress: [{hosts: ["*/*"]}]\n' "$A" \
