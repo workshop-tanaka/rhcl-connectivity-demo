@@ -60,6 +60,21 @@ _log()  { printf '  %s\n' "$*"; }
 _warn() { printf '  %s!%s %s\n' "$_YEL" "$_RST" "$*"; }
 _die()  { printf '\n%s[X]%s %s\n' "$_RED" "$_RST" "$*" >&2; exit 1; }
 
+# Aplica um objeto de CLUSTER que varios 'sobe' escrevem ao mesmo tempo. O
+# 'turma' roda quatro participantes em paralelo, e cada um reaplica as mesmas
+# regras de admissao: dois applies simultaneos do mesmo objeto dao conflito, e
+# o passo morria -- medido em 2026-10-08 numa turma de 10, em que 2
+# participantes pararam em "falha ao aplicar a admissao das chaves" com a
+# regra ja de pe. O conteudo e o mesmo em todos, entao repetir resolve.
+_aplica_firme() {
+  local corpo i; corpo="$(cat)"
+  for i in 1 2 3 4 5; do
+    printf '%s\n' "$corpo" | oc apply -f - >/dev/null 2>&1 && return 0
+    sleep $(( i * 2 ))
+  done
+  return 1
+}
+
 # Os namespaces que pertencem ao participante. Os de laboratorio (Extras)
 # entram na mesma lista: cada script de Extra sobe o proprio namespace com
 # nome fixo, e dois participantes no mesmo Extra colidiriam.
@@ -1265,7 +1280,7 @@ _admissao_rotas() {
   # erro e sem aviso de tipo (medido no cluster-x2gsq: o isolamento.sh seguia
   # com essa linha ABERTA enquanto a do hostname ja fechava). As duas formas
   # ficam, porque qual delas vale depende de como o servidor tipa o objeto.
-  oc apply -f - >/dev/null <<'EOF' || _die "falha ao aplicar a admissao das rotas"
+  _aplica_firme <<'EOF' || _die "falha ao aplicar a admissao das rotas"
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -1454,7 +1469,7 @@ _admissao_escopo() {
   # NAMESPACE SENDO APAGADO PASSA. Quem apaga o conteudo e o namespace-controller,
   # que nao tem a permissao acima: sem esta excecao o namespace ficaria preso em
   # Terminating e o 'tenant.sh remove' nunca terminaria.
-  oc apply -f - >/dev/null <<'EOF' || _die "falha ao aplicar a admissao do escopo"
+  _aplica_firme <<'EOF' || _die "falha ao aplicar a admissao do escopo"
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -2188,7 +2203,7 @@ _admissao_chaves() {
   #
   # UPDATE e DELETE olham TAMBEM o objeto antigo: trocar o rotulo da chave de
   # outro, ou apaga-la, e tao ruim quanto criar uma.
-  oc apply -f - >/dev/null <<'EOF' || _die "falha ao aplicar a admissao das chaves"
+  _aplica_firme <<'EOF' || _die "falha ao aplicar a admissao das chaves"
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
