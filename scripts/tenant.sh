@@ -441,6 +441,26 @@ print("\n---\n".join(d for d in docs if re.search(r"(?m)^\s*namespace:\s*\S+-%s\
   # esperar as outras camadas do isolamento. Aplicado aos 30 do cluster-x2gsq
   # em 2026-10-06 com a turma de pe; dentro do 'sobe' ainda nao foi exercitado.
   _escopo "$t"
+
+  # AS TRES CAMADAS QUE FECHAM O PARTICIPANTE, agora por padrao. Estavam fora
+  # do 'sobe' ate o isolamento fechar numa turma inteira com o roteiro
+  # rodando, e isso foi medido em 2026-10-07 no cluster-x2gsq: as tres nos 30,
+  # os comandos do guia rodados pelo terminal de um participante restrito, e o
+  # isolamento.sh em cinco pares com o mesmo resultado (25 tentativas barradas
+  # e 3 abertas -- metricas de plataforma e busca de traces, que nao sao
+  # destas camadas). Cada uma tem a volta: 'abre', 'chaves-volta', 'alarga'.
+  # SEM_ISOLAMENTO=1 sobe o participante sem elas.
+  if [[ "${SEM_ISOLAMENTO:-0}" != "1" ]]; then
+    # A IDENTIDADE DO TERMINAL TEM DE EXISTIR ANTES: 'chaves' e 'restringe'
+    # conferem o que ela le, e quem a cria (namespace, ServiceAccount e os
+    # papeis) e o 'rbac' -- que ate aqui so rodava no 'showroom', depois do
+    # 'sobe'. Na primeira execucao com as camadas aqui dentro, o 'chaves' de um
+    # participante novo parou em "nao le Secrets": a identidade nao existia.
+    _rbac "$t"
+    _isola "$t"
+    _chaves "$t"
+    _restringe "$t"
+  fi
 }
 
 _remove() { # <tenant>
@@ -1192,7 +1212,7 @@ DEV
 # turma ja obedecem a isso (medido: hostnames e parentRefs de todos os tenants
 # do cluster-x2gsq terminam no proprio sufixo).
 #
-# NAO ESTA NO 'sobe' AINDA, de proposito: entra quando o teste de isolamento
+# ENTROU NO 'sobe' em 2026-10-07. Ficou de fora ate o teste de isolamento
 # fechar numa turma inteira com o roteiro rodando. Ver docs/ISOLAMENTO.md.
 # ---------------------------------------------------------------------------
 _admissao_rotas() {

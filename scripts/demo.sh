@@ -1208,7 +1208,16 @@ step_exposta() {
   _why "no catalogo. E nada disso falhou: simplesmente nao existe."
 
   printf '\n  %sO que o template geraria, para a MESMA API%s\n' "$_BLD" "$_RST"
-  _do_sh "ls rhdh/templates/rhcl-api-com-cadeia/skeleton/manifests/ | sed 's/^/    /'"
+  # O terminal de um workshop nao leva os templates do portal (so o que o
+  # participante executa), e o 'ls' respondia "No such file or directory" no
+  # fim do passo (medido em 2026-10-07). Sem a pasta, a lista sai daqui. E
+  # uma copia: se o template ganhar ou perder manifesto, ela precisa acompanhar
+  # (nada confere isso sozinho).
+  if [[ -d "${_here}/rhdh/templates/rhcl-api-com-cadeia/skeleton/manifests" ]]; then
+    _do_sh "ls rhdh/templates/rhcl-api-com-cadeia/skeleton/manifests/ | sed 's/^/    /'"
+  else
+    printf '    %s\n' 00-namespace.yaml 01-podmonitor.yaml 05-bootstrap.yaml 10-serviceaccount.yaml 11-deployment.yaml 12-service.yaml 20-httproute.yaml 21-route.yaml 30-authpolicy.yaml 31-planpolicy.yaml 40-apiproduct.yaml 50-peerauthentication.yaml 51-authorizationpolicy.yaml 52-destinationrule.yaml 53-virtualservice.yaml 60-pipeline.yaml kustomization.yaml
+  fi
   _look "dezessete manifests. Voce escreveu quatro, e levou dez minutos."
   echo
   _why "E ha uma diferenca que nao aparece em 'oc get': o que voce fez existe"
