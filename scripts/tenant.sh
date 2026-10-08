@@ -61,6 +61,18 @@ _log()  { printf '  %s\n' "$*"; }
 _warn() { printf '  %s!%s %s\n' "$_YEL" "$_RST" "$*"; }
 _die()  { printf '\n%s[X]%s %s\n' "$_RED" "$_RST" "$*" >&2; exit 1; }
 
+# A SESSAO DESTE CLUSTER: 'rhcl', 'ossm', 'rhsi' ou vazio (a completa). FOCO no
+# ambiente vence -- inclusive vazio. Sem FOCO, vale o que o provisionamento
+# gravou no cluster. A sessao 'rhcl' e a unica que muda o AMBIENTE, e nao so o
+# menu do guia: o cluster sobe sem Service Mesh (ver _sem_mesh no provision.sh).
+_foco() {
+  local f
+  if [[ -n "${FOCO+x}" ]]; then f="$FOCO"
+  else f="$(oc get cm rhcl-workshop-sessao -n rhcl-workshop-runner -o jsonpath='{.data.foco}' 2>/dev/null)"; fi
+  case "$f" in rhcl|ossm|rhsi) printf '%s' "$f" ;; esac
+}
+_sem_mesh() { [[ "$(_foco)" == "rhcl" ]]; }
+
 # Aplica um objeto de CLUSTER que varios 'sobe' escrevem ao mesmo tempo. O
 # 'turma' roda quatro participantes em paralelo, e cada um reaplica as mesmas
 # regras de admissao: dois applies simultaneos do mesmo objeto dao conflito, e
@@ -389,7 +401,10 @@ _sobe() { # <tenant> <dir da copia>
   ( cd "$d" && bash scripts/new-env.sh --force ) | tail -4 || _die "new-env.sh falhou na copia de ${t}"
 
   _sec "tenant ${t}: platform, gateway e demo"
-  ( cd "$d" && bash scripts/provision.sh platform gateway demo ) > "${d}/.provision.log" 2>&1 \
+  # A sessao do cluster vai junto: numa sessao sem Service Mesh, o provision.sh
+  # da copia tem de saber disso -- sem FOCO ele reaplicaria o Kuadrant com mTLS
+  # e pediria sidecar para a aplicacao do participante.
+  ( cd "$d" && FOCO="$(_foco)" bash scripts/provision.sh platform gateway demo ) > "${d}/.provision.log" 2>&1 \
     || { tail -25 "${d}/.provision.log"; _die "provision.sh falhou na copia de ${t} (log completo em ${d#${_here}/}/.provision.log)"; }
   grep -E '✓|!' "${d}/.provision.log" | tail -8
 
@@ -456,7 +471,8 @@ print("\n---\n".join(d for d in docs if re.search(r"(?m)^\s*namespace:\s*\S+-%s\
   # mais largo que o padrao, nunca mais estreito, e por isso entra aqui sem
   # esperar as outras camadas do isolamento. Aplicado aos 30 do cluster-x2gsq
   # em 2026-10-06 com a turma de pe; dentro do 'sobe' ainda nao foi exercitado.
-  _escopo "$t"
+  if _sem_mesh; then _log "sessao sem Service Mesh: nao ha sidecar para dar escopo (o 'escopo' nao se aplica)"
+  else _escopo "$t"; fi
 
   # AS TRES CAMADAS QUE FECHAM O PARTICIPANTE, agora por padrao. Estavam fora
   # do 'sobe' ate o isolamento fechar numa turma inteira com o roteiro
@@ -681,6 +697,12 @@ _modelo_projeto() {
   # criando outro -- a admissao 'rhcl-tenant-escopo' recusa Sidecar em projeto
   # pedido por participante. Os namespaces dele tem Sidecar proprio (do
   # 'escopo'), que vence este.
+  if _sem_mesh; then
+    # sem Service Mesh nao ha namespace raiz nem sidecar: o furo que o escopo
+    # padrao fecha (o proxy de um projeto novo recebendo o mesh inteiro) nao
+    # existe, e o modelo de projeto entra sozinho
+    _log "sessao sem Service Mesh: o escopo padrao do mesh nao se aplica"
+  else
   _admissao_escopo
   oc apply -f - >/dev/null <<'EOF' || _die "nao consegui gravar o escopo padrao do mesh (Sidecar em istio-system) -- sem ele o modelo de projeto abriria o mesh inteiro a qualquer projeto pedido; nada foi alterado"
 apiVersion: networking.istio.io/v1
@@ -694,6 +716,7 @@ spec:
     - hosts: ["./*", "istio-system/*", "tracing-system/*"]
 EOF
   _ok "escopo padrao do mesh: namespace sem Sidecar proprio so conhece a si mesmo"
+  fi
   atual="$(oc get project.config.openshift.io cluster -o jsonpath='{.spec.projectRequestTemplate.name}' 2>/dev/null)"
   if [[ -n "$atual" && "$atual" != "rhcl-projeto" ]]; then
     _warn "o cluster ja usa o modelo de projeto '${atual}' — nao troquei. Acrescente nele o rotulo 'rhcl.demo/lab' no objeto Project, ou os Extras com laboratorio proprio ficam com o Gateway em Pending"
@@ -1817,10 +1840,8 @@ _showroom() { # <tenant> <dir da copia>
   fi
   # A SESSAO: a do pedido, que o provisionamento grava no cluster; FOCO no
   # ambiente vence (inclusive vazio, que pede a completa para este participante).
-  local foco
-  if [[ -n "${FOCO+x}" ]]; then foco="$FOCO"
-  else foco="$(oc get cm rhcl-workshop-sessao -n rhcl-workshop-runner -o jsonpath='{.data.foco}' 2>/dev/null)"; fi
-  case "$foco" in rhcl|ossm|rhsi) _log "sessao de ${t}: ${foco}" ;; *) foco="" ;; esac
+  local foco; foco="$(_foco)"
+  [[ -z "$foco" ]] || _log "sessao de ${t}: ${foco}"
   local che_url=""
   if [[ -n "$gl_proj" ]] && oc get secret gitlab-oauth-config -n "${CHE_NS:-openshift-devspaces}" >/dev/null 2>&1; then
     che_url="$(oc get checluster -n "${CHE_NS:-openshift-devspaces}" -o jsonpath='{.items[0].status.cheURL}' 2>/dev/null)"

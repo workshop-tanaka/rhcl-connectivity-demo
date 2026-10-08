@@ -24,6 +24,9 @@
 #   OPTIONAL=0                nao instala os operadores opcionais
 #   CUSTOM_CONSOLE=0          'consoles' sem o build da Kuadrant Console customizada
 #   TIMEOUT=600               segundos por espera
+#   FOCO=rhcl                 sessao so de Connectivity Link: SEM Service Mesh.
+#                             O Gateway vem do provedor nativo do OpenShift
+#                             (ver _sem_mesh). Vazio, ossm e rhsi instalam tudo.
 #
 # Pre-requisitos: oc autenticado com cluster-admin, python3.
 # Depois: bash scripts/preflight.sh   <- e ele quem diz se a demo esta de pe.
@@ -54,6 +57,7 @@ _WARNS=()
 _here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PR="${_here}/platform-reference"
 TIMEOUT="${TIMEOUT:-600}"
+FOCO="${FOCO:-}"
 DRY_RUN=0
 
 STAGES_ALL=(operators gitlab mesh platform gateway devportal demo pacotes consoles tracing dashboards gitops interconnect cicd registry entrega security identity credenciais samples)
@@ -240,6 +244,59 @@ _vcs_topology() {
 }
 
 _has_crd() { oc get crd "$1" >/dev/null 2>&1; }
+
+# ---------------------------------------------------------------------------
+# A SESSAO SO DE CONNECTIVITY LINK (FOCO=rhcl): o cluster sobe SEM Service Mesh.
+#
+# O Connectivity Link precisa de um provedor de Gateway API, e ha dois: o
+# Service Mesh e o que o proprio OpenShift traz (controller
+# 'openshift.io/gateway-controller/v1', um Istio que o Cluster Ingress Operator
+# instala e mantem). Medido em 2026-10-08, num cluster sem balanceador:
+#
+#   - o provedor nativo aceita GatewayClass com QUALQUER nome, e chama o
+#     Deployment e o Service de '<gateway>-<classe>';
+#   - com 'networking.istio.io/service-type: ClusterIP' o Gateway fica
+#     Programmed sem balanceador, e publica por Route passthrough;
+#   - as policies respondem 401 / aplicacao / 429 -- com 'mtls.enable: false'
+#     no Kuadrant; com true, 500 (nao ha mesh para dar identidade aos dois lados);
+#   - por padrao o Gateway nasce com um HPA de 2 a 10 replicas (foi a 7 pods de
+#     ~290 MiB na subida); 'spec.infrastructure.parametersRef' o fixa em 1.
+#
+# POR ISSO A CLASSE CONTINUA SE CHAMANDO 'istio'. O nome e livre, e com ele
+# todo manifesto, script e comando do guia ('prod-web-istio', 'gatewayClassName:
+# istio') segue valendo sem uma linha de diferenca. So e possivel porque sem
+# Service Mesh ninguem mais reivindica esse nome -- com os dois no mesmo
+# cluster, a classe do provedor nativo teria de se chamar outra coisa.
+#
+# O QUE ESTA SESSAO NAO TEM, medido: mTLS entre o Gateway e o
+# Authorino/Limitador; traces saindo da borda (o destino e declarado no CR
+# Istio, que o provedor nativo nao le); e escopo -- o Gateway nativo conhece os
+# servicos do cluster inteiro.
+# ---------------------------------------------------------------------------
+_sem_mesh() { [[ "$FOCO" == "rhcl" ]]; }
+
+# Aplica um arquivo de varios documentos SEM os que casam com o padrao.
+_apply_sem() { # <arquivo relativo ao repo> <regex dos documentos a tirar>
+  if [[ $DRY_RUN -eq 1 ]]; then _cmd "oc apply -f ${1}   (sem os documentos de: ${2})"; return 0; fi
+  ARQ="${_here}/${1}" FORA="$2" python3 -c '
+import os, re, sys
+docs = re.split(r"(?m)^---[ \t]*$", open(os.environ["ARQ"]).read())
+fora = re.compile(os.environ["FORA"])
+sys.stdout.write("\n---\n".join(d for d in docs if d.strip() and not fora.search(d)))' \
+    | oc apply -f - >/dev/null && _ok "aplicado ${1} (sem: ${2})" || _warn "falha ao aplicar ${1}"
+}
+
+# O Gateway do provedor nativo, fixado em uma replica.
+_gw_enxuto() { # <namespace> <gateway>
+  _sem_mesh || return 0
+  if [[ $DRY_RUN -eq 1 ]]; then _cmd "fixar o Gateway ${2} em 1 replica (parametersRef)"; return 0; fi
+  printf 'apiVersion: v1\nkind: ConfigMap\nmetadata: {name: gateway-uma-replica, namespace: %s}\ndata:\n  deployment: "spec: {replicas: 1}"\n  horizontalPodAutoscaler: "spec: {minReplicas: 1, maxReplicas: 1}"\n' "$1" \
+    | oc apply -f - >/dev/null \
+    && oc patch gateway "$2" -n "$1" --type=merge \
+         -p '{"spec":{"infrastructure":{"parametersRef":{"group":"","kind":"ConfigMap","name":"gateway-uma-replica"}}}}' >/dev/null \
+    && _ok "Gateway ${2}: uma replica, sem escalonador" \
+    || _warn "nao consegui fixar o Gateway ${2} em uma replica — ele fica com o HPA de fabrica (2 a 10)"
+}
 _aplica_pipeline() { # arquivo ja renderizado em stdin -> aplica tudo MENOS PipelineRun
   # POR QUE FILTRAR: a Pipeline e o PipelineRun modelo moram no mesmo arquivo,
   # de proposito -- o par nunca se separa, e quem le encontra o exemplo ao lado
@@ -382,9 +439,15 @@ _guard_overlay() { # _guard_overlay <caminho-do-overlay> -> 0 se seguro aplicar
 
 st_operators() {
   _sec "operadores"
-  _apply platform-reference/operators/subscriptions.yaml
+  if _sem_mesh; then
+    _log "sessao so de Connectivity Link: sem os operators do Service Mesh e do Kiali"
+    _apply_sem platform-reference/operators/subscriptions.yaml 'name: servicemeshoperator3'
+  else
+    _apply platform-reference/operators/subscriptions.yaml
+  fi
   if [[ "${OPTIONAL:-1}" == "1" ]]; then
-    _apply platform-reference/operators/subscriptions-optional.yaml
+    if _sem_mesh; then _apply_sem platform-reference/operators/subscriptions-optional.yaml 'name: kiali-ossm'
+    else _apply platform-reference/operators/subscriptions-optional.yaml; fi
     # Dev Spaces vai junto dos opcionais, mas em arquivo proprio porque leva o
     # CheCluster atras: a Subscription sozinha nao levanta IDE nenhum. O CR so
     # e aplicado depois que a CRD existe -- por isso o _wait_crd no meio.
@@ -411,7 +474,28 @@ st_operators() {
     _log "OPTIONAL=0 — pulando kiali-ossm, tempo, otel, grafana-operator e Dev Spaces"
   fi
 
-  _wait_csv openshift-operators servicemeshoperator3
+  if _sem_mesh; then
+    # O PROVEDOR DE GATEWAY VEM ANTES DO KUADRANT. O operator do Kuadrant
+    # procura o provedor so quando sobe; criada a GatewayClass, o Cluster
+    # Ingress Operator instala o Istio dele e os tipos que o Kuadrant usa.
+    printf 'apiVersion: gateway.networking.k8s.io/v1\nkind: GatewayClass\nmetadata:\n  name: istio\n  labels: {rhcl.demo/provedor: openshift}\nspec:\n  controllerName: openshift.io/gateway-controller/v1\n' \
+      | _pipe_apply && _ok "GatewayClass 'istio', do provedor nativo do OpenShift"
+    if [[ $DRY_RUN -eq 0 ]]; then
+      local _g=0
+      until [[ "$(oc get gatewayclass istio -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null)" == "True" ]] || [[ $_g -ge 300 ]]; do sleep 10; _g=$((_g + 10)); done
+      [[ "$(oc get gatewayclass istio -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null)" == "True" ]] \
+        && _ok "gatewayclass istio Accepted" \
+        || _die "a GatewayClass do provedor nativo nao foi aceita em 5 min. Veja: oc get co ingress; oc get pods -n openshift-ingress"
+      # espera com teto e AVISO, sem derrubar: nao esta medido, num cluster sem
+      # Service Mesh, em que momento o provedor nativo cria este tipo
+      _g=0
+      until _has_crd wasmplugins.extensions.istio.io || [[ $_g -ge 300 ]]; do sleep 10; _g=$((_g + 10)); done
+      _has_crd wasmplugins.extensions.istio.io && _ok "tipos do provedor nativo presentes (WasmPlugin)" \
+        || _warn "o tipo WasmPlugin ainda nao existe — o Kuadrant pode nascer sem enxergar o provedor (a etapa 'platform' troca o pod dele se for o caso)"
+    fi
+  else
+    _wait_csv openshift-operators servicemeshoperator3
+  fi
   _wait_csv kuadrant-system rhcl-operator
 
   # A release do RHCL decide o overlay E o regime de precedencia de rate limit.
@@ -430,7 +514,7 @@ st_operators() {
   _wait_crd telemetrypolicies.extensions.kuadrant.io
 
   if [[ "${OPTIONAL:-1}" == "1" ]]; then
-    _wait_csv openshift-operators kiali-operator 0
+    _sem_mesh || _wait_csv openshift-operators kiali-operator 0
     _wait_csv openshift-operators tempo-operator 0
     _wait_csv openshift-operators opentelemetry-operator 0
     _wait_csv monitoring grafana-operator 0
@@ -629,6 +713,15 @@ st_gitlab() {
 # ===========================================================================
 st_mesh() {
   _sec "Service Mesh (plano de controle)"
+  if _sem_mesh; then
+    _log "sessao so de Connectivity Link: nao ha plano de controle do Service Mesh a subir"
+    if [[ $DRY_RUN -eq 0 ]]; then
+      [[ "$(oc get gatewayclass istio -o jsonpath='{.spec.controllerName}' 2>/dev/null)" == "openshift.io/gateway-controller/v1" ]] \
+        && _ok "gatewayclass istio e a do provedor nativo do OpenShift" \
+        || _warn "a gatewayclass istio nao e a do provedor nativo — rode a etapa 'operators' com FOCO=rhcl"
+    fi
+    return 0
+  fi
   _has_crd istios.sailoperator.io || _die "CRD istios.sailoperator.io ausente — rode a etapa 'operators' antes."
 
   if oc get istio default >/dev/null 2>&1; then
@@ -679,8 +772,20 @@ st_platform() {
   # ignorada: o Prometheus leva reset, limitador_up some, e o alerta
   # LimitadorForaDoAr dispara com o Limitador de pe (medido em 2026-09-21).
   _ns kuadrant-system
-  _apply platform-reference/kuadrant-system/peerauthentication-metricas.yaml
-  _apply platform-reference/kuadrant-system/kuadrant.yaml
+  if _sem_mesh; then
+    # sem mesh nao ha quem de identidade ao Authorino e ao Limitador: o
+    # 'mtls.enable' do manifesto de referencia viraria 500 em toda chamada
+    if [[ $DRY_RUN -eq 1 ]]; then _cmd "aplicar o Kuadrant com mtls.enable: false"
+    else
+      sed -E 's/^([[:space:]]*enable:[[:space:]]*)true[[:space:]]*$/\1false/' "${PR}/kuadrant-system/kuadrant.yaml" | oc apply -f - >/dev/null \
+        && _ok "Kuadrant aplicado com mtls.enable: false" || _warn "falha ao aplicar o Kuadrant"
+      [[ "$(oc get kuadrant kuadrant -n kuadrant-system -o jsonpath='{.spec.mtls.enable}' 2>/dev/null)" != "true" ]] \
+        || _die "o Kuadrant ficou com mtls.enable: true numa sessao sem Service Mesh — toda chamada daria 500"
+    fi
+  else
+    _apply platform-reference/kuadrant-system/peerauthentication-metricas.yaml
+    _apply platform-reference/kuadrant-system/kuadrant.yaml
+  fi
 
   # Em cluster VIRGEM o operator do Kuadrant nasce na etapa 'operators', antes
   # do Istio da 'mesh' -- e a deteccao de provider acontece UMA vez, no boot.
@@ -715,10 +820,24 @@ st_platform() {
   # de proposito: workloads/travel-agency/ e espelhado ao GitLab PUBLICO e o
   # mysqldb.yaml carrega Secret em stringData.
   _ns ingress-gateway travel-agency echo-api
+  if _sem_mesh; then
+    # os manifestos pedem o proxy por rotulo no POD; sem isto, um injetor que
+    # exista no cluster poderia atende-los
+    if [[ $DRY_RUN -eq 1 ]]; then _cmd "aplicar os workloads de travel-agency sem pedido de sidecar"
+    else
+      local _f
+      for _f in "${PR}"/workloads/travel-agency/*.yaml; do
+        sed -E 's/(sidecar\.istio\.io\/inject:[[:space:]]*)"true"/\1"false"/' "$_f" | oc apply -f - >/dev/null \
+          || _warn "falha ao aplicar ${_f##*/}"
+      done
+      _ok "workloads de travel-agency aplicados, sem pedido de sidecar"
+    fi
+  else
   _run oc label namespace travel-agency istio-injection=enabled --overwrite >/dev/null \
     && _ok "travel-agency com istio-injection=enabled"
 
   _apply platform-reference/workloads/travel-agency
+  fi
   _apply platform-reference/workloads/echo-api
   # O MySQL (em travel-agency desde a unificacao). Nao e opcional, ainda que
   # pareca: sem ele, 4 dos 6 backends respondem 200 com corpo VAZIO e os
@@ -811,6 +930,7 @@ st_gateway() {
   # ClusterIP porque em SNO nao ha LoadBalancer — quem publica e a Route abaixo.
   printf 'apiVersion: gateway.networking.k8s.io/v1\nkind: Gateway\nmetadata:\n  name: prod-web\n  namespace: ingress-gateway\n  annotations:\n    networking.istio.io/service-type: ClusterIP\nspec:\n  gatewayClassName: istio\n  listeners:\n    - name: api\n      hostname: "*.%s"\n      port: 443\n      protocol: HTTPS\n      allowedRoutes:\n        namespaces:\n          from: All\n      tls:\n        mode: Terminate\n        certificateRefs:\n          - group: ""\n            kind: Secret\n            name: api-tls\n' "$DOMAIN" | _pipe_apply
   _ok "Gateway prod-web servindo *.${DOMAIN}"
+  _gw_enxuto ingress-gateway prod-web
 
   # ----- Gateway dedicado do echo (pedido de 2026-09-01) -----
   # Mesmo namespace e mesmo api-tls do prod-web -- o que muda e o LISTENER:
@@ -820,6 +940,7 @@ st_gateway() {
   # porque policy de Gateway precisa morar no namespace do alvo.
   printf 'apiVersion: gateway.networking.k8s.io/v1\nkind: Gateway\nmetadata:\n  name: echo-web\n  namespace: ingress-gateway\n  annotations:\n    networking.istio.io/service-type: ClusterIP\nspec:\n  gatewayClassName: istio\n  listeners:\n    - name: api\n      hostname: "%s"\n      port: 443\n      protocol: HTTPS\n      allowedRoutes:\n        namespaces:\n          from: All\n      tls:\n        mode: Terminate\n        certificateRefs:\n          - group: ""\n            kind: Secret\n            name: api-tls\n' "$ECHO_HOST" | _pipe_apply
   _ok "Gateway echo-web servindo ${ECHO_HOST}"
+  _gw_enxuto ingress-gateway echo-web
 
   # ----- Routes -----
   if [[ $DRY_RUN -eq 0 ]]; then
@@ -903,6 +1024,27 @@ st_demo() {
   fi
   _ok "hostname do overlay confere com a rota deste cluster"
 
+  if _sem_mesh; then
+    # A camada e a mesma; saem os objetos que so existem com Service Mesh
+    # (mTLS entre servicos, autorizacao de salto, regras de trafego) e o
+    # Telemetry de tracing dos sidecars. O Telemetry da dimensao 'partner' no
+    # Gateway fica: medido, o provedor nativo o honra.
+    if [[ $DRY_RUN -eq 1 ]]; then _cmd "oc kustomize ${OVERLAY} | (sem security.istio.io, networking.istio.io e o tracing) | oc apply -f -"; return 0; fi
+    oc kustomize "${_here}/${OVERLAY}" 2>/dev/null | TEM_TELEMETRY="$(_has_crd telemetries.telemetry.istio.io && echo 1)" python3 -c '
+import os, re, sys
+docs = [d for d in re.split(r"(?m)^---[ \t]*$", sys.stdin.read()) if d.strip()]
+fica = []
+for d in docs:
+    g = re.search(r"(?m)^apiVersion:\s*(\S+)", d); g = g.group(1) if g else ""
+    n = re.search(r"(?m)^  name:\s*(\S+)", d); n = n.group(1) if n else ""
+    if g.startswith(("security.istio.io/", "networking.istio.io/")): continue
+    if g.startswith("telemetry.istio.io/") and (not os.environ.get("TEM_TELEMETRY") or "tracing" in n): continue
+    fica.append(d)
+sys.stderr.write("    %d de %d objetos (os demais sao de Service Mesh)\n" % (len(fica), len(docs)))
+sys.stdout.write("\n---\n".join(fica))' | oc apply -f - >/dev/null && _ok "camada de demo aplicada, sem os objetos de Service Mesh" \
+      || _die "falha ao aplicar a camada de demo sem os objetos de Service Mesh"
+    return 0
+  fi
   _run oc apply -k "${_here}/${OVERLAY}" >/dev/null && _ok "camada de demo aplicada"
 }
 
@@ -1011,6 +1153,10 @@ st_consoles() {
 # ===========================================================================
 st_tracing() {
   _sec "tracing (Observe -> Traces)"
+  if _sem_mesh; then
+    _log "sessao so de Connectivity Link: sem tracing. O destino dos traces e declarado no CR Istio, que o provedor nativo de Gateway nao le (medido: o proxy sobe sem configuracao de tracing)"
+    return 0
+  fi
   if ! _has_crd tempomonolithics.tempo.grafana.com; then
     _warn "CRD do Tempo ausente (tempo-product nao instalado) — Ato 5 sem traces"; return 0
   fi
