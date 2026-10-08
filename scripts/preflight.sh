@@ -56,6 +56,21 @@ _bad()  { FAIL=$((FAIL+1)); _dado FALHA "$1" "${2:-}"; [[ "$TSV" == "1" ]] && re
           printf '  %s✗%s %s\n' "$_RED" "$_RST" "$1"; [[ -n "${2:-}" ]] && printf '      %s→ %s%s\n' "$_DIM" "$2" "$_RST"; return 0; }
 _warn() { WARN=$((WARN+1)); _dado AVISO "$1" "${2:-}"; [[ "$TSV" == "1" ]] && return 0
           printf '  %s!%s %s\n' "$_YEL" "$_RST" "$1"; [[ -n "${2:-}" ]] && printf '      %s→ %s%s\n' "$_DIM" "$2" "$_RST"; return 0; }
+# A SESSAO so de Connectivity Link sobe sem Service Mesh (provision.sh,
+# _sem_mesh): Kiali, tracing pela borda e a camada leste-oeste nao existem la
+# DE PROPOSITO. Medido no cqfs4: sem isto o veredito saia com 6 avisos que
+# mandavam instalar justamente o que a sessao deixa de fora. A sessao vem de
+# FOCO ou do ConfigMap que o playbook grava -- a mesma leitura do tenant.sh.
+_sem_mesh() {
+  local f
+  if [[ -n "${FOCO+x}" ]]; then f="$FOCO"
+  else f="$(oc get cm rhcl-workshop-sessao -n rhcl-workshop-runner -o jsonpath='{.data.foco}' 2>/dev/null)"; fi
+  [[ "$f" == "rhcl" ]]
+}
+# Aviso que so vale onde ha Service Mesh; na sessao sem ele vira nota.
+_warn_mesh() {
+  if _sem_mesh; then _nota "$1 -- esperado: esta sessao nao tem Service Mesh"; else _warn "$@"; fi
+}
 # Nota: nem verde nem aviso. Estado esperado que gera pergunta toda vez que
 # alguem olha o cluster por fora do preflight -- dizer antes sai mais barato.
 _nota() { _dado NOTA "$*" ""; [[ "$TSV" == "1" ]] && return 0; printf '  %s· %s%s\n' "$_DIM" "$*" "$_RST"; }
@@ -901,7 +916,8 @@ for r in "grafana-route:monitoring:Grafana" "kiali:istio-system:Kiali" "tempo-te
     # mostra a cada um so os traces dos proprios namespaces.
     _ok "${_label}: sem rota, de proposito (traces por participante) -- a tela e Observe > Traces no console"
   else
-    _warn "${_label}: route ausente em ${_ns}" "o passo correspondente fica sem tela"
+    if [[ "$_ns" == "tracing-system" ]]; then _warn "${_label}: route ausente em ${_ns}" "o passo correspondente fica sem tela"
+    else _warn_mesh "${_label}: route ausente em ${_ns}" "o passo correspondente fica sem tela"; fi
   fi
 done
 
@@ -1080,7 +1096,7 @@ if oc get crd telemetries.telemetry.istio.io >/dev/null 2>&1; then
   _provs="$(oc get istio default -o jsonpath='{range .spec.values.meshConfig.extensionProviders[*]}{.name}{"\n"}{end}' 2>/dev/null | grep -v '^$')"
   _root="$(oc get istio default -o jsonpath='{.spec.namespace}' 2>/dev/null)"; _root="${_root:-istio-system}"
   if [[ -z "$_provs" ]]; then
-    _warn "CR Istio sem extensionProvider de tracing: nenhum span sai do Service Mesh" \
+    _warn_mesh "CR Istio sem extensionProvider de tracing: nenhum span sai do Service Mesh" \
           "platform-reference/mesh-control-plane/istio.yaml — ou 'bash scripts/provision.sh mesh'"
   else
     # Telemetry de tracing que VALE para um namespace, pela regra acima.
@@ -1232,10 +1248,10 @@ for p in "kuadrant-console-plugin:Connectivity Link" "ossmconsole:Service Mesh" 
                -o jsonpath='{.spec.backend.service.namespace}/{.spec.backend.service.name}' 2>/dev/null)"
   if [[ -z "$_backend" || "$_backend" == "/" ]]; then
     if [[ "$_p" == "ossmconsole" ]]; then
-      _warn "${_plabel}: sem aba no console (ConsolePlugin ausente)" \
+      _warn_mesh "${_plabel}: sem aba no console (ConsolePlugin ausente)" \
             "oc apply -f platform-reference/consoles/ossmconsole.yaml — precisa do operator kiali-ossm"
     elif [[ "$_p" == "distributed-tracing-console-plugin" ]]; then
-      _warn "${_plabel}: sem aba no console (ConsolePlugin ausente)" \
+      _warn_mesh "${_plabel}: sem aba no console (ConsolePlugin ausente)" \
             "oc apply -f platform-reference/consoles/uiplugin-distributed-tracing.yaml — precisa do Cluster Observability Operator"
     else
       _warn "${_plabel}: sem aba no console (ConsolePlugin ausente)" \
@@ -1751,7 +1767,7 @@ print(" ".join(sorted(n for n in precisa if n in rot and not casa(rot[n]))) or "
 case "$_ds_fora" in
   -)   _nota "Istio/default sem discoverySelectors — o control plane observa o cluster inteiro" ;;
   ok)  _ok "discoverySelectors cobrem todo namespace com Gateway, sidecar ou backend de rota" ;;
-  ""|"?") _warn "não deu para conferir os discoverySelectors" "oc get istio default -o yaml" ;;
+  ""|"?") _warn_mesh "não deu para conferir os discoverySelectors" "oc get istio default -o yaml" ;;
   *)   _bad "namespace(s) do mesh FORA dos discoverySelectors: ${_ds_fora}" \
             "o control plane não os enxerga: Gateway não programa e rota fica sem backend. Rotule o namespace ou acrescente o nome em spec.values.meshConfig.discoverySelectors do Istio/default" ;;
 esac
@@ -1763,7 +1779,7 @@ _ap="$(oc get authorizationpolicy discounts-only-sellers -n travel-agency \
 _vs="$(oc get virtualservice discounts -n travel-agency -o name 2>/dev/null)"
 
 if [[ -z "$_pa_mode" && -z "$_ap" && -z "$_vs" ]]; then
-  _warn "camada de Service Mesh não aplicada — a fronteira leste-oeste fica indisponível" \
+  _warn_mesh "camada de Service Mesh não aplicada — a fronteira leste-oeste fica indisponível" \
         "oc apply -k overlays/rhcl-1.4 (os outros passos não dependem dela)"
 else
   # mTLS. PERMISSIVE nao e erro de configuracao: e o estado em que o ato fica
