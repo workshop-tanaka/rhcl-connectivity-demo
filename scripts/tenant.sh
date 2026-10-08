@@ -41,6 +41,7 @@
 #   bash scripts/tenant.sh showroom user7         # o guia e o terminal dele, com a copia dentro
 #   bash scripts/tenant.sh turma 30               # user1..user30, em lotes (LARGURA=4)
 #   bash scripts/tenant.sh isola user7            # fecha a rede e as rotas dele para os outros ('abre' desfaz)
+#   FOCO=rhcl bash scripts/tenant.sh showroom user7   # o guia dele com o menu de UMA sessao: rhcl | ossm | rhsi (sem FOCO, a completa)
 #   bash scripts/tenant.sh escopo user7           # o sidecar dele so conhece o que e dele ('escopo-volta' desfaz)
 #   bash scripts/tenant.sh restringe user7        # EXPERIMENTO: o terminal dele sem leitura de cluster ('alarga' desfaz)
 #   bash scripts/tenant.sh chaves user7           # EXPERIMENTO: as chaves de API dele saem de kuadrant-system ('chaves-volta' desfaz)
@@ -1833,7 +1834,7 @@ _showroom() { # <tenant> <dir da copia>
     # e, nele, um KeycloakRealmImport com o nome de outro participante -- com
     # '-A' a "senha" plantada iria parar no guia da vitima.
     oc get keycloakrealmimport -n "${KEYCLOAK_NS:-keycloak}" -o json 2>/dev/null || printf '{"items":[]}'
-  } | CHE_URL="$che_url" GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
+  } | FOCO="${FOCO:-}" CHE_URL="$che_url" GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
 import sys, json, os, re, base64
 t, dom = os.environ["TENANT"], os.environ["DOM"]
 objs, chaves, rotas, realms = sys.stdin.read().split("\x1e")
@@ -1890,6 +1891,12 @@ dados["gitlab_url"]       = os.environ.get("GL_URL", "") if gl else ""
 # do instrutor traz aponta para outro repositorio, e nunca e copiado.
 che = os.environ.get("CHE_URL", "")
 dados["ide_url"]          = (che.rstrip("/") + "/#" + gl) if (gl and che) else ""
+# A SESSAO DESTE AMBIENTE. O guia tem um menu por sessao: tres dedicadas a um
+# produto (rhcl, ossm, rhsi) e a completa, que e a falta do atributo. O menu
+# decide por 'ifdef' -- entao so UM destes pode existir, e nenhum na completa.
+foco = os.environ.get("FOCO", "")
+if foco in ("rhcl", "ossm", "rhsi"):
+    dados["foco_" + foco] = "1"
 # Parte destes valores vem do cluster (hostname de Route, senha do usuario). O
 # arquivo e montado por concatenacao, entao valor com aspas, barra invertida ou
 # caractere de controle quebraria a string e injetaria atributo: nesse caso o
