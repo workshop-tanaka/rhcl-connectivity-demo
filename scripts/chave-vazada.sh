@@ -117,7 +117,7 @@ nascimento() {
   achou="$(wc -l < "$tmp" | tr -d ' ')"
   if [[ "${achou:-0}" == "0" ]]; then
     _warn "nada no audit log -- ele rotaciona, e num cluster movimentado a janela e curta."
-    _nota "e exatamente o limite que a parte 3.6 descreve: retencao e"
+    _nota "e exatamente o limite que a parte de auditoria descreve: retencao e"
     _nota "configuracao de cluster (ClusterLogForwarder), nao do RHCL."
     return 0
   fi

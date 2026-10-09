@@ -51,6 +51,12 @@ _aposta() {
   read -r _ || true
 }
 
+# O pod tem sidecar do Service Mesh? Le do proprio pod, e nao de uma
+# configuracao da sessao: o terminal do participante alcanca os pods dele.
+_tem_sidecar() { # <pod do travel-agency>
+  oc get pod "$1" -n travel-agency -o jsonpath='{.spec.containers[*].name} {.spec.initContainers[*].name}' 2>/dev/null | grep -qw istio-proxy
+}
+
 command -v oc >/dev/null || { echo "oc nao encontrado" >&2; exit 1; }
 oc whoami >/dev/null 2>&1 || { echo "sem sessao no cluster" >&2; exit 1; }
 
@@ -138,7 +144,7 @@ e4() {
   _aposta "O cliente jura que a chave esta certa -- e as vezes funciona mesmo."
   local k; k="$(_free)"
   [[ -n "$k" ]] || { _warn "sem chave do plano gratuito neste cluster; pulando"; return 0; }
-  _warn "consome cota do plano gratuito. Para refazer o modulo 2 hoje: demo.sh reset"
+  _warn "consome cota do plano gratuito. Para refazer a parte dos planos hoje: demo.sh reset"
   _cmd "seis chamadas seguidas com a chave do plano gratuito"
   printf '    '
   local i
@@ -173,6 +179,28 @@ e5() {
   if [[ -n "$p2" ]]; then
     _cmd "a MESMA chamada, agora de dentro do servico 'cars'"
     _res "HTTP=$(oc exec -n travel-agency "$p2" -c cars -- curl -s -m 6 -o /dev/null -w '%{http_code}' http://discounts:8000/ 2>/dev/null)"
+  fi
+  # SEM SERVICE MESH NAO HA ESTA ESTACAO. Na sessao so de Connectivity Link os
+  # pods nao tem sidecar e ninguem confere quem chama quem la dentro. Medido no
+  # cqfs4 em 2026-10-09: os dois servicos recebiam o mesmo 404 da aplicacao, e
+  # o texto abaixo dizia "respostas diferentes" e "foi o sidecar". A estacao
+  # continua no numero 5, para a cola valer igual nas duas sessoes, e passa a
+  # dizer o que este ambiente mostra de verdade.
+  if ! _tem_sidecar "$p"; then
+    _nota ""
+    _nota "Os dois foram ATENDIDOS: o 404 e a aplicacao dizendo 'nao tenho essa"
+    _nota "pagina'. Ninguem perguntou quem estava chamando."
+    _nota ""
+    _nota "Este ambiente nao tem Service Mesh. Passada a borda, qualquer servico"
+    _nota "fala com qualquer outro, e uma recusa NAO nasce aqui dentro."
+    _nota ""
+    _nota "Com Service Mesh, cada servico ganha um sidecar que confere a"
+    _nota "identidade de quem chama. A segunda chamada voltaria 403, com"
+    _nota "'RBAC: access denied' no corpo -- e essa seria a estacao 5."
+    _nota ""
+    _nota "O QUE DESCARTAR, neste ambiente: a estacao inteira. Um 403 aqui so"
+    _nota "pode ter vindo da borda ou da propria aplicacao."
+    return 0
   fi
   _nota ""
   _nota "Mesmo destino, respostas diferentes -- e a diferenca e QUEM chamou."
@@ -248,6 +276,8 @@ EOF
 
 desafio() {
   local n; n=$(( (RANDOM % 6) + 1 ))
+  # sem Service Mesh a estacao 5 nao produz recusa: nao ha o que diagnosticar
+  if [[ $n -eq 5 ]] && ! _tem_sidecar "$(oc get pods -n travel-agency -l app=travels --no-headers 2>/dev/null | awk 'NR==1{print $1}')"; then n=4; fi
   printf '\n  %sDESAFIO — uma das seis estacoes, sorteada%s\n' "$_BLD$_CYA" "$_RST"
   _nota "Voce ve so o sintoma. Diga onde parou. Nada muda de estado."
   case $n in

@@ -314,7 +314,7 @@ EOF
   done
   _nota "'partially enforced' nas policies de rota nao e defeito: e o RHCL"
   _nota "dizendo que cedeu parte do alcance para uma policy mais especifica."
-  _nota "E a precedencia da parte 1.3, agora em tres niveis: Gateway, rota, regra."
+  _nota "E a precedencia que o status de uma policy ja mostrou, agora em tres niveis: Gateway, rota, regra."
 }
 
 case "${1:-prova}" in

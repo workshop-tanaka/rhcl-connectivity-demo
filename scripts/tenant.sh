@@ -250,10 +250,13 @@ s/o Grafana abre \*\*sem pedir nada\*\* -- acesso anônimo, com\s+papel de Admin
 # O aviso vai DEPOIS do cabecalho inteiro -- titulo e atributos, ate a primeira
 # linha em branco. Logo abaixo do titulo ele cortaria os atributos da pagina
 # (o navtitle), que so valem dentro do cabecalho.
-if (/\A= 1\.4 /) {
+# O TITULO NAO TRAZ MAIS O NUMERO ESCRITO: desde a workshop-v0.39 a pagina
+# abre com 'include::partial$numeros.adoc[]' e o titulo e '= {p-papeis} ...',
+# porque o numero da parte muda com a sessao. As duas formas casam.
+if (/\A(?:include::[^\n]*\n)?= (?:1\.4|\{p-papeis\}) /) {
   s/\A((?:[^\n]+\n)+)\n/$1\n[NOTE]\n====\n*Nesta turma, os dois papéis são identidades do seu ambiente.* O engenheiro de plataforma é você, pelo terminal do guia: é quem cuida do Gateway. O desenvolvedor é a identidade \x60dev\x60 do seu ambiente, e onde a página diz \x60app-dev\x60 é ela que responde. Os comandos abaixo já vêm ajustados.\n====\n\n/;
 }
-if (/\A= 3\.6 /) {
+if (/\A(?:include::[^\n]*\n)?= (?:3\.6|\{p-auditoria\}) /) {
   s/,\s*role="execute"//g;
   s/\A((?:[^\n]+\n)+)\n/$1\n[IMPORTANT]\n====\n*Nesta turma, esta parte é leitura.* Ela consulta o registro de auditoria do cluster inteiro, que mostra as ações de todos os participantes, e o seu ambiente não tem acesso a ele: os comandos desta página respondem \x60Forbidden\x60. As saídas de exemplo estão na própria página.\n====\n\n/;
 }
