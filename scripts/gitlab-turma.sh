@@ -290,7 +290,10 @@ def arquivos(origem, url_projeto, so_versionados):
         txt = txt.replace(URL_DE_FORA + ".git", url_projeto + ".git").replace(URL_DE_FORA, url_projeto)
         sobras += txt.count("github.com")
         out[rel] = txt
-    for topo in ("base", "env", "overlays", "postman"):
+    # 'passos' entrou em 2026-10-09: sao os arquivos que o participante aplica
+    # com 'oc apply -f'. Sem eles no projeto, o clone do terminal os mostrava
+    # como nao versionados ('?? passos/' no 'git status' da pagina de acessos).
+    for topo in ("base", "env", "overlays", "postman", "passos"):
         for dp, _, fs in os.walk(os.path.join(origem, topo)):
             for f in sorted(fs):
                 rel = os.path.relpath(os.path.join(dp, f), origem)
