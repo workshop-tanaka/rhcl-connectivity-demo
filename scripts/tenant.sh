@@ -103,7 +103,7 @@ HOSTS_TENANT="api-travels echo-travels listas-edge listas-pass saida-destino"
 NOMES_TENANT="acme-free initech-silver globex-gold"
 # O que a copia leva. Documentacao, plugins e portal ficam de fora: nada disso
 # roda no terminal do participante.
-COPIA="scripts base env overlays platform-reference postman"
+COPIA="scripts base env overlays platform-reference postman passos"
 ROTULO="rhcl.demo/tenant"
 # Onde o participante LE pods, servicos e rotas sem ser dono: os namespaces
 # que o roteiro manda olhar. Fora desta lista ele nao ve pod de ninguem.
@@ -321,6 +321,17 @@ _render() { # <tenant> <destino>
   #    regra dos namespaces nao pode ver 'apikey-user7-...' como token novo.
   find "$dest" -type f -print0 | TENANT="$t" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" xargs -0 perl -pi -e "$_PERL_TROCA" \
     || _die "a troca de conteudo falhou"
+
+  # 1b. os arquivos de passo ('passos/'): o participante os aplica com
+  #     'oc apply -f', sem script no meio, entao o hostname tem de chegar
+  #     PRONTO na copia dele. No repositorio de origem fica '__DOMINIO__' --
+  #     nenhum hostname e escrito la -- e aqui entra o dominio lido do cluster.
+  if [[ -d "${dest}/passos" ]]; then
+    local _dom; _dom="$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
+    [[ -n "$_dom" ]] || _die "nao consegui ler o dominio de aplicacoes do cluster (os arquivos de passos/ precisam dele)"
+    find "${dest}/passos" -type f -print0 | DOM="$_dom" xargs -0 perl -pi -e 's/__DOMINIO__/$ENV{DOM}/g' \
+      || _die "a troca do dominio em passos/ falhou"
+  fi
 
   # 2. caminhos: arquivo ou diretorio cujo nome e o token. De baixo para cima,
   #    senao renomear o diretorio invalida o caminho dos filhos.

@@ -1,0 +1,15 @@
+# PASSO 4 -- o hostname novo, publicado na frente do Gateway. Neste ambiente o
+# Gateway nao tem balanceador proprio: cada hostname ganha uma Route em modo
+# passthrough, que entrega os bytes sem abrir o TLS. Mora no namespace do
+# Gateway, porque e de quem cuida da plataforma -- nao da equipe da API.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: echo-exposta-gateway
+  namespace: ingress-gateway
+  annotations: {rhcl.demo/autor: Sandro Tanaka}
+spec:
+  host: echo-exposta.__DOMINIO__
+  to: {kind: Service, name: prod-web-istio}
+  port: {targetPort: 443}
+  tls: {termination: passthrough}

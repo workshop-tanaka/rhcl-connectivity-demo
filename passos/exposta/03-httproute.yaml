@@ -1,0 +1,17 @@
+# PASSO 3 -- a mesma API, agora pela porta da plataforma: uma HTTPRoute presa
+# ao Gateway 'prod-web'. Repare no que NAO esta aqui: nenhuma regra de acesso.
+# O que ela vai herdar esta escrito no Gateway, por outra pessoa.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: echo-exposta
+  namespace: echo-exposta
+  annotations: {rhcl.demo/autor: Sandro Tanaka}
+spec:
+  parentRefs:
+    - {name: prod-web, namespace: ingress-gateway}
+  hostnames:
+    - echo-exposta.__DOMINIO__
+  rules:
+    - backendRefs:
+        - {name: echo, port: 8000}

@@ -1,0 +1,41 @@
+# PASSO 5 -- uma chave, e a policy que a aceita NESTA rota. O alvo e a
+# HTTPRoute, nao o Gateway: e a excecao declarada por quem cuida da API, sobre
+# o teto escrito por quem cuida da plataforma.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apikey-echo-exposta
+  namespace: echo-exposta
+  labels:
+    authorino.kuadrant.io/managed-by: authorino
+    app: echo-exposta
+    kuadrant.io/plan-id: experimental
+  annotations:
+    secret.kuadrant.io/user-id: "quem-testou"
+    rhcl.demo/autor: Sandro Tanaka
+stringData:
+  api_key: chave-do-echo-exposta
+type: Opaque
+---
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: echo-exposta-authpolicy
+  namespace: echo-exposta
+  annotations: {rhcl.demo/autor: Sandro Tanaka}
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: echo-exposta
+  rules:
+    authentication:
+      api-key-authn:
+        apiKey:
+          allNamespaces: true
+          selector:
+            matchLabels:
+              app: echo-exposta
+        credentials:
+          queryString:
+            name: APIKEY

@@ -1,0 +1,13 @@
+# PASSO 2 -- a Route do primeiro dia. Hostname, TLS e destino num objeto so.
+# O YAML esta certo, e e por isso que passaria em qualquer revisao: nao ha nele
+# onde escrever quem pode chamar, nem quanto.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: echo-solto
+  namespace: echo-exposta
+  annotations: {rhcl.demo/autor: Sandro Tanaka}
+spec:
+  to: {kind: Service, name: echo}
+  port: {targetPort: http}
+  tls: {termination: edge}

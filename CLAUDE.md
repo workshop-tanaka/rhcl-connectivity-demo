@@ -142,6 +142,14 @@ do que ela **pressupõe**:
   carrega `prod-web-deny-all`, e rota sem `AuthPolicy` própria é negada. Ver
   [docs/SAMPLES.md](docs/SAMPLES.md).
 
+- **`passos/`** — os arquivos que o **participante aplica à mão** no guia, um
+  por passo, numa pasta por parte (`passos/exposta/01-...yaml`). Existem porque
+  a sessão de Connectivity Link trocou o script que percorre tudo por um
+  `oc apply -f` por decisão, com a explicação no Showroom. Fora de qualquer
+  `kustomization.yaml`: ninguém os aplica em lote. Onde o arquivo precisa do
+  hostname fica `__DOMINIO__`, que o `tenant.sh render` troca pelo domínio lido
+  do cluster na cópia de cada participante.
+
 `scripts/capture.sh` só roteia arquivos automaticamente quando há
 `argocd.argoproj.io/tracking-id` para consultar; sem Argo ele **desliga** o
 roteamento em vez de classificar a plataforma inteira como camada de demo.

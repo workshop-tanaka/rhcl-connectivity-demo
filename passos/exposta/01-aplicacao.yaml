@@ -1,0 +1,52 @@
+# PASSO 1 -- a aplicacao. Um servidor HTTP que devolve um JSON fixo, e o
+# Service dela. Nada aqui fala de seguranca, de limite ou de quem pode chamar:
+# e o que uma equipe de aplicacao entrega no primeiro dia.
+# O namespace 'echo-exposta' ja existe no seu ambiente.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: echo-conteudo
+  namespace: echo-exposta
+  annotations: {rhcl.demo/autor: Sandro Tanaka}
+data:
+  index.html: |
+    {"servico":"echo-exposta","autenticacao":"nenhuma","limite":"nenhum"}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo
+  namespace: echo-exposta
+  annotations: {rhcl.demo/autor: Sandro Tanaka}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: echo}
+  template:
+    metadata:
+      labels: {app: echo}
+    spec:
+      containers:
+        - name: echo
+          image: registry.access.redhat.com/ubi9/httpd-24:latest
+          ports:
+            - {name: http, containerPort: 8080}
+          volumeMounts:
+            - {name: conteudo, mountPath: /var/www/html}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 256Mi}
+      volumes:
+        - name: conteudo
+          configMap: {name: echo-conteudo}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: echo-exposta
+  annotations: {rhcl.demo/autor: Sandro Tanaka}
+spec:
+  selector: {app: echo}
+  ports:
+    - {name: http, port: 8000, targetPort: 8080}
