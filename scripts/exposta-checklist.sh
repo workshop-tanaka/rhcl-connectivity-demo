@@ -21,12 +21,12 @@ printf '\n    %sO que a sua API tem, e o que nao tem%s\n\n' "$_DIM" "$_RST"
 _linha "quem pode chamar?"              authpolicy        "ninguem controla"
 _linha "quanto pode chamar, por tier?"   planpolicy        "ilimitado"
 _linha "aparece por plano na metrica?"  telemetrypolicy   "nao aparece"
-_linha "exige mTLS na malha?"           peerauthentication "nao"
+_linha "exige mTLS no Service Mesh?"           peerauthentication "nao"
 _linha "quem pode chamar de dentro?"    authorizationpolicy "qualquer servico"
 _linha "esta no catalogo como produto?" apiproduct        "nao existe"
 _linha "publicada para fora?"           route             "so dentro do cluster"
 _linha "tem pipeline?"                  pipeline          "nenhuma"
 n_sidecar="$(oc get pods -n "$NS" -o jsonpath='{.items[*].spec.containers[*].name}' 2>/dev/null | tr ' ' '\n' | grep -c istio-proxy || true)"
-if [[ "${n_sidecar:-0}" -gt 0 ]]; then printf '    %-40s %s✓ sidecar%s\n' "esta na malha?" "$_GRN" "$_RST"
-else printf '    %-40s %s✗ fora da malha (sem injection)%s\n' "esta na malha?" "$_RED" "$_RST"; fi
+if [[ "${n_sidecar:-0}" -gt 0 ]]; then printf '    %-40s %s✓ sidecar%s\n' "esta no Service Mesh?" "$_GRN" "$_RST"
+else printf '    %-40s %s✗ fora do Service Mesh (sem sidecar)%s\n' "esta no Service Mesh?" "$_RED" "$_RST"; fi
 echo

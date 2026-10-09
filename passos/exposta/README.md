@@ -15,6 +15,8 @@ guia os aplica. Cada um é uma decisão, de um dono:
 Aplicar: `oc apply -f passos/exposta/<arquivo>`. Desfazer tudo:
 `oc delete -f passos/exposta/ --ignore-not-found`.
 
-`__DOMINIO__` é o domínio de aplicações do cluster. Na cópia de cada
-participante ele já vem trocado pelo valor lido do cluster; aqui, no
-repositório de origem, nenhum hostname é escrito.
+Dois valores não são escritos no repositório de origem, e chegam prontos na
+cópia de cada participante:
+
+- `__DOMINIO__` é o domínio de aplicações do cluster, lido do cluster;
+- `__SEGREDO__` é a chave de API do passo 5, sorteada para cada participante.

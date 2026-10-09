@@ -329,8 +329,15 @@ _render() { # <tenant> <destino>
   if [[ -d "${dest}/passos" ]]; then
     local _dom; _dom="$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
     [[ -n "$_dom" ]] || _die "nao consegui ler o dominio de aplicacoes do cluster (os arquivos de passos/ precisam dele)"
-    find "${dest}/passos" -type f -print0 | DOM="$_dom" xargs -0 perl -pi -e 's/__DOMINIO__/$ENV{DOM}/g' \
-      || _die "a troca do dominio em passos/ falhou"
+    # '__SEGREDO__' e a chave de API que um passo cria. Sorteada por copia: a
+    # API do passo e publicada para fora, e uma chave fixa e igual para todos
+    # (estava assim na workshop-v0.40, e a revisao de seguranca acusou) deixaria
+    # um participante chamar a API do outro com a chave impressa no guia.
+    local _seg; _seg="$(openssl rand -hex 16 2>/dev/null)"
+    [[ ${#_seg} -eq 32 ]] || _die "nao consegui sortear a chave dos arquivos de passos/ (openssl rand)"
+    # so nos manifests: o README de cada pasta EXPLICA os dois marcadores
+    find "${dest}/passos" -type f -name '*.yaml' -print0 | DOM="$_dom" SEG="$_seg" xargs -0 perl -pi -e 's/__DOMINIO__/$ENV{DOM}/g; s/__SEGREDO__/$ENV{SEG}/g' \
+      || _die "a troca do dominio e da chave em passos/ falhou"
   fi
 
   # 2. caminhos: arquivo ou diretorio cujo nome e o token. De baixo para cima,
@@ -1873,7 +1880,13 @@ _showroom() { # <tenant> <dir da copia>
     oc get deploy/showroom svc/showroom route/showroom pvc/showroom-terminal-lab-user-home rolebinding/edit-showroom-sa \
        cm/showroom-userdata cm/showroom-traefik-static cm/showroom-traefik-dynamic -n "$orig" -o json
     printf '\n\x1e\n'
-    oc get secret -n kuadrant-system -l "app=partner-${t},rhcl.demo/finalidade=teste" -o json
+    # AS CHAVES DE TESTE MORAM ONDE 'tenant.sh chaves' AS DEIXOU. Lia-se sempre
+    # de kuadrant-system; com as chaves no namespace do participante a lista
+    # voltava vazia e o guia saia sem chave nenhuma -- a tabela de 'Seus
+    # acessos' em branco e todo comando '?APIKEY=' sem valor (medido no cqfs4
+    # em 2026-10-09: os tres atributos api_key_* vazios nos 10 participantes).
+    oc get secret -n "$(_chaves_no_tenant "$t" && printf 'travel-agency-%s' "$t" || printf 'kuadrant-system')" \
+       -l "app=partner-${t},rhcl.demo/finalidade=teste" -o json
     printf '\n\x1e\n'
     oc get route -n "parceiros-${t}" -o json 2>/dev/null || printf '{"items":[]}'
     printf '\n\x1e\n'

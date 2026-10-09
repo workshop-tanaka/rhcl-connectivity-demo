@@ -1,6 +1,11 @@
 # PASSO 5 -- uma chave, e a policy que a aceita NESTA rota. O alvo e a
 # HTTPRoute, nao o Gateway: e a excecao declarada por quem cuida da API, sobre
 # o teto escrito por quem cuida da plataforma.
+#
+# A CHAVE NAO E ESCRITA AQUI. '__SEGREDO__' e trocado por um valor aleatorio
+# quando a copia de cada participante e montada: a API deste exercicio e
+# publicada de verdade, e uma chave fixa, igual para todos e impressa no guia,
+# abriria a API de um participante para os outros.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -14,7 +19,7 @@ metadata:
     secret.kuadrant.io/user-id: "quem-testou"
     rhcl.demo/autor: Sandro Tanaka
 stringData:
-  api_key: chave-do-echo-exposta
+  api_key: __SEGREDO__
 type: Opaque
 ---
 apiVersion: kuadrant.io/v1
@@ -32,6 +37,12 @@ spec:
     authentication:
       api-key-authn:
         apiKey:
+          # 'true' porque a chave mora no namespace da API. Com 'false' o
+          # Authorino procura so no namespace DELE, e esta chave nao seria
+          # achada. O preco: um Secret com este rotulo, em qualquer namespace,
+          # vale como chave. Quem fecha isso e a plataforma -- numa turma, a
+          # regra de admissao que impede um participante de usar o rotulo de
+          # outro; num projeto, o RBAC sobre quem cria Secret.
           allNamespaces: true
           selector:
             matchLabels:
