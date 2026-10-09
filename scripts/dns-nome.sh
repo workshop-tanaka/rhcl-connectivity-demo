@@ -40,6 +40,20 @@ if [[ -t 1 ]]; then
   _GRN=$'\033[0;32m'; _YEL=$'\033[0;33m'; _RED=$'\033[0;31m'; _BLU=$'\033[0;34m'
   _BLD=$'\033[1m'; _DIM=$'\033[2m'; _RST=$'\033[0m'
 else _GRN=""; _YEL=""; _RED=""; _BLU=""; _BLD=""; _DIM=""; _RST=""; fi
+# O PROVEDOR NATIVO DO OPENSHIFT ESCALA TODO GATEWAY. Na sessao sem Service
+# Mesh quem atende a classe 'istio' e o Gateway API nativo, e la cada Gateway
+# nasce com um HPA de 2 a 10 replicas (medido: ~340 MiB por pod). Um
+# laboratorio nao precisa disso. O ajuste e por Gateway -- medido no cqfs4 em
+# 2026-10-09: nem ConfigMap com 'defaults-for-class' nem 'parametersRef' na
+# GatewayClass vencem o padrao do provedor. Com Service Mesh nao faz nada.
+_uma_replica() { # <namespace> <gateway>
+  [[ "$(oc get gatewayclass istio -o jsonpath='{.spec.controllerName}' 2>/dev/null)" == "openshift.io/gateway-controller/v1" ]] || return 0
+  printf 'apiVersion: v1\nkind: ConfigMap\nmetadata: {name: gateway-uma-replica, namespace: %s}\ndata:\n  deployment: "spec: {replicas: 1}"\n  horizontalPodAutoscaler: "spec: {minReplicas: 1, maxReplicas: 1}"\n' "$1" \
+    | oc apply -f - >/dev/null 2>&1 \
+    && oc patch gateway "$2" -n "$1" --type=merge \
+         -p '{"spec":{"infrastructure":{"parametersRef":{"group":"","kind":"ConfigMap","name":"gateway-uma-replica"}}}}' >/dev/null 2>&1 \
+    || echo "  ! nao consegui fixar o Gateway $2 em uma replica -- ele fica com o escalonador de fabrica (2 a 10)" >&2
+}
 _sec()  { printf '\n  %s%s%s\n' "$_BLU$_BLD" "$*" "$_RST"; }
 _ok()   { printf '    %s✓%s %s\n' "$_GRN" "$_RST" "$*"; }
 _no()   { printf '    %s✗%s %s\n' "$_RED" "$_RST" "$*"; }
@@ -250,6 +264,7 @@ spec:
   containers:
   - {name: cliente, image: ${IMG}, command: [sleep, infinity], ${SC}}
 EOF
+  _uma_replica "$LAB_NS" lab
   oc rollout status deploy/coredns -n "$LAB_NS" --timeout=180s >/dev/null \
     && oc rollout status deploy/app -n "$LAB_NS" --timeout=180s >/dev/null \
     && oc wait --for=condition=Programmed gateway/lab -n "$LAB_NS" --timeout=120s >/dev/null \
