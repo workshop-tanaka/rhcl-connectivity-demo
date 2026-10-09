@@ -1,0 +1,47 @@
+# PASSO 1 -- um Gateway que aponta para um certificado que NAO existe.
+#
+# Tres objetos, e so o Gateway importa para o raciocinio:
+#   - o Issuer e quem vai emitir o certificado mais adiante. E autoassinado e
+#     vale so neste projeto: nenhum cliente de fora confia nele, e o exercicio
+#     diz isso na hora certa;
+#   - o Gateway pede HTTPS e nomeia o Secret 'tls-lab-cert', que ninguem criou;
+#   - a Route publica o hostname na frente do Gateway, sem abrir o TLS.
+# O ConfigMap so fixa o Gateway em uma replica, que e o que um laboratorio
+# precisa.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata: {name: lab-selfsigned, namespace: tls-lab}
+spec: {selfSigned: {}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: gateway-uma-replica, namespace: tls-lab}
+data:
+  deployment: "spec: {replicas: 1}"
+  horizontalPodAutoscaler: "spec: {minReplicas: 1, maxReplicas: 1}"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: lab
+  namespace: tls-lab
+  annotations: {networking.istio.io/service-type: ClusterIP}
+spec:
+  gatewayClassName: istio
+  infrastructure:
+    parametersRef: {group: "", kind: ConfigMap, name: gateway-uma-replica}
+  listeners:
+    - name: https
+      hostname: tls-lab.__DOMINIO__
+      port: 443
+      protocol: HTTPS
+      tls: {mode: Terminate, certificateRefs: [{name: tls-lab-cert, kind: Secret}]}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata: {name: lab, namespace: tls-lab}
+spec:
+  host: tls-lab.__DOMINIO__
+  to: {kind: Service, name: lab-istio}
+  port: {targetPort: 443}
+  tls: {termination: passthrough}

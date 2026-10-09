@@ -1,0 +1,12 @@
+# PASSO 2 -- a TLSPolicy. Ela mira o Gateway e nomeia o emissor; o certificado
+# que o Gateway pediu passa a ter dono, validade e renovacao.
+# A validade e de uma hora, de proposito: da para ver a renovacao agendada sem
+# esperar meses.
+apiVersion: kuadrant.io/v1
+kind: TLSPolicy
+metadata: {name: lab, namespace: tls-lab}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: Gateway, name: lab}
+  issuerRef: {group: cert-manager.io, kind: Issuer, name: lab-selfsigned}
+  duration: 1h
+  renewBefore: 55m
