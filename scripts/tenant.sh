@@ -828,6 +828,14 @@ rules:
   - apiGroups: [monitoring.coreos.com]
     resources: [prometheusrules]
     verbs: [get, list, watch, create, update, patch, delete]
+  # LER o que o Kuadrant escreve no Gateway dele. Com Service Mesh essa leitura
+  # vem agregada pelo operator dele; na sessao so de Connectivity Link (Gateway
+  # do provedor nativo) nao vem de lugar nenhum -- medido no cqfs4: a parte 1.3
+  # ('demo.sh ato3') e a leitura de ingresso davam Forbidden em 'envoyfilters'.
+  # So leitura: quem escreve esses objetos e o operator do Kuadrant.
+  - apiGroups: [networking.istio.io, extensions.istio.io]
+    resources: [envoyfilters, wasmplugins]
+    verbs: [get, list, watch]
 ---
 # LEITURA DA PLATAFORMA, ENUMERADA -- e nao 'cluster-reader'. Medido em
 # 2026-10-04 no cluster-vs5gv: com cluster-reader o participante le o

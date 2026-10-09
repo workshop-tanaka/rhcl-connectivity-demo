@@ -273,6 +273,13 @@ Quem lê a configuração do Gateway do próprio namespace vê nomes, portas e
 endereços dos serviços dos colegas. Não há ajuste conhecido; é limite assumido
 dessa sessão até aparecer um.
 
+Repetido no `cluster-cqfs4` em 2026-10-08, com a turma de 10 na sessão `rhcl`:
+o Gateway de um participante listava **16 destinos de outro**. É leitura de
+nomes e endereços, não acesso: no mesmo teste, as chamadas de rede ao ambiente
+do vizinho continuaram barradas pelas `NetworkPolicy`. O `isolamento.sh` conta
+essa linha como aberta, e nessa sessão o resultado esperado é 3 abertos, 21
+barrados e nenhum indeterminado.
+
 ## 6. Como os perfis chegam ao participante
 
 - **Terminal.** O guia já tem duas abas, que são sessões separadas. Uma vira
