@@ -278,7 +278,14 @@ a cota diária (1000 / 10 000 / 100 000), que é a que está no contrato — e a
 o developer portal publica.
 
 > *"Criar um tier novo é adicionar um bloco neste YAML. Mover um cliente de
-> plano é editar um label."*
+> plano é trocar um label e recriar a chave."*
+>
+> **Não diga "é só editar um label".** Medido no cluster-cqfs4 em 2026-10-10
+> (RHCL 1.4.3): com o label `kuadrant.io/plan-id` trocado de `free` para `gold`,
+> a chave continuou limitada como free por mais de dois minutos. Recriando o
+> Secret (`oc get secret <chave> -o yaml | oc replace --force -f -`) o plano
+> novo valeu em cinco segundos. Vale nos dois sentidos: um parceiro rebaixado
+> só pelo label **continua com o plano antigo**.
 
 **Em tela**, melhor que o `oc get` para a plateia: console → **Connectivity Link
 → API Keys** mostra os mesmos parceiros com plano e solicitante; em **API

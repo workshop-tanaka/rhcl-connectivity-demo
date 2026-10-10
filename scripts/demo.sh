@@ -636,7 +636,11 @@ step_ato2() {
   _pause || return 0
   _do oc get secrets -n kuadrant-system -l app=partner -L kuadrant.io/plan-id
   echo
-  _say  "Criar um tier novo e adicionar um bloco no YAML. Mover um cliente de plano e editar um label."
+  # A FALA ANTIGA DIZIA "mover um cliente de plano e editar um label", e a medida
+  # desmente (cqfs4, 2026-10-10, RHCL 1.4.3): com o rotulo trocado para gold a
+  # chave seguiu limitada como free por mais de 2 min; recriado o Secret
+  # ('oc get ... -o yaml | oc replace --force -f -'), o plano novo valeu em 5 s.
+  _say  "Criar um tier novo e adicionar um bloco no YAML. Mover um cliente de plano e trocar um label e recriar a chave."
   _look "abra agora base/policies-plans/travels-plans.yaml no editor — e onde"
   _look "'free/silver/gold', que e vocabulario comercial, vira configuracao"
   echo

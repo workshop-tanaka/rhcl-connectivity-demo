@@ -236,7 +236,14 @@ oc get secrets -n kuadrant-system -l app=partner \
 ```
 
 > "Criar um tier novo é adicionar um bloco neste YAML. Mover um cliente de
-> plano é editar um label."
+> plano é trocar um label e recriar a chave."
+>
+> **Não diga "é só editar um label".** Medido no cluster-cqfs4 em 2026-10-10
+> (RHCL 1.4.3): com o label `kuadrant.io/plan-id` trocado de `free` para `gold`,
+> a chave continuou limitada como free por mais de dois minutos. Recriando o
+> Secret (`oc get secret <chave> -o yaml | oc replace --force -f -`) o plano
+> novo valeu em cinco segundos. Vale nos dois sentidos: um parceiro rebaixado
+> só pelo label **continua com o plano antigo**.
 
 > **Connectivity Link → API Keys** mostra os mesmos três parceiros desta
 > rajada, com plano e solicitante, e é uma tela melhor que o `oc get` para a
