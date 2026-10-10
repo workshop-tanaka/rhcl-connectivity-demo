@@ -1,9 +1,9 @@
 # PASSO 1 -- o laboratorio. Quatro pecas, e so a ultima importa para o
 # raciocinio:
-#   - um CoreDNS que serve a zona 'lab.rhcl.internal' (e so ela);
+#   - um CoreDNS que serve a zona 'dns-lab.rhcl.internal' (e so ela);
 #   - uma aplicacao qualquer, para haver o que responder;
 #   - um pod 'cliente', de onde saem as consultas de DNS;
-#   - o Gateway, que declara no listener o nome 'api.lab.rhcl.internal'.
+#   - o Gateway, que declara no listener o nome 'api.dns-lab.rhcl.internal'.
 # Repare no que NAO esta aqui: nenhum registro de DNS. O Gateway diz que
 # responde por um nome, e ninguem criou esse nome.
 apiVersion: v1
@@ -15,7 +15,7 @@ kind: ConfigMap
 metadata: {name: corefile, namespace: dns-lab}
 data:
   Corefile: |
-    lab.rhcl.internal:5353 {
+    dns-lab.rhcl.internal:5353 {
         kuadrant
         forward . /etc/resolv.conf
         errors
@@ -98,12 +98,12 @@ spec:
   infrastructure:
     parametersRef: {group: "", kind: ConfigMap, name: gateway-uma-replica}
   listeners:
-    - {name: http, hostname: "api.lab.rhcl.internal", port: 80, protocol: HTTP}
+    - {name: http, hostname: "api.dns-lab.rhcl.internal", port: 80, protocol: HTTP}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata: {name: app, namespace: dns-lab}
 spec:
   parentRefs: [{name: lab}]
-  hostnames: ["api.lab.rhcl.internal"]
+  hostnames: ["api.dns-lab.rhcl.internal"]
   rules: [{backendRefs: [{name: app, port: 8080}]}]

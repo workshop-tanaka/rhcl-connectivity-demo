@@ -8,7 +8,7 @@ apiVersion: v1
 kind: Secret
 metadata: {name: coredns-provider, namespace: dns-lab}
 type: kuadrant.io/coredns
-stringData: {ZONES: "lab.rhcl.internal"}
+stringData: {ZONES: "dns-lab.rhcl.internal"}
 ---
 apiVersion: kuadrant.io/v1
 kind: DNSPolicy

@@ -17,7 +17,7 @@
 # o registro por GEOGRAFIA e o registro com PESO -- num cluster so.
 #
 # ISOLADO: namespace proprio, Gateway ClusterIP proprio, zona de mentira
-# (lab.rhcl.internal) servida por um CoreDNS do laboratorio. Nao toca no DNS do
+# (dns-lab.rhcl.internal) servida por um CoreDNS do laboratorio. Nao toca no DNS do
 # cluster, nem no prod-web. Limpa tudo no fim (MANTER=1 deixa de pe).
 #
 # A IMAGEM DO COREDNS e do upstream do Kuadrant (nao ha equivalente conferido
@@ -33,7 +33,13 @@ set -uo pipefail
 
 LAB_NS="${LAB_NS:-dns-lab}"
 MANTER="${MANTER:-0}"
-ZONA="${ZONA:-lab.rhcl.internal}"
+# A ZONA LEVA O NOME DO LABORATORIO, e por isso o do participante. O CoreDNS do
+# laboratorio le DNSRecord no cluster INTEIRO e serve os da zona dele: com uma
+# zona igual para todos (era 'lab' + '.rhcl.internal' ate a workshop-v0.47) o
+# CoreDNS de um participante servia tambem os registros do vizinho para o
+# mesmo nome. 'dns-lab' e um dos namespaces que a copia do participante
+# renomeia, entao a zona dele ganha o sufixo sem regra nova.
+ZONA="${ZONA:-dns-lab.rhcl.internal}"
 NOME="api.${ZONA}"
 IMG="registry.access.redhat.com/ubi9/python-311"
 COREDNS_IMG="${COREDNS_IMG:-quay.io/kuadrant/coredns-kuadrant:latest}"
@@ -90,7 +96,10 @@ cmd_limpa() {
     oc patch "$_r" -n "$LAB_NS" --type=merge -p '{"metadata":{"finalizers":null}}' >/dev/null 2>&1
   done
   oc delete namespace "$LAB_NS" --wait=true >/dev/null 2>&1 && _ok "namespace ${LAB_NS} removido" || _nota "(nada a limpar em ${LAB_NS})"
-  oc delete clusterrole "coredns-kuadrant-${LAB_NS}" clusterrolebinding "coredns-kuadrant-${LAB_NS}" --ignore-not-found >/dev/null 2>&1
+  # o participante de uma turma nao apaga ClusterRole (nem criou): a recusa
+  # aqui e o esperado, e nao pode virar codigo de saida 1 de uma limpeza que
+  # deu certo (medido no cqfs4: 'limpa' saia com 1 no terminal do user2)
+  oc delete clusterrole "coredns-kuadrant-${LAB_NS}" clusterrolebinding "coredns-kuadrant-${LAB_NS}" --ignore-not-found >/dev/null 2>&1 || true
 }
 
 # O terminal do workshop nao tem dig, nslookup nem host -- e o pod do
@@ -346,6 +355,9 @@ EOF
 # cabe num comando -- consultar o CoreDNS do laboratorio (o terminal nao tem
 # dig) e ler os DNSRecord sem o ruido dos registros de propriedade.
 cmd_resolve() {
+  # o endereco da consulta ANTERIOR fica em /tmp/ip no pod cliente: sem zerar,
+  # um NXDOMAIN era seguido de uma chamada HTTP ao endereco velho (medido)
+  oc exec -n "$LAB_NS" cliente -- sh -c ': > /tmp/ip' >/dev/null 2>&1
   _resolve || return 1
   local ip; ip="$(oc exec -n "$LAB_NS" cliente -- cat /tmp/ip 2>/dev/null)"
   [[ -n "$ip" ]] || return 0
