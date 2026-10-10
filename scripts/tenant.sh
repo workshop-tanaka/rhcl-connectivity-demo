@@ -1379,12 +1379,65 @@ spec:
 EOF
 }
 
+# OS NOMES DE DNS TAMBEM TEM DONO. O laboratorio de DNS de cada participante
+# sobe um CoreDNS que le DNSRecord no cluster INTEIRO (o plugin do Kuadrant nao
+# sobe a zona com permissao so no namespace -- medido) e serve os da zona dele.
+# Dar a cada um a propria zona ('dns-lab-<participante>.rhcl.internal') fecha a
+# colisao por acidente, e NAO fecha a de proposito: o participante cria
+# DNSRecord no proprio namespace (medido: 'oc auth can-i create dnsrecords' da
+# 'yes'), e um registro dele com o nome da zona do vizinho seria servido pelo
+# CoreDNS do vizinho. Apontado pela revisao de seguranca do commit que criou as
+# zonas por participante.
+#
+# A regra olha o DONO DO NAMESPACE, como a das rotas, e nao quem chama: quem
+# cria o DNSRecord a partir de uma DNSPolicy e o operator, nao o participante.
+# Todo rotulo de nome que termina em '-userN' tem de ser o do dono -- em
+# 'rootHost' e em cada 'dnsName'.
+_admissao_dns() {
+  oc get crd dnsrecords.kuadrant.io >/dev/null 2>&1 || return 0
+  _aplica_firme <<'EOF' || _die "falha ao aplicar a admissao dos nomes de DNS"
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: rhcl-tenant-dns
+  labels: {rhcl.demo/multitenant: "true"}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [kuadrant.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [dnsrecords]
+  variables:
+    - name: pediu
+      expression: "has(namespaceObject.metadata.annotations) && 'openshift.io/requester' in namespaceObject.metadata.annotations ? namespaceObject.metadata.annotations['openshift.io/requester'] : ''"
+    - name: dono
+      expression: "has(namespaceObject.metadata.labels) && 'rhcl.demo/tenant' in namespaceObject.metadata.labels ? namespaceObject.metadata.labels['rhcl.demo/tenant'] : (variables.pediu.matches('^system:serviceaccount:showroom-user[0-9]{1,3}:showroom$') ? variables.pediu.split(':')[2].replace('showroom-', '') : (variables.pediu.matches('^user[0-9]{1,3}$') ? variables.pediu : ''))"
+    - name: nomes
+      expression: "(has(object.spec.rootHost) ? [object.spec.rootHost] : []) + (has(object.spec.endpoints) ? object.spec.endpoints.map(e, e.dnsName) : [])"
+  validations:
+    - expression: "variables.nomes.all(n, n.split('.').all(l, !l.matches('-user[0-9]{1,3}$') || (variables.dono != '' && l.endsWith('-' + variables.dono))))"
+      message: "o nome de DNS leva o nome de outro participante"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: rhcl-tenant-dns
+  labels: {rhcl.demo/multitenant: "true"}
+spec:
+  policyName: rhcl-tenant-dns
+  validationActions: [Deny]
+EOF
+}
+
 _isola() { # <tenant>
   local t="$1" ns gw n i nss
   _sec "isola ${t}: rede e rotas fechadas para os outros participantes"
   nss="$(oc get ns -l "${ROTULO}=${t}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)"
   [[ -n "$nss" ]] || _die "nenhum namespace com o rotulo ${ROTULO}=${t} -- o participante existe? (tenant.sh lista)"
   _admissao_rotas
+  _admissao_dns
   for ns in $nss; do
     oc apply -f - >/dev/null <<EOF || _die "falha ao aplicar a NetworkPolicy em ${ns}"
 apiVersion: networking.k8s.io/v1

@@ -140,6 +140,24 @@ fi
 _api rotas "rota criada DENTRO do namespace da vitima" create --dry-run=server -f <(_rota "travel-agency-${V}" "ingress-gateway-${V}" "api-travels-${V}-x")
 
 # ---------------------------------------------------------------------------
+# O laboratorio de DNS de cada participante serve a zona dele, e o CoreDNS de
+# la le DNSRecord no cluster inteiro. Um registro criado pelo atacante, no
+# namespace DELE, com o nome da zona da vitima, seria servido pelo CoreDNS da
+# vitima. Quem recusa e a admissao 'rhcl-tenant-dns'.
+if oc get crd dnsrecords.kuadrant.io $T >/dev/null 2>&1; then
+  _sec "nomes de DNS: publicar um registro na zona da vitima"
+  _dnsrec() { # <namespace> <zona>
+    printf 'apiVersion: kuadrant.io/v1alpha1\nkind: DNSRecord\nmetadata: {name: teste-iso, namespace: %s}\nspec:\n  rootHost: api.%s\n  endpoints:\n  - {dnsName: api.%s, recordType: A, recordTTL: 60, targets: ["192.0.2.1"]}\n' "$1" "$2" "$2"
+  }
+  if _dnsrec "travel-agency-${A}" "dns-lab-${A}.rhcl.internal" | oc create --dry-run=server --as="$SA" $T -f - >/dev/null 2>&1; then
+    [[ "$TSV" == "1" ]] || printf '    %scontrole%s      %-58s %s\n' "$_BLU" "$_RST" "o atacante cria registro na PROPRIA zona" "passou"
+    _api dns "registro no namespace dele, com o nome da zona da vitima" create --dry-run=server -f <(_dnsrec "travel-agency-${A}" "dns-lab-${V}.rhcl.internal")
+  else
+    _sai INDETERMINADO dns "CONTROLE: o atacante cria registro na propria zona" "nao passou -- o teste de DNS nao vale"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 _sec "objetos da vitima: ler e alterar"
 _api objetos "ler pods da aplicacao da vitima"            get pods -n "travel-agency-${V}"
 _api objetos "ler Secrets da aplicacao da vitima"         get secrets -n "travel-agency-${V}"

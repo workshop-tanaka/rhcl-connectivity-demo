@@ -280,6 +280,28 @@ do vizinho continuaram barradas pelas `NetworkPolicy`. O `isolamento.sh` conta
 essa linha como aberta, e nessa sessão o resultado esperado é 3 abertos, 21
 barrados e nenhum indeterminado.
 
+### Os nomes de DNS também têm dono (2026-10-09)
+
+O laboratório de DNS (`passos/dns/`, `scripts/dns-nome.sh`) sobe, no projeto de
+cada participante, um CoreDNS que lê `DNSRecord` no **cluster inteiro** e serve
+os da zona dele. Duas camadas fecham o que isso abre:
+
+- **zona por participante** (`dns-lab-<participante>.rhcl.internal`): com a
+  zona igual para todos, o CoreDNS de um servia os registros do vizinho. Medido
+  com `user2` e `user3` montando o laboratório ao mesmo tempo: cada um resolve
+  o próprio nome, e o nome do outro responde `NXDOMAIN`;
+- **admissão `rhcl-tenant-dns`**: a zona própria não impede alguém de criar,
+  no namespace dele, um `DNSRecord` com o nome da zona alheia (o participante
+  tem esse verbo). A regra recusa todo `DNSRecord` cujo `rootHost` ou `dnsName`
+  leve o nome de outro participante, olhando o dono do namespace. No
+  `isolamento.sh`: o controle (registro na própria zona) passa, e o registro
+  com a zona da vítima sai `BARRADO`.
+
+Não medido: a tentativa pelo caminho da `DNSPolicy` (Gateway com o hostname da
+zona alheia). Na única tentativa o operator não chegou a criar o registro, por
+outro motivo; a regra de admissão alcançaria esse registro do mesmo jeito,
+porque olha o objeto e não quem o cria.
+
 ## 6. Como os perfis chegam ao participante
 
 - **Terminal.** O guia já tem duas abas, que são sessões separadas. Uma vira
