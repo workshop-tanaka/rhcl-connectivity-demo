@@ -1,0 +1,14 @@
+# PASSO 3 -- a mesma DNSPolicy, com tres linhas a mais. 'loadBalancing' e o
+# que o Connectivity Link usa para distribuir trafego entre clusters: cada
+# cluster publica o seu ramo, por GEOGRAFIA e com um PESO, na mesma zona.
+# Aqui ha um cluster so -- o que da para ver e a estrutura dos registros.
+apiVersion: kuadrant.io/v1
+kind: DNSPolicy
+metadata: {name: lab, namespace: dns-lab}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: Gateway, name: lab}
+  providerRefs: [{name: coredns-provider}]
+  loadBalancing:
+    defaultGeo: true
+    geo: GEO-NA
+    weight: 120

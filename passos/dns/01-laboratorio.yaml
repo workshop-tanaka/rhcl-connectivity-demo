@@ -1,0 +1,109 @@
+# PASSO 1 -- o laboratorio. Quatro pecas, e so a ultima importa para o
+# raciocinio:
+#   - um CoreDNS que serve a zona 'lab.rhcl.internal' (e so ela);
+#   - uma aplicacao qualquer, para haver o que responder;
+#   - um pod 'cliente', de onde saem as consultas de DNS;
+#   - o Gateway, que declara no listener o nome 'api.lab.rhcl.internal'.
+# Repare no que NAO esta aqui: nenhum registro de DNS. O Gateway diz que
+# responde por um nome, e ninguem criou esse nome.
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: coredns-kuadrant, namespace: dns-lab}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: corefile, namespace: dns-lab}
+data:
+  Corefile: |
+    lab.rhcl.internal:5353 {
+        kuadrant
+        forward . /etc/resolv.conf
+        errors
+    }
+    .:5353 {
+        forward . /etc/resolv.conf
+        errors
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: coredns, namespace: dns-lab}
+spec:
+  selector: {matchLabels: {app: coredns}}
+  template:
+    metadata: {labels: {app: coredns}}
+    spec:
+      serviceAccountName: coredns-kuadrant
+      containers:
+        - name: coredns
+          image: quay.io/kuadrant/coredns-kuadrant:latest
+          args: ["-conf", "/etc/coredns/Corefile"]
+          ports: [{containerPort: 5353, protocol: UDP}]
+          volumeMounts: [{name: cfg, mountPath: /etc/coredns}]
+          # NET_BIND_SERVICE e obrigatorio mesmo numa porta alta: o binario do
+          # CoreDNS tem file capabilities, e com 'drop: [ALL]' o exec falha.
+          securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: [ALL], add: [NET_BIND_SERVICE]}, seccompProfile: {type: RuntimeDefault}}
+      volumes: [{name: cfg, configMap: {name: corefile}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: coredns, namespace: dns-lab}
+spec: {selector: {app: coredns}, ports: [{name: dns, port: 5353, targetPort: 5353, protocol: UDP}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: app, namespace: dns-lab}
+spec:
+  selector: {matchLabels: {app: app}}
+  template:
+    metadata: {labels: {app: app}}
+    spec:
+      containers:
+        - name: app
+          image: registry.access.redhat.com/ubi9/python-311
+          command: [python3, -m, http.server, "8080"]
+          ports: [{containerPort: 8080}]
+          securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: [ALL]}, seccompProfile: {type: RuntimeDefault}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: app, namespace: dns-lab}
+spec: {selector: {app: app}, ports: [{port: 8080, targetPort: 8080}]}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: cliente, namespace: dns-lab}
+spec:
+  containers:
+    - name: cliente
+      image: registry.access.redhat.com/ubi9/python-311
+      command: [sleep, infinity]
+      securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: [ALL]}, seccompProfile: {type: RuntimeDefault}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: gateway-uma-replica, namespace: dns-lab}
+data:
+  deployment: "spec: {replicas: 1}"
+  horizontalPodAutoscaler: "spec: {minReplicas: 1, maxReplicas: 1}"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: lab
+  namespace: dns-lab
+  annotations: {networking.istio.io/service-type: ClusterIP}
+spec:
+  gatewayClassName: istio
+  infrastructure:
+    parametersRef: {group: "", kind: ConfigMap, name: gateway-uma-replica}
+  listeners:
+    - {name: http, hostname: "api.lab.rhcl.internal", port: 80, protocol: HTTP}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: app, namespace: dns-lab}
+spec:
+  parentRefs: [{name: lab}]
+  hostnames: ["api.lab.rhcl.internal"]
+  rules: [{backendRefs: [{name: app, port: 8080}]}]

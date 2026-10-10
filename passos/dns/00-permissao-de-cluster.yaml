@@ -1,0 +1,17 @@
+# SO PARA QUEM E ADMINISTRADOR DO CLUSTER. O CoreDNS do laboratorio lista
+# DNSRecord no cluster inteiro: com permissao so no namespace ele sobe e serve
+# a zona vazia, sem erro. Numa turma o participante nao cria ClusterRole, e
+# esta ligacao ja vem feita por quem montou o ambiente.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: coredns-kuadrant-dns-lab}
+rules:
+  - apiGroups: ["kuadrant.io"]
+    resources: ["dnsrecords", "dnsrecords/status"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: coredns-kuadrant-dns-lab}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: coredns-kuadrant-dns-lab}
+subjects: [{kind: ServiceAccount, name: coredns-kuadrant, namespace: dns-lab}]

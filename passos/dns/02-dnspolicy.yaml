@@ -1,0 +1,18 @@
+# PASSO 2 -- quem cria o nome. Dois objetos:
+#   - o Secret do provedor: de que tipo e (aqui, o CoreDNS do laboratorio) e
+#     por quais zonas responde. Com um provedor de nuvem, e aqui que iria a
+#     credencial dele;
+#   - a DNSPolicy: mira o Gateway e nomeia o provedor. Ela NAO lista nome
+#     nenhum -- os nomes saem dos listeners do Gateway.
+apiVersion: v1
+kind: Secret
+metadata: {name: coredns-provider, namespace: dns-lab}
+type: kuadrant.io/coredns
+stringData: {ZONES: "lab.rhcl.internal"}
+---
+apiVersion: kuadrant.io/v1
+kind: DNSPolicy
+metadata: {name: lab, namespace: dns-lab}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: Gateway, name: lab}
+  providerRefs: [{name: coredns-provider}]

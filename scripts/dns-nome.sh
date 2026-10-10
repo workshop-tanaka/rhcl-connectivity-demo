@@ -27,6 +27,8 @@
 # Uso:
 #   bash scripts/dns-nome.sh          # a prova inteira (~2 min)
 #   bash scripts/dns-nome.sh limpa    # se foi interrompida
+#   bash scripts/dns-nome.sh resolve   # consulta o nome no CoreDNS do laboratorio
+#   bash scripts/dns-nome.sh registros # os DNSRecord do laboratorio, legiveis
 set -uo pipefail
 
 LAB_NS="${LAB_NS:-dns-lab}"
@@ -339,8 +341,22 @@ EOF
   _nota "distribui trafego entre clusters, sem balanceador no meio."
 }
 
+# DUAS FERRAMENTAS PEQUENAS, para o guia em passos: la o participante aplica os
+# arquivos de passos/dns/ com 'oc apply -f', e so chama o script para o que nao
+# cabe num comando -- consultar o CoreDNS do laboratorio (o terminal nao tem
+# dig) e ler os DNSRecord sem o ruido dos registros de propriedade.
+cmd_resolve() {
+  _resolve || return 1
+  local ip; ip="$(oc exec -n "$LAB_NS" cliente -- cat /tmp/ip 2>/dev/null)"
+  [[ -n "$ip" ]] || return 0
+  printf '      %s %s\n' "HTTP no endereco que o DNS deu:" \
+    "$(oc exec -n "$LAB_NS" cliente -- curl -s -o /dev/null -m 10 -w '%{http_code}' --resolve "${NOME}:80:${ip}" "http://${NOME}/" 2>/dev/null)"
+}
+
 case "${1:-prova}" in
-  prova) cmd_prova ;;
-  limpa) cmd_limpa ;;
-  *) echo "uso: bash scripts/dns-nome.sh [prova|limpa]" >&2; exit 1 ;;
+  prova)     cmd_prova ;;
+  limpa)     cmd_limpa ;;
+  resolve)   cmd_resolve ;;
+  registros) _registros ;;
+  *) echo "uso: bash scripts/dns-nome.sh [prova|limpa|resolve|registros]" >&2; exit 1 ;;
 esac
