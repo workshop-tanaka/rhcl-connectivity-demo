@@ -295,7 +295,9 @@ os da zona dele. Duas camadas fecham o que isso abre:
   tem esse verbo). A regra recusa todo `DNSRecord` cujo `rootHost` ou `dnsName`
   leve o nome de outro participante, olhando o dono do namespace. No
   `isolamento.sh`: o controle (registro na própria zona) passa, e o registro
-  com a zona da vítima sai `BARRADO`.
+  com a zona da vítima sai `BARRADO`. Nome com maiúsculas é recusado antes:
+  DNS não distingue caixa, e a primeira versão da regra distinguia --
+  `dns-lab-USER2` passava (medido, e apontado pela revisão de segurança).
 
 Não medido: a tentativa pelo caminho da `DNSPolicy` (Gateway com o hostname da
 zona alheia). Na única tentativa o operator não chegou a criar o registro, por

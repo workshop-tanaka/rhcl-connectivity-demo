@@ -1417,6 +1417,13 @@ spec:
     - name: nomes
       expression: "(has(object.spec.rootHost) ? [object.spec.rootHost] : []) + (has(object.spec.endpoints) ? object.spec.endpoints.map(e, e.dnsName) : [])"
   validations:
+    # DNS NAO DISTINGUE MAIUSCULAS, e a regra abaixo distingue: sem esta
+    # primeira validacao, 'api.dns-lab-USER2...' nao casava o padrao e passava
+    # (medido no cqfs4 com --dry-run=server; apontado pela revisao de seguranca).
+    # Recusar a forma nao canonica e mais simples, e mais seguro, do que
+    # normalizar e comparar.
+    - expression: "variables.nomes.all(n, n == n.lowerAscii())"
+      message: "nome de DNS com maiusculas nao e aceito em namespace de participante"
     - expression: "variables.nomes.all(n, n.split('.').all(l, !l.matches('-user[0-9]{1,3}$') || (variables.dono != '' && l.endsWith('-' + variables.dono))))"
       message: "o nome de DNS leva o nome de outro participante"
 ---

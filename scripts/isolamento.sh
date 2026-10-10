@@ -152,6 +152,8 @@ if oc get crd dnsrecords.kuadrant.io $T >/dev/null 2>&1; then
   if _dnsrec "travel-agency-${A}" "dns-lab-${A}.rhcl.internal" | oc create --dry-run=server --as="$SA" $T -f - >/dev/null 2>&1; then
     [[ "$TSV" == "1" ]] || printf '    %scontrole%s      %-58s %s\n' "$_BLU" "$_RST" "o atacante cria registro na PROPRIA zona" "passou"
     _api dns "registro no namespace dele, com o nome da zona da vitima" create --dry-run=server -f <(_dnsrec "travel-agency-${A}" "dns-lab-${V}.rhcl.internal")
+    # DNS nao distingue maiusculas: 'USER2' e o mesmo nome, e nao casava a regra
+    _api dns "o mesmo registro, com o nome da vitima em MAIUSCULAS" create --dry-run=server -f <(_dnsrec "travel-agency-${A}" "dns-lab-$(printf '%s' "$V" | tr '[:lower:]' '[:upper:]').rhcl.internal")
   else
     _sai INDETERMINADO dns "CONTROLE: o atacante cria registro na propria zona" "nao passou -- o teste de DNS nao vale"
   fi
