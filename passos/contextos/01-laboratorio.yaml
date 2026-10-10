@@ -1,0 +1,121 @@
+# PASSO 1 -- o laboratorio, ainda SEM policy nenhuma.
+#   - uma aplicacao que devolve o Host e o caminho que recebeu;
+#   - um pod 'cliente', de onde saem as chamadas;
+#   - um Gateway cujo listener aceita qualquer nome de '*.ctx.lab';
+#   - duas rotas no MESMO Gateway: 'api1', com quatro regras, e 'api2';
+#   - duas chaves de API, uma do plano gold e uma do free.
+# O que importa esta na rota 'api1': cada regra tem NOME. E pelo nome que uma
+# policy alcanca um caminho so -- regra sem nome nao recebe policy propria.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: app, namespace: ctx-lab}
+data:
+  app.py: |
+    import http.server, json
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            corpo = json.dumps({"host": self.headers.get("host"), "path": self.path}).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(corpo)))
+            self.end_headers(); self.wfile.write(corpo)
+        def log_message(self, *a): pass
+    http.server.ThreadingHTTPServer(("", 8080), H).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: app, namespace: ctx-lab}
+spec:
+  selector: {matchLabels: {app: app}}
+  template:
+    metadata: {labels: {app: app}}
+    spec:
+      containers:
+        - name: app
+          image: registry.access.redhat.com/ubi9/python-311
+          command: [python3, /app/app.py]
+          volumeMounts: [{name: app, mountPath: /app}]
+          securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: [ALL]}, seccompProfile: {type: RuntimeDefault}}
+      volumes: [{name: app, configMap: {name: app}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: app, namespace: ctx-lab}
+spec: {selector: {app: app}, ports: [{port: 8080, targetPort: 8080}]}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: cliente, namespace: ctx-lab}
+spec:
+  containers:
+    - name: cliente
+      image: registry.access.redhat.com/ubi9/python-311
+      command: [sleep, infinity]
+      securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: [ALL]}, seccompProfile: {type: RuntimeDefault}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: gateway-uma-replica, namespace: ctx-lab}
+data:
+  deployment: "spec: {replicas: 1}"
+  horizontalPodAutoscaler: "spec: {minReplicas: 1, maxReplicas: 1}"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: lab
+  namespace: ctx-lab
+  annotations: {networking.istio.io/service-type: ClusterIP}
+spec:
+  gatewayClassName: istio
+  infrastructure:
+    parametersRef: {group: "", kind: ConfigMap, name: gateway-uma-replica}
+  listeners:
+    - {name: http, hostname: "*.ctx.lab", port: 80, protocol: HTTP}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: api1, namespace: ctx-lab}
+spec:
+  parentRefs: [{name: lab}]
+  hostnames: ["api1.ctx.lab"]
+  rules:
+    - name: publico
+      matches: [{path: {type: PathPrefix, value: /catalogo/listall}}]
+      backendRefs: [{name: app, port: 8080}]
+    - name: premium
+      matches: [{path: {type: PathPrefix, value: /catalogo/listbestsellers}}]
+      backendRefs: [{name: app, port: 8080}]
+    - name: admin
+      matches: [{path: {type: PathPrefix, value: /catalogo/admin}}]
+      backendRefs: [{name: app, port: 8080}]
+    - name: busca
+      matches: [{path: {type: PathPrefix, value: /catalogo/search}}]
+      backendRefs: [{name: app, port: 8080}]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: api2, namespace: ctx-lab}
+spec:
+  parentRefs: [{name: lab}]
+  hostnames: ["api2.ctx.lab"]
+  rules:
+    - name: tudo
+      matches: [{path: {type: PathPrefix, value: /catalogo/listall}}]
+      backendRefs: [{name: app, port: 8080}]
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: chave-gold
+  namespace: ctx-lab
+  labels: {app: ctx-lab, kuadrant.io/plan-id: gold, authorino.kuadrant.io/managed-by: authorino}
+stringData: {api_key: "gold-__SEGREDO__"}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: chave-free
+  namespace: ctx-lab
+  labels: {app: ctx-lab, kuadrant.io/plan-id: free, authorino.kuadrant.io/managed-by: authorino}
+stringData: {api_key: "free-__SEGREDO__"}

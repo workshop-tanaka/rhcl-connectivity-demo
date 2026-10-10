@@ -317,8 +317,40 @@ EOF
   _nota "E a precedencia que o status de uma policy ja mostrou, agora em tres niveis: Gateway, rota, regra."
 }
 
+# TRES FERRAMENTAS PEQUENAS, para o guia em passos: la o participante aplica os
+# arquivos de passos/contextos/ um a um, e chama o script so para MEDIR -- as
+# chamadas saem do pod cliente, com --resolve, porque os hostnames '*.ctx.lab'
+# nao existem em DNS nenhum.
+cmd_matriz() {
+  local g f alvo host caminho
+  g="$(_chave chave-gold)"; f="$(_chave chave-free)"
+  [[ -n "$(_ip)" ]] || { _warn "o Gateway do laboratorio ainda nao tem endereco"; return 1; }
+  printf '    %-42s %-8s %-8s %s\n' "host + caminho" "sem" "free" "gold"
+  for alvo in "${H1} /catalogo/listall" "${H1} /catalogo/listbestsellers" "${H1} /catalogo/admin" "${H1} /catalogo/search" "${H2} /catalogo/listall"; do
+    set -- $alvo; host="$1"; caminho="$2"
+    printf '    %-42s %-8s %-8s %s\n' "${host}${caminho}" \
+      "$(_http "$host" "$caminho")" "$(_http "$host" "$caminho" "$f")" "$(_http "$host" "$caminho" "$g")"
+  done
+}
+cmd_rajada() { # <caminho>  -- oito chamadas com a chave gold
+  local c="${1:-/catalogo/search}"
+  printf '    %-28s ' "$c"; _rajada "$H1" "$c" "$(_chave chave-gold)" 8
+}
+cmd_status() {
+  local linha k p
+  for linha in $(oc get authpolicy,ratelimitpolicy -n "$LAB_NS" -o name 2>/dev/null); do
+    k="${linha%%.*}"; p="${linha##*/}"
+    local sec; sec="$(oc get "$linha" -n "$LAB_NS" -o jsonpath='{.spec.targetRef.sectionName}' 2>/dev/null)"
+    printf '    %-16s %-14s %-16s %s\n' "$k" "$p" "${sec:-(rota inteira)}" \
+      "$(oc get "$linha" -n "$LAB_NS" -o jsonpath='{.status.conditions[?(@.type=="Enforced")].message}' 2>/dev/null)"
+  done
+}
+
 case "${1:-prova}" in
-  prova) cmd_prova ;;
-  limpa) cmd_limpa ;;
-  *) echo "uso: bash scripts/contextos.sh [prova|limpa]" >&2; exit 1 ;;
+  prova)  cmd_prova ;;
+  limpa)  cmd_limpa ;;
+  matriz) cmd_matriz ;;
+  rajada) cmd_rajada "${2:-}" ;;
+  status) cmd_status ;;
+  *) echo "uso: bash scripts/contextos.sh [prova|limpa|matriz|rajada <caminho>|status]" >&2; exit 1 ;;
 esac

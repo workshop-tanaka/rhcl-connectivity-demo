@@ -1,0 +1,11 @@
+# PASSO 3 -- NIVEL REGRA. O mesmo tipo de policy, com uma linha a mais:
+# 'sectionName: publico'. Ela alcanca so a regra com esse nome, e ali SOBREPOE
+# a policy da rota.
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata: {name: api1-publico, namespace: ctx-lab}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: HTTPRoute, name: api1, sectionName: publico}
+  rules:
+    authentication:
+      anonimo: {anonymous: {}}

@@ -1,0 +1,18 @@
+# PASSO 4 -- NIVEL REGRA, com autorizacao. '/catalogo/admin' exige chave E
+# plano gold. Repare que a autenticacao e declarada DE NOVO: a policy de regra
+# SUBSTITUI a da rota naquele trecho, nao soma a ela.
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata: {name: api1-admin, namespace: ctx-lab}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: HTTPRoute, name: api1, sectionName: admin}
+  rules:
+    authentication:
+      chave:
+        apiKey: {allNamespaces: true, selector: {matchLabels: {app: ctx-lab}}}
+        credentials: {queryString: {name: APIKEY}}
+    authorization:
+      so-gold:
+        patternMatching:
+          patterns:
+            - predicate: 'auth.identity.metadata.labels["kuadrant.io/plan-id"] == "gold"'

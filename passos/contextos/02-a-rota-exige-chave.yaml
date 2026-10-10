@@ -1,0 +1,13 @@
+# PASSO 2 -- NIVEL ROTA. A 'api1' inteira passa a exigir chave: o alvo e a
+# HTTPRoute, sem 'sectionName', entao vale para as quatro regras de uma vez.
+# A 'api2', que e outra rota no mesmo Gateway, nao e tocada.
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata: {name: api1-chave, namespace: ctx-lab}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: HTTPRoute, name: api1}
+  rules:
+    authentication:
+      chave:
+        apiKey: {allNamespaces: true, selector: {matchLabels: {app: ctx-lab}}}
+        credentials: {queryString: {name: APIKEY}}

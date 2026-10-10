@@ -1,0 +1,18 @@
+# PASSO 5 -- o limite tambem desce ao contexto. Dois objetos:
+#   - um limite largo na rota inteira (30 chamadas a cada 10 s);
+#   - um limite proprio, bem mais apertado, na regra 'premium' (5 a cada 10 s).
+apiVersion: kuadrant.io/v1
+kind: RateLimitPolicy
+metadata: {name: api1-limite, namespace: ctx-lab}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: HTTPRoute, name: api1}
+  limits:
+    rota: {rates: [{limit: 30, window: 10s}]}
+---
+apiVersion: kuadrant.io/v1
+kind: RateLimitPolicy
+metadata: {name: api1-premium, namespace: ctx-lab}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: HTTPRoute, name: api1, sectionName: premium}
+  limits:
+    premium: {rates: [{limit: 5, window: 10s}]}
