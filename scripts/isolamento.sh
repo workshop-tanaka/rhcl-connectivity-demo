@@ -196,6 +196,10 @@ EOF
 if _chave "partner-${A}" | oc create --dry-run=server --as="$SA" $T -f - >/dev/null 2>&1; then
   [[ "$TSV" == "1" ]] || printf '    %scontrole%s      %-58s %s\n' "$_BLU" "$_RST" "o atacante cria chave DELE no proprio namespace" "passou"
   _api chaves "cunhar, no namespace dele, chave com o rotulo da vitima" create --dry-run=server -f <(_chave "partner-${V}")
+  # os laboratorios usam outros rotulos, e as policies deles tambem aceitam
+  # chave de qualquer namespace: a regra tem de valer para qualquer 'app' que
+  # termine no nome da vitima, nao so para 'partner-'
+  _api chaves "o mesmo, com o rotulo de um LABORATORIO da vitima"   create --dry-run=server -f <(_chave "echo-exposta-${V}")
 else
   _sai INDETERMINADO chaves "CONTROLE: o atacante cria chave dele no proprio namespace" "nao passou -- o teste de cunhagem nao vale"
 fi

@@ -280,6 +280,18 @@ do vizinho continuaram barradas pelas `NetworkPolicy`. O `isolamento.sh` conta
 essa linha como aberta, e nessa sessão o resultado esperado é 3 abertos, 21
 barrados e nenhum indeterminado.
 
+### A chave de um laboratório também tem dono (2026-10-10)
+
+A admissão `rhcl-tenant-chaves-dono` protegia só o rótulo `app: partner-userN`,
+o das chaves da API de viagens. Os laboratórios usam outros rótulos
+(`ctx-lab-userN`, `echo-exposta-userN`) com policies que aceitam chave de
+qualquer namespace, e ficavam de fora: medido com a identidade do terminal do
+`user3`, um Secret `app: echo-exposta-user2` no namespace dele foi aceito pelo
+servidor. A regra passou a valer para qualquer `app` que termine no nome de um
+participante. Depois: os três rótulos da vítima são recusados, a chave do
+próprio laboratório continua sendo criada, e o `isolamento.sh` ganhou a linha
+(3 abertos, 24 barrados, 0 indeterminados, `user3` contra `user2`).
+
 ### Os nomes de DNS também têm dono (2026-10-09)
 
 O laboratório de DNS (`passos/dns/`, `scripts/dns-nome.sh`) sobe, no projeto de

@@ -2330,6 +2330,17 @@ _admissao_chaves() {
   # (a primeira versao deste passo usava o mesmo nome; o dry-run de servidor
   # respondeu 'configured' em vez de 'created', e foi o que denunciou).
   #
+  # O ROTULO PROTEGIDO E QUALQUER 'app' QUE TERMINE NO NOME DE UM PARTICIPANTE, e
+  # nao so 'partner-userN'. A primeira versao reconhecia so esse formato, que e
+  # o das chaves da API de viagens. Os laboratorios usam outros ('ctx-lab-userN',
+  # 'echo-exposta-userN') com policies que aceitam chave de qualquer namespace,
+  # e ficavam de fora: medido no cqfs4 em 2026-10-10, com a identidade do
+  # terminal do user3, um Secret 'app: echo-exposta-user2' no namespace dele foi
+  # aceito pelo servidor -- e a API da parte 'De aberta a governada' e publicada
+  # para fora. Apontado pela revisao de seguranca do commit dos contextos.
+  # Conferido antes de alargar: nenhum Secret do cluster tinha 'app: ...-userN'
+  # fora do namespace do dono.
+  #
   # UPDATE e DELETE olham TAMBEM o objeto antigo: trocar o rotulo da chave de
   # outro, ou apaga-la, e tao ruim quanto criar uma.
   _aplica_firme <<'EOF' || _die "falha ao aplicar a admissao das chaves"
@@ -2355,9 +2366,9 @@ spec:
     - name: dono
       expression: "has(namespaceObject.metadata.labels) && 'rhcl.demo/tenant' in namespaceObject.metadata.labels ? namespaceObject.metadata.labels['rhcl.demo/tenant'] : (variables.pediu.matches('^system:serviceaccount:showroom-user[0-9]{1,3}:showroom$') ? variables.pediu.split(':')[2].replace('showroom-', '') : (variables.pediu.matches('^user[0-9]{1,3}$') ? variables.pediu : ''))"
     - name: novo
-      expression: "request.operation == 'DELETE' ? '' : (has(object.metadata.labels) && 'app' in object.metadata.labels && object.metadata.labels['app'].matches('^partner-user[0-9]{1,3}$') ? object.metadata.labels['app'].substring(8) : '')"
+      expression: "request.operation == 'DELETE' ? '' : (has(object.metadata.labels) && 'app' in object.metadata.labels && object.metadata.labels['app'].matches('-user[0-9]{1,3}$') ? object.metadata.labels['app'].substring(object.metadata.labels['app'].lastIndexOf('-user') + 1) : '')"
     - name: velho
-      expression: "request.operation == 'CREATE' ? '' : (has(oldObject.metadata.labels) && 'app' in oldObject.metadata.labels && oldObject.metadata.labels['app'].matches('^partner-user[0-9]{1,3}$') ? oldObject.metadata.labels['app'].substring(8) : '')"
+      expression: "request.operation == 'CREATE' ? '' : (has(oldObject.metadata.labels) && 'app' in oldObject.metadata.labels && oldObject.metadata.labels['app'].matches('-user[0-9]{1,3}$') ? oldObject.metadata.labels['app'].substring(oldObject.metadata.labels['app'].lastIndexOf('-user') + 1) : '')"
   validations:
     - expression: "variables.novo == '' || variables.novo == variables.dono"
       message: "chave de parceiro de um participante so pode existir no namespace dele"
