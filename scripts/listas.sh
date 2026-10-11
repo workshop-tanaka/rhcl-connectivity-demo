@@ -123,14 +123,44 @@ _dentro_c() {
   oc exec -n "$LAB_NS" cliente -- curl -s -m 10 --resolve "${HE}:80:$(_ip)" "http://${HE}$1" 2>/dev/null | head -c 120
 }
 
-cmd_prova() {
-  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT INT TERM
+# Aplica o manifesto que vem pela entrada. No guia em passos (MOSTRA=1) ele
+# aparece na tela antes: o participante roda um passo de cada vez, e o que o
+# passo aplica e o conteudo dele -- esconder o YAML seria esconder a licao.
+MOSTRA="${MOSTRA:-1}"
+_aplica() {
+  local m; m="$(cat)"
+  if [[ "$MOSTRA" == "1" ]]; then
+    printf '%s    --- o que este passo aplica ---%s\n' "$_DIM" "$_RST"
+    # a chave nao vai para a tela, nem sendo de laboratorio e sorteada
+    printf '%s\n' "$m" | sed -e 's/\(api_key: \)"[^"]*"/\1"(sorteada, fica so no Secret)"/' -e 's/^/    | /'
+    printf '%s    -------------------------------%s\n' "$_DIM" "$_RST"
+  fi
+  printf '%s\n' "$m" | oc apply -f - >/dev/null
+}
 
+# A LISTA E MONTADA COM O QUE DE FATO CHEGA, e nao com um valor escrito aqui:
+# do Mac o primeiro endereco do XFF e o NAT da RHDP (100.64.x); do terminal
+# do workshop, o IP do no (10.10.10.x). Fixar um deles faria o exercicio
+# passar num lugar e falhar no outro -- e o participante leria como defeito.
+_prefixo() {
+  local PREFIXO
+  PREFIXO="$(_fora_c "https://${HE}/aberto" | python3 -c '
+import sys, json
+try: xff = json.loads(sys.stdin.read()).get("xff") or ""
+except Exception: xff = ""
+p = xff.split(",")[0].strip().split(".")
+print(".".join(p[:2]) + "." if len(p) >= 2 else "")')"
+  [[ -n "$PREFIXO" ]] || { _warn "nao consegui ler o XFF que chega -- usando 100.64." >&2; PREFIXO="100.64."; }
+  printf '%s' "$PREFIXO"
+}
+
+passo_1() {
   _sec "1. O mesmo Gateway, publicado de duas formas"
+  local SC i
   oc create namespace "$LAB_NS" >/dev/null || { _no "namespace ${LAB_NS} ja existe -- rode 'limpa' antes"; trap - EXIT; exit 1; }
   oc label namespace "$LAB_NS" "rhcl.demo/lab=listas" --overwrite >/dev/null 2>&1
   oc create configmap app -n "$LAB_NS" --from-literal=app.py="$APP_PY" >/dev/null
-  local SC="securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: [ALL]}, seccompProfile: {type: RuntimeDefault}}"
+  SC="securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: [ALL]}, seccompProfile: {type: RuntimeDefault}}"
   oc apply -f - >/dev/null <<EOF
 apiVersion: cert-manager.io/v1
 kind: Issuer
@@ -225,9 +255,10 @@ EOF
     && oc wait --for=condition=Programmed gateway/lab -n "$LAB_NS" --timeout=120s >/dev/null \
     && oc wait --for=condition=Ready pod/cliente -n "$LAB_NS" --timeout=180s >/dev/null \
     || { _no "o laboratorio nao ficou de pe"; exit 1; }
-  local i
   for i in $(seq 1 20); do [[ "$(_fora "https://${HE}/aberto")" == "200" ]] && { sleep 3; [[ "$(_fora "https://${HE}/aberto")" == "200" ]] && break; }; sleep 3; done
+}
 
+passo_2() {
   _sec "2. Que endereco sobrevive ate o Gateway"
   printf '    %-26s %s\n' "Route edge"        "$(_fora_c "https://${HE}/aberto")"
   printf '    %-26s %s\n' "Route passthrough" "$(_fora_c "https://${HP}/aberto")"
@@ -236,21 +267,12 @@ EOF
   _nota "com edge ha -- mas o primeiro endereco e o de quem chegou ao router"
   _nota "(um NAT, ou o no onde este terminal roda), nao o do cliente."
 
-  # A LISTA E MONTADA COM O QUE DE FATO CHEGA, e nao com um valor escrito aqui:
-  # do Mac o primeiro endereco do XFF e o NAT da RHDP (100.64.x); do terminal
-  # do workshop, o IP do no (10.10.10.x). Fixar um deles faria o exercicio
-  # passar num lugar e falhar no outro -- e o participante leria como defeito.
-  local PREFIXO
-  PREFIXO="$(_fora_c "https://${HE}/aberto" | python3 -c '
-import sys, json
-try: xff = json.loads(sys.stdin.read()).get("xff") or ""
-except Exception: xff = ""
-p = xff.split(",")[0].strip().split(".")
-print(".".join(p[:2]) + "." if len(p) >= 2 else "")')"
-  [[ -n "$PREFIXO" ]] || { _warn "nao consegui ler o XFF que chega -- usando 100.64."; PREFIXO="100.64."; }
+}
 
+passo_3() {
   _sec "3. A lista por IP, aplicada a UM contexto"
-  oc apply -f - >/dev/null <<EOF
+  local PREFIXO i; PREFIXO="$(_prefixo)"
+  _aplica <<EOF
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata: {name: lista-por-ip, namespace: ${LAB_NS}}
@@ -271,13 +293,19 @@ EOF
   printf '    %-34s %s\n' "/restrito (com lista), de fora"   "$(_fora "https://${HE}/restrito")"
   printf '    %-34s %s\n' "/restrito de dentro"              "$(_dentro /restrito)"
   _nota "a lista vale so no contexto /restrito -- mesma rota, mesmo hostname."
+}
 
+passo_4() {
   _sec "4. E a lista por cabecalho e forjavel"
+  local PREFIXO; PREFIXO="$(_prefixo)"
   printf '    %-34s %s\n' "/restrito de dentro, FORJANDO XFF" "$(_dentro /restrito "x-forwarded-for: ${PREFIXO}0.6")"
   _nota "quem fala direto com o Gateway escreve o cabecalho que quiser."
   _nota "o 'x-envoy-external-address' nao salva: ele nao chega a AuthPolicy."
+}
 
+passo_5() {
   _sec "5. O endereco da CONEXAO nao se forja"
+  local i
   # 'source.address' e quem abriu a conexao com o Gateway, no formato IP:porta
   # -- nao e cabecalho, entao nao ha o que o cliente escrever. Medido em
   # 2026-10-07: do pod liberado 200; de outro pod, do router e forjando o
@@ -290,7 +318,7 @@ EOF
   if [[ -z "$MEU" ]]; then
     _warn "nao consegui ler o IP do pod 'cliente' -- pulando"
   else
-    oc apply -f - >/dev/null <<EOF
+    _aplica <<EOF
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata: {name: lista-por-ip, namespace: ${LAB_NS}}
@@ -314,8 +342,14 @@ EOF
     printf '    %-34s %s\n' "/restrito pelo router, FORJANDO"    "$(curl -sk -m 15 -o /dev/null -w '%{http_code}' -H "x-forwarded-for: ${MEU}" "https://${HE}/restrito" 2>/dev/null)"
     _nota "pelo router a conexao e do router: forjar o cabecalho nao muda quem conectou."
     _nota "dentro do cluster isto separa um pod do outro; na borda publica, nao."
-    # a secao seguinte fecha a forja da lista POR CABECALHO: ela volta
-    oc apply -f - >/dev/null <<EOF
+  fi
+}
+
+passo_6() {
+  _sec "6. O que fecha a forja da lista por cabecalho e REDE, nao policy"
+  local PREFIXO i; PREFIXO="$(_prefixo)"
+  # a lista POR CABECALHO volta: o passo anterior a trocou pela de conexao
+  _aplica <<EOF
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata: {name: lista-por-ip, namespace: ${LAB_NS}}
@@ -330,10 +364,7 @@ spec:
           patterns:
           - predicate: 'request.headers["x-forwarded-for"].startsWith("${PREFIXO}")'
 EOF
-    for i in $(seq 1 30); do [[ "$(_fora "https://${HE}/restrito")" == "200" ]] && break; sleep 3; done
-  fi
-
-  _sec "6. O que fecha a forja da lista por cabecalho e REDE, nao policy"
+  for i in $(seq 1 30); do [[ "$(_fora "https://${HE}/restrito")" == "200" ]] && break; sleep 3; done
   # TRES TENTATIVAS ERRADAS ANTES DESTA, todas MEDIDAS (2026-09-24), e o
   # motivo de cada uma e a propria licao:
   #   namespaceSelector openshift-ingress  -> bloqueou tudo. O router roda em
@@ -363,7 +394,7 @@ print(",".join(sorted(set(saida))))')"
   local FROM=""
   local ip
   for ip in ${MGMT//,/ }; do FROM="${FROM}    - ipBlock: {cidr: ${ip}}"$'\n'; done
-  oc apply -f - >/dev/null <<NP
+  _aplica <<NP
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata: {name: so-o-router-alcanca-o-gateway, namespace: ${LAB_NS}}
@@ -379,25 +410,35 @@ NP
   printf '    %-34s %s\n' "/restrito de dentro, FORJANDO XFF"  "$(_dentro /restrito "x-forwarded-for: ${PREFIXO}0.6")"
   _nota "codigo 000 com exit 28 e a conexao morrendo no timeout: a NetworkPolicy"
   _nota "cortou o caminho direto. Sem caminho direto, nao ha o que forjar."
+}
 
+passo_7() {
   _sec "7. A lista que nao depende de rede: por identidade"
-  oc apply -f - >/dev/null <<EOF
+  local i
+  # AS CHAVES SAO SORTEADAS A CADA EXECUCAO, e o rotulo delas leva o nome do
+  # laboratorio (que a copia do participante renomeia). Eram 'parceiro-bloqueado'
+  # e 'parceiro-liberado', iguais para todos e escritas aqui, com o rotulo
+  # 'listas-cliente' igual para todos -- numa API publicada por Route.
+  local K_BLOQ K_OK
+  K_BLOQ="bloq-$(head -c8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  K_OK="ok-$(head -c8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  _aplica <<EOF
 apiVersion: v1
 kind: Secret
 metadata:
   name: chave-parceiro
   namespace: ${LAB_NS}
-  labels: {app: listas-cliente, kuadrant.io/plan-id: free, authorino.kuadrant.io/managed-by: authorino}
+  labels: {app: listas-lab, kuadrant.io/plan-id: free, authorino.kuadrant.io/managed-by: authorino}
   annotations: {kuadrant.io/partner-name: "Parceiro na lista de bloqueio"}
-stringData: {api_key: "parceiro-bloqueado"}
+stringData: {api_key: "${K_BLOQ}"}
 ---
 apiVersion: v1
 kind: Secret
 metadata:
   name: chave-ok
   namespace: ${LAB_NS}
-  labels: {app: listas-cliente, kuadrant.io/plan-id: gold, authorino.kuadrant.io/managed-by: authorino}
-stringData: {api_key: "parceiro-liberado"}
+  labels: {app: listas-lab, kuadrant.io/plan-id: gold, authorino.kuadrant.io/managed-by: authorino}
+stringData: {api_key: "${K_OK}"}
 ---
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
@@ -407,7 +448,7 @@ spec:
   rules:
     authentication:
       chave:
-        apiKey: {allNamespaces: true, selector: {matchLabels: {app: listas-cliente}}}
+        apiKey: {allNamespaces: true, selector: {matchLabels: {app: listas-lab}}}
         credentials: {queryString: {name: APIKEY}}
     authorization:
       nao-e-da-lista:
@@ -417,14 +458,29 @@ spec:
 EOF
   for i in $(seq 1 20); do [[ "$(_fora "https://${HE}/aberto")" == "401" ]] && break; sleep 3; done
   printf '    %-34s %s\n' "sem chave"                "$(_fora "https://${HE}/aberto")"
-  printf '    %-34s %s\n' "chave na lista de bloqueio" "$(_fora "https://${HE}/aberto?APIKEY=parceiro-bloqueado")"
-  printf '    %-34s %s\n' "chave liberada"             "$(_fora "https://${HE}/aberto?APIKEY=parceiro-liberado")"
+  printf '    %-34s %s\n' "chave na lista de bloqueio" "$(_fora "https://${HE}/aberto?APIKEY=${K_BLOQ}")"
+  printf '    %-34s %s\n' "chave liberada"             "$(_fora "https://${HE}/aberto?APIKEY=${K_OK}")"
   _nota "esta lista nao depende de quem e o proximo salto de rede: ela olha a"
   _nota "credencial, que atravessa NAT, CDN e troca de operadora sem mudar."
+}
+
+cmd_prova() {
+  [[ "$MANTER" == "1" ]] || trap 'echo; _sec "Limpando"; cmd_limpa' EXIT INT TERM
+  MOSTRA=0
+  passo_1; passo_2; passo_3; passo_4; passo_5; passo_6; passo_7
 }
 
 case "${1:-prova}" in
   prova) cmd_prova ;;
   limpa) cmd_limpa ;;
-  *) echo "uso: bash scripts/listas.sh [prova|limpa]" >&2; exit 1 ;;
+  # UM PASSO DE CADA VEZ, para o guia: 'sobe' e o passo 1; cada um dos outros
+  # aplica uma coisa (mostrando o YAML) e mede.
+  sobe)       passo_1 ;;
+  enderecos)  passo_2 ;;
+  lista-ip)   passo_3 ;;
+  forja)      passo_4 ;;
+  conexao)    passo_5 ;;
+  rede)       passo_6 ;;
+  identidade) passo_7 ;;
+  *) echo "uso: bash scripts/listas.sh [prova|limpa|sobe|enderecos|lista-ip|forja|conexao|rede|identidade]" >&2; exit 1 ;;
 esac
