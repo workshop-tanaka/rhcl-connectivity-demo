@@ -1,0 +1,12 @@
+# PASSO 5 -- uma rota nova, SEM policy propria. Ela herda o teto do Gateway --
+# e o exercicio mede em quanto tempo.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: api3, namespace: pfx-equipe-b}
+spec:
+  parentRefs: [{name: borda, namespace: pfx-gw}]
+  hostnames: ["api.pfx.lab"]
+  rules:
+    - name: tudo
+      matches: [{path: {type: PathPrefix, value: /api3}}]
+      backendRefs: [{name: app, port: 8080}]

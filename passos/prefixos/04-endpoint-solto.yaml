@@ -1,0 +1,30 @@
+# PASSO 4 -- UM caminho so da equipe B, publicado FORA do prefixo dela, com
+# contrato proprio: caminho exato ('/api/getinfo'), o caminho inteiro reescrito
+# antes de entregar, e uma policy que so deixa passar o plano gold.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: getinfo, namespace: pfx-equipe-b}
+spec:
+  parentRefs: [{name: borda, namespace: pfx-gw}]
+  hostnames: ["api.pfx.lab"]
+  rules:
+    - name: getinfo
+      matches: [{path: {type: Exact, value: /api/getinfo}}]
+      filters: [{type: URLRewrite, urlRewrite: {path: {type: ReplaceFullPath, replaceFullPath: /getinfo}}}]
+      backendRefs: [{name: app, port: 8080}]
+---
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata: {name: getinfo-gold, namespace: pfx-equipe-b}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: HTTPRoute, name: getinfo}
+  rules:
+    authentication:
+      chave:
+        apiKey: {allNamespaces: true, selector: {matchLabels: {app: pfx-gw}}}
+        credentials: {queryString: {name: APIKEY}}
+    authorization:
+      so-gold:
+        patternMatching:
+          patterns:
+            - predicate: 'auth.identity.metadata.labels["kuadrant.io/plan-id"] == "gold"'

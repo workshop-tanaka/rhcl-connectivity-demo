@@ -1,0 +1,142 @@
+# PASSO 1 -- o laboratorio. Tres projetos, e a divisao entre eles e a licao:
+#   - 'pfx-gw' e da PLATAFORMA: o Gateway, o teto que nega tudo, um pod
+#     cliente e as duas chaves;
+#   - 'pfx-equipe-a' e 'pfx-equipe-b' sao das EQUIPES: cada uma com a propria
+#     aplicacao. As rotas delas vem nos passos seguintes.
+# O listener do Gateway aceita rota de QUALQUER namespace: e o que deixa cada
+# equipe ser dona da propria rota sem tocar no Gateway.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: app, namespace: pfx-equipe-a}
+data:
+  app.py: |
+    import http.server, json, os
+    QUEM = os.environ.get("QUEM", "?")
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            corpo = json.dumps({"backend": QUEM, "path": self.path}).encode()
+            self.send_response(200); self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(corpo))); self.end_headers()
+            self.wfile.write(corpo)
+        def log_message(self, *a): pass
+    http.server.ThreadingHTTPServer(("", 8080), H).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: app, namespace: pfx-equipe-a}
+spec:
+  selector: {matchLabels: {app: app}}
+  template:
+    metadata: {labels: {app: app}}
+    spec:
+      containers:
+        - name: app
+          image: registry.access.redhat.com/ubi9/python-311
+          command: [python3, /app/app.py]
+          env: [{name: QUEM, value: "api1"}]
+          volumeMounts: [{name: app, mountPath: /app}]
+          securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: [ALL]}, seccompProfile: {type: RuntimeDefault}}
+      volumes: [{name: app, configMap: {name: app}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: app, namespace: pfx-equipe-a}
+spec: {selector: {app: app}, ports: [{port: 8080, targetPort: 8080}]}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: app, namespace: pfx-equipe-b}
+data:
+  app.py: |
+    import http.server, json, os
+    QUEM = os.environ.get("QUEM", "?")
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            corpo = json.dumps({"backend": QUEM, "path": self.path}).encode()
+            self.send_response(200); self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(corpo))); self.end_headers()
+            self.wfile.write(corpo)
+        def log_message(self, *a): pass
+    http.server.ThreadingHTTPServer(("", 8080), H).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: app, namespace: pfx-equipe-b}
+spec:
+  selector: {matchLabels: {app: app}}
+  template:
+    metadata: {labels: {app: app}}
+    spec:
+      containers:
+        - name: app
+          image: registry.access.redhat.com/ubi9/python-311
+          command: [python3, /app/app.py]
+          env: [{name: QUEM, value: "api2"}]
+          volumeMounts: [{name: app, mountPath: /app}]
+          securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: [ALL]}, seccompProfile: {type: RuntimeDefault}}
+      volumes: [{name: app, configMap: {name: app}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: app, namespace: pfx-equipe-b}
+spec: {selector: {app: app}, ports: [{port: 8080, targetPort: 8080}]}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: cliente, namespace: pfx-gw}
+spec:
+  containers:
+    - name: cliente
+      image: registry.access.redhat.com/ubi9/python-311
+      command: [sleep, infinity]
+      securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: [ALL]}, seccompProfile: {type: RuntimeDefault}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: gateway-uma-replica, namespace: pfx-gw}
+data:
+  deployment: "spec: {replicas: 1}"
+  horizontalPodAutoscaler: "spec: {minReplicas: 1, maxReplicas: 1}"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: borda
+  namespace: pfx-gw
+  annotations: {networking.istio.io/service-type: ClusterIP}
+spec:
+  gatewayClassName: istio
+  infrastructure:
+    parametersRef: {group: "", kind: ConfigMap, name: gateway-uma-replica}
+  listeners:
+    - name: http
+      hostname: "api.pfx.lab"
+      port: 80
+      protocol: HTTP
+      allowedRoutes: {namespaces: {from: All}}
+---
+# O teto da plataforma: toda rota presa a este Gateway nasce negada.
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata: {name: borda-deny-all, namespace: pfx-gw}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: Gateway, name: borda}
+  rules:
+    authorization:
+      deny: {opa: {rego: "allow = false"}}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: chave-gold
+  namespace: pfx-gw
+  labels: {app: pfx-gw, kuadrant.io/plan-id: gold, authorino.kuadrant.io/managed-by: authorino}
+stringData: {api_key: "gold-__SEGREDO__"}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: chave-free
+  namespace: pfx-gw
+  labels: {app: pfx-gw, kuadrant.io/plan-id: free, authorino.kuadrant.io/managed-by: authorino}
+stringData: {api_key: "free-__SEGREDO__"}

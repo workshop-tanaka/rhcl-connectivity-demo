@@ -1,0 +1,25 @@
+# PASSO 2 -- a EQUIPE A publica a API dela sob o prefixo '/api1', no namespace
+# dela. Dois objetos: a rota, que tira o prefixo antes de entregar (a aplicacao
+# nao sabe que esta atras dele), e a policy da rota, que exige chave.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: api1, namespace: pfx-equipe-a}
+spec:
+  parentRefs: [{name: borda, namespace: pfx-gw}]
+  hostnames: ["api.pfx.lab"]
+  rules:
+    - name: tudo
+      matches: [{path: {type: PathPrefix, value: /api1}}]
+      filters: [{type: URLRewrite, urlRewrite: {path: {type: ReplacePrefixMatch, replacePrefixMatch: /}}}]
+      backendRefs: [{name: app, port: 8080}]
+---
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata: {name: api1-chave, namespace: pfx-equipe-a}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: HTTPRoute, name: api1}
+  rules:
+    authentication:
+      chave:
+        apiKey: {allNamespaces: true, selector: {matchLabels: {app: pfx-gw}}}
+        credentials: {queryString: {name: APIKEY}}

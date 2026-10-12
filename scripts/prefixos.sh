@@ -29,6 +29,12 @@
 # Uso:
 #   bash scripts/prefixos.sh          # a prova inteira (~3 min)
 #   bash scripts/prefixos.sh limpa
+#
+# No guia em passos (passos/prefixos/) o participante aplica os arquivos e usa
+# so as tres medicoes, medidas no cqfs4 em 2026-10-12 (teto assumiu em ~7s):
+#   bash scripts/prefixos.sh tabela               # as sete chamadas
+#   bash scripts/prefixos.sh quem-governa         # qual policy pega cada caminho
+#   bash scripts/prefixos.sh acompanha /api3/x    # ate o teto assumir a rota
 set -uo pipefail
 
 GW_NS="${GW_NS:-pfx-gw}"
@@ -347,8 +353,50 @@ EOF
   _nota "juntas, que e o que a leitura do caminho pavimentado descreve."
 }
 
+# TRES FERRAMENTAS PEQUENAS, para o guia em passos: la o participante aplica os
+# arquivos de passos/prefixos/ um a um e chama o script so para MEDIR. As
+# chamadas saem do pod cliente, com --resolve: 'api.pfx.lab' nao existe em DNS.
+cmd_tabela() {
+  local g f; g="$(_chave chave-gold)"; f="$(_chave chave-free)"
+  [[ -n "$(_ip)" ]] || { _warn "o Gateway do laboratorio ainda nao tem endereco"; return 1; }
+  printf '    %-26s %-6s %s\n' "caminho" "codigo" "quem atendeu"
+  printf '    %-26s %-6s %s\n' "/api1/listall (sem chave)" "$(_codigo /api1/listall)" ""
+  printf '    %-26s %-6s %s\n' "/api1/listall (free)"      "$(_codigo /api1/listall "$f")" "$(_corpo /api1/listall "$f")"
+  printf '    %-26s %-6s %s\n' "/api2/listall (sem chave)" "$(_codigo /api2/listall)"      "$(_corpo /api2/listall)"
+  printf '    %-26s %-6s %s\n' "/api/getinfo (sem chave)"  "$(_codigo /api/getinfo)" ""
+  printf '    %-26s %-6s %s\n' "/api/getinfo (free)"       "$(_codigo /api/getinfo "$f")" ""
+  printf '    %-26s %-6s %s\n' "/api/getinfo (gold)"       "$(_codigo /api/getinfo "$g")" "$(_corpo /api/getinfo "$g")"
+  printf '    %-26s %-6s %s\n' "/outro (sem rota)"         "$(_codigo /outro)" ""
+}
+cmd_quem_governa() {
+  oc get envoyfilter "kuadrant-borda" -n "$GW_NS" \
+    -o jsonpath='{.spec.configPatches[0].patch.value.typed_config.value.config.configuration.value}' 2>/dev/null \
+    | python3 -c '
+import sys, json
+try: d = json.load(sys.stdin)
+except Exception: print("      (nao consegui ler a configuracao do Gateway)"); sys.exit(0)
+for a in d.get("actionSets", []):
+    pred = (a.get("routeRuleConditions", {}).get("predicates") or ["(sem predicado)"])[0]
+    fontes = sorted({s.split(":")[-1] for ac in a.get("actions", []) for s in ac.get("sources", [])})
+    print("      %-44s <- %s" % (pred[:44], ", ".join(fontes)))'
+}
+cmd_acompanha() { # <caminho>  -- chama a cada 5 s ate o teto assumir (403), no maximo 3 min
+  local c="" t0=$SECONDS i cam="${1:-/api3/qualquer}"
+  for i in $(seq 1 36); do
+    c="$(_codigo "$cam")"
+    printf '      %3ds  %s\n' "$((SECONDS - t0))" "$c"
+    [[ "$c" == "403" ]] && break
+    sleep 5
+  done
+  if [[ "$c" == "403" ]]; then _ok "o teto do Gateway assumiu a rota em ~$((SECONDS - t0))s"
+  else _warn "a rota ainda respondia ${c} depois de $((SECONDS - t0))s"; fi
+}
+
 case "${1:-prova}" in
-  prova) cmd_prova ;;
-  limpa) cmd_limpa ;;
-  *) echo "uso: bash scripts/prefixos.sh [prova|limpa]" >&2; exit 1 ;;
+  prova)        cmd_prova ;;
+  limpa)        cmd_limpa ;;
+  tabela)       cmd_tabela ;;
+  quem-governa) cmd_quem_governa ;;
+  acompanha)    cmd_acompanha "${2:-}" ;;
+  *) echo "uso: bash scripts/prefixos.sh [prova|limpa|tabela|quem-governa|acompanha <caminho>]" >&2; exit 1 ;;
 esac
