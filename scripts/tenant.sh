@@ -2108,7 +2108,7 @@ json.dump({"apiVersion": "v1", "kind": "List", "items": out}, sys.stdout)' \
   # passar a cita-lo, entra aqui de proposito.
   local _TERMDIR=/home/lab-user/rhcl-connectivity-demo
   _SO_PARTICIPANTE="alerta.sh auditoria.sh bookinfo-fronteiras.sh certificado.sh
-    chave-vazada.sh contextos.sh demo.sh dns-nome.sh exposta-checklist.sh
+    chave-vazada.sh contextos.sh demo.sh dns-nome.sh esteira.sh exposta-checklist.sh
     golden-path-limpa.sh grpc.sh identidade.sh interconnect.sh labs.sh listas.sh
     mapa-mtls.sh mtls-kuadrant.sh negado.sh parceiro-certificado.sh postman-env.sh
     meus.sh prefixos.sh preflight.sh saida.sh tokens-ia.sh traffic.sh tunel-protege.sh versoes.sh"
@@ -2233,6 +2233,10 @@ _turma() { # <N> [primeiro=1]
   _plataforma
   mkdir -p "${_TDIR}"
   # O REPOSITORIO DO WORKSHOP, se o cluster tem GitLab ('provision.sh gitlab').
+  # NA SESSAO DE CONNECTIVITY LINK cada participante ganha tambem a esteira (a
+  # fase 5 do guia dele): o Argo CD do cluster passa a aplicar a pasta
+  # 'esteira/' do projeto dele. Falhar ai nao derruba o participante -- o resto
+  # do guia nao depende dela.
   # A federacao e o roteiro saem UMA vez, antes dos lotes; o projeto de cada
   # participante sai entre o 'sobe' (que gera a copia dele) e o 'showroom' (que
   # aponta o guia para o projeto). Sem GitLab nada disto roda e o guia sai sem
@@ -2256,6 +2260,7 @@ _turma() { # <N> [primeiro=1]
       t="user${j}"
       ( bash "${BASH_SOURCE[0]}" sobe "$t" \
           && { [[ $gitlab -eq 0 ]] || bash "${_here}/scripts/gitlab-turma.sh" semeia "$t" || echo "  ! o projeto de ${t} no GitLab nao foi publicado"; } \
+          && { [[ $gitlab -eq 0 ]] || ! _sem_mesh || bash "${_here}/scripts/gitlab-turma.sh" esteira "$t" || echo "  ! a esteira de ${t} nao ficou de pe -- depois: bash scripts/gitlab-turma.sh esteira ${t}"; } \
           && bash "${BASH_SOURCE[0]}" showroom "$t" ) > "${_TDIR}/.${t}.log" 2>&1 &
     done
     wait
