@@ -260,6 +260,17 @@ if (/\A(?:include::[^\n]*\n)?= (?:3\.6|\{p-auditoria\}) /) {
   s/,\s*role="execute"//g;
   s/\A((?:[^\n]+\n)+)\n/$1\n[IMPORTANT]\n====\n*Nesta turma, esta parte é leitura.* Ela consulta o registro de auditoria do cluster inteiro, que mostra as ações de todos os participantes, e o seu ambiente não tem acesso a ele: os comandos desta página respondem \x60Forbidden\x60. As saídas de exemplo estão na própria página.\n====\n\n/;
 }
+# A PROVA DO ALERTA TAMBEM E LEITURA NUMA TURMA. 'alerta.sh prova' escala para
+# zero o Limitador, que e UM para a turma, e por isso o proprio script se
+# recusa quando roda no terminal de um participante. A pagina seguia mandando
+# clicar e mostrando os cinco movimentos como se fossem aparecer: o comando
+# saia com sucesso dizendo "esta prova e do instrutor" (medido no cqfs4 em
+# 2026-10-12, lendo a saida de cada bloco contra o que a pagina promete).
+# Decisao fechada do workshop: sem trilha do instrutor -- ou o participante
+# aplica, ou vira leitura. Aqui so o bloco da prova deixa de ser clicavel.
+if (/\A(?:include::[^\n]*\n)?= (?:3\.5|\{p-alerta\}) /) {
+  s/\[source,bash,role="execute"\]\n----\nbash scripts\/alerta\.sh prova\n----\n/[IMPORTANT]\n====\n*Nesta turma, a prova abaixo é leitura.* Ela derruba o Limitador, que é um só para a turma inteira: rodá-la tiraria o limite de todos os participantes ao mesmo tempo, e por isso o comando se recusa no seu terminal. A saída mostrada foi medida num ambiente de um participante só. O que você pode rodar aqui: \x60bash scripts\/alerta.sh status\x60, acima, e a parte anterior, que derruba e devolve o limite só no seu ambiente.\n====\n\n[source,bash]\n----\nbash scripts\/alerta.sh prova\n----\n/;
+}
 s/^(\* xref:m3-06-auditoria\.adoc\[[^\]\n]*)\]/$1 -- leitura]/mg;
 # O painel consumo-plataforma e visao da plataforma INTEIRA por desenho, e o
 # Grafana de uma turma e filtrado, nao isolado (docs/TURMA.md, secao 8): e o
