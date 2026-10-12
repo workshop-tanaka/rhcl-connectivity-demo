@@ -34,6 +34,9 @@
 # Uso:
 #   bash scripts/listas.sh          # a prova inteira (alguns minutos)
 #   bash scripts/listas.sh limpa
+#
+# No guia em passos, uma secao por comando (cada um mostra o YAML que aplica):
+#   bash scripts/listas.sh sobe | enderecos | lista-ip | forja | conexao | rede | identidade
 set -uo pipefail
 
 LAB_NS="${LAB_NS:-listas-lab}"
