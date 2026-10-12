@@ -13,6 +13,11 @@
 #   /api2/listall   200 sem chave                -> backend api2, path /listall
 #   /api/getinfo    401 / 403 / 200 por plano    -> backend api2, path /getinfo
 #   /outro          404 (nenhuma rota casa: nao ha policy para aplicar)
+#   /api2/getinfo   200 sem chave (medido em 2026-10-12): o MESMO destino do
+#                   endpoint solto, pelo prefixo aberto. O contrato 'so gold'
+#                   vale no caminho /api/getinfo; a policy gruda na rota, nao
+#                   no backend, e quem publica um endpoint com contrato proprio
+#                   precisa fechar o outro caminho ate ele.
 #
 # A HERANCA DO TETO, e por que o script CRONOMETRA em vez de afirmar: uma rota
 # nova, sem policy propria, passa a ser coberta pelo deny-all do Gateway. Duas
@@ -32,7 +37,7 @@
 #
 # No guia em passos (passos/prefixos/) o participante aplica os arquivos e usa
 # so as tres medicoes, medidas no cqfs4 em 2026-10-12 (teto assumiu em ~7s):
-#   bash scripts/prefixos.sh tabela               # as sete chamadas
+#   bash scripts/prefixos.sh tabela               # as oito chamadas
 #   bash scripts/prefixos.sh quem-governa         # qual policy pega cada caminho
 #   bash scripts/prefixos.sh acompanha /api3/x    # ate o teto assumir a rota
 set -uo pipefail
@@ -295,17 +300,11 @@ EOF
   oc get httproute -A --no-headers 2>/dev/null | awk -v a="$A_NS" -v b="$B_NS" '$1==a || $1==b {printf "      %-16s %-10s %s\n", $1, $2, $4}'
 
   _sec "2. Um hostname, duas APIs, e um endpoint solto"
-  local g f; g="$(_chave chave-gold)"; f="$(_chave chave-free)"
-  printf '    %-26s %-6s %s\n' "caminho" "codigo" "quem atendeu"
-  printf '    %-26s %-6s %s\n' "/api1/listall (sem chave)" "$(_codigo /api1/listall)" ""
-  printf '    %-26s %-6s %s\n' "/api1/listall (free)"      "$(_codigo /api1/listall "$f")" "$(_corpo /api1/listall "$f")"
-  printf '    %-26s %-6s %s\n' "/api2/listall (sem chave)" "$(_codigo /api2/listall)"      "$(_corpo /api2/listall)"
-  printf '    %-26s %-6s %s\n' "/api/getinfo (sem chave)"  "$(_codigo /api/getinfo)" ""
-  printf '    %-26s %-6s %s\n' "/api/getinfo (free)"       "$(_codigo /api/getinfo "$f")" ""
-  printf '    %-26s %-6s %s\n' "/api/getinfo (gold)"       "$(_codigo /api/getinfo "$g")" "$(_corpo /api/getinfo "$g")"
-  printf '    %-26s %-6s %s\n' "/outro (sem rota)"         "$(_codigo /outro)" ""
+  cmd_tabela
   _nota "o backend recebe o caminho SEM o prefixo: quem o remove e o URLRewrite."
   _nota "o 404 do fim e a ausencia de rota -- sem rota nao ha policy a aplicar."
+  _nota "e '/api2/getinfo' responde SEM chave: o contrato do endpoint solto vale no"
+  _nota "caminho '/api/getinfo', nao no destino. A policy governa a ROTA."
 
   _sec "3. Quem governa cada caminho, segundo o proprio Gateway"
   oc get envoyfilter "kuadrant-borda" -n "$GW_NS" \
@@ -366,6 +365,9 @@ cmd_tabela() {
   printf '    %-26s %-6s %s\n' "/api/getinfo (sem chave)"  "$(_codigo /api/getinfo)" ""
   printf '    %-26s %-6s %s\n' "/api/getinfo (free)"       "$(_codigo /api/getinfo "$f")" ""
   printf '    %-26s %-6s %s\n' "/api/getinfo (gold)"       "$(_codigo /api/getinfo "$g")" "$(_corpo /api/getinfo "$g")"
+  # o MESMO destino do endpoint solto, pelo prefixo aberto da equipe B: a
+  # policy gruda na rota, nao no backend, e esta linha e a prova
+  printf '    %-26s %-6s %s\n' "/api2/getinfo (sem chave)" "$(_codigo /api2/getinfo)"      "$(_corpo /api2/getinfo)"
   printf '    %-26s %-6s %s\n' "/outro (sem rota)"         "$(_codigo /outro)" ""
 }
 cmd_quem_governa() {

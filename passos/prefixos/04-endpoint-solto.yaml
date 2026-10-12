@@ -1,6 +1,11 @@
 # PASSO 4 -- UM caminho so da equipe B, publicado FORA do prefixo dela, com
 # contrato proprio: caminho exato ('/api/getinfo'), o caminho inteiro reescrito
 # antes de entregar, e uma policy que so deixa passar o plano gold.
+#
+# ATENCAO, e a tabela mostra: o contrato vale NESTE caminho. O mesmo destino
+# continua alcancavel por '/api2/getinfo', que e a rota aberta do passo 3 -- a
+# policy governa a rota, nao a aplicacao. Fechar isso e decisao da equipe B, na
+# rota '/api2' dela.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata: {name: getinfo, namespace: pfx-equipe-b}
