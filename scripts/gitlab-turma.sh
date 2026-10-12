@@ -714,7 +714,7 @@ for h in hs if st == 200 else []:
     if h.get("url") == ARGO: call("DELETE", "/projects/%d/hooks/%d" % (pid, h["id"]))
 st, d = call("POST", "/projects/%d/hooks" % pid, {"url": ARGO, "push_events": True, "enable_ssl_verification": True})
 if st in (200, 201): diz("webhook de push para o Argo CD registrado")
-else: diz("AVISO: o GitLab recusou o webhook (%s) -- a mudanca vai esperar o intervalo do Argo, minutos" % str(d.get("message"))[:120])
+else: diz("AVISO: o GitLab recusou o webhook (HTTP %s: %s) -- a mudanca vai esperar o intervalo do Argo, minutos" % (st, str(d.get("message") or d.get("error") or d)[:120]))
 # 4. mudar o cluster passa a exigir merge request: Developer no grupo, e o main so aceita merge
 st, us = call("GET", "/users?username=" + q(U))
 if st == 200 and us:
