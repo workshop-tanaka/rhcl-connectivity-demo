@@ -37,6 +37,7 @@
 #   bash scripts/gitlab-turma.sh semeia user7     # so o projeto do user7 -- pode rodar varios em paralelo
 #   bash scripts/gitlab-turma.sh confere user7    # o que o user7 enxerga, e o que nao
 #   bash scripts/gitlab-turma.sh terminal user7   # o terminal dele vira um clone do projeto dele
+#   bash scripts/gitlab-turma.sh esteira user7    # o Argo CD passa a aplicar a pasta 'esteira/' do projeto dele
 #   bash scripts/gitlab-turma.sh devspaces        # o Dev Spaces passa a clonar projeto privado do GitLab
 #   bash scripts/gitlab-turma.sh remove user7     # apaga o projeto, o grupo e a conta dele
 #
@@ -304,12 +305,19 @@ def arquivos(origem, url_projeto, so_versionados):
         if os.path.isfile(os.path.join(origem, "scripts", s)): poe("scripts/" + s)
     return out, sobras
 
+# A PASTA DA ESTEIRA E DO PARTICIPANTE. Tudo o mais no projeto dele e
+# republicado a cada onda: o que nao veio da copia renderizada e apagado, e o
+# que veio e sobrescrito. 'esteira/' fica fora disso -- e o que o Argo CD
+# aplica, e la mora a mudanca que ele fez por merge request. Republicar por
+# cima desfaria a mudanca dele NO CLUSTER.
+PRESERVA = ("esteira/",)
 def publica(pid, caminho, arqs, msg):
     ja = arvore(pid)
     acoes = []
     for rel, txt in sorted(arqs.items()):
         acoes.append({"action": "update" if rel in ja else "create", "file_path": rel, "content": txt})
     for rel in sorted(ja - set(arqs)):
+        if rel.startswith(PRESERVA): continue
         acoes.append({"action": "delete", "file_path": rel})
     n = 0
     for i in range(0, len(acoes), 80):          # em lotes: um commit unico de centenas de arquivos estoura o limite
@@ -344,7 +352,8 @@ mesmo conteudo que esta no terminal do guia, em
 
 So voce enxerga este projeto. Pode editar, criar branch e abrir merge request
 a vontade: nada daqui e aplicado ao cluster sozinho -- quem aplica e voce, com
-os comandos do guia.
+os comandos do guia. A excecao, quando o seu ambiente tem a esteira, e a pasta
+`esteira/`: o que esta nela, no branch `main`, o Argo CD aplica.
 
 | Pasta | O que tem |
 | --- | --- |
@@ -611,6 +620,173 @@ PY
     || _warn "o servidor do Dev Spaces nao confirmou o rollout -- confira: oc get pods -n ${ns}"
 }
 
+# ---------------------------------------------------------------------------
+# esteira — o projeto do participante passa a ser aplicado pelo Argo CD
+#
+# Ate aqui "nada do projeto e aplicado sozinho". Com a esteira, UMA pasta dele
+# passa a ser: 'esteira/', no branch main. O que muda nela por merge request
+# chega ao cluster sem ninguem rodar 'oc apply'.
+#
+# O QUE E CRIADO, por participante:
+#   no GitLab  - a pasta 'esteira/' (so se faltar: depois ela e dele);
+#              - um token de implantacao SO DE LEITURA para o Argo CD;
+#              - um webhook de push para o Argo CD (sem ele a mudanca espera o
+#                intervalo do Argo: medido 354 s no cqfs4 em 2026-10-12);
+#              - o participante vira Developer no grupo dele e o 'main' so
+#                aceita merge: mudar o cluster passa a exigir merge request.
+#   no cluster - a credencial do repositorio, presa ao projeto do Argo dele;
+#              - um AppProject: so o repositorio dele, so o namespace da
+#                aplicacao dele, nenhum recurso de cluster, quatro tipos;
+#              - uma Application, automatica, SEM auto-correcao e SEM poda;
+#              - leitura da propria Application, pelo nome, para ele e para o
+#                terminal dele.
+#
+# ISOLAMENTO, medido no cqfs4 em 2026-10-12 com o participante empurrando para
+# o proprio repositorio: manifesto no namespace de outro -> recusado pelo
+# projeto; rota para o Gateway de outro -> recusada pela admissao
+# 'rhcl-tenant-rotas' (ela decide pelo dono do namespace, entao vale tambem
+# para a identidade do Argo); tipo fora da lista -> recusado pelo projeto.
+# O controlador do Argo e cluster-admin: quem segura e o AppProject. Por isso
+# a lista de tipos e curta e nao tem Secret, RoleBinding nem Job.
+#
+# UMA TENTATIVA SO. De fabrica o Argo repete cinco vezes uma sincronizacao
+# recusada (~2,5 min medidos) e o commit que conserta espera na fila.
+cmd_esteira() {
+  [[ $# -ge 1 ]] || _die "uso: bash scripts/gitlab-turma.sh esteira <userN> [userM...]"
+  _sec "esteira: o Argo CD passa a aplicar a pasta 'esteira/' de cada participante"
+  local argo_ns="openshift-gitops" argo_host u cred falhou=0 url ns
+  argo_host="$(oc get route openshift-gitops-server -n "$argo_ns" -o jsonpath='{.spec.host}' 2>/dev/null)"
+  [[ -n "$argo_host" ]] || _die "nao achei o Argo CD do cluster (${argo_ns}/openshift-gitops-server)"
+  for u in "$@"; do
+    [[ "$u" =~ ^user[0-9]{1,3}$ ]] || { _warn "${u}: nao e um nome de participante -- pulei"; falhou=$((falhou+1)); continue; }
+    ns="travel-agency-${u}"; url="https://${GITLAB_HOST}/workshop/participantes/${u}/ambiente.git"
+    [[ -f "${TDIR}/${u}/base/policies-plans/travels-plans.yaml" ]] || { _warn "${u}: sem copia renderizada -- rode: bash scripts/tenant.sh render ${u}"; falhou=$((falhou+1)); continue; }
+    oc get namespace "$ns" >/dev/null 2>&1 || { _warn "${u}: o namespace ${ns} nao existe -- o ambiente dele subiu?"; falhou=$((falhou+1)); continue; }
+    # O lado do GitLab. A credencial sai em JSON pela saida padrao, para uma
+    # variavel, e dali vai por stdin ao 'oc apply': nunca e impressa.
+    cred="$(CA_BUNDLE="$CA_BUNDLE" GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" U="$u" ARGO="https://${argo_host}/api/webhook" \
+            PLANOS="${TDIR}/${u}/base/policies-plans/travels-plans.yaml" python3 - <<'PY'
+import os, sys, json, ssl, urllib.request, urllib.error, urllib.parse
+HOST, TOKEN, U, ARGO = os.environ["GITLAB_HOST"], os.environ["TOKEN"], os.environ["U"], os.environ["ARGO"]
+CTX = ssl.create_default_context(cafile=os.environ.get("CA_BUNDLE") or None)
+q = lambda s: urllib.parse.quote(s, safe="")
+def call(method, path, body=None):
+    req = urllib.request.Request("https://%s/api/v4%s" % (HOST, path), data=json.dumps(body).encode() if body is not None else None,
+                                 method=method, headers={"PRIVATE-TOKEN": TOKEN, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, context=CTX, timeout=60) as r:
+            raw = r.read(); return r.status, (json.loads(raw) if raw else {})
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        try: return e.code, json.loads(raw)
+        except Exception: return e.code, {"message": raw[:200].decode("utf-8", "replace")}
+def diz(m): sys.stderr.write("    " + m + "\n")
+st, p = call("GET", "/projects/" + q("workshop/participantes/%s/ambiente" % U))
+if st != 200: diz("o projeto dele nao existe no GitLab -- rode: gitlab-turma.sh semeia " + U); sys.exit(1)
+pid, gid = p["id"], p["namespace"]["id"]
+# 1. a pasta, so se faltar
+KUST = """# O QUE A ESTEIRA APLICA. O Argo CD le esta pasta, no branch main, e aplica no
+# cluster o que estiver aqui. Mudar um arquivo desta pasta por merge request e
+# mudar o cluster: ninguem roda 'oc apply'.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - planos.yaml
+"""
+arqs = {"esteira/kustomization.yaml": KUST, "esteira/planos.yaml": open(os.environ["PLANOS"], encoding="utf-8").read()}
+acoes = [{"action": "create", "file_path": rel, "content": txt} for rel, txt in sorted(arqs.items())
+         if call("GET", "/projects/%d/repository/files/%s?ref=main" % (pid, q(rel)))[0] == 404]
+if acoes:
+    st, d = call("POST", "/projects/%d/repository/commits" % pid, {"branch": "main", "commit_message": "esteira: o que o Argo CD aplica",
+                 "actions": acoes, "author_name": "Workshop", "author_email": "workshop@example.invalid"})
+    if st not in (200, 201): diz("nao consegui criar a pasta esteira/: %s" % str(d.get("message"))[:160]); sys.exit(1)
+    diz("pasta esteira/ criada no projeto dele")
+else: diz("pasta esteira/ ja existe -- e dele, nao toquei")
+# 2. o token de leitura do Argo (o anterior sai antes)
+st, toks = call("GET", "/projects/%d/deploy_tokens" % pid)
+for t in toks if st == 200 else []:
+    if t.get("name") == "argocd-esteira": call("DELETE", "/projects/%d/deploy_tokens/%d" % (pid, t["id"]))
+st, tk = call("POST", "/projects/%d/deploy_tokens" % pid, {"name": "argocd-esteira", "scopes": ["read_repository"]})
+if st not in (200, 201): diz("nao consegui emitir o token de leitura: %s" % str(tk.get("message"))[:160]); sys.exit(1)
+# 3. o webhook de push para o Argo. Falhar aqui nao para a esteira: ela fica lenta, e isso e dito.
+st, hs = call("GET", "/projects/%d/hooks" % pid)
+for h in hs if st == 200 else []:
+    if h.get("url") == ARGO: call("DELETE", "/projects/%d/hooks/%d" % (pid, h["id"]))
+st, d = call("POST", "/projects/%d/hooks" % pid, {"url": ARGO, "push_events": True, "enable_ssl_verification": True})
+if st in (200, 201): diz("webhook de push para o Argo CD registrado")
+else: diz("AVISO: o GitLab recusou o webhook (%s) -- a mudanca vai esperar o intervalo do Argo, minutos" % str(d.get("message"))[:120])
+# 4. mudar o cluster passa a exigir merge request: Developer no grupo, e o main so aceita merge
+st, us = call("GET", "/users?username=" + q(U))
+if st == 200 and us:
+    st, _ = call("PUT", "/groups/%d/members/%d" % (gid, us[0]["id"]), {"access_level": 30})
+    if st not in (200, 201): diz("AVISO: nao consegui passar %s a Developer (HTTP %s)" % (U, st))
+call("DELETE", "/projects/%d/protected_branches/main" % pid)
+st, d = call("POST", "/projects/%d/protected_branches" % pid, {"name": "main", "push_access_level": 40, "merge_access_level": 30})
+if st in (200, 201): diz("o main so aceita merge request (push direto: so a administracao)")
+else: diz("AVISO: nao consegui proteger o main: %s" % str(d.get("message"))[:120])
+json.dump({"username": tk["username"], "password": tk["token"]}, sys.stdout)
+PY
+)" || cred=""
+    [[ -n "$cred" ]] || { _warn "${u}: o lado do GitLab falhou -- nada foi criado no cluster"; falhou=$((falhou+1)); continue; }
+    printf '%s' "$cred" | U="$u" URL="$url" NS="$argo_ns" python3 -c '
+import os, sys, json
+c = json.load(sys.stdin); u = os.environ["U"]
+json.dump({"apiVersion": "v1", "kind": "Secret",
+  "metadata": {"name": "repo-esteira-" + u, "namespace": os.environ["NS"],
+               "labels": {"argocd.argoproj.io/secret-type": "repository", "rhcl.demo/tenant": u}},
+  "stringData": {"type": "git", "url": os.environ["URL"], "username": c["username"], "password": c["password"],
+                 "project": "turma-" + u}}, sys.stdout)' | oc apply -f - >/dev/null \
+      || { _warn "${u}: nao consegui gravar a credencial do repositorio no Argo"; falhou=$((falhou+1)); continue; }
+    cred=""
+    if oc apply -f - >/dev/null <<EOF
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: turma-${u}, namespace: ${argo_ns}, labels: {rhcl.demo/tenant: ${u}}}
+spec:
+  description: "a esteira de ${u}: so o repositorio dele, so o namespace dele, so os tipos da borda"
+  sourceRepos: ["${url}"]
+  destinations: [{server: https://kubernetes.default.svc, namespace: ${ns}}]
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: extensions.kuadrant.io, kind: PlanPolicy}
+    - {group: kuadrant.io, kind: AuthPolicy}
+    - {group: kuadrant.io, kind: RateLimitPolicy}
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: esteira-${u}, namespace: ${argo_ns}, labels: {rhcl.demo/tenant: ${u}}}
+spec:
+  project: turma-${u}
+  source: {repoURL: "${url}", targetRevision: main, path: esteira}
+  destination: {server: https://kubernetes.default.svc, namespace: ${ns}}
+  syncPolicy:
+    automated: {prune: false, selfHeal: false}
+    retry: {limit: 1, backoff: {duration: 5s, factor: 1, maxDuration: 10s}}
+---
+# O participante LE a propria Application, pelo nome -- e so. Sem 'list' (nao
+# se restringe por nome) e sem 'patch': quem edita a Application troca o
+# projeto dela, e o projeto e a cerca.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: rhcl-esteira-${u}, namespace: ${argo_ns}, labels: {rhcl.demo/tenant: ${u}}}
+rules:
+  - {apiGroups: [argoproj.io], resources: [applications], resourceNames: [esteira-${u}], verbs: [get, watch]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: rhcl-esteira-${u}, namespace: ${argo_ns}, labels: {rhcl.demo/tenant: ${u}}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-esteira-${u}}
+subjects:
+  - {kind: User, apiGroup: rbac.authorization.k8s.io, name: ${u}}
+  - {kind: ServiceAccount, name: showroom, namespace: showroom-${u}}
+EOF
+    then _ok "${u}: esteira-${u} criada no Argo CD (projeto turma-${u})"
+    else _warn "${u}: o cluster recusou o projeto ou a Application do Argo"; falhou=$((falhou+1)); continue; fi
+  done
+  [[ $falhou -eq 0 ]] || _die "${falhou} esteira(s) nao ficaram de pe"
+}
+
 # APAGAR NAO E PELA API. Este GitLab roda sem registry de conteiner, e o
 # delete da API e um soft-delete que renomeia o projeto e consulta o registry:
 # responde 400 "failed to connect to the container registry" (medido em
@@ -624,6 +800,9 @@ cmd_remove() {
   [[ -n "$wpod" ]] || _die "nenhum pod do webservice Running em ${GL_NS}"
   for u in "$@"; do
     [[ "$u" =~ ^user[0-9]{1,3}$ ]] || { _warn "${u}: nao e um nome de participante -- pulei"; sobrou=$((sobrou+1)); continue; }
+    # a esteira dele no Argo CD sai antes do projeto que ela le
+    oc delete applications.argoproj.io,appprojects.argoproj.io,secret,rolebinding,role -n openshift-gitops \
+      -l "rhcl.demo/tenant=${u}" --ignore-not-found >/dev/null 2>&1 || true
     out="$(oc exec -n "$GL_NS" "$wpod" -c webservice -- sh -c "cd /srv/gitlab && ./bin/rails runner '
       p = Project.find_by_full_path(\"workshop/participantes/${u}/ambiente\"); p.destroy! if p
       g = Group.find_by_full_path(\"workshop/participantes/${u}\"); g.destroy! if g
@@ -642,10 +821,11 @@ cmd_remove() {
 case "${1:-}" in
   login)   cmd_login ;;
   remove)  shift; cmd_remove "$@" ;;
+  esteira) shift; cmd_esteira "$@" ;;
   terminal) shift; cmd_terminal "$@" ;;
   devspaces) cmd_devspaces ;;
   semeia)  shift; cmd_semeia "$@" ;;
   confere) shift; cmd_confere "$@" ;;
   ""|-h|--help) sed -n '2,/^set -uo pipefail/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//' ;;
-  *) _die "subcomando desconhecido: $1 (login | semeia | confere | terminal | devspaces | remove)" ;;
+  *) _die "subcomando desconhecido: $1 (login | semeia | confere | terminal | esteira | devspaces | remove)" ;;
 esac
