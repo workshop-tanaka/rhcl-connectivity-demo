@@ -14,6 +14,7 @@
 #              repositorio de tempos em tempos); com atualizacao pedida, 9 s.
 #              Por isso este comando ESPERA em vez de prometer um tempo.
 #   historico  o que a esteira ja aplicou, do mais antigo ao mais novo
+#   confere    a pasta 'esteira/' do branch atual, conferida antes do merge
 #
 # SO LE. A Application e do participante para LER (pelo nome); quem a cria e
 # 'gitlab-turma.sh esteira <userN>', com a sessao de administracao.
@@ -81,9 +82,61 @@ cmd_historico() {
   _campo '{range .status.history[*]}{.deployedAt}{"  "}{.revision}{"\n"}{end}' | awk '{printf "    %s  %s\n", $1, substr($2,1,8)}'
 }
 
+# CONFERE, ANTES DO MERGE: o que a pasta 'esteira/' do branch atual faria no
+# cluster, lido como a plataforma leria. Roda no terminal, sem tocar no
+# cluster (so 'oc kustomize' e um dry-run local). Quatro regras:
+#   1. so os tipos que o projeto do Argo aceita (os outros seriam recusados
+#      DEPOIS do merge, com o commit ja no main);
+#   2. so o namespace da aplicacao deste ambiente;
+#   3. toda HTTPRoute nasce com uma AuthPolicy propria, NA MESMA PASTA -- e a
+#      regra da plataforma: rota nova sem policy fica aberta ate o teto do
+#      Gateway alcanca-la (medido: ~3 s a mais de um minuto);
+#   4. toda rota se prende a um Gateway deste ambiente.
+# A 1, a 2 e a 4 o cluster tambem recusa; a 3, nao -- so ela e regra que
+# existe apenas aqui.
+cmd_confere() {
+  local pasta="${_raiz}/esteira" json
+  [[ -f "${pasta}/kustomization.yaml" ]] || { echo "  nao ha pasta esteira/ neste diretorio" >&2; return 1; }
+  # '-n': objeto sem namespace o Argo poe no destino da Application, e o
+  # dry-run poria no projeto corrente do terminal -- os dois tem de concordar
+  json="$(oc kustomize "$pasta" 2>&1 | oc create --dry-run=client -n "$NS_APP" -o json -f - 2>&1)" \
+    || { echo "  a pasta nao monta:"; printf '%s\n' "$json" | sed 's/^/    /' | head -8; return 1; }
+  printf '%s' "$json" | NS="$NS_APP" T="$_t" python3 -c '
+import json, sys, os
+ns, t = os.environ["NS"], os.environ["T"]
+# com mais de um objeto o dry-run imprime um JSON atras do outro, sem lista
+txt, pos, objs, dec = sys.stdin.read(), 0, [], json.JSONDecoder()
+while pos < len(txt.rstrip()):
+    while txt[pos].isspace(): pos += 1
+    o, pos = dec.raw_decode(txt, pos)
+    objs += o.get("items", []) if o.get("kind") == "List" else [o]
+TIPOS = {"PlanPolicy", "AuthPolicy", "RateLimitPolicy", "HTTPRoute"}
+ruins = 0
+def linha(ok, txt):
+    global ruins
+    ruins += 0 if ok else 1
+    print("    %s %s" % ("ok " if ok else "NAO", txt))
+rotas = [o for o in objs if o["kind"] == "HTTPRoute"]
+auth = {(o["spec"].get("targetRef") or {}).get("name") for o in objs
+        if o["kind"] == "AuthPolicy" and (o["spec"].get("targetRef") or {}).get("kind") == "HTTPRoute"}
+for o in objs:
+    nome = "%s/%s" % (o["kind"], o["metadata"]["name"])
+    linha(o["kind"] in TIPOS, "%-40s tipo aceito pela esteira" % nome)
+    linha(o["metadata"].get("namespace", ns) == ns, "%-40s no namespace %s" % (nome, ns))
+for r in rotas:
+    nome = "HTTPRoute/" + r["metadata"]["name"]
+    linha(r["metadata"]["name"] in auth, "%-40s tem AuthPolicy propria na pasta" % nome)
+    gws = [p.get("namespace", r["metadata"].get("namespace", ns)) for p in r["spec"].get("parentRefs", [])]
+    linha(all(g.endswith("-" + t) for g in gws) if t != "local" else True, "%-40s presa a um Gateway deste ambiente" % nome)
+print()
+print("    CONFERIDO: pode abrir o merge request" if not ruins else "    RECUSADO: %d regra(s) nao atendida(s) -- corrija antes do merge request" % ruins)
+sys.exit(1 if ruins else 0)'
+}
+
 case "${1:-estado}" in
+  confere)   cmd_confere ;;
   estado)    cmd_estado ;;
   espera)    cmd_espera ;;
   historico) cmd_historico ;;
-  *) echo "uso: bash scripts/esteira.sh [estado|espera|historico]" >&2; exit 1 ;;
+  *) echo "uso: bash scripts/esteira.sh [estado|espera|historico|confere]" >&2; exit 1 ;;
 esac
