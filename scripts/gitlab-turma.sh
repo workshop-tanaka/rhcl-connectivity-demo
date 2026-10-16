@@ -778,6 +778,16 @@ st, us = call("GET", "/users?username=" + q(U))
 if st == 200 and us:
     st, _ = call("PUT", "/groups/%d/members/%d" % (gid, us[0]["id"]), {"access_level": 30})
     if st not in (200, 201): diz("AVISO: nao consegui passar %s a Developer (HTTP %s)" % (U, st))
+#    O main so aceita merge request. SEM ISTO A CONFERENCIA E DECORACAO: quem
+#    empurra direto no main pula o merge request e o pipeline. Falhar aqui
+#    para tudo (fail-closed) -- sumiu numa edicao em 2026-10-16 e a revisao
+#    automatica apontou; o cluster so ficou protegido porque a regra antiga
+#    continuava la.
+call("DELETE", "/projects/%d/protected_branches/main" % pid)
+st, d = call("POST", "/projects/%d/protected_branches" % pid, {"name": "main", "push_access_level": 40, "merge_access_level": 30,
+             "allow_force_push": False})
+if st not in (200, 201): diz("nao consegui proteger o main: %s -- a esteira NAO sobe sem isso" % str(d.get("message"))[:120]); sys.exit(1)
+diz("o main so aceita merge request (push direto: so a administracao)")
 # 5. a conferencia antes do merge, no OpenShift Pipelines (Pipelines as Code).
 #    A DEFINICAO do pipeline e lida do 'main' (pipelinerun_provenance no
 #    Repository), nao do branch do merge request: quem abre o merge request
