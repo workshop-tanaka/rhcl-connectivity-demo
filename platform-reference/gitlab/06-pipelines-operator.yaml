@@ -1,0 +1,20 @@
+# OPENSHIFT PIPELINES, o motor da conferencia antes do merge (fase 5 da
+# sessao rhcl). Decisao do Sandro em 2026-10-16: a esteira inteira fica no
+# que e nativo do OpenShift -- Argo CD (OpenShift GitOps) aplica, OpenShift
+# Pipelines confere -- e nao num runner do GitLab.
+#
+# Quem liga o GitLab ao Tekton e o Pipelines as Code, que vem com o operator:
+# cada push num merge request vira um webhook para ele, e ele publica o
+# resultado de volta no merge request. Por isso o host da rota dele tem de
+# estar na lista de excecoes de rede local do GitLab, como o do Argo CD.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: openshift-pipelines-operator-rh
+  namespace: openshift-operators
+spec:
+  channel: pipelines-1.24
+  name: openshift-pipelines-operator-rh
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

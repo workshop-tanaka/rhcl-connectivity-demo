@@ -723,20 +723,26 @@ st_gitlab() {
   [[ -n "$rt" ]] && _log "GitLab: https://${rt}  (root / secret gitlab-gitlab-initial-root-password)"
 }
 
-# O RUNNER QUE CONFERE O MERGE REQUEST. Na fase 5 da sessao rhcl a mudanca do
-# participante so entra no 'main' se um job de CI aprovar; o job roda num
-# runner deste cluster. Runner e nao webhook: ele busca o trabalho no GitLab,
-# e o GitLab recusa webhook para dentro do cluster (rede local).
+# O MOTOR QUE CONFERE O MERGE REQUEST: OpenShift Pipelines, com o Pipelines as
+# Code que vem nele. Na fase 5 da sessao rhcl a mudanca do participante so
+# entra no 'main' se a conferencia aprovar. Decisao do Sandro em 2026-10-16: a
+# esteira inteira no que e nativo do OpenShift (antes, por algumas horas, foi
+# um runner do GitLab). Medido no 7kp5j: operator pronto em 34 s, Pipelines as
+# Code em ~3 min, 14 pods com ~590 MiB.
 #
-# AQUI SO O OPERATOR. O runner em si nasce no 'gitlab-turma.sh esteira', preso
-# ao GRUPO dos participantes e a uma tag: um runner de instancia, sem tag,
-# rodaria dentro do cluster o CI de qualquer projeto do GitLab (apontado pela
-# revisao de seguranca em 2026-10-16), e o grupo so existe depois da
-# semeadura -- que vem depois desta etapa.
+# O GitLab chama o Pipelines as Code por webhook, e recusa webhook para rede
+# local: o host da rota dele tem de entrar na lista de excecoes do GitLab
+# (Admin -> Settings -> Network -> Outbound requests). Isso fica com quem
+# administra o GitLab; este script nao afrouxa a rede do GitLab sozinho.
 _runner_esteira() {
-  _apply platform-reference/gitlab/05-runner-operator.yaml || return 0
-  _wait_csv gitlab-runner gitlab-runner-operator 0 || { _warn "operator do GitLab Runner nao ficou pronto -- a esteira fica sem conferencia antes do merge"; return 0; }
-  _wait_crd runners.apps.gitlab.com
+  _apply platform-reference/gitlab/06-pipelines-operator.yaml || return 0
+  _wait_csv openshift-operators openshift-pipelines-operator-rh 0 || { _warn "OpenShift Pipelines nao ficou pronto -- a esteira fica sem conferencia antes do merge"; return 0; }
+  [[ $DRY_RUN -eq 1 ]] && return 0
+  local _e=0
+  until oc get route pipelines-as-code-controller -n openshift-pipelines >/dev/null 2>&1 || [[ $_e -ge 600 ]]; do sleep 10; _e=$((_e + 10)); done
+  local pac; pac="$(oc get route pipelines-as-code-controller -n openshift-pipelines -o jsonpath='{.spec.host}' 2>/dev/null)"
+  [[ -n "$pac" ]] && _ok "Pipelines as Code no ar -- inclua ${pac} nas excecoes de rede local do GitLab" \
+    || _warn "o Pipelines as Code nao publicou a rota em 10 min -- veja: oc get pods -n openshift-pipelines"
 }
 
 # ===========================================================================

@@ -310,7 +310,7 @@ def arquivos(origem, url_projeto, so_versionados):
 # que veio e sobrescrito. 'esteira/' fica fora disso -- e o que o Argo CD
 # aplica, e la mora a mudanca que ele fez por merge request. Republicar por
 # cima desfaria a mudanca dele NO CLUSTER.
-PRESERVA = ("esteira/",)
+PRESERVA = ("esteira/", ".tekton/")
 def publica(pid, caminho, arqs, msg):
     ja = arvore(pid)
     acoes = []
@@ -411,16 +411,7 @@ def semeia():
                                                "default_group_visibility": "private"})
         pid = projeto("workshop/roteiro", raiz, "internal", "Os arquivos que o guia manda abrir. Somente leitura.")
         arqs, sobras = arquivos(RAIZ, "https://%s/workshop/roteiro" % HOST, True); arqs["README.md"] = LEIAME_ROTEIRO
-        # a conferencia da esteira mora aqui, onde o participante le e nao escreve
-        arqs["ci/esteira.yml"] = open(os.path.join(RAIZ, "platform-reference/gitlab/esteira-ci.yml"), encoding="utf-8").read()
         publica(pid, "workshop/roteiro", arqs, "roteiro do workshop")
-        # o job da conferencia clona o roteiro com o token DO JOB, que nasce num
-        # projeto de participante: o roteiro tem de aceitar esse grupo
-        st, _ = call("POST", "/projects/%d/job_token_scope/groups_allowlist" % pid, {"target_group_id": part})
-        if st == 400:   # ja liberado: o GitLab responde 400 em vez de 409
-            st, ls = call("GET", "/projects/%d/job_token_scope/groups_allowlist" % pid)
-            st = 200 if any(g.get("id") == part for g in (ls or [])) else 400
-        if st not in (200, 201, 409, 422): warn("roteiro: nao consegui liberar o clone pelos jobs dos participantes (HTTP %s)" % st)
         if sobras: warn("workshop/roteiro: %d referencia(s) a github.com sobraram nos arquivos" % sobras)
     if so_roteiro: return
     alvos = ALVOS or (sorted((d for d in os.listdir(TDIR) if os.path.isfile(os.path.join(TDIR, d, ".tenant"))),
@@ -642,13 +633,19 @@ PY
 #              - um webhook de push para o Argo CD (sem ele a mudanca espera o
 #                intervalo do Argo: medido 354 s no cqfs4 em 2026-10-12);
 #              - o participante vira Developer no grupo dele e o 'main' so
-#                aceita merge: mudar o cluster passa a exigir merge request.
+#                aceita merge: mudar o cluster passa a exigir merge request;
+#              - a conferencia antes do merge: '.tekton/confere.yaml', um token
+#                de projeto para o Pipelines as Code e o webhook para ele; o
+#                merge so passa com a conferencia verde.
 #   no cluster - a credencial do repositorio, presa ao projeto do Argo dele;
 #              - um AppProject: so o repositorio dele, so o namespace da
 #                aplicacao dele, nenhum recurso de cluster, quatro tipos;
 #              - uma Application, automatica, com poda e SEM auto-correcao;
 #              - leitura da propria Application, pelo nome, para ele e para o
-#                terminal dele.
+#                terminal dele;
+#              - o namespace 'esteira-ci-<userN>', onde a conferencia roda no
+#                OpenShift Pipelines: o Repository do Pipelines as Code, o
+#                script da conferencia (ConfigMap) e leitura para ele.
 #
 # ISOLAMENTO, medido no cqfs4 em 2026-10-12 com o participante empurrando para
 # o proprio repositorio: manifesto no namespace de outro -> recusado pelo
@@ -666,6 +663,9 @@ cmd_esteira() {
   local argo_ns="openshift-gitops" argo_host u cred falhou=0 url ns
   argo_host="$(oc get route openshift-gitops-server -n "$argo_ns" -o jsonpath='{.spec.host}' 2>/dev/null)"
   [[ -n "$argo_host" ]] || _die "nao achei o Argo CD do cluster (${argo_ns}/openshift-gitops-server)"
+  local pac_host
+  pac_host="$(oc get route pipelines-as-code-controller -n openshift-pipelines -o jsonpath='{.spec.host}' 2>/dev/null)"
+  [[ -n "$pac_host" ]] || _die "nao achei o Pipelines as Code (openshift-pipelines/pipelines-as-code-controller) -- rode: bash scripts/provision.sh gitlab"
   for u in "$@"; do
     [[ "$u" =~ ^user[0-9]{1,3}$ ]] || { _warn "${u}: nao e um nome de participante -- pulei"; falhou=$((falhou+1)); continue; }
     ns="travel-agency-${u}"; url="https://${GITLAB_HOST}/workshop/participantes/${u}/ambiente.git"
@@ -673,9 +673,7 @@ cmd_esteira() {
     oc get namespace "$ns" >/dev/null 2>&1 || { _warn "${u}: o namespace ${ns} nao existe -- o ambiente dele subiu?"; falhou=$((falhou+1)); continue; }
     # O lado do GitLab. A credencial sai em JSON pela saida padrao, para uma
     # variavel, e dali vai por stdin ao 'oc apply': nunca e impressa.
-    local runner_falta=0
-    oc get secret gitlab-runner-esteira -n gitlab-runner >/dev/null 2>&1 || runner_falta=1
-    cred="$(CA_BUNDLE="$CA_BUNDLE" GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" U="$u" ARGO="https://${argo_host}/api/webhook" RUNNER_FALTA="$runner_falta" \
+    cred="$(CA_BUNDLE="$CA_BUNDLE" GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" U="$u" ARGO="https://${argo_host}/api/webhook" PAC="https://${pac_host}" \
             PLANOS="${TDIR}/${u}/base/policies-plans/travels-plans.yaml" python3 - <<'PY'
 import os, sys, json, ssl, urllib.request, urllib.error, urllib.parse
 HOST, TOKEN, U, ARGO = os.environ["GITLAB_HOST"], os.environ["TOKEN"], os.environ["U"], os.environ["ARGO"]
@@ -692,6 +690,49 @@ def call(method, path, body=None):
         try: return e.code, json.loads(raw)
         except Exception: return e.code, {"message": raw[:200].decode("utf-8", "replace")}
 def diz(m): sys.stderr.write("    " + m + "\n")
+# O PIPELINE DA CONFERENCIA. Roda em esteira-ci-<userN>. Duas regras:
+#   - o merge request so muda a pasta 'esteira/' (nem este arquivo, nem nada
+#     fora dela);
+#   - 'esteira.sh confere', o MESMO do terminal, mas a copia que a
+#     administracao pos no ConfigMap 'conferencia' -- nao a do branch.
+TEKTON = """# A CONFERENCIA ANTES DO MERGE (fase 5). Arquivo da administracao: o
+# Pipelines as Code le este pipeline do 'main', nunca do branch do merge
+# request, e o merge request que mexe nele e recusado pela propria conferencia.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: confere
+  annotations:
+    pipelinesascode.tekton.dev/on-event: "[pull_request]"
+    pipelinesascode.tekton.dev/on-target-branch: "[main]"
+    pipelinesascode.tekton.dev/max-keep-runs: "5"
+spec:
+  pipelineSpec:
+    tasks:
+      - name: confere
+        taskSpec:
+          volumes:
+            - {name: credencial, secret: {secretName: "{{ git_auth_secret }}"}}
+            - {name: conferencia, configMap: {name: conferencia}}
+          steps:
+            - name: confere
+              image: quay.io/rhpds/openshift-showroom-terminal-ocp:latest
+              env: [{name: HOME, value: /tmp}]
+              volumeMounts:
+                - {name: credencial, mountPath: /credencial, readOnly: true}
+                - {name: conferencia, mountPath: /conferencia, readOnly: true}
+              script: |
+                set -eu
+                git config --global credential.helper "store --file /credencial/.git-credentials"
+                git clone -q https://%(host)s/workshop/participantes/%(u)s/ambiente.git /tmp/w
+                cd /tmp/w && git checkout -q "{{ revision }}" && git fetch -q origin main
+                fora="$(git diff --name-only FETCH_HEAD...HEAD | grep -v '^esteira/' || true)"
+                if [ -n "$fora" ]; then
+                  echo "    NAO o merge request so pode mudar a pasta esteira/:"; echo "$fora" | sed 's/^/          /'
+                  echo; echo "    RECUSADO: tire do merge request o que esta fora de esteira/"; exit 1
+                fi
+                ESTEIRA_NS=travel-agency-%(u)s ESTEIRA_RAIZ=/tmp/w bash /conferencia/esteira.sh confere
+"""
 st, p = call("GET", "/projects/" + q("workshop/participantes/%s/ambiente" % U))
 if st != 200: diz("o projeto dele nao existe no GitLab -- rode: gitlab-turma.sh semeia " + U); sys.exit(1)
 pid, gid = p["id"], p["namespace"]["id"]
@@ -727,43 +768,53 @@ st, d = call("POST", "/projects/%d/hooks" % pid, {"url": ARGO, "push_events": Tr
 if st in (200, 201): diz("webhook de push para o Argo CD registrado")
 else: diz("AVISO: o GitLab recusou o webhook (HTTP %s: %s) -- a mudanca vai esperar o intervalo do Argo, minutos" % (st, str(d.get("message") or d.get("error") or d)[:120]))
 # 4. mudar o cluster passa a exigir merge request: Developer no grupo, e o main so aceita merge.
-#    E ninguem cria projeto no grupo dele: o runner da conferencia e do grupo,
-#    e um projeto novo, com CI proprio pedindo a tag do runner, rodaria
-#    qualquer coisa dentro do cluster. Developer ja nao cria; isto fecha tambem
-#    a janela entre a semeadura (que da Maintainer) e esta etapa.
+#    E ninguem cria projeto no grupo dele: a esteira e a conferencia existem
+#    para UM projeto, e um projeto paralelo nao passaria por nenhuma das duas.
+#    Developer ja nao cria; isto fecha tambem a janela entre a semeadura (que
+#    da Maintainer) e esta etapa.
 st, _ = call("PUT", "/groups/%d" % gid, {"project_creation_level": "noone", "subgroup_creation_level": "owner"})
 if st != 200: diz("AVISO: nao consegui travar a criacao de projeto no grupo dele (HTTP %s)" % st)
 st, us = call("GET", "/users?username=" + q(U))
 if st == 200 and us:
     st, _ = call("PUT", "/groups/%d/members/%d" % (gid, us[0]["id"]), {"access_level": 30})
     if st not in (200, 201): diz("AVISO: nao consegui passar %s a Developer (HTTP %s)" % (U, st))
-# 5. a conferencia antes do merge: o CI do projeto e o do roteiro, e o merge
-#    so passa com ele verde. Um pipeline pulado tambem nao libera o merge.
-#    O CI nasce DESLIGADO nos projetos dos participantes (builds_access_level
-#    'disabled', medido no 7kp5j): sem ligar, o merge request espera para
-#    sempre por um pipeline que nunca roda.
-#    E ninguem passa variavel ao pipeline: uma variavel do usuario sobrepoe as
-#    predefinidas (CI_PROJECT_NAMESPACE, por exemplo), e o job usa essas.
-st, d = call("PUT", "/projects/%d" % pid, {"builds_access_level": "enabled", "ci_config_path": "ci/esteira.yml@workshop/roteiro",
+# 5. a conferencia antes do merge, no OpenShift Pipelines (Pipelines as Code).
+#    A DEFINICAO do pipeline e lida do 'main' (pipelinerun_provenance no
+#    Repository), nao do branch do merge request: quem abre o merge request
+#    nao escolhe o pipeline que o confere. O arquivo e da administracao e e
+#    reescrito aqui a cada execucao; a republicacao nao o apaga.
+#    O CI do proprio GitLab fica sem arquivo (o caminho aponta para um que nao
+#    existe): nenhum pipeline do GitLab nasce, so o status que o Pipelines as
+#    Code publica -- e e ele que libera ou nao o merge.
+st, d = call("PUT", "/projects/%d" % pid, {"builds_access_level": "enabled", "ci_config_path": "sem-ci-do-gitlab.yml@workshop/roteiro",
              "only_allow_merge_if_pipeline_succeeds": True, "allow_merge_on_skipped_pipeline": False,
              "ci_pipeline_variables_minimum_override_role": "no_one_allowed"})
 diz("o merge so passa com a conferencia verde" if st == 200 else "AVISO: nao consegui ligar a conferencia no projeto (HTTP %s)" % st)
-call("DELETE", "/projects/%d/protected_branches/main" % pid)
-st, d = call("POST", "/projects/%d/protected_branches" % pid, {"name": "main", "push_access_level": 40, "merge_access_level": 30})
-if st in (200, 201): diz("o main so aceita merge request (push direto: so a administracao)")
-else: diz("AVISO: nao consegui proteger o main: %s" % str(d.get("message"))[:120])
-# 6. o runner da conferencia: UM para a turma, de GRUPO (so os projetos dos
-#    participantes) e com tag (so o job da conferencia). Emitido uma vez; o
-#    token vai junto na saida e o shell grava o Secret.
-runner = ""
-if os.environ.get("RUNNER_FALTA") == "1":
-    st, g = call("GET", "/groups/" + q("workshop/participantes"))
-    if st == 200:
-        st, r = call("POST", "/user/runners", {"runner_type": "group_type", "group_id": g["id"], "tag_list": ["esteira"],
-                     "run_untagged": False, "description": "conferencia da esteira"})
-        if st in (200, 201): runner = r["token"]; diz("runner da conferencia registrado no grupo dos participantes")
-        else: diz("AVISO: nao consegui registrar o runner da conferencia (HTTP %s)" % st)
-json.dump({"username": tk["username"], "password": tk["token"], "runner": runner}, sys.stdout)
+rel = ".tekton/confere.yaml"
+st, _ = call("GET", "/projects/%d/repository/files/%s?ref=main" % (pid, q(rel)))
+st, d = call("POST", "/projects/%d/repository/commits" % pid, {"branch": "main", "commit_message": "esteira: a conferencia antes do merge",
+             "actions": [{"action": "update" if st == 200 else "create", "file_path": rel, "content": TEKTON % {"u": U, "host": HOST}}],
+             "author_name": "Workshop", "author_email": "workshop@example.invalid"})
+if st not in (200, 201) and "no changes" not in str(d.get("message", "")).lower(): diz("AVISO: nao consegui gravar %s (HTTP %s)" % (rel, st))
+#    o token do Pipelines as Code: do PROJETO, Developer, para ler o
+#    repositorio e publicar o status. O anterior sai antes.
+import datetime, secrets as _s
+st, ts = call("GET", "/projects/%d/access_tokens" % pid)
+for t in ts if st == 200 else []:
+    if t.get("name") == "pipelines-as-code" and t.get("active"): call("DELETE", "/projects/%d/access_tokens/%d" % (pid, t["id"]))
+venc = (datetime.date.today() + datetime.timedelta(days=30)).isoformat()
+st, pt = call("POST", "/projects/%d/access_tokens" % pid, {"name": "pipelines-as-code", "scopes": ["api"], "access_level": 30, "expires_at": venc})
+if st not in (200, 201): diz("nao consegui emitir o token do Pipelines as Code (HTTP %s)" % st); sys.exit(1)
+segredo = _s.token_hex(20)
+PAC = os.environ["PAC"]
+st, hs = call("GET", "/projects/%d/hooks" % pid)
+for h in hs if st == 200 else []:
+    if h.get("url") == PAC: call("DELETE", "/projects/%d/hooks/%d" % (pid, h["id"]))
+st, d = call("POST", "/projects/%d/hooks" % pid, {"url": PAC, "token": segredo, "push_events": True, "merge_requests_events": True,
+             "note_events": True, "enable_ssl_verification": True})
+if st in (200, 201): diz("webhook do merge request para o Pipelines as Code registrado")
+else: diz("AVISO: o GitLab recusou o webhook do Pipelines as Code (HTTP %s: %s) -- SEM ELE A CONFERENCIA NAO RODA e o merge fica preso" % (st, str(d.get("message") or d.get("error") or d)[:120]))
+json.dump({"username": tk["username"], "password": tk["token"], "pac": pt["token"], "segredo": segredo}, sys.stdout)
 PY
 )" || cred=""
     [[ -n "$cred" ]] || { _warn "${u}: o lado do GitLab falhou -- nada foi criado no cluster"; falhou=$((falhou+1)); continue; }
@@ -776,19 +827,41 @@ json.dump({"apiVersion": "v1", "kind": "Secret",
   "stringData": {"type": "git", "url": os.environ["URL"], "username": c["username"], "password": c["password"],
                  "project": "turma-" + u}}, sys.stdout)' | oc apply -f - >/dev/null \
       || { _warn "${u}: nao consegui gravar a credencial do repositorio no Argo"; falhou=$((falhou+1)); continue; }
-    # o runner, se acabou de ser emitido: Secret + CR, no namespace do operator
-    if [[ $runner_falta -eq 1 ]]; then
-      printf '%s' "$cred" | python3 -c '
-import sys, json
-r = json.load(sys.stdin).get("runner", "")
-if not r: sys.exit(1)
-json.dump({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "gitlab-runner-esteira", "namespace": "gitlab-runner"},
-           "stringData": {"runner-token": r}}, sys.stdout)' | oc apply -f - >/dev/null 2>&1 \
-        && printf 'apiVersion: apps.gitlab.com/v1beta2\nkind: Runner\nmetadata: {name: esteira, namespace: gitlab-runner}\nspec:\n  gitlabUrl: "https://%s"\n  token: gitlab-runner-esteira\n  tags: esteira\n  runUntagged: false\n  concurrent: 4\n' "$GITLAB_HOST" \
-             | oc apply -f - >/dev/null 2>&1 \
-        && _ok "runner da conferencia no ar (gitlab-runner/esteira)" \
-        || _warn "o runner da conferencia nao ficou de pe -- o merge request vai esperar um pipeline que nao roda"
-    fi
+    # a conferencia: namespace proprio, o script da administracao, a
+    # credencial do Pipelines as Code e o Repository que a liga ao projeto
+    local ci="esteira-ci-${u}"
+    { oc get namespace "$ci" >/dev/null 2>&1 || oc create namespace "$ci" >/dev/null; } \
+      && oc label namespace "$ci" "rhcl.demo/tenant=${u}" --overwrite >/dev/null \
+      && oc create configmap conferencia -n "$ci" --from-file=esteira.sh="${_here}/scripts/esteira.sh" --dry-run=client -o yaml | oc apply -f - >/dev/null \
+      && printf '%s' "$cred" | CI="$ci" python3 -c '
+import os, sys, json
+c = json.load(sys.stdin)
+json.dump({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "gitlab-pac", "namespace": os.environ["CI"]},
+           "stringData": {"provider.token": c["pac"], "webhook.secret": c["segredo"]}}, sys.stdout)' | oc apply -f - >/dev/null \
+      && oc apply -f - >/dev/null <<EOF
+apiVersion: pipelinesascode.tekton.dev/v1alpha1
+kind: Repository
+metadata: {name: ambiente, namespace: ${ci}}
+spec:
+  url: "https://${GITLAB_HOST}/workshop/participantes/${u}/ambiente"
+  git_provider:
+    url: "https://${GITLAB_HOST}"
+    secret: {name: gitlab-pac, key: provider.token}
+    webhook_secret: {name: gitlab-pac, key: webhook.secret}
+  settings:
+    pipelinerun_provenance: default_branch
+---
+# ele VE a conferencia rodar (logs, resultado), e nao muda nada aqui
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: rhcl-esteira-ve, namespace: ${ci}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: view}
+subjects:
+  - {kind: User, apiGroup: rbac.authorization.k8s.io, name: ${u}}
+  - {kind: ServiceAccount, name: showroom, namespace: showroom-${u}}
+EOF
+    if [[ $? -eq 0 ]]; then _ok "${u}: conferencia no OpenShift Pipelines (${ci})"
+    else _warn "${u}: a conferencia nao ficou de pe em ${ci}"; falhou=$((falhou+1)); fi
     cred=""
     if oc apply -f - >/dev/null <<EOF
 apiVersion: argoproj.io/v1alpha1
@@ -859,6 +932,7 @@ cmd_remove() {
     # a esteira dele no Argo CD sai antes do projeto que ela le
     oc delete applications.argoproj.io,appprojects.argoproj.io,secret,rolebinding,role -n openshift-gitops \
       -l "rhcl.demo/tenant=${u}" --ignore-not-found >/dev/null 2>&1 || true
+    oc delete namespace "esteira-ci-${u}" --ignore-not-found --wait=false >/dev/null 2>&1 || true
     out="$(oc exec -n "$GL_NS" "$wpod" -c webservice -- sh -c "cd /srv/gitlab && ./bin/rails runner '
       p = Project.find_by_full_path(\"workshop/participantes/${u}/ambiente\"); p.destroy! if p
       g = Group.find_by_full_path(\"workshop/participantes/${u}\"); g.destroy! if g

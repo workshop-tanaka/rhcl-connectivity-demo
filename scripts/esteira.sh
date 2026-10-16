@@ -24,9 +24,9 @@
 # nome da Application.
 set -uo pipefail
 
-# ESTEIRA_NS e ESTEIRA_RAIZ: o job de CI da conferencia roda a copia DO ROTEIRO
-# deste script contra o checkout do participante (ver
-# platform-reference/gitlab/esteira-ci.yml), e diz por aqui de quem e.
+# ESTEIRA_NS e ESTEIRA_RAIZ: a conferencia no OpenShift Pipelines roda a copia
+# DA ADMINISTRACAO deste script (ConfigMap 'conferencia' em esteira-ci-<userN>)
+# contra o checkout do merge request, e diz por aqui de quem e.
 NS_APP="${ESTEIRA_NS:-travel-agency}"
 ARGO_NS="${ARGO_NS:-openshift-gitops}"
 # o ultimo pedaco do nome: 'user7' numa turma; fora dela nao ha esteira

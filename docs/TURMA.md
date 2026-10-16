@@ -179,18 +179,21 @@ para cada participante: o Argo CD do cluster passa a aplicar a pasta
   leitura dela pelo nome. Tudo com o rótulo `rhcl.demo/tenant`, em
   `openshift-gitops`; o `remove` leva junto.
 - **O participante vira Developer** no grupo dele e o `main` só aceita merge
-  request, e o merge request só é aceito com a **conferência** verde: um job
-  de CI que roda `esteira.sh confere` (o arquivo e o script vêm do projeto
-  `roteiro`, que ele lê e não escreve), no runner `esteira` do namespace
-  `gitlab-runner` (`provision.sh gitlab`, só na sessão `rhcl`). O runner
-  busca o trabalho no GitLab: não depende de webhook. A republicação (`semeia`) continua escrevendo no `main`, e não toca
-  em `esteira/`: lá mora a mudança que ele fez.
-- **Sem webhook, a mudança leva minutos.** O GitLab recusa webhook para rede
-  local, e de dentro do cluster o host do Argo é rede local (`HTTP 422: Invalid
-  url given`). Medido do merge ao cluster: 73 a 354 s. Liberar só o host do
-  Argo em *Admin → Settings → Network → Outbound requests* e rodar
-  `gitlab-turma.sh esteira <userN...>` de novo registra o webhook; isso é
-  decisão de quem administra o GitLab, e o script não faz sozinho.
+  request, e o merge request só é aceito com a **conferência** verde: um
+  `PipelineRun` do **OpenShift Pipelines**, disparado pelo Pipelines as Code
+  no namespace `esteira-ci-<userN>`, que roda `esteira.sh confere` (a cópia da
+  administração, num ConfigMap) e recusa merge request que mexa fora de
+  `esteira/`. A definição do pipeline é lida do `main`, nunca do branch do
+  merge request. O participante vê as execuções e não muda nada ali.
+- **Dois webhooks, e o GitLab recusa os dois de fábrica.** Para dentro do
+  cluster é "rede local" (`HTTP 422: Invalid url given`). Sem o do Argo, a
+  mudança leva minutos (medido 73 a 354 s do merge ao cluster); **sem o do
+  Pipelines as Code, a conferência não roda e o merge fica preso**. Liberar os
+  dois hosts em *Admin → Settings → Network → Outbound requests* e rodar
+  `gitlab-turma.sh esteira <userN...>` de novo; isso é decisão de quem
+  administra o GitLab, e o script não faz sozinho. Neste GitLab o formulário
+  só salva depois de desligar o *incremental logging* em *Settings → CI/CD*
+  (ele vem ligado sem armazenamento de objetos).
 
 Medido no cluster-7kp5j em 2026-10-16 (5 participantes, `tenant.sh turma 5` em
 982 s): as cinco esteiras `Synced Healthy`, `confere-turma` 5 de 5 e
