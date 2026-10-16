@@ -321,10 +321,28 @@ EOF
 # arquivos de passos/contextos/ um a um, e chama o script so para MEDIR -- as
 # chamadas saem do pod cliente, com --resolve, porque os hostnames '*.ctx.lab'
 # nao existem em DNS nenhum.
+# O GATEWAY CAI POR ~30 s NA PRIMEIRA POLICY. Medido no cluster-7kp5j em
+# 2026-10-16, seis vezes em seis: uns 5 s depois da primeira policy num
+# Gateway novo, o Envoy dele baixa o modulo Wasm do Connectivity Link ("Wasm
+# remote code fetch is unstable and may cause a crash", diz o proprio log) e
+# morre com segmentation fault; o container reinicia e, por ~30 s, toda rota
+# desse Gateway -- inclusive as que nenhuma policy toca -- recusa conexao.
+# Medir nessa janela mostraria 000 onde a regra diria 401. Por isso as
+# medicoes esperam o Gateway responder antes de chamar, e dizem quanto
+# esperaram.
+_espera_gateway() { # <host> <caminho>: ate 90 s
+  local t0=$SECONDS c
+  while (( SECONDS - t0 < 90 )); do
+    c="$(_http "$1" "$2")"; [[ -n "$c" && "$c" != "000" ]] && break; sleep 3
+  done
+  (( SECONDS - t0 > 3 )) && printf '    (o Gateway voltou a responder depois de %ss)\n' "$((SECONDS - t0))"
+  return 0
+}
 cmd_matriz() {
   local g f alvo host caminho
   g="$(_chave chave-gold)"; f="$(_chave chave-free)"
   [[ -n "$(_ip)" ]] || { _warn "o Gateway do laboratorio ainda nao tem endereco"; return 1; }
+  _espera_gateway api2.ctx.lab /catalogo/listall
   printf '    %-42s %-8s %-8s %s\n' "host + caminho" "sem" "free" "gold"
   for alvo in "${H1} /catalogo/listall" "${H1} /catalogo/listbestsellers" "${H1} /catalogo/admin" "${H1} /catalogo/search" "${H2} /catalogo/listall"; do
     set -- $alvo; host="$1"; caminho="$2"
@@ -350,7 +368,7 @@ case "${1:-prova}" in
   prova)  cmd_prova ;;
   limpa)  cmd_limpa ;;
   matriz) cmd_matriz ;;
-  rajada) cmd_rajada "${2:-}" ;;
+  rajada) _espera_gateway api2.ctx.lab /catalogo/listall; cmd_rajada "${2:-}" ;;
   status) cmd_status ;;
   *) echo "uso: bash scripts/contextos.sh [prova|limpa|matriz|rajada <caminho>|status]" >&2; exit 1 ;;
 esac

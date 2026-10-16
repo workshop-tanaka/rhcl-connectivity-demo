@@ -355,9 +355,27 @@ EOF
 # TRES FERRAMENTAS PEQUENAS, para o guia em passos: la o participante aplica os
 # arquivos de passos/prefixos/ um a um e chama o script so para MEDIR. As
 # chamadas saem do pod cliente, com --resolve: 'api.pfx.lab' nao existe em DNS.
+# O GATEWAY CAI POR ~30 s NA PRIMEIRA POLICY. Medido no cluster-7kp5j em
+# 2026-10-16, seis vezes em seis: uns 5 s depois da primeira policy num
+# Gateway novo, o Envoy dele baixa o modulo Wasm do Connectivity Link ("Wasm
+# remote code fetch is unstable and may cause a crash", diz o proprio log) e
+# morre com segmentation fault; o container reinicia e, por ~30 s, toda rota
+# desse Gateway -- inclusive as que nenhuma policy toca -- recusa conexao.
+# Medir nessa janela mostraria 000 onde a regra diria 401. Por isso as
+# medicoes esperam o Gateway responder antes de chamar, e dizem quanto
+# esperaram.
+_espera_gateway() { # ate 90 s; 404 tambem e resposta (sem rota ainda)
+  local t0=$SECONDS c
+  while (( SECONDS - t0 < 90 )); do
+    c="$(_codigo /outro)"; [[ -n "$c" && "$c" != "000" ]] && break; sleep 3
+  done
+  (( SECONDS - t0 > 3 )) && printf '    (o Gateway voltou a responder depois de %ss)\n' "$((SECONDS - t0))"
+  return 0
+}
 cmd_tabela() {
   local g f; g="$(_chave chave-gold)"; f="$(_chave chave-free)"
   [[ -n "$(_ip)" ]] || { _warn "o Gateway do laboratorio ainda nao tem endereco"; return 1; }
+  _espera_gateway
   printf '    %-26s %-6s %s\n' "caminho" "codigo" "quem atendeu"
   printf '    %-26s %-6s %s\n' "/api1/listall (sem chave)" "$(_codigo /api1/listall)" ""
   printf '    %-26s %-6s %s\n' "/api1/listall (free)"      "$(_codigo /api1/listall "$f")" "$(_corpo /api1/listall "$f")"
