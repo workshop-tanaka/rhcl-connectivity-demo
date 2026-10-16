@@ -1186,9 +1186,12 @@ step_exposta() {
   local chave_exposta
   chave_exposta="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   _cmd oc apply -f platform-reference/golden-path-manual/03-echo-exposta-chave.yaml
-  _log "(a chave e sorteada agora e entra no lugar de __SEGREDO__; ela nao aparece na tela)"
+  _log "(a chave e sorteada agora e acrescentada ao Secret; ela nao aparece na tela)"
   if [[ $DRY_RUN -eq 0 ]]; then
-    sed "s|__SEGREDO__|${chave_exposta}|" platform-reference/golden-path-manual/03-echo-exposta-chave.yaml | oc apply -f - >/dev/null
+    # awk e nao sed: o mesmo comando roda no terminal do participante (GNU) e no
+    # Mac do palco (BSD). Acrescenta a chave so ao PRIMEIRO documento, o Secret.
+    awk -v k="$chave_exposta" '{print} /^type: Opaque$/ && !d {print "stringData: {api_key: \"" k "\"}"; d=1}' \
+      platform-reference/golden-path-manual/03-echo-exposta-chave.yaml | oc apply -f - >/dev/null
     sleep 15
     printf '  sem chave: '; _exposta_curl "$host" "$ip" "" 1
     printf '  com chave: '; _exposta_curl "$host" "$ip" "?APIKEY=${chave_exposta}" 1
