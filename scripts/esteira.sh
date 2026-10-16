@@ -73,7 +73,7 @@ cmd_espera() { # aguarda o ultimo commit do main chegar ao cluster; no maximo 10
     fi
     # nada a aplicar: o commit novo nao mexeu na pasta, e o Argo so anota a revisao
     if [[ "$(_campo '{.status.sync.revision}')" == "$alvo" && "$(_campo '{.status.sync.status}')" == "Synced" && "$fase" != "Running" ]]; then
-      printf '\n    o cluster ja bate com o commit %s (%ss)\n' "${alvo:0:8}" "$((SECONDS - t0))"; return 0
+      printf '\n    aplicado em %ss  (cluster x Git: Synced)\n' "$((SECONDS - t0))"; return 0
     fi
     printf '.'; sleep 5
   done
@@ -111,6 +111,7 @@ cmd_confere() {
   ruim="$(PASTA="$pasta" python3 -c '
 import os, re, sys
 pasta = os.environ["PASTA"]; em_res = False; ruins = []
+if os.path.islink(os.path.join(pasta, "kustomization.yaml")): ruins.append("a propria kustomization.yaml e um link simbolico")
 for n, l in enumerate(open(os.path.join(pasta, "kustomization.yaml")), 1):
     s = l.split("#", 1)[0].rstrip()
     if not s.strip(): continue
@@ -123,7 +124,9 @@ for n, l in enumerate(open(os.path.join(pasta, "kustomization.yaml")), 1):
     m = re.match(r"^\s+-\s+(\S+)\s*$", s)
     if em_res and m:
         f = m.group(1).strip("\"\x27")
-        if "/" in f or not re.match(r"^[A-Za-z0-9._-]+\.ya?ml$", f) or not os.path.isfile(os.path.join(pasta, f)):
+        # link simbolico nao: o arquivo apontaria para fora da pasta
+        alvo = os.path.join(pasta, f)
+        if "/" in f or not re.match(r"^[A-Za-z0-9._-]+\.ya?ml$", f) or os.path.islink(alvo) or not os.path.isfile(alvo):
             ruins.append("linha %d: %s nao e um arquivo desta pasta" % (n, f))
         continue
     ruins.append("linha %d: nao entendi" % n)

@@ -7,9 +7,9 @@
 # local", HTTP 422, medido no cqfs4 e no 7kp5j). Decisao do Sandro em
 # 2026-10-16.
 #
-# O token do runner e o CR 'Runner' saem do provision.sh (etapa gitlab, so na
-# sessao rhcl): o token e emitido pela API do GitLab na hora, e nao mora em
-# arquivo nenhum.
+# O token do runner e o CR 'Runner' saem do 'gitlab-turma.sh esteira', na
+# primeira vez: runner de GRUPO (so os projetos dos participantes) e com tag.
+# O token e emitido pela API do GitLab na hora e nao mora em arquivo nenhum.
 apiVersion: v1
 kind: Namespace
 metadata:

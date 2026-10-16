@@ -12,6 +12,8 @@
 # tambem posto por 'gitlab-turma.sh esteira'). Quem roda e o runner 'esteira',
 # no proprio cluster (provision.sh, etapa gitlab, sessao rhcl).
 confere:
+  # so o runner da conferencia pega este job (runner de grupo, com tag)
+  tags: [esteira]
   # a mesma imagem do terminal do guia: tem oc, python3 e git
   image: quay.io/rhpds/openshift-showroom-terminal-ocp:latest
   rules:

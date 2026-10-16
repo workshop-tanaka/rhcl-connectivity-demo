@@ -417,6 +417,9 @@ def semeia():
         # o job da conferencia clona o roteiro com o token DO JOB, que nasce num
         # projeto de participante: o roteiro tem de aceitar esse grupo
         st, _ = call("POST", "/projects/%d/job_token_scope/groups_allowlist" % pid, {"target_group_id": part})
+        if st == 400:   # ja liberado: o GitLab responde 400 em vez de 409
+            st, ls = call("GET", "/projects/%d/job_token_scope/groups_allowlist" % pid)
+            st = 200 if any(g.get("id") == part for g in (ls or [])) else 400
         if st not in (200, 201, 409, 422): warn("roteiro: nao consegui liberar o clone pelos jobs dos participantes (HTTP %s)" % st)
         if sobras: warn("workshop/roteiro: %d referencia(s) a github.com sobraram nos arquivos" % sobras)
     if so_roteiro: return
@@ -670,7 +673,9 @@ cmd_esteira() {
     oc get namespace "$ns" >/dev/null 2>&1 || { _warn "${u}: o namespace ${ns} nao existe -- o ambiente dele subiu?"; falhou=$((falhou+1)); continue; }
     # O lado do GitLab. A credencial sai em JSON pela saida padrao, para uma
     # variavel, e dali vai por stdin ao 'oc apply': nunca e impressa.
-    cred="$(CA_BUNDLE="$CA_BUNDLE" GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" U="$u" ARGO="https://${argo_host}/api/webhook" \
+    local runner_falta=0
+    oc get secret gitlab-runner-esteira -n gitlab-runner >/dev/null 2>&1 || runner_falta=1
+    cred="$(CA_BUNDLE="$CA_BUNDLE" GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" U="$u" ARGO="https://${argo_host}/api/webhook" RUNNER_FALTA="$runner_falta" \
             PLANOS="${TDIR}/${u}/base/policies-plans/travels-plans.yaml" python3 - <<'PY'
 import os, sys, json, ssl, urllib.request, urllib.error, urllib.parse
 HOST, TOKEN, U, ARGO = os.environ["GITLAB_HOST"], os.environ["TOKEN"], os.environ["U"], os.environ["ARGO"]
@@ -731,14 +736,28 @@ if st == 200 and us:
 #    O CI nasce DESLIGADO nos projetos dos participantes (builds_access_level
 #    'disabled', medido no 7kp5j): sem ligar, o merge request espera para
 #    sempre por um pipeline que nunca roda.
+#    E ninguem passa variavel ao pipeline: uma variavel do usuario sobrepoe as
+#    predefinidas (CI_PROJECT_NAMESPACE, por exemplo), e o job usa essas.
 st, d = call("PUT", "/projects/%d" % pid, {"builds_access_level": "enabled", "ci_config_path": "ci/esteira.yml@workshop/roteiro",
-             "only_allow_merge_if_pipeline_succeeds": True, "allow_merge_on_skipped_pipeline": False})
+             "only_allow_merge_if_pipeline_succeeds": True, "allow_merge_on_skipped_pipeline": False,
+             "ci_pipeline_variables_minimum_override_role": "no_one_allowed"})
 diz("o merge so passa com a conferencia verde" if st == 200 else "AVISO: nao consegui ligar a conferencia no projeto (HTTP %s)" % st)
 call("DELETE", "/projects/%d/protected_branches/main" % pid)
 st, d = call("POST", "/projects/%d/protected_branches" % pid, {"name": "main", "push_access_level": 40, "merge_access_level": 30})
 if st in (200, 201): diz("o main so aceita merge request (push direto: so a administracao)")
 else: diz("AVISO: nao consegui proteger o main: %s" % str(d.get("message"))[:120])
-json.dump({"username": tk["username"], "password": tk["token"]}, sys.stdout)
+# 6. o runner da conferencia: UM para a turma, de GRUPO (so os projetos dos
+#    participantes) e com tag (so o job da conferencia). Emitido uma vez; o
+#    token vai junto na saida e o shell grava o Secret.
+runner = ""
+if os.environ.get("RUNNER_FALTA") == "1":
+    st, g = call("GET", "/groups/" + q("workshop/participantes"))
+    if st == 200:
+        st, r = call("POST", "/user/runners", {"runner_type": "group_type", "group_id": g["id"], "tag_list": ["esteira"],
+                     "run_untagged": False, "description": "conferencia da esteira"})
+        if st in (200, 201): runner = r["token"]; diz("runner da conferencia registrado no grupo dos participantes")
+        else: diz("AVISO: nao consegui registrar o runner da conferencia (HTTP %s)" % st)
+json.dump({"username": tk["username"], "password": tk["token"], "runner": runner}, sys.stdout)
 PY
 )" || cred=""
     [[ -n "$cred" ]] || { _warn "${u}: o lado do GitLab falhou -- nada foi criado no cluster"; falhou=$((falhou+1)); continue; }
@@ -751,6 +770,19 @@ json.dump({"apiVersion": "v1", "kind": "Secret",
   "stringData": {"type": "git", "url": os.environ["URL"], "username": c["username"], "password": c["password"],
                  "project": "turma-" + u}}, sys.stdout)' | oc apply -f - >/dev/null \
       || { _warn "${u}: nao consegui gravar a credencial do repositorio no Argo"; falhou=$((falhou+1)); continue; }
+    # o runner, se acabou de ser emitido: Secret + CR, no namespace do operator
+    if [[ $runner_falta -eq 1 ]]; then
+      printf '%s' "$cred" | python3 -c '
+import sys, json
+r = json.load(sys.stdin).get("runner", "")
+if not r: sys.exit(1)
+json.dump({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "gitlab-runner-esteira", "namespace": "gitlab-runner"},
+           "stringData": {"runner-token": r}}, sys.stdout)' | oc apply -f - >/dev/null 2>&1 \
+        && printf 'apiVersion: apps.gitlab.com/v1beta2\nkind: Runner\nmetadata: {name: esteira, namespace: gitlab-runner}\nspec:\n  gitlabUrl: "https://%s"\n  token: gitlab-runner-esteira\n  tags: esteira\n  runUntagged: false\n  concurrent: 4\n' "$GITLAB_HOST" \
+             | oc apply -f - >/dev/null 2>&1 \
+        && _ok "runner da conferencia no ar (gitlab-runner/esteira)" \
+        || _warn "o runner da conferencia nao ficou de pe -- o merge request vai esperar um pipeline que nao roda"
+    fi
     cred=""
     if oc apply -f - >/dev/null <<EOF
 apiVersion: argoproj.io/v1alpha1
