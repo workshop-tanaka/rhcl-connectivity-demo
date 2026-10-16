@@ -16,8 +16,12 @@ metadata:
   annotations:
     secret.kuadrant.io/user-id: "quem-testou"
     rhcl.demo/autor: Sandro Tanaka
+# O VALOR NAO MORA AQUI. Era fixo ('chave-do-echo-exposta') e saia impresso no
+# guia; o listener do Gateway e curinga, entao quem alcancasse o Gateway de
+# outro ambiente com 'Host: echo-exposta...' entrava com ela. O 'demo.sh
+# exposta' sorteia um valor a cada execucao e o poe no lugar de __SEGREDO__.
 stringData:
-  api_key: chave-do-echo-exposta
+  api_key: __SEGREDO__
 type: Opaque
 ---
 # A AuthPolicy que mira a ROTA -- e que SOBREPOE o deny-all do Gateway.

@@ -1180,11 +1180,18 @@ step_exposta() {
   printf '\n  %sMOMENTO 3 — liberacao seletiva, e a sobreposicao acontecendo%s\n' "$_BLD" "$_RST"
   _why "Uma chave, e uma AuthPolicy que mira a SUA ROTA -- nao o Gateway."
   _pause || return 0
-  _do oc apply -f platform-reference/golden-path-manual/03-echo-exposta-chave.yaml
+  # A CHAVE E SORTEADA AQUI, a cada execucao, e nao aparece na tela: uma chave
+  # fixa no repositorio, impressa no guia, abria a API de qualquer ambiente
+  # cujo Gateway alguem alcancasse (o listener e curinga).
+  local chave_exposta
+  chave_exposta="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  _cmd oc apply -f platform-reference/golden-path-manual/03-echo-exposta-chave.yaml
+  _log "(a chave e sorteada agora e entra no lugar de __SEGREDO__; ela nao aparece na tela)"
   if [[ $DRY_RUN -eq 0 ]]; then
+    sed "s|__SEGREDO__|${chave_exposta}|" platform-reference/golden-path-manual/03-echo-exposta-chave.yaml | oc apply -f - >/dev/null
     sleep 15
     printf '  sem chave: '; _exposta_curl "$host" "$ip" "" 1
-    printf '  com chave: '; _exposta_curl "$host" "$ip" "?APIKEY=chave-do-echo-exposta" 1
+    printf '  com chave: '; _exposta_curl "$host" "$ip" "?APIKEY=${chave_exposta}" 1
   fi
   _look "401 sem chave, 200 com chave. A sua policy venceu o deny-all do Gateway."
   echo
@@ -1200,7 +1207,7 @@ step_exposta() {
   _do oc apply -f platform-reference/golden-path-manual/04-echo-exposta-plano.yaml
   if [[ $DRY_RUN -eq 0 ]]; then
     sleep 25
-    printf '  seis chamadas seguidas (limite 3 em 10s): '; _exposta_curl "$host" "$ip" "?APIKEY=chave-do-echo-exposta" 6
+    printf '  seis chamadas seguidas (limite 3 em 10s): '; _exposta_curl "$host" "$ip" "?APIKEY=${chave_exposta}" 6
   fi
   _look "200 200 200 429 429 429 -- o tier 'experimental' cortou na quarta"
 

@@ -589,6 +589,10 @@ PY
         # o participante pode ter mexido no terminal: o que ele mudou FICA; so volta
         # o que existe no projeto e sumiu do terminal (o README, na primeira vez)
         git ls-files -d -z | xargs -0 -r git checkout -q --
+        # .tekton/ e da administracao (a conferencia da esteira): o participante
+        # nao o edita, e uma copia velha no terminal trava o proximo "git pull"
+        # (medido no 7kp5j: " M .tekton/confere.yaml" depois de republicar)
+        git checkout -q -- .tekton 2>/dev/null || true
         git branch -q --set-upstream-to=origin/main main 2>/dev/null || true
         echo "LIGADO $(git rev-parse --short HEAD) $(git status --porcelain | wc -l)"' 2>/dev/null | grep -q '^LIGADO '; then
       _ok "${u}: o terminal dele e um clone de workshop/participantes/${u}/ambiente"
