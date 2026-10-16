@@ -726,7 +726,13 @@ for h in hs if st == 200 else []:
 st, d = call("POST", "/projects/%d/hooks" % pid, {"url": ARGO, "push_events": True, "enable_ssl_verification": True})
 if st in (200, 201): diz("webhook de push para o Argo CD registrado")
 else: diz("AVISO: o GitLab recusou o webhook (HTTP %s: %s) -- a mudanca vai esperar o intervalo do Argo, minutos" % (st, str(d.get("message") or d.get("error") or d)[:120]))
-# 4. mudar o cluster passa a exigir merge request: Developer no grupo, e o main so aceita merge
+# 4. mudar o cluster passa a exigir merge request: Developer no grupo, e o main so aceita merge.
+#    E ninguem cria projeto no grupo dele: o runner da conferencia e do grupo,
+#    e um projeto novo, com CI proprio pedindo a tag do runner, rodaria
+#    qualquer coisa dentro do cluster. Developer ja nao cria; isto fecha tambem
+#    a janela entre a semeadura (que da Maintainer) e esta etapa.
+st, _ = call("PUT", "/groups/%d" % gid, {"project_creation_level": "noone", "subgroup_creation_level": "owner"})
+if st != 200: diz("AVISO: nao consegui travar a criacao de projeto no grupo dele (HTTP %s)" % st)
 st, us = call("GET", "/users?username=" + q(U))
 if st == 200 and us:
     st, _ = call("PUT", "/groups/%d/members/%d" % (gid, us[0]["id"]), {"access_level": 30})
