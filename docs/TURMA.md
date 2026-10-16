@@ -166,6 +166,35 @@ conta pré-criada; nos 30, cada um lê o roteiro, não escreve nele, escreve no
 próprio projeto e não lê o do vizinho. Não coberto: `git clone` pelo terminal
 (pede um token do participante) e abrir o projeto no Dev Spaces.
 
+### A esteira (sessão de Connectivity Link)
+
+Na sessão `rhcl`, o `tenant.sh turma` chama também `gitlab-turma.sh esteira`
+para cada participante: o Argo CD do cluster passa a aplicar a pasta
+`esteira/` do projeto dele, e é disso que trata a fase 5 do guia.
+
+- **Por participante:** um `AppProject turma-<userN>` (só o repositório dele,
+  só `travel-agency-<userN>`, nenhum recurso de cluster, quatro tipos:
+  `PlanPolicy`, `AuthPolicy`, `RateLimitPolicy`, `HTTPRoute`), uma
+  `Application esteira-<userN>` automática sem auto-correção e sem poda, e
+  leitura dela pelo nome. Tudo com o rótulo `rhcl.demo/tenant`, em
+  `openshift-gitops`; o `remove` leva junto.
+- **O participante vira Developer** no grupo dele e o `main` só aceita merge
+  request. A republicação (`semeia`) continua escrevendo no `main`, e não toca
+  em `esteira/`: lá mora a mudança que ele fez.
+- **Sem webhook, a mudança leva minutos.** O GitLab recusa webhook para rede
+  local, e de dentro do cluster o host do Argo é rede local (`HTTP 422: Invalid
+  url given`). Medido do merge ao cluster: 73 a 354 s. Liberar só o host do
+  Argo em *Admin → Settings → Network → Outbound requests* e rodar
+  `gitlab-turma.sh esteira <userN...>` de novo registra o webhook; isso é
+  decisão de quem administra o GitLab, e o script não faz sozinho.
+
+Medido no cluster-7kp5j em 2026-10-16 (5 participantes, `tenant.sh turma 5` em
+982 s): as cinco esteiras `Synced Healthy`, `confere-turma` 5 de 5 e
+`isolamento.sh` em 3 abertos / 24 barrados / 0 indeterminados, o mesmo da
+sessão sem esteira. As recusas da esteira (namespace de outro, Gateway de
+outro, tipo fora da lista) foram medidas no cqfs4 e estão no
+[gitlab-turma.sh](../scripts/gitlab-turma.sh).
+
 ## 4. O que fica com o instrutor
 
 | passo | por quê |

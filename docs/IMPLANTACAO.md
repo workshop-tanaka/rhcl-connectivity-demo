@@ -54,8 +54,10 @@ grava a sessão no cluster, e o `tenant.sh` lê de lá a de cada participante.
 
 - Para um participante diferente da turma: `FOCO=rhcl bash scripts/tenant.sh
   showroom user7` (`FOCO=` vazio pede a completa).
-- **Hoje só o menu muda.** O provisionamento instala os três produtos em
-  qualquer sessão; habilitar ou não cada um é trabalho em curso.
+- **A sessão `rhcl` muda também o ambiente:** o cluster sobe sem Service
+  Mesh, com o Gateway do provedor nativo do OpenShift, e cada participante
+  ganha a esteira da fase 5 (ver a seção 3b do [TURMA.md](TURMA.md)). As
+  sessões `ossm` e `rhsi` por enquanto só mudam o menu.
 - Não sei se o formulário do item no RHDP deixa passar um valor de chart. Num
   cluster já criado, o valor entra pelo `Application`:
   `oc patch application field-content -n openshift-gitops --type=merge -p
