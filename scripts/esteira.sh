@@ -87,7 +87,8 @@ cmd_historico() {
 
 # CONFERE, ANTES DO MERGE: o que a pasta 'esteira/' do branch atual faria no
 # cluster, lido como a plataforma leria. Roda no terminal, sem tocar no
-# cluster (so 'oc kustomize' e um dry-run local). Quatro regras:
+# cluster (so 'oc kustomize' e um dry-run local). Antes de montar, a lista da
+# pasta so pode citar arquivos dela mesma (regra zero). Depois, quatro regras:
 #   1. so os tipos que o projeto do Argo aceita (os outros seriam recusados
 #      DEPOIS do merge, com o commit ja no main);
 #   2. so o namespace da aplicacao deste ambiente;
@@ -100,6 +101,37 @@ cmd_historico() {
 cmd_confere() {
   local pasta="${_raiz}/esteira" json
   [[ -f "${pasta}/kustomization.yaml" ]] || { echo "  nao ha pasta esteira/ neste diretorio" >&2; return 1; }
+  # REGRA ZERO, antes de montar qualquer coisa: a lista so pode citar arquivos
+  # DESTA pasta. O 'oc kustomize' buscaria um recurso remoto (URL, repositorio
+  # git) de dentro do runner, que roda no cluster -- e quem escreve a lista e
+  # o autor do merge request. Pelo mesmo motivo, nenhuma outra chave alem de
+  # apiVersion, kind e resources (geradores, helm e componentes tambem buscam
+  # ou executam coisas). Lido linha a linha: o python do terminal nao tem yaml.
+  local ruim
+  ruim="$(PASTA="$pasta" python3 -c '
+import os, re, sys
+pasta = os.environ["PASTA"]; em_res = False; ruins = []
+for n, l in enumerate(open(os.path.join(pasta, "kustomization.yaml")), 1):
+    s = l.split("#", 1)[0].rstrip()
+    if not s.strip(): continue
+    m = re.match(r"^([A-Za-z]+):\s*(.*)$", s)
+    if m:
+        em_res = m.group(1) == "resources"
+        if m.group(1) not in ("apiVersion", "kind", "resources"): ruins.append("linha %d: chave %s nao e aceita" % (n, m.group(1)))
+        elif em_res and m.group(2).strip(): ruins.append("linha %d: a lista de resources vai uma por linha" % n)
+        continue
+    m = re.match(r"^\s+-\s+(\S+)\s*$", s)
+    if em_res and m:
+        f = m.group(1).strip("\"\x27")
+        if "/" in f or not re.match(r"^[A-Za-z0-9._-]+\.ya?ml$", f) or not os.path.isfile(os.path.join(pasta, f)):
+            ruins.append("linha %d: %s nao e um arquivo desta pasta" % (n, f))
+        continue
+    ruins.append("linha %d: nao entendi" % n)
+print("\n".join(ruins))')"
+  if [[ -n "$ruim" ]]; then
+    printf '%s\n' "$ruim" | sed 's/^/    NAO kustomization.yaml: /'
+    echo; echo "    RECUSADO: a kustomization.yaml so pode listar arquivos desta pasta"; return 1
+  fi
   # '-n': objeto sem namespace o Argo poe no destino da Application, e o
   # dry-run poria no projeto corrente do terminal -- os dois tem de concordar
   json="$(oc kustomize "$pasta" 2>&1 | oc create --dry-run=client -n "$NS_APP" -o json -f - 2>&1)" \
