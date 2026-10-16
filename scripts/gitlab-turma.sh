@@ -726,7 +726,10 @@ spec:
                 git config --global credential.helper "store --file /credencial/.git-credentials"
                 git clone -q https://%(host)s/workshop/participantes/%(u)s/ambiente.git /tmp/w
                 cd /tmp/w && git checkout -q "{{ revision }}" && git fetch -q origin main
-                fora="$(git diff --name-only FETCH_HEAD...HEAD | grep -v '^esteira/' || true)"
+                # --no-renames: com deteccao de renomeacao o git so lista o nome NOVO, e
+                # mover .tekton/confere.yaml para esteira/ passaria (apontado pela revisao
+                # de seguranca). -z e quotePath=false: o nome sai cru, sem aspas.
+                fora="$(git -c core.quotePath=false diff --no-renames --name-only -z FETCH_HEAD...HEAD | tr '\\0' '\\n' | grep -v '^esteira/' || true)"
                 if [ -n "$fora" ]; then
                   echo "    NAO o merge request so pode mudar a pasta esteira/:"; echo "$fora" | sed 's/^/          /'
                   echo; echo "    RECUSADO: tire do merge request o que esta fora de esteira/"; exit 1
