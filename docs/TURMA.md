@@ -191,9 +191,12 @@ para cada participante: o Argo CD do cluster passa a aplicar a pasta
   Pipelines as Code, a conferência não roda e o merge fica preso**. Liberar os
   dois hosts em *Admin → Settings → Network → Outbound requests* e rodar
   `gitlab-turma.sh esteira <userN...>` de novo; isso é decisão de quem
-  administra o GitLab, e o script não faz sozinho. Neste GitLab o formulário
-  só salva depois de desligar o *incremental logging* em *Settings → CI/CD*
-  (ele vem ligado sem armazenamento de objetos).
+  administra o GitLab, e o script não faz sozinho. (O formulário só salva com
+  o *incremental logging* desligado; ele vem ligado sem armazenamento de
+  objetos, não aparece na tela no GitLab 19.5, e a semeadura do roteiro o
+  desliga pela API.) Com os dois webhooks, medido no 7kp5j: conferência em
+  ~8 s, merge automático ~19 s depois do push, e do merge ao cluster de 1 a
+  227 s.
 
 Medido no cluster-7kp5j em 2026-10-16 (5 participantes, `tenant.sh turma 5` em
 982 s): as cinco esteiras `Synced Healthy`, `confere-turma` 5 de 5 e

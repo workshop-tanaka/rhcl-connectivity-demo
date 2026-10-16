@@ -328,6 +328,20 @@ def publica(pid, caminho, arqs, msg):
         n += len(acoes[i:i+80])
     ok("%s: %d arquivo(s) publicados" % (caminho, len(arqs)))
 
+SEM_PIPELINE = """# Os projetos dos participantes apontam o CI do GitLab para este arquivo, e
+# ele nao cria pipeline. A conferencia do merge request e do OpenShift
+# Pipelines (Pipelines as Code), que publica o resultado no merge request.
+# O job 'nada' existe so porque o GitLab valida os jobs ANTES das regras do
+# workflow: sem um job visivel, o pipeline nasce com erro ("jobs config should
+# contain at least one visible job", medido no 7kp5j) em vez de nao nascer.
+workflow:
+  rules:
+    - when: never
+nada:
+  script: ["true"]
+  rules:
+    - when: never
+"""
 LEIAME_ROTEIRO = """# Roteiro do workshop
 
 Os arquivos que o guia manda abrir, iguais para toda a turma. **Somente
@@ -407,10 +421,23 @@ def semeia():
     part = grupo("workshop/participantes", "Participantes", "private", raiz)
     if faz_roteiro:
         # o cadastro livre sai, e projeto novo nasce privado
+        # e duas que este GitLab traz erradas: o 'incremental logging' vem ligado
+        # SEM armazenamento de objetos -- e com ele ligado nenhum formulario de
+        # configuracao salva (medido no 7kp5j: a lista de excecoes de rede nao
+        # gravava) --, e o Auto DevOps criaria pipeline do GitLab em todo
+        # projeto, ao lado da conferencia do OpenShift Pipelines.
         call("PUT", "/application/settings", {"signup_enabled": False, "default_project_visibility": "private",
-                                               "default_group_visibility": "private"})
+                                               "default_group_visibility": "private",
+                                               "ci_job_live_trace_enabled": False, "auto_devops_enabled": False})
         pid = projeto("workshop/roteiro", raiz, "internal", "Os arquivos que o guia manda abrir. Somente leitura.")
         arqs, sobras = arquivos(RAIZ, "https://%s/workshop/roteiro" % HOST, True); arqs["README.md"] = LEIAME_ROTEIRO
+        # O CI DO GITLAB DOS PARTICIPANTES APONTA PARA CA, e nao cria pipeline
+        # nenhum: quem confere o merge request e o OpenShift Pipelines. Apontar
+        # para um arquivo que nao existe NAO serve -- o GitLab cria um pipeline
+        # com erro de configuracao a cada push, e ele trava o merge (medido no
+        # 7kp5j em 2026-10-16: pipelines 'push' e 'merge_request_event' em
+        # 'failed' ao lado do status verde do Pipelines as Code).
+        arqs["ci/sem-pipeline.yml"] = SEM_PIPELINE
         publica(pid, "workshop/roteiro", arqs, "roteiro do workshop")
         if sobras: warn("workshop/roteiro: %d referencia(s) a github.com sobraram nos arquivos" % sobras)
     if so_roteiro: return
@@ -723,7 +750,9 @@ spec:
                 - {name: conferencia, mountPath: /conferencia, readOnly: true}
               script: |
                 set -eu
-                git config --global credential.helper "store --file /credencial/.git-credentials"
+                # copia: o volume do Secret e somente leitura, e o 'store' tenta regravar
+                cp /credencial/.git-credentials /tmp/.git-credentials
+                git config --global credential.helper "store --file /tmp/.git-credentials"
                 git clone -q https://%(host)s/workshop/participantes/%(u)s/ambiente.git /tmp/w
                 cd /tmp/w && git checkout -q "{{ revision }}" && git fetch -q origin main
                 # --no-renames: com deteccao de renomeacao o git so lista o nome NOVO, e
@@ -796,10 +825,10 @@ diz("o main so aceita merge request (push direto: so a administracao)")
 #    Repository), nao do branch do merge request: quem abre o merge request
 #    nao escolhe o pipeline que o confere. O arquivo e da administracao e e
 #    reescrito aqui a cada execucao; a republicacao nao o apaga.
-#    O CI do proprio GitLab fica sem arquivo (o caminho aponta para um que nao
-#    existe): nenhum pipeline do GitLab nasce, so o status que o Pipelines as
-#    Code publica -- e e ele que libera ou nao o merge.
-st, d = call("PUT", "/projects/%d" % pid, {"builds_access_level": "enabled", "ci_config_path": "sem-ci-do-gitlab.yml@workshop/roteiro",
+#    O CI do proprio GitLab aponta para ci/sem-pipeline.yml do roteiro, que
+#    nao cria pipeline: so o status que o Pipelines as Code publica conta -- e
+#    e ele que libera ou nao o merge.
+st, d = call("PUT", "/projects/%d" % pid, {"builds_access_level": "enabled", "ci_config_path": "ci/sem-pipeline.yml@workshop/roteiro", "auto_devops_enabled": False,
              "only_allow_merge_if_pipeline_succeeds": True, "allow_merge_on_skipped_pipeline": False,
              "ci_pipeline_variables_minimum_override_role": "no_one_allowed"})
 diz("o merge so passa com a conferencia verde" if st == 200 else "AVISO: nao consegui ligar a conferencia no projeto (HTTP %s)" % st)
