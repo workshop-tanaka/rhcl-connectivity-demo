@@ -1,0 +1,21 @@
+# A CONFERENCIA DA ESTEIRA, antes do merge (fase 5 da sessao rhcl).
+#
+# MORA NO PROJETO 'roteiro', e nao no do participante: cada projeto
+# 'workshop/participantes/<userN>/ambiente' aponta para ca (ci_config_path =
+# ci/esteira.yml@workshop/roteiro, posto por 'gitlab-turma.sh esteira'), e o
+# participante -- Developer no projeto dele -- nao muda nem este arquivo nem o
+# apontamento. Pelo mesmo motivo o script da conferencia vem do roteiro, e nao
+# da copia do participante: quem abre o merge request nao escolhe a regra que o
+# confere.
+#
+# O merge so e aceito com este job verde (only_allow_merge_if_pipeline_succeeds,
+# tambem posto por 'gitlab-turma.sh esteira'). Quem roda e o runner 'esteira',
+# no proprio cluster (provision.sh, etapa gitlab, sessao rhcl).
+confere:
+  # a mesma imagem do terminal do guia: tem oc, python3 e git
+  image: quay.io/rhpds/openshift-showroom-terminal-ocp:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - git clone -q --depth 1 "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/workshop/roteiro.git" /tmp/roteiro
+    - ESTEIRA_NS="travel-agency-${CI_PROJECT_NAMESPACE##*/}" ESTEIRA_RAIZ="$CI_PROJECT_DIR" bash /tmp/roteiro/scripts/esteira.sh confere

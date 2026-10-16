@@ -175,11 +175,15 @@ para cada participante: o Argo CD do cluster passa a aplicar a pasta
 - **Por participante:** um `AppProject turma-<userN>` (só o repositório dele,
   só `travel-agency-<userN>`, nenhum recurso de cluster, quatro tipos:
   `PlanPolicy`, `AuthPolicy`, `RateLimitPolicy`, `HTTPRoute`), uma
-  `Application esteira-<userN>` automática sem auto-correção e sem poda, e
+  `Application esteira-<userN>` automática, com poda e sem auto-correção, e
   leitura dela pelo nome. Tudo com o rótulo `rhcl.demo/tenant`, em
   `openshift-gitops`; o `remove` leva junto.
 - **O participante vira Developer** no grupo dele e o `main` só aceita merge
-  request. A republicação (`semeia`) continua escrevendo no `main`, e não toca
+  request, e o merge request só é aceito com a **conferência** verde: um job
+  de CI que roda `esteira.sh confere` (o arquivo e o script vêm do projeto
+  `roteiro`, que ele lê e não escreve), no runner `esteira` do namespace
+  `gitlab-runner` (`provision.sh gitlab`, só na sessão `rhcl`). O runner
+  busca o trabalho no GitLab: não depende de webhook. A republicação (`semeia`) continua escrevendo no `main`, e não toca
   em `esteira/`: lá mora a mudança que ele fez.
 - **Sem webhook, a mudança leva minutos.** O GitLab recusa webhook para rede
   local, e de dentro do cluster o host do Argo é rede local (`HTTP 422: Invalid

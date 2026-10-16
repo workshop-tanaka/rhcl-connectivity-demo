@@ -715,9 +715,53 @@ st_gitlab() {
     fi
   fi
 
+  # ----- 7. o runner da esteira (so na sessao de Connectivity Link) -------
+  _sem_mesh && _runner_esteira
+
   local rt
   rt="$(oc get route -n gitlab-system -o jsonpath='{range .items[?(@.spec.to.name=="gitlab-webservice-default")]}{.spec.host}{"\n"}{end}' 2>/dev/null | head -1)"
   [[ -n "$rt" ]] && _log "GitLab: https://${rt}  (root / secret gitlab-gitlab-initial-root-password)"
+}
+
+# O RUNNER QUE CONFERE O MERGE REQUEST. Na fase 5 da sessao rhcl a mudanca do
+# participante so entra no 'main' se um job de CI aprovar; o job roda aqui.
+# Runner e nao webhook: ele busca o trabalho no GitLab, e o GitLab recusa
+# webhook para dentro do cluster (rede local). Um runner para a turma, de
+# instancia, sem tag.
+#
+# O TOKEN E EMITIDO NA HORA pela API do GitLab, com o token de administracao
+# que a etapa ja gravou, e vai direto para o Secret: nao e impresso nem mora
+# em arquivo. Existindo o Secret, nada e reemitido.
+_runner_esteira() {
+  _apply platform-reference/gitlab/05-runner-operator.yaml || return 0
+  _wait_csv gitlab-runner gitlab-runner-operator 0 || { _warn "operator do GitLab Runner nao ficou pronto -- a esteira fica sem conferencia antes do merge"; return 0; }
+  _wait_crd runners.apps.gitlab.com
+  [[ $DRY_RUN -eq 1 ]] && { _cmd "emitir o token do runner e aplicar o Runner 'esteira'"; return 0; }
+  local host
+  host="$(oc get route -n gitlab-system -o jsonpath='{range .items[?(@.spec.to.name=="gitlab-webservice-default")]}{.spec.host}{"\n"}{end}' 2>/dev/null | head -1)"
+  [[ -n "$host" ]] || { _warn "sem rota do GitLab -- runner nao registrado"; return 0; }
+  if oc get secret gitlab-runner-esteira -n gitlab-runner >/dev/null 2>&1; then
+    _ok "token do runner ja existe (nao reemitido)"
+  else
+    oc get secret golden-path-gitlab-token -n openshift-gitops -o jsonpath='{.data.token}' 2>/dev/null | base64 -d \
+      | GL_HOST="$host" python3 -c '
+import sys, json, ssl, urllib.request
+tok = sys.stdin.read().strip()
+req = urllib.request.Request("https://%s/api/v4/user/runners" % __import__("os").environ["GL_HOST"], method="POST",
+        headers={"PRIVATE-TOKEN": tok, "Content-Type": "application/json"},
+        data=json.dumps({"runner_type": "instance_type", "run_untagged": True, "description": "esteira da turma"}).encode())
+r = json.load(urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=60))
+json.dump({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "gitlab-runner-esteira", "namespace": "gitlab-runner"},
+           "stringData": {"runner-token": r["token"]}}, sys.stdout)' 2>/dev/null \
+      | oc apply -f - >/dev/null 2>&1 \
+      && _ok "token do runner emitido e gravado em gitlab-runner/gitlab-runner-esteira" \
+      || { _warn "nao consegui emitir o token do runner pela API do GitLab"; return 0; }
+  fi
+  printf 'apiVersion: apps.gitlab.com/v1beta2\nkind: Runner\nmetadata: {name: esteira, namespace: gitlab-runner}\nspec:\n  gitlabUrl: "https://%s"\n  token: gitlab-runner-esteira\n  runUntagged: true\n  concurrent: 4\n' "$host" \
+    | oc apply -f - >/dev/null 2>&1 && _ok "Runner 'esteira' aplicado" || { _warn "falha ao aplicar o Runner"; return 0; }
+  local _e=0
+  until [[ -n "$(oc get pods -n gitlab-runner -l app.kubernetes.io/component=runner --field-selector=status.phase=Running -o name 2>/dev/null)" ]] || [[ $_e -ge 300 ]]; do sleep 10; _e=$((_e + 10)); done
+  [[ $_e -lt 300 ]] && _ok "runner no ar" || _warn "o pod do runner nao subiu em 5 min -- veja: oc get pods -n gitlab-runner"
 }
 
 # ===========================================================================

@@ -24,12 +24,15 @@
 # nome da Application.
 set -uo pipefail
 
-NS_APP="travel-agency"
+# ESTEIRA_NS e ESTEIRA_RAIZ: o job de CI da conferencia roda a copia DO ROTEIRO
+# deste script contra o checkout do participante (ver
+# platform-reference/gitlab/esteira-ci.yml), e diz por aqui de quem e.
+NS_APP="${ESTEIRA_NS:-travel-agency}"
 ARGO_NS="${ARGO_NS:-openshift-gitops}"
 # o ultimo pedaco do nome: 'user7' numa turma; fora dela nao ha esteira
 _t="${NS_APP##*-}"; [[ "$_t" =~ ^user[0-9]{1,3}$ ]] || _t="local"
 APP="esteira-${_t}"
-_raiz="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+_raiz="${ESTEIRA_RAIZ:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 command -v oc >/dev/null || { echo "oc nao encontrado" >&2; exit 1; }
 _campo() { oc get applications.argoproj.io "$APP" -n "$ARGO_NS" -o jsonpath="$1" 2>/dev/null; }

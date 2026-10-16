@@ -411,7 +411,13 @@ def semeia():
                                                "default_group_visibility": "private"})
         pid = projeto("workshop/roteiro", raiz, "internal", "Os arquivos que o guia manda abrir. Somente leitura.")
         arqs, sobras = arquivos(RAIZ, "https://%s/workshop/roteiro" % HOST, True); arqs["README.md"] = LEIAME_ROTEIRO
+        # a conferencia da esteira mora aqui, onde o participante le e nao escreve
+        arqs["ci/esteira.yml"] = open(os.path.join(RAIZ, "platform-reference/gitlab/esteira-ci.yml"), encoding="utf-8").read()
         publica(pid, "workshop/roteiro", arqs, "roteiro do workshop")
+        # o job da conferencia clona o roteiro com o token DO JOB, que nasce num
+        # projeto de participante: o roteiro tem de aceitar esse grupo
+        st, _ = call("POST", "/projects/%d/job_token_scope/groups_allowlist" % pid, {"target_group_id": part})
+        if st not in (200, 201, 409, 422): warn("roteiro: nao consegui liberar o clone pelos jobs dos participantes (HTTP %s)" % st)
         if sobras: warn("workshop/roteiro: %d referencia(s) a github.com sobraram nos arquivos" % sobras)
     if so_roteiro: return
     alvos = ALVOS or (sorted((d for d in os.listdir(TDIR) if os.path.isfile(os.path.join(TDIR, d, ".tenant"))),
@@ -637,7 +643,7 @@ PY
 #   no cluster - a credencial do repositorio, presa ao projeto do Argo dele;
 #              - um AppProject: so o repositorio dele, so o namespace da
 #                aplicacao dele, nenhum recurso de cluster, quatro tipos;
-#              - uma Application, automatica, SEM auto-correcao e SEM poda;
+#              - uma Application, automatica, com poda e SEM auto-correcao;
 #              - leitura da propria Application, pelo nome, para ele e para o
 #                terminal dele.
 #
@@ -720,6 +726,14 @@ st, us = call("GET", "/users?username=" + q(U))
 if st == 200 and us:
     st, _ = call("PUT", "/groups/%d/members/%d" % (gid, us[0]["id"]), {"access_level": 30})
     if st not in (200, 201): diz("AVISO: nao consegui passar %s a Developer (HTTP %s)" % (U, st))
+# 5. a conferencia antes do merge: o CI do projeto e o do roteiro, e o merge
+#    so passa com ele verde. Um pipeline pulado tambem nao libera o merge.
+#    O CI nasce DESLIGADO nos projetos dos participantes (builds_access_level
+#    'disabled', medido no 7kp5j): sem ligar, o merge request espera para
+#    sempre por um pipeline que nunca roda.
+st, d = call("PUT", "/projects/%d" % pid, {"builds_access_level": "enabled", "ci_config_path": "ci/esteira.yml@workshop/roteiro",
+             "only_allow_merge_if_pipeline_succeeds": True, "allow_merge_on_skipped_pipeline": False})
+diz("o merge so passa com a conferencia verde" if st == 200 else "AVISO: nao consegui ligar a conferencia no projeto (HTTP %s)" % st)
 call("DELETE", "/projects/%d/protected_branches/main" % pid)
 st, d = call("POST", "/projects/%d/protected_branches" % pid, {"name": "main", "push_access_level": 40, "merge_access_level": 30})
 if st in (200, 201): diz("o main so aceita merge request (push direto: so a administracao)")
@@ -761,7 +775,11 @@ spec:
   source: {repoURL: "${url}", targetRevision: main, path: esteira}
   destination: {server: https://kubernetes.default.svc, namespace: ${ns}}
   syncPolicy:
-    automated: {prune: false, selfHeal: false}
+    # PODA LIGADA: tirar um arquivo da pasta tira o objeto do cluster -- e o
+    # "Git manda" da fase. Medido no 7kp5j: com a poda desligada, o revert de
+    # uma rota a deixava no cluster, orfa, e a esteira ficava OutOfSync.
+    # Auto-correcao continua DESLIGADA, de proposito: o desvio tem de aparecer.
+    automated: {prune: true, selfHeal: false}
     retry: {limit: 1, backoff: {duration: 5s, factor: 1, maxDuration: 10s}}
 ---
 # O participante LE a propria Application, pelo nome -- e so. Sem 'list' (nao
