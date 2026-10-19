@@ -364,6 +364,17 @@ oc get deploy -A -l gateway.istio.io/managed=istio.io-gateway-controller \
 Antes de entregar uma turma num cluster que passou a noite parado, confira o
 `401` de cada participante (`tenant.sh confere-turma`).
 
+**E pode voltar no meio da aula, num Gateway só.** Em 2026-10-19 o `echo-web`
+do user1 (cluster-7kp5j) passou a responder `503` a tudo depois de o pod
+reiniciar sozinho; os outros quatro participantes seguiam em `302`. O log de
+acesso do Envoy diz o motivo, `503 - wasm_fail_stream`, e nada no estado
+declarado acusa: pod pronto, Gateway `Programmed`, policies `Enforced`. O
+`turma.sh` (inclusive no `--vigia`) agora lê o log de cada Gateway e acusa
+quando a **última** resposta dos últimos 10 minutos foi `wasm_fail_stream`,
+já com o comando que corrige (`oc rollout restart deploy/<gateway>-istio -n
+<namespace>`, segundos). Ele não manda requisição à borda: um Gateway sem
+tráfego não é medido. `WASM=0` desliga a leitura.
+
 **Mexer no Grafana apaga os painéis por alguns minutos.** O pod não tem
 volume; depois de um reinício o operator devolve cada painel no ciclo de 10
 minutos dele.

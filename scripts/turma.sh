@@ -85,6 +85,7 @@
 #   MEM_ALERTA=80           % do limite de memoria a partir do qual avisa
 #   SUBINDO_MIN=10          ate quantos minutos de vida uma falha e "subindo"
 #   AVANCO=0                nao le o log do Showroom (a coluna PAGINA some)
+#   WASM=0                  nao le o log dos Gateways (sem a falha do filtro Wasm)
 #   LARGURA=6               quantos logs de cada vez (default 6)
 #
 # COMPATIVEL COM BASH 3.2 (o /bin/bash do macOS): sem vetor associativo, sem
@@ -96,6 +97,7 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
 INV="${FROTA:-frota.local}"
 MEM_ALERTA="${MEM_ALERTA:-80}"
 AVANCO="${AVANCO:-1}"
+WASM="${WASM:-1}"
 SUBINDO_MIN="${SUBINDO_MIN:-10}"
 LARGURA="${LARGURA:-6}"
 ROTULO="rhcl.demo/tenant"
@@ -222,11 +224,40 @@ _avanco() { # le $TRAB/ns, escreve $TRAB/pag: "<tenant> <pagina>|<idade>"
 }
 
 # ---------------------------------------------------------------------------
+# O filtro Wasm do Envoy quebrado: 503 wasm_fail_stream em tudo
+# ---------------------------------------------------------------------------
+# O Gateway fica Programmed, o pod pronto e as policies Enforced -- e TODA
+# requisicao volta 503, com 'wasm_fail_stream' no log de acesso do Envoy. Nada
+# no estado declarado acusa. Medido no cluster-7kp5j: depois de um reinicio do
+# cluster, 4 dos 5 Gateways de participante ficaram assim (2026-10-17), e o
+# echo-web do user1 voltou a ficar em 2026-10-19 depois que o pod reiniciou;
+# 'oc rollout restart' resolveu em segundos nas duas vezes. Sem sonda nossa na
+# borda (ver o topo), o sinal e o trafego do proprio participante: so acusa
+# se a ULTIMA resposta do Gateway nos ultimos 10 min foi wasm_fail_stream --
+# uma falha que ja passou nao vira alarme. Gateway sem trafego nao e medido.
+# Um 'oc logs' por Gateway, em lotes de LARGURA. WASM=0 desliga.
+_wasm() { # le $TRAB/gw e $TRAB/ns, escreve $TRAB/wasm: "<ns> <gateway> <n em 10 min>"
+  local ns g n=0
+  [[ -f "$TRAB/gw" ]] || return 0
+  while IFS="$(printf '\t')" read -r ns g _; do
+    awk -v n="$ns" '$2 == n { f = 1 } END { exit !f }' "$TRAB/ns" || continue
+    ( oc logs -n "$ns" "deploy/${g}-istio" --since=10m --tail=2000 2>/dev/null \
+        | awk -v ns="$ns" -v g="$g" '
+            /^\[20[0-9][0-9]-/ { ult = $0; if (index($0, " wasm_fail_stream ")) w++ }
+            END { if (index(ult, " wasm_fail_stream ")) print ns, g, w }' > "$TRAB/wasm.${ns}.${g}" ) &
+    n=$((n + 1)); [[ $((n % LARGURA)) == 0 ]] && wait
+  done < "$TRAB/gw"
+  wait
+  cat "$TRAB"/wasm.*.* 2>/dev/null > "$TRAB/wasm" || true
+  rm -f "$TRAB"/wasm.*.*
+}
+
+# ---------------------------------------------------------------------------
 # Um cluster: a plataforma e a tabela dos participantes
 # ---------------------------------------------------------------------------
 _cluster() { # <rotulo>
   local nome="$1" dom pol host tok tab; tab="$(printf '\t')"
-  rm -f "$TRAB"/ns "$TRAB"/pods "$TRAB"/gw "$TRAB"/pol "$TRAB"/req "$TRAB"/mem "$TRAB"/plat "$TRAB"/linhas "$TRAB"/pag "$TRAB"/pag.*
+  rm -f "$TRAB"/ns "$TRAB"/pods "$TRAB"/gw "$TRAB"/pol "$TRAB"/req "$TRAB"/mem "$TRAB"/plat "$TRAB"/linhas "$TRAB"/pag "$TRAB"/pag.* "$TRAB"/wasm
   PLAT_FALHA=0; PLAT_AVISO=0
 
   # COM PRAZO: um cluster do inventario que ja foi desligado nao recusa a
@@ -296,6 +327,7 @@ for r in d["data"]["result"]:
   fi
 
   [[ "$AVANCO" == 1 ]] && _avanco
+  [[ "$WASM" == 1 ]] && _wasm
 
   {
     sed 's/^/N /' "$TRAB/ns"
@@ -304,6 +336,7 @@ for r in d["data"]["result"]:
     [[ -f "$TRAB/pol" ]] && { echo "TEM pol"; sed 's/^/Y /' "$TRAB/pol"; }
     [[ -f "$TRAB/req" ]] && { echo "TEM req"; sed 's/^/R /' "$TRAB/req"; }
     [[ -f "$TRAB/pag" ]] && { echo "TEM pag"; sed 's/^/V /' "$TRAB/pag"; }
+    [[ -f "$TRAB/wasm" ]] && sed 's/^/W /' "$TRAB/wasm"
   } | awk -v agora="$(date -u +%s)" -v nova="$SUBINDO_MIN" '
     function falha(t, msg) { ruim[t] = 1; nd[t]++; d[t, nd[t]] = msg; outras[t]++ }
     function pisca(t, msg) { ruim[t] = 1; nd[t]++; d[t, nd[t]] = msg }
@@ -340,6 +373,10 @@ for r in d["data"]["result"]:
       if (e[1] == "True") { yt[t]++; yp[t]++ }
       else if (e[2] == "Overridden") ys[t]++
       else { yt[t]++; pisca(t, $2 " " $3 "/" $4 ": " (e[2] == "" ? "sem condicao Enforced" : e[2])) }
+      next
+    }
+    $1 == "W" && ($2 in dono) {
+      falha(dono[$2], "Gateway " $2 "/" $3 ": o Envoy responde 503 wasm_fail_stream (" $4 " em 10 min, inclusive a ultima) — o filtro Wasm quebrou; corrige: oc rollout restart deploy/" $3 "-istio -n " $2)
       next
     }
     $1 == "R" { req[$2] = $3; next }
