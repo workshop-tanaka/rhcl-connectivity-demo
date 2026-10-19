@@ -1232,6 +1232,17 @@ kind: RoleBinding
 metadata: {name: dev-ve-o-gateway, namespace: ingress-gateway-${t}, labels: {${ROTULO}: ${t}}}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: dev-ve-o-gateway}
 subjects: [{kind: ServiceAccount, name: dev, namespace: travel-agency-${t}}]
+---
+# O TOKEN DELE, para a aba 'Terminal Dev' do guia: o pod do guia so monta
+# Secret do proprio namespace, e o 'showroom' copia este para la.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dev-token
+  namespace: travel-agency-${t}
+  labels: {${ROTULO}: ${t}}
+  annotations: {kubernetes.io/service-account.name: dev}
+type: kubernetes.io/service-account-token
 DEV
     fi
     # leitura da plataforma (enumerada, ver _plataforma) e das metricas: os
@@ -1949,6 +1960,22 @@ _showroom() { # <tenant> <dir da copia>
     che_url="$(oc get checluster -n "${CHE_NS:-openshift-devspaces}" -o jsonpath='{.items[0].status.cheURL}' 2>/dev/null)"
   fi
 
+  # O PERFIL DEV GANHA UM TERMINAL (aba 'Terminal Dev'): um segundo container
+  # no pod do guia, com a identidade 'dev' do ambiente -- dono das rotas e das
+  # policies da aplicacao, so LEITOR do Gateway. O token dela mora no
+  # namespace da aplicacao; o pod so monta Secret do proprio namespace, entao
+  # ele e copiado para ca. PERFIS=0 desliga (fica so o terminal de sempre).
+  local perfis="${PERFIS:-1}" _e=0
+  if [[ "$perfis" == 1 ]]; then
+    until [[ -n "$(oc get secret dev-token -n "travel-agency-${t}" -o jsonpath='{.data.token}' 2>/dev/null)" ]] || [[ $_e -ge 30 ]]; do sleep 2; _e=$((_e + 2)); done
+    oc get secret dev-token -n "travel-agency-${t}" -o json 2>/dev/null | T="$t" python3 -c '
+import json, os, sys
+d = json.load(sys.stdin)["data"]
+json.dump({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+           "metadata": {"name": "perfil-dev-token", "namespace": "showroom-" + os.environ["T"]},
+           "data": {k: d[k] for k in ("token", "ca.crt", "namespace")}}, sys.stdout)' | oc apply -f - >/dev/null 2>&1 \
+      || { _warn "sem o token do perfil Dev de ${t} -- o guia sai so com o terminal de sempre"; perfis=0; }
+  fi
   {
     oc get deploy/showroom svc/showroom route/showroom pvc/showroom-terminal-lab-user-home rolebinding/edit-showroom-sa \
        cm/showroom-userdata cm/showroom-traefik-static cm/showroom-traefik-dynamic -n "$orig" -o json
@@ -1969,7 +1996,7 @@ _showroom() { # <tenant> <dir da copia>
     # e, nele, um KeycloakRealmImport com o nome de outro participante -- com
     # '-A' a "senha" plantada iria parar no guia da vitima.
     oc get keycloakrealmimport -n "${KEYCLOAK_NS:-keycloak}" -o json 2>/dev/null || printf '{"items":[]}'
-  } | FOCO="$foco" CHE_URL="$che_url" GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
+  } | PERFIS="$perfis" FOCO="$foco" CHE_URL="$che_url" GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
 import sys, json, os, re, base64
 t, dom = os.environ["TENANT"], os.environ["DOM"]
 objs, chaves, rotas, realms = sys.stdin.read().split("\x1e")
@@ -2057,6 +2084,16 @@ for o in itens:
                      "resources": {"requests": {"storage": "1Gi"}}}
     elif k == "RoleBinding":
         for s in o["subjects"]: s["namespace"] = "showroom-" + t
+    elif k == "ConfigMap" and m["name"] == "showroom-traefik-dynamic" and os.environ.get("PERFIS") == "1":
+        # a rota /terminal-dev, com prioridade sobre /terminal (que tambem a casaria)
+        y = o["data"]["dynamic.yml"]
+        if "terminal-dev" not in y:
+            assert y.count("\n  services:\n") == 1 and y.count("\n  middlewares:\n") == 1
+            y = y.replace("\n  services:\n", "\n    terminal-dev:\n      rule: \"PathPrefix(`/terminal-dev`)\"\n      entryPoints:\n        - web\n"
+                          "      service: terminal-dev\n      middlewares:\n        - terminal-dev-stripprefix\n      priority: 20\n\n  services:\n")
+            y = y.replace("\n  middlewares:\n", "\n    terminal-dev:\n      loadBalancer:\n        servers:\n          - url: \"http://127.0.0.1:7682\"\n"
+                          "  middlewares:\n    terminal-dev-stripprefix:\n      stripPrefix:\n        prefixes:\n          - \"/terminal-dev\"\n")
+            o["data"]["dynamic.yml"] = y
     elif k == "ConfigMap" and m["name"] == "showroom-userdata":
         o["data"]["user_data.yml"] = "".join("\"%s\": \"%s\"\n" % (ch, dados[ch]) for ch in sorted(dados))
     elif k == "Deployment":
@@ -2081,9 +2118,37 @@ for o in itens:
             "env": [{"name": "TENANT", "value": t}, {"name": "ALT_NS", "value": os.environ["ALT_NS"]},
                     {"name": "ALT_HOST", "value": os.environ["ALT_HOST"]}, {"name": "PERL_TROCA", "value": os.environ["PERL_TROCA"]},
                     {"name": "CONTEUDO", "value": "1"}, {"name": "COM_GITLAB", "value": "1" if gl else ""}, {"name": "CHAVES", "value": os.environ.get("CHAVES", "")}, {"name": "VAZIOS", "value": "|".join(vazios)},
-                    {"name": "PERL_VAZIOS", "value": os.environ["PERL_VAZIOS"]}],
-            "command": ["bash", "-c", "set -e; d=%s; n=$(find \"$d\" -name \"*.adoc\" | wc -l); [ \"$n\" -gt 0 ]; find \"$d\" -name \"*.adoc\" -print0 | xargs -0 perl -pi -e \"$PERL_TROCA\"; find \"$d\" -name \"*.adoc\" -print0 | VAZIOS=\"${VAZIOS:-__nenhum__}\" xargs -0 perl -0777 -pi -e \"$PERL_VAZIOS\"; echo \"troca aplicada a $n paginas; links sem destino: ${VAZIOS:-nenhum}\"" % repo[0]["mountPath"]],
+                    {"name": "PERL_VAZIOS", "value": os.environ["PERL_VAZIOS"]},
+                    {"name": "PERFIS", "value": os.environ.get("PERFIS", "")}],
+            "command": ["bash", "-c", "set -e; d=%s; n=$(find \"$d\" -name \"*.adoc\" | wc -l); [ \"$n\" -gt 0 ]; find \"$d\" -name \"*.adoc\" -print0 | xargs -0 perl -pi -e \"$PERL_TROCA\"; find \"$d\" -name \"*.adoc\" -print0 | VAZIOS=\"${VAZIOS:-__nenhum__}\" xargs -0 perl -0777 -pi -e \"$PERL_VAZIOS\"; echo \"troca aplicada a $n paginas; links sem destino: ${VAZIOS:-nenhum}\"; if [ \"$PERFIS\" = 1 ] && [ -f \"$d/ui-config.yml\" ] && ! grep -q terminal-dev \"$d/ui-config.yml\"; then perl -0777 -pi -e \"s{(\\n  - name: Terminal 2\\n    path: /terminal/\\n    port: 443\\n)}{\\$1\\n  # o perfil Dev: outra identidade, a do desenvolvedor do ambiente (tenant.sh)\\n  - name: Terminal Dev\\n    path: /terminal-dev/\\n    port: 443\\n}\" \"$d/ui-config.yml\"; grep -q terminal-dev \"$d/ui-config.yml\" && echo \"aba Terminal Dev no guia\"; fi" % repo[0]["mountPath"]],
             "volumeMounts": repo})
+        # OS DOIS PERFIS, cada um com a SUA credencial. O token do pod deixa de
+        # ser montado em todo container: o terminal de sempre (Infra) recebe o
+        # da ServiceAccount do pod, e o 'terminal-dev' recebe o da identidade
+        # 'dev'. Containers nao leem o sistema de arquivos um do outro; dois
+        # terminais no MESMO container leriam o token um do outro. O diretorio
+        # de trabalho e o mesmo: a pessoa e uma so, os papeis sao dois.
+        # Prototipo medido no user5 do cluster-7kp5j em 2026-10-19.
+        SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+        sp["containers"] = [c for c in sp["containers"] if c["name"] != "terminal-dev"]
+        sp["volumes"] = [v for v in sp["volumes"] if v["name"] not in ("token-infra", "token-dev")]
+        term["volumeMounts"] = [v for v in term["volumeMounts"] if v["name"] != "token-infra"]
+        sp.pop("automountServiceAccountToken", None)
+        if os.environ.get("PERFIS") == "1":
+            sp["automountServiceAccountToken"] = False
+            sp["volumes"] += [
+                {"name": "token-infra", "projected": {"sources": [
+                    {"serviceAccountToken": {"path": "token", "expirationSeconds": 3607}},
+                    {"configMap": {"name": "kube-root-ca.crt", "items": [{"key": "ca.crt", "path": "ca.crt"}]}},
+                    {"downwardAPI": {"items": [{"path": "namespace", "fieldRef": {"fieldPath": "metadata.namespace"}}]}}]}},
+                {"name": "token-dev", "secret": {"secretName": "perfil-dev-token"}}]
+            term["volumeMounts"].append({"name": "token-infra", "mountPath": SA, "readOnly": True})
+            dev = json.loads(json.dumps(term)); dev["name"] = "terminal-dev"
+            dev["ports"] = [{"containerPort": 7682, "protocol": "TCP"}]
+            dev["env"] = [e for e in dev.get("env", []) if e["name"] not in ("PORT", "PERFIL")] + [{"name": "PORT", "value": "7682"}, {"name": "PERFIL", "value": "dev"}]
+            dev["volumeMounts"] = [v for v in dev["volumeMounts"] if v["name"] != "token-infra"] + [{"name": "token-dev", "mountPath": SA, "readOnly": True}]
+            for pr in ("livenessProbe", "readinessProbe", "startupProbe"): dev.pop(pr, None)
+            sp["containers"].append(dev)
         ini.append({
             "name": "prepara-terminal", "image": term["image"],
             "command": ["bash", "-c", "mkdir -p " + term.get("workingDir", "/home/lab-user/rhcl-connectivity-demo")],

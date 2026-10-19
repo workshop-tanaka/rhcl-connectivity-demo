@@ -318,10 +318,20 @@ porque olha o objeto e não quem o cria.
 
 ## 6. Como os perfis chegam ao participante
 
-- **Terminal.** O guia já tem duas abas, que são sessões separadas. Uma vira
-  "Infra" e a outra "Dev", cada uma com a própria identidade e o perfil no
-  prompt. Hoje as duas abrem com a mesma identidade; separá-las pede um segundo
-  processo de terminal no pod. **Não testado.**
+- **Terminal. Feito e medido em 2026-10-19 (cluster-7kp5j, user5).** O guia
+  ganha uma terceira aba, **Terminal Dev**: um segundo container no pod do guia
+  (`terminal-dev`, porta 7682, rota `/terminal-dev` no proxy), com a
+  identidade `dev` do ambiente (`travel-agency-<user>`). O token do pod deixou
+  de ir para todo container: o terminal de sempre recebe o da conta do pod
+  (projetado) e o Dev recebe o dele; containers não leem o sistema de arquivos
+  um do outro, e dois terminais no mesmo container leriam. As abas `Terminal` e
+  `Terminal 2` continuam do Infra. Medido com a identidade do Dev: edita
+  `AuthPolicy`, `HTTPRoute` e `PlanPolicy` da aplicação; **não** edita o
+  Gateway nem as policies dele (`Forbidden` com o nome dele na mensagem); lê o
+  Gateway; não lê Secret (chave de API), não pede projeto, não lê nada de outro
+  participante nem da plataforma; lê a própria esteira. O `preflight.sh`
+  continua sendo do Infra (no Dev ele falha por não ler chaves, e é o
+  esperado). `PERFIS=0 tenant.sh showroom <user>` volta ao terminal único.
 - **Console e Kiali.** Dois usuários por participante. O RHDP cria um; o
   segundo é criado no Keycloak do cluster, pela API de admin que o `tenant.sh`
   já usa para desligar o autocadastro. **Não testado.**

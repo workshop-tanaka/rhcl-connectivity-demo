@@ -909,6 +909,7 @@ roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: view}
 subjects:
   - {kind: User, apiGroup: rbac.authorization.k8s.io, name: ${u}}
   - {kind: ServiceAccount, name: showroom, namespace: showroom-${u}}
+  - {kind: ServiceAccount, name: dev, namespace: travel-agency-${u}}
 EOF
     if [[ $? -eq 0 ]]; then _ok "${u}: conferencia no OpenShift Pipelines (${ci})"
     else _warn "${u}: a conferencia nao ficou de pe em ${ci}"; falhou=$((falhou+1)); fi
@@ -959,6 +960,7 @@ roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-esteira-${
 subjects:
   - {kind: User, apiGroup: rbac.authorization.k8s.io, name: ${u}}
   - {kind: ServiceAccount, name: showroom, namespace: showroom-${u}}
+  - {kind: ServiceAccount, name: dev, namespace: travel-agency-${u}}
 EOF
     then _ok "${u}: esteira-${u} criada no Argo CD (projeto turma-${u})"
     else _warn "${u}: o cluster recusou o projeto ou a Application do Argo"; falhou=$((falhou+1)); continue; fi
