@@ -174,6 +174,14 @@ s{\x60\\(https?://[^\x60\s]+)\x60}{$1\[$1^\]}g if $ENV{CONTEUDO};
 # (medido como participante restrito, 2026-10-07). O script percorre so os
 # namespaces do ambiente dele. Os argumentos depois do -A sao preservados.
 s{\boc get ([A-Za-z][A-Za-z0-9.,-]*) -A\b}{bash scripts/meus.sh $1}g if $ENV{CONTEUDO};
+# SO NO CONTEUDO, COM OS DOIS PERFIS (PERFIS=1): todo bloco que o participante
+# clica ganha um titulo dizendo QUEM roda e EM QUAL ABA. A pagina marca os do
+# desenvolvedor com o papel 'perfil-dev' (role="execute perfil-dev"); o resto e
+# do Infra. Sem os perfis, nenhum titulo: o ambiente tem um terminal so.
+if ($ENV{CONTEUDO} && $ENV{PERFIS}) {
+  s/^(\[source,[^\]\n]*role="execute perfil-dev"[^\]\n]*\])$/.Perfil Dev -- aba *Terminal Dev*\n$1/;
+  s/^(\[source,[^\]\n]*role="execute"[^\]\n]*\])$/.Perfil Infra -- aba *Terminal*\n$1/;
+}
 # SO NO CONTEUDO: numa turma nao ha as personas 'app-dev' e 'plat-eng'. O
 # desenvolvedor e a ServiceAccount 'dev' do ambiente do participante, e o
 # engenheiro de plataforma e o proprio participante. As perguntas ao cluster
@@ -255,6 +263,8 @@ s/o Grafana abre \*\*sem pedir nada\*\* -- acesso anônimo, com\s+papel de Admin
 # porque o numero da parte muda com a sessao. As duas formas casam.
 if (/\A(?:include::[^\n]*\n)?= (?:1\.4|\{p-papeis\}) /) {
   s/\A((?:[^\n]+\n)+)\n/$1\n[NOTE]\n====\n*Nesta turma, os dois papéis são identidades do seu ambiente.* O engenheiro de plataforma é você, pelo terminal do guia: é quem cuida do Gateway. O desenvolvedor é a identidade \x60dev\x60 do seu ambiente, e onde a página diz \x60app-dev\x60 é ela que responde. Os comandos abaixo já vêm ajustados.\n====\n\n/;
+  # com os dois perfis o desenvolvedor tem aba propria: a nota diz qual
+  s/O engenheiro de plataforma é você, pelo terminal do guia: é quem cuida do Gateway\. O desenvolvedor é a identidade \x60dev\x60 do seu ambiente, e onde a página diz \x60app-dev\x60 é ela que responde\. Os comandos abaixo já vêm ajustados\./O engenheiro de plataforma (perfil Infra) é a aba *Terminal*: é quem cuida do Gateway. O desenvolvedor (perfil Dev) é a identidade \x60dev\x60 do seu ambiente, na aba *Terminal Dev*. Cada bloco diz em qual aba roda./ if $ENV{PERFIS};
 }
 if (/\A(?:include::[^\n]*\n)?= (?:3\.6|\{p-auditoria\}) /) {
   s/,\s*role="execute"//g;
@@ -2053,6 +2063,9 @@ dados["gitlab_url"]       = os.environ.get("GL_URL", "") if gl else ""
 # do instrutor traz aponta para outro repositorio, e nunca e copiado.
 che = os.environ.get("CHE_URL", "")
 dados["ide_url"]          = (che.rstrip("/") + "/#" + gl) if (gl and che) else ""
+# os dois perfis (aba Terminal Dev): as paginas mostram as variantes com 'ifdef::perfis[]'
+if os.environ.get("PERFIS") == "1":
+    dados["perfis"] = "1"
 # A SESSAO DESTE AMBIENTE. O guia tem um menu por sessao: tres dedicadas a um
 # produto (rhcl, ossm, rhsi) e a completa, que e a falta do atributo. O menu
 # decide por 'ifdef' -- entao so UM destes pode existir, e nenhum na completa.
@@ -2119,8 +2132,8 @@ for o in itens:
                     {"name": "ALT_HOST", "value": os.environ["ALT_HOST"]}, {"name": "PERL_TROCA", "value": os.environ["PERL_TROCA"]},
                     {"name": "CONTEUDO", "value": "1"}, {"name": "COM_GITLAB", "value": "1" if gl else ""}, {"name": "CHAVES", "value": os.environ.get("CHAVES", "")}, {"name": "VAZIOS", "value": "|".join(vazios)},
                     {"name": "PERL_VAZIOS", "value": os.environ["PERL_VAZIOS"]},
-                    {"name": "PERFIS", "value": os.environ.get("PERFIS", "")}],
-            "command": ["bash", "-c", "set -e; d=%s; n=$(find \"$d\" -name \"*.adoc\" | wc -l); [ \"$n\" -gt 0 ]; find \"$d\" -name \"*.adoc\" -print0 | xargs -0 perl -pi -e \"$PERL_TROCA\"; find \"$d\" -name \"*.adoc\" -print0 | VAZIOS=\"${VAZIOS:-__nenhum__}\" xargs -0 perl -0777 -pi -e \"$PERL_VAZIOS\"; echo \"troca aplicada a $n paginas; links sem destino: ${VAZIOS:-nenhum}\"; if [ \"$PERFIS\" = 1 ] && [ -f \"$d/ui-config.yml\" ] && ! grep -q terminal-dev \"$d/ui-config.yml\"; then perl -0777 -pi -e \"s{(\\n  - name: Terminal 2\\n    path: /terminal/\\n    port: 443\\n)}{\\$1\\n  # o perfil Dev: outra identidade, a do desenvolvedor do ambiente (tenant.sh)\\n  - name: Terminal Dev\\n    path: /terminal-dev/\\n    port: 443\\n}\" \"$d/ui-config.yml\"; grep -q terminal-dev \"$d/ui-config.yml\" && echo \"aba Terminal Dev no guia\"; fi" % repo[0]["mountPath"]],
+                    {"name": "PERFIS", "value": os.environ.get("PERFIS", "")}, {"name": "FOCO", "value": os.environ.get("FOCO", "")}],
+            "command": ["bash", "-c", "set -e; d=%s; n=$(find \"$d\" -name \"*.adoc\" | wc -l); [ \"$n\" -gt 0 ]; find \"$d\" -name \"*.adoc\" -print0 | xargs -0 perl -pi -e \"$PERL_TROCA\"; find \"$d\" -name \"*.adoc\" -print0 | VAZIOS=\"${VAZIOS:-__nenhum__}\" xargs -0 perl -0777 -pi -e \"$PERL_VAZIOS\"; echo \"troca aplicada a $n paginas; links sem destino: ${VAZIOS:-nenhum}\"; if [ \"$PERFIS\" = 1 ] && [ -f \"$d/ui-config.yml\" ] && ! grep -q terminal-dev \"$d/ui-config.yml\"; then if [ \"$FOCO\" = rhcl ]; then perl -0777 -pi -e \"s{\\n  - name: Terminal 2\\n    path: /terminal/\\n    port: 443\\n}{\\n  # o perfil Dev: outra identidade, a do desenvolvedor do ambiente (tenant.sh)\\n  - name: Terminal Dev\\n    path: /terminal-dev/\\n    port: 443\\n}\" \"$d/ui-config.yml\"; else perl -0777 -pi -e \"s{(\\n  - name: Terminal 2\\n    path: /terminal/\\n    port: 443\\n)}{\\$1\\n  # o perfil Dev: outra identidade, a do desenvolvedor do ambiente (tenant.sh)\\n  - name: Terminal Dev\\n    path: /terminal-dev/\\n    port: 443\\n}\" \"$d/ui-config.yml\"; fi; grep -q terminal-dev \"$d/ui-config.yml\" && echo \"aba Terminal Dev no guia\"; fi" % repo[0]["mountPath"]],
             "volumeMounts": repo})
         # OS DOIS PERFIS, cada um com a SUA credencial. O token do pod deixa de
         # ser montado em todo container: o terminal de sempre (Infra) recebe o
