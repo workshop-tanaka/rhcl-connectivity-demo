@@ -874,10 +874,14 @@ json.dump({"apiVersion": "v1", "kind": "Secret",
                  "project": "turma-" + u}}, sys.stdout)' | oc apply -f - >/dev/null \
       || { _warn "${u}: nao consegui gravar a credencial do repositorio no Argo"; falhou=$((falhou+1)); continue; }
     # a conferencia: namespace proprio, o script da administracao, a
-    # credencial do Pipelines as Code e o Repository que a liga ao projeto
+    # credencial do Pipelines as Code e o Repository que a liga ao projeto.
+    # O ROTULO NAO E 'rhcl.demo/tenant': com ele o 'tenant.sh' da ao
+    # participante 'admin' no namespace (e o que faz com os dele), e quem e
+    # admin aqui troca o Repository e o script da conferencia -- desliga o
+    # portao. Achado no 7kp5j em 2026-10-19, nos cinco participantes.
     local ci="esteira-ci-${u}"
     { oc get namespace "$ci" >/dev/null 2>&1 || oc create namespace "$ci" >/dev/null; } \
-      && oc label namespace "$ci" "rhcl.demo/tenant=${u}" --overwrite >/dev/null \
+      && oc label namespace "$ci" "rhcl.demo/esteira-de=${u}" "rhcl.demo/tenant-" --overwrite >/dev/null \
       && oc create configmap conferencia -n "$ci" --from-file=esteira.sh="${_here}/scripts/esteira.sh" --dry-run=client -o yaml | oc apply -f - >/dev/null \
       && printf '%s' "$cred" | CI="$ci" python3 -c '
 import os, sys, json

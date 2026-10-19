@@ -1167,6 +1167,8 @@ _rbac() { # <tenant>
   {
     for ns in $(oc get ns -l "${ROTULO}=${t}" -o jsonpath='{.items[*].metadata.name}'); do
       [[ "$ns" == "showroom-${t}" ]] && continue
+      # a conferencia da esteira e da plataforma: admin la desligaria o portao
+      [[ "$ns" == esteira-ci-* ]] && continue
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-admin, namespace: %s}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: admin}\nsubjects:\n' "$ns"; _sujeitos
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-extra, namespace: %s}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-extra}\nsubjects:\n' "$ns"; _sujeitos
     done
