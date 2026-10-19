@@ -10,7 +10,7 @@ Os três documentos têm papéis distintos, e vale saber qual abrir:
 | | |
 | --- | --- |
 | **este arquivo** | a sequência: acionar, olhar, dizer |
-| [RUNBOOK.md](RUNBOOK.md) | o **porquê** de cada ato, as perguntas frequentes e as 13 armadilhas |
+| [RUNBOOK.md](RUNBOOK.md) | o **porquê** de cada ato, as perguntas frequentes e as 15 armadilhas |
 | [PROVISIONING-1.4.md](PROVISIONING-1.4.md) | como o cluster foi montado do zero |
 
 **Ambiente:** RHCL 1.4.2 / OCP 4.21 (`cluster-w4xtj`), overlay `overlays/rhcl-1.4`.
@@ -1005,7 +1005,7 @@ bash scripts/preflight.sh core
 | Ato 7 dá ~50/50 e não 90/10 | `VirtualService` revertida por um teste | `oc apply -f base/mesh/virtualservice-discounts.yaml` |
 | Ato 7: sonda de mTLS dá `403` | ficou em `PERMISSIVE` | `oc patch peerauthentication travel-agency-mtls -n travel-agency --type=merge -p '{"spec":{"mtls":{"mode":"STRICT"}}}'` |
 
-A tabela completa, com as 13 armadilhas e o sintoma de cada uma, está no
+A tabela completa, com as 15 armadilhas e o sintoma de cada uma, está no
 [RUNBOOK](RUNBOOK.md#se-algo-falhar-no-palco).
 
 **Se o tempo apertar, corte os passos 5 e 6.** Os passos 1–4 sustentam a tese

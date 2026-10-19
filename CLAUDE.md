@@ -27,7 +27,7 @@ funcionar ao vivo.
 | Arquivo | Para quê |
 | --- | --- |
 | [docs/CONHECIMENTO.md](docs/CONHECIMENTO.md) | primer do projeto: estado do ambiente (§2), armadilhas (§5), **ruído benigno que não se persegue (§7)**, health check (§8), decisões fechadas (§9), ferramental local (§10) |
-| [docs/RUNBOOK.md](docs/RUNBOOK.md) | o *porquê* de cada ato, as perguntas frequentes e as 13 armadilhas |
+| [docs/RUNBOOK.md](docs/RUNBOOK.md) | o *porquê* de cada ato, as perguntas frequentes e as 15 armadilhas |
 | [docs/DEMO-PASSO-A-PASSO.md](docs/DEMO-PASSO-A-PASSO.md) | a sequência de execução: o que rodar, a saída esperada e o que dizer |
 | [docs/PROVISIONING-1.4.md](docs/PROVISIONING-1.4.md) | por que cada passo do provisionamento existe e como cada um quebra |
 | [docs/SAMPLES.md](docs/SAMPLES.md) | as amostras do Istio: o que dizer, o que medir, e as quatro armadilhas já medidas |

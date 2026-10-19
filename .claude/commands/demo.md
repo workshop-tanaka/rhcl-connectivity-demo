@@ -15,7 +15,7 @@ Passo pedido: **$ARGUMENTS** (vazio = comece pela verificação e siga para o At
 | Arquivo | Para quê |
 | --- | --- |
 | `docs/DEMO-PASSO-A-PASSO.md` | a sequência, a saída esperada e a fala de cada passo |
-| `docs/RUNBOOK.md` | o porquê, as perguntas frequentes e as 13 armadilhas |
+| `docs/RUNBOOK.md` | o porquê, as perguntas frequentes e as 15 armadilhas |
 | `scripts/demo.sh` | o executor — **é ele que roda**, não comandos improvisados |
 
 Leia o passo a passo antes do primeiro movimento. Nos atos seguintes, consulte

@@ -243,7 +243,8 @@ oc get secrets -n kuadrant-system -l app=partner \
 > a chave continuou limitada como free por mais de dois minutos. Recriando o
 > Secret (`oc get secret <chave> -o yaml | oc replace --force -f -`) o plano
 > novo valeu em cinco segundos. Vale nos dois sentidos: um parceiro rebaixado
-> só pelo label **continua com o plano antigo**.
+> só pelo label **continua com o plano antigo**. Ver a
+> [armadilha 15](#15-trocar-só-o-label-de-plano-da-chave-não-muda-o-plano).
 
 > **Connectivity Link → API Keys** mostra os mesmos três parceiros desta
 > rajada, com plano e solicitante, e é uma tela melhor que o `oc get` para a
@@ -811,7 +812,7 @@ quando quebra*. Nenhuma linha de aplicação mudou em nenhum dos dois.
 
 | Sintoma | Causa provável | Saída rápida |
 | --- | --- | --- |
-| Tudo `200`, nenhum `429` | chave sem `kuadrant.io/plan-id` → fail-open | `bash scripts/preflight.sh core` aponta a chave; `oc label secret <n> -n kuadrant-system kuadrant.io/plan-id=free` |
+| Tudo `200`, nenhum `429` | chave sem `kuadrant.io/plan-id` → fail-open | `bash scripts/preflight.sh core` aponta a chave; `oc label secret <n> -n kuadrant-system kuadrant.io/plan-id=free` **e recrie o Secret** (`oc get secret <n> -n kuadrant-system -o yaml \| oc replace --force -f -`) — só o label não vale, [armadilha 15](#15-trocar-só-o-label-de-plano-da-chave-não-muda-o-plano) |
 | `429` onde era pra ser `200` | contador da janela anterior ainda aberto | espere 11s e repita — é o motivo da pausa no script |
 | **`free` com zero `200`**, gold e silver normais | **cota diária exaurida** (1000/dia) por ensaio ou `soak` | `bash scripts/traffic.sh reset` — 30s, e é o modo de falha mais provável |
 | Tudo `401`, inclusive com chave | Secret sem `authorino.kuadrant.io/managed-by`, ou no namespace errado | `oc get secrets -n kuadrant-system -l app=partner` |
@@ -1504,3 +1505,33 @@ istio_requests_total{destination_service_name="cobranca", partner="unknown"} = 5
 o hostname → chave com os labels que o `AuthPolicy` seleciona → `x-partner` no
 `AuthPolicy` da rota. As duas primeiras o preflight cobre; a terceira aparece no
 painel de parceiros como `unknown`.
+
+### 15. Trocar só o label de plano da chave não muda o plano
+
+**Sintoma.** Um parceiro é movido de plano com
+`oc label secret <chave> kuadrant.io/plan-id=gold --overwrite`, o label aparece
+certo no `oc get secret -L kuadrant.io/plan-id`, e a rajada continua com o
+limite antigo.
+
+**Medido.** No cluster-cqfs4 em 2026-10-10 (RHCL 1.4.3, Authorino do
+operator), com o label de uma chave trocado de `free` para `gold`, a rajada de
+14 seguiu em 3 servidas aos 11 s, 20 s, 41 s, 61 s, 92 s e 122 s. O Authorino
+registra `resource reconciled` para o Secret, e o plano não muda.
+
+**Correção.** Recriar o Secret com o label novo; o plano vale em cerca de 5 s:
+
+```bash
+oc label secret <chave> -n <ns> kuadrant.io/plan-id=gold --overwrite
+oc get secret <chave> -n <ns> -o yaml | oc replace --force -f -
+```
+
+**Por que importa.** O sentido perigoso é o do rebaixamento: o parceiro
+rebaixado só pelo label **continua com o plano antigo**, e nada na tela diz
+isso. Por isso a fala do Ato 2 é "trocar o label **e recriar a chave**", nunca
+"é só editar um label"; a parte dos planos do workshop mostra o comportamento
+como passo.
+
+**Não medido.** Se um reinício do Authorino ou uma espera maior que 2 minutos
+aplica o label; se a chave cunhada pelo portal (plano em *annotation*, ver a
+[armadilha 11](#11-aprovar-chave-no-developer-portal-cunha-uma-chave-sem-limite))
+se comporta igual.
