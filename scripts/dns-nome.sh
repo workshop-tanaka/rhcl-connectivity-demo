@@ -108,7 +108,12 @@ cmd_limpa() {
 # porque o Service do CoreDNS e ClusterIP.
 _PY_DNS='
 import socket, struct, sys, random
-srv, nome = sys.argv[1], sys.argv[2]
+srv, nome, zona, ns = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+SVC = "." + ns + ".svc.cluster.local"
+def curto(n):
+    if n.endswith("." + zona): return n[:-len(zona) - 1]
+    if n.endswith(SVC): return n[:-len(SVC)] + " (svc)"
+    return n
 def _nome(r, off):
     p = []
     while True:
@@ -118,6 +123,7 @@ def _nome(r, off):
             p.append(_nome(r, struct.unpack(">H", r[off:off+2])[0] & 0x3FFF)[0]); off += 2; break
         p.append(r[off+1:off+1+l].decode()); off += 1 + l
     return ".".join(p), off
+print("      pergunta: %s  (zona %s, ao CoreDNS do laboratorio)" % (curto(nome), zona))
 q = b"".join(bytes([len(x)]) + x.encode() for x in nome.split(".")) + b"\x00"
 pkt = struct.pack(">HHHHHH", random.randint(0, 65535), 0x0100, 1, 0, 0, 0) + q + struct.pack(">HH", 1, 1)
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(5)
@@ -126,41 +132,107 @@ try:
 except Exception as e:
     print("      (sem resposta do CoreDNS: %s)" % e); sys.exit(0)
 rcode = r[3] & 0x0F; n = struct.unpack(">H", r[6:8])[0]
-if rcode == 3: print("      NXDOMAIN -- o nome nao existe nesta zona"); sys.exit(0)
+if rcode == 3:
+    print("      NXDOMAIN -- ninguem criou o nome \"%s\" nesta zona" % curto(nome)); sys.exit(0)
 if n == 0: print("      rcode=%d, nenhuma resposta" % rcode); sys.exit(0)
 off = 12; _, off = _nome(r, off); off += 4
-ip = ""
+ip = ""; linhas = []
 for _ in range(n):
-    _, off = _nome(r, off)
+    dono, off = _nome(r, off)
     t, _, _, dlen = struct.unpack(">HHIH", r[off:off+10]); off += 10
-    if t == 5: print("      CNAME -> %s" % _nome(r, off)[0])
+    if t == 5:
+        alvo = _nome(r, off)[0]; c = curto(dono)
+        if c == curto(nome) and alvo.endswith(SVC): nota = "o nome publico -> o Gateway"
+        elif c == curto(nome): nota = "o nome publico"
+        elif c.startswith("klb."): nota = "decisao: o ramo da sua regiao"
+        elif alvo.endswith(SVC): nota = "o destino (com peso)"
+        else: nota = ""
+        linhas.append((c, "CNAME", curto(alvo), nota))
     elif t == 1:
-        ip = socket.inet_ntoa(r[off:off+4]); print("      A     -> %s" % ip)
+        ip = socket.inet_ntoa(r[off:off+4])
+        linhas.append((curto(dono).replace(" (svc)", ""), "A", ip, "o endereco do Gateway"))
     off += dlen
+w = max(len(l[0]) for l in linhas)
+for c, t, a, nota in linhas:
+    print("      %-*s  %-5s  %-20s  %s" % (w, c, t, a, nota))
 open("/tmp/ip", "w").write(ip)
 '
 
 _resolve() { # consulta o CoreDNS do laboratorio, de dentro do cluster
   local ip; ip="$(oc get svc coredns -n "$LAB_NS" -o jsonpath='{.spec.clusterIP}' 2>/dev/null)"
   [[ -n "$ip" ]] || { _warn "Service do CoreDNS ainda sem IP"; return 1; }
-  oc exec -i -n "$LAB_NS" cliente -- python3 - "$ip" "$NOME" <<PY 2>/dev/null
+  oc exec -i -n "$LAB_NS" cliente -- python3 - "$ip" "$NOME" "$ZONA" "$LAB_NS" <<PY 2>/dev/null
 ${_PY_DNS}
 PY
 }
 
+# OS REGISTROS COMO ARVORE, com a zona escrita uma vez so: o nome inteiro em
+# cada linha passava de 130 colunas e quebrava no painel do terminal, que e
+# estreito -- e a estrutura (decisao por regiao, destino por peso) sumia na
+# quebra. Dos dois DNSRecord, diz o papel de cada um: o do listener e o que a
+# DNSPolicy derivou (dono: a policy); o autoritativo e o que o CoreDNS serve
+# (label da zona). Os dados sao os mesmos; a arvore sai do autoritativo.
 _registros() {
   oc get dnsrecords.kuadrant.io -n "$LAB_NS" -o json 2>/dev/null | python3 -c '
 import sys, json
+zona, ns = sys.argv[1], sys.argv[2]
+SVC = "." + ns + ".svc.cluster.local"
+def curto(n):
+    if n.endswith("." + zona): return n[:-len(zona) - 1]
+    if n.endswith(SVC): return n[:-len(SVC)] + " (svc)"
+    return n
 itens = json.load(sys.stdin).get("items", [])
-if not itens: print("      (nenhum DNSRecord ainda)")
+if not itens:
+    print("      (nenhum DNSRecord: sem DNSPolicy, ninguem cria o nome)"); sys.exit(0)
+aut = None
+# primeiro o que a policy derivou, depois o que o CoreDNS serve: e a ordem do fluxo
+itens.sort(key=lambda it: "kuadrant.io/listener-name" not in it["metadata"].get("labels", {}))
 for it in itens:
-    prov = it["metadata"].get("labels", {}).get("kuadrant.io/dns-provider-name", "?")
+    m = it["metadata"]; lab = m.get("labels", {})
     pronto = [c for c in it.get("status", {}).get("conditions", []) if c["type"] == "Ready"]
-    print("      DNSRecord %-32s provedor=%-9s Ready=%s" % (it["metadata"]["name"][:32], prov, pronto[0]["status"] if pronto else "?"))
-    for e in it["spec"].get("endpoints", []):
-        if e["recordType"] == "TXT": continue     # registros de propriedade do external-dns
-        extra = " ".join("%s=%s" % (p["name"], p["value"]) for p in e.get("providerSpecific", []))
-        print("        %-46s %-6s -> %-44s %s" % (e["dnsName"], e["recordType"], ",".join(e["targets"]), extra))'
+    pr = "Ready=" + (pronto[0]["status"] if pronto else "?")
+    donos = [o["kind"] + " " + o["name"] for o in m.get("ownerReferences", [])]
+    if "kuadrant.io/listener-name" in lab:
+        print("      DNSRecord %s  %s" % (m["name"], pr))
+        print("        derivado pela %s do listener \"%s\" do Gateway" % (donos[0] if donos else "DNSPolicy", lab["kuadrant.io/listener-name"]))
+    elif lab.get("kuadrant.io/authoritative-record") == "true":
+        aut = it
+        print("      DNSRecord %s  %s" % (m["name"], pr))
+        print("        o que o CoreDNS serve (tem o label kuadrant.io/coredns-zone-name)")
+    else:
+        print("      DNSRecord %s  %s" % (m["name"], pr))
+it = aut or itens[0]
+filhos = {}
+for e in it["spec"].get("endpoints", []):
+    if e["recordType"] == "TXT": continue     # registros de propriedade do external-dns
+    filhos.setdefault(e["dnsName"], []).append(e)
+raiz = it["spec"].get("rootHost") or sorted(filhos)[0]
+print()
+print("      zona %s" % zona)
+print("      %s" % curto(raiz))
+vistos = set()
+def nota(alvo, ps):
+    if alvo.endswith(SVC): return "o Gateway deste cluster"
+    if curto(alvo).startswith("klb."): return "ponto de decisao, por regiao"
+    if ps.get("geo-code") == "*": return "defaultGeo: as outras"
+    if "geo-code" in ps: return "o ramo da regiao"
+    return ""
+def desenha(nome, pre):
+    lst = filhos.get(nome, [])
+    for i, e in enumerate(lst):
+        fim = i == len(lst) - 1
+        ps = {p["name"]: p["value"] for p in e.get("providerSpecific", []) or []}
+        for alvo in e["targets"]:
+            if "geo-code" in ps: rot = "geo %-6s -> %s" % (ps["geo-code"], curto(alvo))
+            elif "weight" in ps: rot = "peso %s -> %s" % (ps["weight"], curto(alvo))
+            else: rot = "CNAME %s" % curto(alvo)
+            ja = alvo in vistos and alvo in filhos
+            esq = "%s%s %s" % (pre, "└─" if fim else "├─", rot)
+            print("      %-38s %s" % (esq, nota(alvo, ps) + (", mesmo ramo" if ja else "")))
+            if not ja:
+                vistos.add(alvo); desenha(alvo, pre + ("   " if fim else "│  "))
+desenha(raiz, "")
+' "$ZONA" "$LAB_NS"
 }
 
 cmd_prova() {
@@ -348,6 +420,19 @@ EOF
   _nota "por geografia, e de cada ramo um destino com peso. Com dois clusters,"
   _nota "cada um publica o seu ramo na MESMA zona -- e e assim que o RHCL"
   _nota "distribui trafego entre clusters, sem balanceador no meio."
+
+  # O NOME TEM DONO: sem a policy, os registros saem e o nome deixa de
+  # existir. E a frase "desfeito quando a policy sai", mostrada.
+  [[ "$MANTER" == "1" ]] && return 0
+  _sec "6. O nome tem dono: sem a policy, ele some"
+  oc delete dnspolicy lab -n "$LAB_NS" >/dev/null
+  for i in $(seq 1 20); do
+    [[ "$(oc get dnsrecords.kuadrant.io -n "$LAB_NS" --no-headers 2>/dev/null | wc -l | tr -d ' ')" == "0" ]] && break
+    sleep 3
+  done
+  _registros
+  _resolve
+  _nota "ninguem apagou registro a mao: a policy saiu, e o nome saiu com ela."
 }
 
 # DUAS FERRAMENTAS PEQUENAS, para o guia em passos: la o participante aplica os
@@ -361,8 +446,9 @@ cmd_resolve() {
   _resolve || return 1
   local ip; ip="$(oc exec -n "$LAB_NS" cliente -- cat /tmp/ip 2>/dev/null)"
   [[ -n "$ip" ]] || return 0
-  printf '      %s %s\n' "HTTP no endereco que o DNS deu:" \
-    "$(oc exec -n "$LAB_NS" cliente -- curl -s -o /dev/null -m 10 -w '%{http_code}' --resolve "${NOME}:80:${ip}" "http://${NOME}/" 2>/dev/null)"
+  local c; c="$(oc exec -n "$LAB_NS" cliente -- curl -s -o /dev/null -m 10 -w '%{http_code}' --resolve "${NOME}:80:${ip}" "http://${NOME}/" 2>/dev/null)"
+  if [[ "$c" == 200 ]]; then _ok "HTTP em ${ip}: 200 -- quem respondeu foi o Gateway lab"
+  else _no "HTTP em ${ip}: ${c:-sem resposta}"; fi
 }
 
 case "${1:-prova}" in
