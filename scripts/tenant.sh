@@ -191,7 +191,12 @@ if ($ENV{CONTEUDO} && $ENV{PERFIS}) {
   # API com a chave de um plano: nenhuma identidade do cluster, qualquer aba,
   # sem a linha 'perfil'
   s/^(\[source,[^\]\n]*role="execute perfil-qualquer"[^\]\n]*\])$/.Consumidor da API -- qualquer aba\n$1/;
-  if ($pf && /^----$/) { $_ .= "perfil $pf\n"; $pf = ""; }
+  # o resto do bloco vai entre chaves, condicionado a funcao: o bash le o grupo
+  # inteiro antes de rodar, entao nada passa sem a resposta. A primeira versao
+  # (a funcao lia o resto do terminal) falhou no navegador: o resto ja estava
+  # com o readline, e a funcao achou o bloco vazio (medido no user1).
+  if ($pf && /^----$/) { $_ .= "perfil $pf && {\n"; $pf = ""; $pfin = 1; }
+  elsif ($pfin && /^----$/) { $_ = "}\n" . $_; $pfin = 0; }
 }
 # SO NO CONTEUDO: numa turma nao ha as personas 'app-dev' e 'plat-eng'. O
 # desenvolvedor e a ServiceAccount 'dev' do ambiente do participante, e o
@@ -249,30 +254,28 @@ PERL
 # (read, e nao "$(cat <<...)": o bash 3.2 do macOS fecha o "$(" no primeiro
 # ')' de um padrao de case dentro do heredoc -- medido: a onda v0.68 caiu nisso)
 IFS= read -r -d '' _PERFIL_SH <<'BASH' || true
-# perfil: a primeira linha de todo bloco clicavel do guia quando o ambiente
-# tem os dois perfis (tenant.sh). O botao do guia cola o bloco na aba ABERTA,
+# perfil: abre todo bloco clicavel do guia quando o ambiente tem os dois
+# perfis (tenant.sh): 'perfil dev && {' ... '}'. O botao do guia cola o bloco
+# na aba ABERTA,
 # nao na do perfil; sem esta linha, um bloco do Dev clicado na aba Infra roda
 # com a identidade Infra e passa -- e a recusa que a pagina mostra some.
 perfil() {
-  local quer="${1:-}" aqui="${PERFIL:-infra}" resto="" linha r
+  local quer="${1:-}" aqui="${PERFIL:-infra}" lixo r
   case "$quer" in dev|infra) ;; *) echo "uso: perfil dev|infra"; return 2 ;; esac
   if [ "$quer" = "$aqui" ]; then
     echo "perfil ${quer^} -- aba Terminal ${quer^}"
     return 0
   fi
-  # o botao cola o bloco inteiro de uma vez: o que vem depois desta linha ja
-  # esta no terminal. Guarda, para nada rodar antes da resposta.
-  while IFS= read -r -t 0.5 linha; do resto+="${linha}"$'\n'; done
   echo
   echo "==> Este bloco e do perfil ${quer^}, e esta aba e a Terminal ${aqui^}."
   echo "==> Aqui ele roda com a identidade ${aqui^}: o resultado pode nao ser o que a pagina mostra."
   echo "==> Para seguir o guia: abra a aba Terminal ${quer^} e clique no bloco de novo."
-  if [ -z "${resto//[$' \t\n']/}" ]; then
-    return 1
-  fi
+  # o Enter que o botao manda depois do texto pode ainda estar no terminal:
+  # sem descartar, ele seria lido como a resposta (um 'nao' que ninguem deu)
+  while IFS= read -r -t 0.3 lixo; do :; done
   read -r -p "Executar mesmo assim como ${aqui^}? [s/N] " r
   case "$r" in
-    s|S|sim|Sim|SIM) eval "$resto" ;;
+    s|S|sim|Sim|SIM) return 0 ;;
     *) echo "nada foi executado"; return 1 ;;
   esac
 }
@@ -318,7 +321,7 @@ if (/\A(?:include::[^\n]*\n)?= (?:3\.6|\{p-auditoria\}) /) {
   s/,\s*role="execute"//g;
   # bloco de leitura nao e de perfil nenhum: sai o titulo e a linha 'perfil'
   s/^\.Perfil (?:Infra|Dev) -- aba[^\n]*\n//mg;
-  s/^----\nperfil (?:infra|dev)\n/----\n/mg;
+  s/^----\nperfil (?:infra|dev) && \{\n((?:(?!^----$).*\n)*?)\}\n----$/----\n$1----/mg;
   s/\A((?:[^\n]+\n)+)\n/$1\n[IMPORTANT]\n====\n*Nesta turma, esta parte é leitura.* Ela consulta o registro de auditoria do cluster inteiro, que mostra as ações de todos os participantes, e o seu ambiente não tem acesso a ele: os comandos desta página respondem \x60Forbidden\x60. As saídas de exemplo estão na própria página.\n====\n\n/;
 }
 # A PROVA DO ALERTA TAMBEM E LEITURA NUMA TURMA. 'alerta.sh prova' escala para
@@ -330,7 +333,7 @@ if (/\A(?:include::[^\n]*\n)?= (?:3\.6|\{p-auditoria\}) /) {
 # Decisao fechada do workshop: sem trilha do instrutor -- ou o participante
 # aplica, ou vira leitura. Aqui so o bloco da prova deixa de ser clicavel.
 if (/\A(?:include::[^\n]*\n)?= (?:3\.5|\{p-alerta\}) /) {
-  s/(?:\.Perfil Infra[^\n]*\n)?\[source,bash,role="execute"\]\n----\n(?:perfil infra\n)?bash scripts\/alerta\.sh prova\n----\n/[IMPORTANT]\n====\n*Nesta turma, a prova abaixo é leitura.* Ela derruba o Limitador, que é um só para a turma inteira: rodá-la tiraria o limite de todos os participantes ao mesmo tempo, e por isso o comando se recusa no seu terminal. A saída mostrada foi medida num ambiente de um participante só. O que você pode rodar aqui: \x60bash scripts\/alerta.sh status\x60, acima, e a parte anterior, que derruba e devolve o limite só no seu ambiente.\n====\n\n[source,bash]\n----\nbash scripts\/alerta.sh prova\n----\n/;
+  s/(?:\.Perfil Infra[^\n]*\n)?\[source,bash,role="execute"\]\n----\n(?:perfil infra && \{\n)?bash scripts\/alerta\.sh prova\n(?:\}\n)?----\n/[IMPORTANT]\n====\n*Nesta turma, a prova abaixo é leitura.* Ela derruba o Limitador, que é um só para a turma inteira: rodá-la tiraria o limite de todos os participantes ao mesmo tempo, e por isso o comando se recusa no seu terminal. A saída mostrada foi medida num ambiente de um participante só. O que você pode rodar aqui: \x60bash scripts\/alerta.sh status\x60, acima, e a parte anterior, que derruba e devolve o limite só no seu ambiente.\n====\n\n[source,bash]\n----\nbash scripts\/alerta.sh prova\n----\n/;
 }
 s/^(\* xref:m3-06-auditoria\.adoc\[[^\]\n]*)\]/$1 -- leitura]/mg;
 # O painel consumo-plataforma e visao da plataforma INTEIRA por desenho, e o

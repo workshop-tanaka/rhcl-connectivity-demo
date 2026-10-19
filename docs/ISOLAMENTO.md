@@ -342,11 +342,16 @@ porque olha o objeto e não quem o cria.
   Showroom procura `.tabcontent.active`). Medido no user1 em 2026-10-19: o
   `oc patch` do Dev no Gateway, clicado com a aba Infra aberta, passou, e a
   recusa que a página mostra sumiu. A função `perfil` (no `~/.bashrc.d` dos dois
-  terminais, gravada pelo `tenant.sh`) confere `$PERFIL`. Na aba certa, segue.
-  Na errada, guarda o resto do bloco (que o botão cola inteiro, de uma vez),
-  avisa e pergunta `Executar mesmo assim como Infra? [s/N]`. Com `s`, roda o
-  que guardou; com `Enter`, nada roda. Medido num pty real no user5, nos três
-  casos. O único bloco do Dev que deixaria marca rodando como Infra (a anotação
+  terminais, gravada pelo `tenant.sh`) confere `$PERFIL`, e o resto do bloco
+  vem entre chaves: `perfil dev && { ... }`. Na aba certa, segue. Na errada,
+  avisa e pergunta `Executar mesmo assim como Infra? [s/N]`; com `s` o grupo
+  roda, com `Enter` nada roda. A primeira versão (a função lia do terminal o
+  resto do bloco) passou num pty e falhou no navegador: o readline já tinha
+  lido o resto, a função achou o bloco vazio e o `oc whoami` sumiu (user1,
+  2026-10-19). Com as chaves, o bash lê o grupo inteiro antes de rodar, onde
+  quer que o texto esteja. Medido pelo websocket do próprio ttyd no user5, nos
+  quatro casos (Dev na aba Dev; Dev na Infra com `Enter` e com `s`, com
+  heredoc; Infra na Infra). O único bloco do Dev que deixaria marca rodando como Infra (a anotação
   no `prod-web-deny-all`, 1.4) se desfaz na mesma linha; os da esteira usam a
   mesma credencial de Git nas duas abas, e o efeito é igual.
 
