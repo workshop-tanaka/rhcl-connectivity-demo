@@ -187,6 +187,10 @@ if ($ENV{CONTEUDO} && $ENV{PERFIS}) {
   $pf = "infra" if /^\[source,[^\]\n]*role="execute"[^\]\n]*\]$/;
   s/^(\[source,[^\]\n]*role="execute perfil-dev"[^\]\n]*\])$/.Perfil Dev -- aba *Terminal Dev*\n$1/;
   s/^(\[source,[^\]\n]*role="execute"[^\]\n]*\])$/.Perfil Infra -- aba *Terminal Infra*\n$1/;
+  # o bloco do CONSUMIDOR (role="execute perfil-qualquer") e so uma chamada a
+  # API com a chave de um plano: nenhuma identidade do cluster, qualquer aba,
+  # sem a linha 'perfil'
+  s/^(\[source,[^\]\n]*role="execute perfil-qualquer"[^\]\n]*\])$/.Consumidor da API -- qualquer aba\n$1/;
   if ($pf && /^----$/) { $_ .= "perfil $pf\n"; $pf = ""; }
 }
 # SO NO CONTEUDO: numa turma nao ha as personas 'app-dev' e 'plat-eng'. O
@@ -242,7 +246,9 @@ PERL
 # ~/.bashrc.d dos dois terminais, confere a aba. Medido no user5 do
 # cluster-7kp5j em 2026-10-19, com o bloco colado de uma vez como o botao do
 # guia faz: na aba certa segue; na errada guarda o resto, avisa e pergunta.
-_PERFIL_SH="$(cat <<'BASH'
+# (read, e nao "$(cat <<...)": o bash 3.2 do macOS fecha o "$(" no primeiro
+# ')' de um padrao de case dentro do heredoc -- medido: a onda v0.68 caiu nisso)
+IFS= read -r -d '' _PERFIL_SH <<'BASH' || true
 # perfil: a primeira linha de todo bloco clicavel do guia quando o ambiente
 # tem os dois perfis (tenant.sh). O botao do guia cola o bloco na aba ABERTA,
 # nao na do perfil; sem esta linha, um bloco do Dev clicado na aba Infra roda
@@ -271,7 +277,6 @@ perfil() {
   esac
 }
 BASH
-)"
 
 _PERL_VAZIOS="$(cat <<'PERL'
 BEGIN { $v = qr/(?:$ENV{VAZIOS})/; }
