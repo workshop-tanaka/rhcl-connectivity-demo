@@ -335,7 +335,20 @@ porque olha o objeto e não quem o cria.
 - **Console e Kiali.** Dois usuários por participante. O RHDP cria um; o
   segundo é criado no Keycloak do cluster, pela API de admin que o `tenant.sh`
   já usa para desligar o autocadastro. **Não testado.**
-- **Guia.** Cada parte abre dizendo o perfil: Infra, Dev ou os dois.
+- **Guia.** Cada parte abre dizendo o perfil: Infra, Dev ou os dois. Todo
+  bloco clicável ganha um título (`Perfil Dev -- aba Terminal Dev`) e uma
+  primeira linha, `perfil dev` ou `perfil infra`. O título só não bastava:
+  **o botão do bloco cola o comando na aba aberta, não na do perfil** (o
+  Showroom procura `.tabcontent.active`). Medido no user1 em 2026-10-19: o
+  `oc patch` do Dev no Gateway, clicado com a aba Infra aberta, passou, e a
+  recusa que a página mostra sumiu. A função `perfil` (no `~/.bashrc.d` dos dois
+  terminais, gravada pelo `tenant.sh`) confere `$PERFIL`. Na aba certa, segue.
+  Na errada, guarda o resto do bloco (que o botão cola inteiro, de uma vez),
+  avisa e pergunta `Executar mesmo assim como Infra? [s/N]`. Com `s`, roda o
+  que guardou; com `Enter`, nada roda. Medido num pty real no user5, nos três
+  casos. O único bloco do Dev que deixaria marca rodando como Infra (a anotação
+  no `prod-web-deny-all`, 1.4) se desfaz na mesma linha; os da esteira usam a
+  mesma credencial de Git nas duas abas, e o efeito é igual.
 
 O que muda no roteiro:
 

@@ -178,9 +178,16 @@ s{\boc get ([A-Za-z][A-Za-z0-9.,-]*) -A\b}{bash scripts/meus.sh $1}g if $ENV{CON
 # clica ganha um titulo dizendo QUEM roda e EM QUAL ABA. A pagina marca os do
 # desenvolvedor com o papel 'perfil-dev' (role="execute perfil-dev"); o resto e
 # do Infra. Sem os perfis, nenhum titulo: o ambiente tem um terminal so.
+# E A PRIMEIRA LINHA DO BLOCO DIZ O PERFIL ('perfil dev' / 'perfil infra'): o
+# botao cola o bloco na aba ABERTA, nao na do perfil (medido no user1 em
+# 2026-10-19: o 'oc patch' do Dev clicado na aba Infra passou). A funcao
+# 'perfil' (_PERFIL_SH) segura o bloco na aba errada e pergunta.
 if ($ENV{CONTEUDO} && $ENV{PERFIS}) {
+  $pf = "dev" if /^\[source,[^\]\n]*role="execute perfil-dev"[^\]\n]*\]$/;
+  $pf = "infra" if /^\[source,[^\]\n]*role="execute"[^\]\n]*\]$/;
   s/^(\[source,[^\]\n]*role="execute perfil-dev"[^\]\n]*\])$/.Perfil Dev -- aba *Terminal Dev*\n$1/;
   s/^(\[source,[^\]\n]*role="execute"[^\]\n]*\])$/.Perfil Infra -- aba *Terminal Infra*\n$1/;
+  if ($pf && /^----$/) { $_ .= "perfil $pf\n"; $pf = ""; }
 }
 # SO NO CONTEUDO: numa turma nao ha as personas 'app-dev' e 'plat-eng'. O
 # desenvolvedor e a ServiceAccount 'dev' do ambiente do participante, e o
@@ -230,6 +237,42 @@ PERL
 #      que fechava o bloco seguinte
 #   3. o link vazio no meio de uma frase vira so o texto
 # Recebe VAZIOS (atributos sem valor, separados por |) pelo ambiente.
+# A FUNCAO DOS BLOCOS COM DOIS PERFIS. A troca poe "perfil dev" ou "perfil
+# infra" na primeira linha de todo bloco clicavel; esta funcao, no
+# ~/.bashrc.d dos dois terminais, confere a aba. Medido no user5 do
+# cluster-7kp5j em 2026-10-19, com o bloco colado de uma vez como o botao do
+# guia faz: na aba certa segue; na errada guarda o resto, avisa e pergunta.
+_PERFIL_SH="$(cat <<'BASH'
+# perfil: a primeira linha de todo bloco clicavel do guia quando o ambiente
+# tem os dois perfis (tenant.sh). O botao do guia cola o bloco na aba ABERTA,
+# nao na do perfil; sem esta linha, um bloco do Dev clicado na aba Infra roda
+# com a identidade Infra e passa -- e a recusa que a pagina mostra some.
+perfil() {
+  local quer="${1:-}" aqui="${PERFIL:-infra}" resto="" linha r
+  case "$quer" in dev|infra) ;; *) echo "uso: perfil dev|infra"; return 2 ;; esac
+  if [ "$quer" = "$aqui" ]; then
+    echo "perfil ${quer^} -- aba Terminal ${quer^}"
+    return 0
+  fi
+  # o botao cola o bloco inteiro de uma vez: o que vem depois desta linha ja
+  # esta no terminal. Guarda, para nada rodar antes da resposta.
+  while IFS= read -r -t 0.5 linha; do resto+="${linha}"$'\n'; done
+  echo
+  echo "==> Este bloco e do perfil ${quer^}, e esta aba e a Terminal ${aqui^}."
+  echo "==> Aqui ele roda com a identidade ${aqui^}: o resultado pode nao ser o que a pagina mostra."
+  echo "==> Para seguir o guia: abra a aba Terminal ${quer^} e clique no bloco de novo."
+  if [ -z "${resto//[$' \t\n']/}" ]; then
+    return 1
+  fi
+  read -r -p "Executar mesmo assim como ${aqui^}? [s/N] " r
+  case "$r" in
+    s|S|sim|Sim|SIM) eval "$resto" ;;
+    *) echo "nada foi executado"; return 1 ;;
+  esac
+}
+BASH
+)"
+
 _PERL_VAZIOS="$(cat <<'PERL'
 BEGIN { $v = qr/(?:$ENV{VAZIOS})/; }
 s/^\|[^\n]*\n\|[^\n]*\n\|\s*\{$v\}\[[^\]\n]*\]\n\n?//mg;
@@ -268,6 +311,9 @@ if (/\A(?:include::[^\n]*\n)?= (?:1\.4|\{p-papeis\}) /) {
 }
 if (/\A(?:include::[^\n]*\n)?= (?:3\.6|\{p-auditoria\}) /) {
   s/,\s*role="execute"//g;
+  # bloco de leitura nao e de perfil nenhum: sai o titulo e a linha 'perfil'
+  s/^\.Perfil (?:Infra|Dev) -- aba[^\n]*\n//mg;
+  s/^----\nperfil (?:infra|dev)\n/----\n/mg;
   s/\A((?:[^\n]+\n)+)\n/$1\n[IMPORTANT]\n====\n*Nesta turma, esta parte é leitura.* Ela consulta o registro de auditoria do cluster inteiro, que mostra as ações de todos os participantes, e o seu ambiente não tem acesso a ele: os comandos desta página respondem \x60Forbidden\x60. As saídas de exemplo estão na própria página.\n====\n\n/;
 }
 # A PROVA DO ALERTA TAMBEM E LEITURA NUMA TURMA. 'alerta.sh prova' escala para
@@ -279,7 +325,7 @@ if (/\A(?:include::[^\n]*\n)?= (?:3\.6|\{p-auditoria\}) /) {
 # Decisao fechada do workshop: sem trilha do instrutor -- ou o participante
 # aplica, ou vira leitura. Aqui so o bloco da prova deixa de ser clicavel.
 if (/\A(?:include::[^\n]*\n)?= (?:3\.5|\{p-alerta\}) /) {
-  s/\[source,bash,role="execute"\]\n----\nbash scripts\/alerta\.sh prova\n----\n/[IMPORTANT]\n====\n*Nesta turma, a prova abaixo é leitura.* Ela derruba o Limitador, que é um só para a turma inteira: rodá-la tiraria o limite de todos os participantes ao mesmo tempo, e por isso o comando se recusa no seu terminal. A saída mostrada foi medida num ambiente de um participante só. O que você pode rodar aqui: \x60bash scripts\/alerta.sh status\x60, acima, e a parte anterior, que derruba e devolve o limite só no seu ambiente.\n====\n\n[source,bash]\n----\nbash scripts\/alerta.sh prova\n----\n/;
+  s/(?:\.Perfil Infra[^\n]*\n)?\[source,bash,role="execute"\]\n----\n(?:perfil infra\n)?bash scripts\/alerta\.sh prova\n----\n/[IMPORTANT]\n====\n*Nesta turma, a prova abaixo é leitura.* Ela derruba o Limitador, que é um só para a turma inteira: rodá-la tiraria o limite de todos os participantes ao mesmo tempo, e por isso o comando se recusa no seu terminal. A saída mostrada foi medida num ambiente de um participante só. O que você pode rodar aqui: \x60bash scripts\/alerta.sh status\x60, acima, e a parte anterior, que derruba e devolve o limite só no seu ambiente.\n====\n\n[source,bash]\n----\nbash scripts\/alerta.sh prova\n----\n/;
 }
 s/^(\* xref:m3-06-auditoria\.adoc\[[^\]\n]*)\]/$1 -- leitura]/mg;
 # O painel consumo-plataforma e visao da plataforma INTEIRA por desenho, e o
@@ -2006,7 +2052,7 @@ json.dump({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
     # e, nele, um KeycloakRealmImport com o nome de outro participante -- com
     # '-A' a "senha" plantada iria parar no guia da vitima.
     oc get keycloakrealmimport -n "${KEYCLOAK_NS:-keycloak}" -o json 2>/dev/null || printf '{"items":[]}'
-  } | PERFIS="$perfis" FOCO="$foco" CHE_URL="$che_url" GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
+  } | PERFIS="$perfis" PERFIL_SH="$_PERFIL_SH" FOCO="$foco" CHE_URL="$che_url" GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
 import sys, json, os, re, base64
 t, dom = os.environ["TENANT"], os.environ["DOM"]
 objs, chaves, rotas, realms = sys.stdin.read().split("\x1e")
@@ -2162,9 +2208,18 @@ for o in itens:
             dev["volumeMounts"] = [v for v in dev["volumeMounts"] if v["name"] != "token-infra"] + [{"name": "token-dev", "mountPath": SA, "readOnly": True}]
             for pr in ("livenessProbe", "readinessProbe", "startupProbe"): dev.pop(pr, None)
             sp["containers"].append(dev)
+        # a funcao perfil (primeira linha dos blocos com os dois perfis) vai
+        # para o ~/.bashrc.d, que o .bashrc do terminal ja le; o home e o mesmo
+        # volume nos dois containers. Sem os perfis, ela sai.
+        prep = "mkdir -p " + term.get("workingDir", "/home/lab-user/rhcl-connectivity-demo") + "; "
+        if os.environ.get("PERFIS") == "1":
+            prep += "mkdir -p /home/lab-user/.bashrc.d && printf \"%s\\n\" \"$PERFIL_SH\" > /home/lab-user/.bashrc.d/perfil.sh"
+        else:
+            prep += "rm -f /home/lab-user/.bashrc.d/perfil.sh"
         ini.append({
             "name": "prepara-terminal", "image": term["image"],
-            "command": ["bash", "-c", "mkdir -p " + term.get("workingDir", "/home/lab-user/rhcl-connectivity-demo")],
+            "command": ["bash", "-c", prep],
+            "env": [{"name": "PERFIL_SH", "value": os.environ["PERFIL_SH"]}],
             "volumeMounts": [v for v in term["volumeMounts"] if v["name"] == "terminal-lab-user-home"]})
     out.append(o)
 json.dump({"apiVersion": "v1", "kind": "List", "items": out}, sys.stdout)' \
