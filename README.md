@@ -4,6 +4,12 @@ Demo do RHCL sobre a app *travel-agency*: a mesma API servida em três
 planos comerciais diferentes, com o efeito visível na tela e mensurável no
 Grafana que o cluster já tem.
 
+A *travel-agency* é a parte de mesmo nome do demo **Travels** do Kiali
+([tutorial](https://kiali.io/docs/tutorials/travels/)), com as imagens
+publicadas por ele (`quay.io/kiali/demo_travels_*`). O que é desta demo é o que
+fica ao redor: as policies, os planos, os parceiros e o `discounts` v2 (a mesma
+imagem) para o canário.
+
 Executada em duas releases, e o overlay muda com a release:
 
 | Ambiente | Overlay | Estado |
