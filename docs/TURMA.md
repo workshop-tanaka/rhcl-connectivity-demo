@@ -375,6 +375,18 @@ já com o comando que corrige (`oc rollout restart deploy/<gateway>-istio -n
 <namespace>`, segundos). Ele não manda requisição à borda: um Gateway sem
 tráfego não é medido. `WASM=0` desliga a leitura.
 
+**Num cluster de nó único, a primeira `turma` derruba a API de Route e de
+Project por alguns minutos.** O `tenant.sh` grava o `projectRequestTemplate`
+(`rhcl-projeto`), e o OpenShift reinicia o `openshift-apiserver` para valer.
+Com três réplicas isso passa despercebido; com uma só (SNO), `route.openshift.io`
+e `project.openshift.io` somem até o pod novo subir. Medido em 2026-10-22 no
+cluster-bfrz2 (1 nó, 32 CPU / 128 Gi, 2 participantes): a primeira rodada
+falhou nos dois com `falha na route prod-web-gateway` e, por isso, `503` sem
+chave (é o router sem rota, não o Envoy), além de `nao achei a rota do GitLab`.
+Repetir `tenant.sh turma <N>` depois de `oc get co openshift-apiserver` voltar a
+`Available` fechou os dois em 11 min. Num SNO, rode a turma uma vez, espere o
+`openshift-apiserver` e rode de novo.
+
 **Mexer no Grafana apaga os painéis por alguns minutos.** O pod não tem
 volume; depois de um reinício o operator devolve cada painel no ciclo de 10
 minutos dele.
