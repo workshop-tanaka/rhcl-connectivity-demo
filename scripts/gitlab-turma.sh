@@ -688,6 +688,48 @@ PY
 #
 # UMA TENTATIVA SO. De fabrica o Argo repete cinco vezes uma sincronizacao
 # recusada (~2,5 min medidos) e o commit que conserta espera na fila.
+# O GITLAB RECUSA WEBHOOK PARA A REDE DO CLUSTER ('HTTP 422: Invalid url
+# given'), e os dois da esteira apontam para la: o do Argo CD (aplicar o
+# push em segundos) e o do Pipelines as Code (conferir o merge request -- sem
+# ele o merge fica preso). Era um passo manual na UI do GitLab (Admin ->
+# Settings -> Network -> Outbound requests), medido em todo cluster novo
+# (7kp5j, 7vzw9). Aqui ele entra pela API, e ESTREITO: so os dois nomes de
+# host vao para a lista de excecoes, a lista que ja existir e preservada, e a
+# chave geral 'allow_local_requests_from_web_hooks_and_services' continua
+# desligada -- nenhum outro destino interno passa a ser alcancavel.
+_libera_webhooks() { # <host> [host...]
+  local out
+  out="$(CA_BUNDLE="$CA_BUNDLE" GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" HOSTS="$*" python3 - <<'PY'
+import os, json, ssl, urllib.request, urllib.error
+HOST, TOKEN = os.environ["GITLAB_HOST"], os.environ["TOKEN"]
+CTX = ssl.create_default_context(cafile=os.environ.get("CA_BUNDLE") or None)
+def call(method, body=None):
+    req = urllib.request.Request("https://%s/api/v4/application/settings" % HOST,
+                                 data=json.dumps(body).encode() if body is not None else None, method=method,
+                                 headers={"PRIVATE-TOKEN": TOKEN, "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, context=CTX, timeout=60) as r:
+        return json.loads(r.read() or b"{}")
+try:
+    atual = call("GET").get("outbound_local_requests_whitelist") or []
+    novos = [h for h in os.environ["HOSTS"].split() if h not in atual]
+    if not novos:
+        print("ja"); raise SystemExit
+    lista = call("PUT", {"outbound_local_requests_allowlist_raw": "\n".join(atual + novos)}).get("outbound_local_requests_whitelist") or []
+    print("ok" if all(h in lista for h in novos) else "nao gravou")
+except urllib.error.HTTPError as e:
+    print("HTTP %d" % e.code)
+PY
+)"
+  case "$out" in
+    ja) _ok "os webhooks da esteira ja estao liberados na rede do GitLab" ;;
+    # o GitLab guarda a configuracao em cache: o primeiro webhook logo depois
+    # da gravacao ainda era recusado (medido no 7vzw9; o seguinte, segundos
+    # depois, passou)
+    ok) _ok "GitLab: Argo CD e Pipelines as Code na lista de excecoes de rede local (so eles)"; sleep 20 ;;
+    *)  _warn "nao consegui liberar os webhooks na rede do GitLab (${out:-sem resposta}) -- Admin -> Settings -> Network -> Outbound requests: $*" ;;
+  esac
+}
+
 cmd_esteira() {
   [[ $# -ge 1 ]] || _die "uso: bash scripts/gitlab-turma.sh esteira <userN> [userM...]"
   _sec "esteira: o Argo CD passa a aplicar a pasta 'esteira/' de cada participante"
@@ -697,6 +739,7 @@ cmd_esteira() {
   local pac_host
   pac_host="$(oc get route pipelines-as-code-controller -n openshift-pipelines -o jsonpath='{.spec.host}' 2>/dev/null)"
   [[ -n "$pac_host" ]] || _die "nao achei o Pipelines as Code (openshift-pipelines/pipelines-as-code-controller) -- rode: bash scripts/provision.sh gitlab"
+  _libera_webhooks "$argo_host" "$pac_host"
   for u in "$@"; do
     [[ "$u" =~ ^user[0-9]{1,3}$ ]] || { _warn "${u}: nao e um nome de participante -- pulei"; falhou=$((falhou+1)); continue; }
     ns="travel-agency-${u}"; url="https://${GITLAB_HOST}/workshop/participantes/${u}/ambiente.git"

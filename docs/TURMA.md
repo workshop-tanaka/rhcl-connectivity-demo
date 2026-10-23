@@ -188,10 +188,14 @@ para cada participante: o Argo CD do cluster passa a aplicar a pasta
 - **Dois webhooks, e o GitLab recusa os dois de fábrica.** Para dentro do
   cluster é "rede local" (`HTTP 422: Invalid url given`). Sem o do Argo, a
   mudança leva minutos (medido 73 a 354 s do merge ao cluster); **sem o do
-  Pipelines as Code, a conferência não roda e o merge fica preso**. Liberar os
-  dois hosts em *Admin → Settings → Network → Outbound requests* e rodar
-  `gitlab-turma.sh esteira <userN...>` de novo; isso é decisão de quem
-  administra o GitLab, e o script não faz sozinho. (O formulário só salva com
+  Pipelines as Code, a conferência não roda e o merge fica preso**. Desde
+  2026-10-23 o `gitlab-turma.sh esteira` libera os dois pela API (decisão do
+  Sandro): só os dois nomes de host entram na lista de exceções de rede local
+  (a que já existir é preservada), e a chave geral de rede local continua
+  desligada. Era o passo manual em *Admin → Settings → Network → Outbound
+  requests*, em todo cluster novo. Medido no 7vzw9: com os dois webhooks,
+  merge request aprovado pela conferência em 17 s e aplicado no cluster 11 s
+  depois. (O formulário só salva com
   o *incremental logging* desligado; ele vem ligado sem armazenamento de
   objetos, não aparece na tela no GitLab 19.5, e a semeadura do roteiro o
   desliga pela API.) Com os dois webhooks, medido no 7kp5j: conferência em
@@ -356,7 +360,10 @@ participantes respondiam `503` sem chave, com os pods `Running` e os Gateways
 `Programmed`. Reiniciar os pods dos Gateways devolveu o `401` a todos:
 
 ```bash
-oc get deploy -A -l gateway.istio.io/managed=istio.io-gateway-controller \
+# o rotulo de Gateway API vale nos dois provedores; o 'gateway.istio.io/managed'
+# muda (istio.io-gateway-controller no Service Mesh, openshift.io-gateway-
+# controller-v1 no nativo) e, com o do Service Mesh, o nativo nao reinicia nada
+oc get deploy -A -l gateway.networking.k8s.io/gateway-name \
   -o custom-columns=NS:.metadata.namespace,N:.metadata.name --no-headers \
   | while read -r ns d; do oc -n "$ns" rollout restart "deploy/$d"; done
 ```

@@ -732,8 +732,8 @@ st_gitlab() {
 #
 # O GitLab chama o Pipelines as Code por webhook, e recusa webhook para rede
 # local: o host da rota dele tem de entrar na lista de excecoes do GitLab
-# (Admin -> Settings -> Network -> Outbound requests). Isso fica com quem
-# administra o GitLab; este script nao afrouxa a rede do GitLab sozinho.
+# (Admin -> Settings -> Network -> Outbound requests). Quem a grava e o
+# 'gitlab-turma.sh esteira' (_libera_webhooks), so com os hosts da esteira.
 _runner_esteira() {
   _apply platform-reference/gitlab/06-pipelines-operator.yaml || return 0
   _wait_csv openshift-operators openshift-pipelines-operator-rh 0 || { _warn "OpenShift Pipelines nao ficou pronto -- a esteira fica sem conferencia antes do merge"; return 0; }
@@ -741,7 +741,7 @@ _runner_esteira() {
   local _e=0
   until oc get route pipelines-as-code-controller -n openshift-pipelines >/dev/null 2>&1 || [[ $_e -ge 600 ]]; do sleep 10; _e=$((_e + 10)); done
   local pac; pac="$(oc get route pipelines-as-code-controller -n openshift-pipelines -o jsonpath='{.spec.host}' 2>/dev/null)"
-  [[ -n "$pac" ]] && _ok "Pipelines as Code no ar -- inclua ${pac} nas excecoes de rede local do GitLab" \
+  [[ -n "$pac" ]] && _ok "Pipelines as Code no ar (${pac}) -- o 'gitlab-turma.sh esteira' o libera na rede do GitLab" \
     || _warn "o Pipelines as Code nao publicou a rota em 10 min -- veja: oc get pods -n openshift-pipelines"
 }
 
