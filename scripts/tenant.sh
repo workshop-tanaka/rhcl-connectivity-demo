@@ -1399,6 +1399,12 @@ rules:
   - apiGroups: [gateway.networking.k8s.io]
     resources: [httproutes, grpcroutes]
     verbs: [get, list, watch, create, update, patch, delete]
+  # so leitura: nao ha Gateway neste projeto, mas a Overview do Connectivity
+  # Link na console pergunta, e a resposta honesta e "0", nao "Access Denied"
+  # (user1-dev no mz8j7)
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [gateways]
+    verbs: [get, list, watch]
   - apiGroups: [kuadrant.io, extensions.kuadrant.io]
     resources: [authpolicies, ratelimitpolicies, planpolicies, telemetrypolicies]
     verbs: [get, list, watch, create, update, patch, delete]
