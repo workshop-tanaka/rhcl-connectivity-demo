@@ -154,7 +154,7 @@ if ($ENV{CHAVES}) {
   s/^(\s*namespace:\s*)kuadrant-system(\s*)$/$1$kns$2/
     if $ARGV =~ m{(?:base/identity/|env/[^/]+/kustomization\.yaml$|03-echo-exposta-chave\.yaml$)};
   s/^(\s*allNamespaces:\s*)false\b/$1true/
-    if $ARGV =~ m{(?:travel-agency-authpolicy|bookings-grpc-policies)\.yaml$};
+    if $ARGV =~ m{(?:travel-agency-authpolicy|bookings-grpc-policies|versoes/0[23]-[a-z0-9-]+)\.yaml$};
 }
 # SO NOS SCRIPTS (fora do conteudo): os Extras com laboratorio proprio criam e
 # apagam o namespace deles, e 'create namespace' e de cluster-admin. Projeto,
@@ -822,7 +822,7 @@ _login_dev() { # <tenant>
            -d grant_type=password -d client_id=admin-cli --data-urlencode "username=${u}" --data-urlencode password@- 2>/dev/null \
          | python3 -c 'import sys, json; print(json.load(sys.stdin).get("access_token", ""))' 2>/dev/null)"
   [[ -n "$tok" ]] || { _warn "nao consegui autenticar na API de admin do Keycloak — sem o login Dev de ${t}"; [[ ${#ca[@]} -eq 0 ]] || rm -f "${ca[1]}"; return 0; }
-  if KC="https://${host}/admin/realms/${realm}" TOK="$tok" T="$t" ROT="$ROTULO" CAF="${ca[1]:-}" python3 - <<'PY' | oc apply -f - >/dev/null
+  if KC="https://${host}/admin/realms/${realm}" TOK="$tok" T="$t" ROT="$ROTULO" CAF="${ca[1]:-}" ADOTA="${ADOTA:-0}" python3 - <<'PY' | oc apply -f - >/dev/null
 import os, sys, json, ssl, secrets, urllib.request, urllib.error, urllib.parse
 KC, TOK, T = os.environ["KC"], os.environ["TOK"], os.environ["T"]
 CTX = ssl.create_default_context(cafile=os.environ.get("CAF") or None)
@@ -839,6 +839,14 @@ def falha(passo, st):
 usuario = T + "-dev"
 st, d = call("GET", "/users?exact=true&username=" + urllib.parse.quote(usuario))
 if st != 200: falha("procurar o usuario", st)
+# NAO ADOTA usuario que nao foi este script que criou: sem o Secret login-dev
+# (o shell so chega aqui sem ele), um '<tenant>-dev' que ja existe veio de
+# outro lugar -- um autocadastro, se ele estivesse ligado -- e os papeis do Dev
+# ja estao ligados a esse NOME. Trocar a senha dele entregaria a conta a quem
+# a criou. Para, e manda conferir (revisao de seguranca, 2026-10-26).
+if d and os.environ.get("ADOTA") != "1":
+    sys.stderr.write("    login dev: %s ja existe no Keycloak e nao foi criado por este script -- confira quem o criou;\n"
+                     "    se for seguro, rode de novo com ADOTA=1\n" % usuario); sys.exit(1)
 if not d:
     st = call("POST", "/users", {"username": usuario, "enabled": True, "emailVerified": True,
               "firstName": "Dev", "lastName": T, "email": "%s@example.invalid" % usuario})[0]

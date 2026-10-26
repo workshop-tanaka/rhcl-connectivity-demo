@@ -13,7 +13,12 @@ spec:
   rules:
     authentication:
       chave:
-        apiKey: {allNamespaces: true, selector: {matchLabels: {app: partner}}}
+        apiKey:
+          # false aqui; numa turma com as chaves no namespace do participante a
+          # copia dele sai com true (tenant.sh, regra CHAVES), e quem impede o
+          # rotulo de um servir a outro e a regra de admissao das chaves
+          allNamespaces: false
+          selector: {matchLabels: {app: partner}}
         credentials: {queryString: {name: APIKEY}}
     authorization:
       acesso-antecipado:
