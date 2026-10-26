@@ -44,12 +44,13 @@ _csv() { # versao de um operador pelo prefixo do CSV
   printf '%s\n' "$_CSVS" | grep -m1 "^$1" | sed 's/.*\.v//'
 }
 _img() { # tag da imagem de um deployment: <ns> <deploy>
-  # Imagem fixada por DIGEST nao tem tag legivel. Imprimir o sha e pior que
-  # nao imprimir nada: parece versao e nao e.
+  # Imagem fixada por DIGEST nao tem tag legivel. O sha sozinho parece versao
+  # e nao e; por isso sai rotulado, e curto (12 caracteres): serve para
+  # comparar dois ambientes ("e a mesma imagem?"), nao para ler a versao.
   local i; i="$(oc get deploy "$2" -n "$1" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)"
   case "$i" in
     "")     return ;;
-    *@sha256:*) printf 'imagem por digest' ;;
+    *@sha256:*) printf 'imagem por digest (%s)' "$(printf '%s' "${i##*@sha256:}" | cut -c1-12)" ;;
     *:*)    printf '%s' "${i##*:}" ;;
   esac
 }
