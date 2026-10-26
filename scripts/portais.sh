@@ -45,7 +45,12 @@ NS="parceiros"
 #
 # Para trocar de versao conscientemente:
 #   skopeo inspect docker://quay.io/redhat-servicemesh-apim-demo/travels-demo-ui:latest
-IMAGEM="quay.io/stanaka-redhat/travels-demo-ui@sha256:7feeeab38828f37ff4f068d5ced6818ce153f85003e4c1aace38be9b8222d7e5"
+#
+# COM UM PATCH NOSSO desde 2026-10-26 (platform-reference/portais/): a faixa
+# do topo e o titulo da aba dizem qual portal e (Portal Vermelho, Verde, Azul),
+# pela variavel WHOAMI. Com os tres abertos lado a lado eram tres abas iguais.
+# A imagem original, sem o patch, era a 7feeeab38828...
+IMAGEM="quay.io/stanaka-redhat/travels-demo-ui@sha256:c3f0b6728c309085921d3da9fe5e1541feee7ead4c37ba951070b8092e11ea46"
 
 if [[ -t 1 ]]; then
   _BLD=$'\033[1m'; _RST=$'\033[0m'; _GRN=$'\033[32m'; _YEL=$'\033[33m'; _DIM=$'\033[2m'

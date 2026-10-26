@@ -1,0 +1,75 @@
+diff --git a/server.ts b/server.ts
+index 43d1104..18aaa78 100644
+--- a/server.ts
++++ b/server.ts
+@@ -72,7 +72,8 @@ export function app(): express.Express {
+  // Get Product Details based on Product IDs
+  server.get(GETWHOAMI, (req, res) => {
+   console.log("WHOAMI", WHOAMI)
+-    res.send("{\"travelId\" : \"" + WHOAMI+ " \"}");
++    // sem o espaco que vinha no fim: a cor e o nome do portal saem deste valor
++    res.json({ travelId: WHOAMI.trim() });
+   });
+ 
+  server.get(GET_CITIES, (req, res) => {
+diff --git a/src/app/reservation/reservation.component.html b/src/app/reservation/reservation.component.html
+index 51d91ff..83157b0 100644
+--- a/src/app/reservation/reservation.component.html
++++ b/src/app/reservation/reservation.component.html
+@@ -1,3 +1,4 @@
++<div class="portal-faixa faixa-{{portalId.travelId}}">Portal {{nomePortal()}}</div>
+ <div class="container maintxt bg-{{portalId.travelId}}">
+     <br><br><br>
+     <div class="slider-text ">
+diff --git a/src/app/reservation/reservation.component.ts b/src/app/reservation/reservation.component.ts
+index 69f8536..233eade 100644
+--- a/src/app/reservation/reservation.component.ts
++++ b/src/app/reservation/reservation.component.ts
+@@ -1,4 +1,5 @@
+ import { Component, OnInit,Input } from '@angular/core';
++import { Title } from '@angular/platform-browser';
+ import { TravelsService } from '../travels.service';
+ import { Car, CityDetails, Flight, Hotel, Insurance } from '../models/city-details.model';
+ import { City } from '../models/city.model';
+@@ -30,7 +31,7 @@ export class ReservationComponent implements OnInit {
+ 
+ 
+   
+-  constructor( travelsService:TravelsService) {
++  constructor( travelsService:TravelsService, private titulo: Title) {
+ 
+     this.cities = [];
+     this.portalId = new WhoAmI;
+@@ -57,7 +58,17 @@ export class ReservationComponent implements OnInit {
+   fetchWhoAmI() {
+     console.log("component fetchCities")
+     this.travelsService.fetchWhoAmI()
+-    .subscribe(output => (this.portalId = output));
++    .subscribe(output => {
++      this.portalId = output;
++      // a aba do navegador diz qual portal e: tres abas abertas lado a lado
++      // eram tres "Explore the world!"
++      this.titulo.setTitle('Portal ' + this.nomePortal());
++    });
++  }
++
++  nomePortal(): string {
++    const nomes: { [cor: string]: string } = { red: 'Vermelho', green: 'Verde', blue: 'Azul' };
++    return nomes[(this.portalId.travelId || '').trim()] || '';
+   }
+ 
+ 
+diff --git a/src/styles.css b/src/styles.css
+index d6753ef..e857579 100644
+--- a/src/styles.css
++++ b/src/styles.css
+@@ -30,3 +30,9 @@
+     font-weight: 300;
+     color: rgba(255, 255, 255, 0.8);
+ }
++
++/* a faixa do portal: a cor que o WHOAMI escolhe, para os tres lado a lado */
++.portal-faixa { color: #fff; font-weight: 600; letter-spacing: .04em; padding: .6rem 1rem; font-size: 1.25rem; }
++.faixa-red { background: #c9190b; }
++.faixa-green { background: #3e8635; }
++.faixa-blue { background: #0066cc; }
