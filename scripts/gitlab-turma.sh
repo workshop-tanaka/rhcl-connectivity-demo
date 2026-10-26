@@ -1009,13 +1009,17 @@ spec:
   settings:
     pipelinerun_provenance: default_branch
 ---
-# ele VE a conferencia rodar (logs, resultado), e nao muda nada aqui
+# ele VE a conferencia rodar (logs, resultado), e nao muda nada aqui. O login
+# Dev da console tambem: e ele quem abre o merge request, e quer ver a esteira
+# que o MR disparou (sem isto, 'can-i list pipelineruns' respondia 'no' ao
+# <tenant>-dev; medido no cluster-mz8j7 em 2026-10-26).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata: {name: rhcl-esteira-ve, namespace: ${ci}}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: view}
 subjects:
   - {kind: User, apiGroup: rbac.authorization.k8s.io, name: ${u}}
+  - {kind: User, apiGroup: rbac.authorization.k8s.io, name: ${u}-dev}
   - {kind: ServiceAccount, name: showroom, namespace: showroom-${u}}
   - {kind: ServiceAccount, name: dev, namespace: travel-agency-${u}}
 EOF
@@ -1036,6 +1040,20 @@ spec:
     - {group: kuadrant.io, kind: AuthPolicy}
     - {group: kuadrant.io, kind: RateLimitPolicy}
     - {group: gateway.networking.k8s.io, kind: HTTPRoute}
+  # A TELA DO ARGO CD, SO LEITURA, SO A DELE. A RBAC do Argo da acesso so a
+  # system:cluster-admins e admin, e o participante abria a UI vazia. O papel
+  # mora no PROJETO dele, e nao na politica global do ArgoCD CR: o CR e um so
+  # para a turma, e cada 'esteira' reescreveria a lista dos outros. 'groups'
+  # casa com os escopos que o Argo le do login ([groups, preferred_username]),
+  # entao o nome de usuario do OpenShift basta. 'get' (e 'logs') e nada mais:
+  # sincronizar ou apagar continua sendo do Git.
+  roles:
+    - name: participante
+      description: "${u} e ${u}-dev veem a propria esteira, sem agir"
+      groups: ["${u}", "${u}-dev"]
+      policies:
+        - "p, proj:turma-${u}:participante, applications, get, turma-${u}/*, allow"
+        - "p, proj:turma-${u}:participante, logs, get, turma-${u}/*, allow"
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
