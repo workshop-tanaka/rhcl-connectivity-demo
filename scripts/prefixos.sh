@@ -400,15 +400,21 @@ for a in d.get("actionSets", []):
     fontes = sorted({s.split(":")[-1] for ac in a.get("actions", []) for s in ac.get("sources", [])})
     print("      %-44s <- %s" % (pred[:44], ", ".join(fontes)))'
 }
-cmd_acompanha() { # <caminho>  -- chama a cada 5 s ate o teto assumir (403), no maximo 3 min
-  local c="" t0=$SECONDS i cam="${1:-/api3/qualquer}"
-  for i in $(seq 1 36); do
+cmd_acompanha() { # <caminho>  -- chama a cada 1 s ate o teto assumir (403), no maximo 3 min
+  # A CADA 1 s, e nao 5: a janela medida vai de ~1 s a mais de um minuto, e
+  # com 5 s a mais curta pode passar entre duas provas sem ser vista. Imprime
+  # so quando o codigo muda, para 3 min de prova nao virarem 180 linhas.
+  local c="" ant="" t0=$SECONDS cam="${1:-/api3/qualquer}" primeira=""
+  while (( SECONDS - t0 < 180 )); do
     c="$(_codigo "$cam")"
-    printf '      %3ds  %s\n' "$((SECONDS - t0))" "$c"
+    [[ -z "$primeira" ]] && primeira="$c"
+    [[ "$c" != "$ant" ]] && printf '      %3ds  %s\n' "$((SECONDS - t0))" "$c"
+    ant="$c"
     [[ "$c" == "403" ]] && break
-    sleep 5
+    sleep 1
   done
-  if [[ "$c" == "403" ]]; then _ok "o teto do Gateway assumiu a rota em ~$((SECONDS - t0))s"
+  if [[ "$primeira" == "403" ]]; then _ok "nao houve janela nesta execucao: a rota ja nasceu negada pelo teto"
+  elif [[ "$c" == "403" ]]; then _ok "o teto do Gateway assumiu a rota em ~$((SECONDS - t0))s"
   else _warn "a rota ainda respondia ${c} depois de $((SECONDS - t0))s"; fi
 }
 
