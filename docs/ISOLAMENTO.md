@@ -86,9 +86,9 @@ Decisões tomadas:
   Dev é barrado no Gateway.
 - **O terminal e a pessoa têm a mesma permissão.** Hoje a identidade do
   terminal pode mais que a pessoa, e é por ela que os dados vazam.
-- **A Policy Topology é tela do instrutor.** O objeto que ela desenha é um só
-  para o cluster. O participante vê o Gateway e as rotas dele pelo projeto na
-  console e por comando.
+- **A Policy Topology é visão da plataforma.** O objeto que ela desenha é um
+  só para o cluster. O participante Infra a vê inteira, com a explicação; o
+  Dev não a vê; a parte de cada um sai pelo `topologia.sh` (ver a seção 6).
 - **Console com dois logins por participante**, um por perfil.
 
 ## 4. O que está aberto hoje
@@ -332,9 +332,25 @@ porque olha o objeto e não quem o cria.
   participante nem da plataforma; lê a própria esteira. O `preflight.sh`
   continua sendo do Infra (no Dev ele falha por não ler chaves, e é o
   esperado). `PERFIS=0 tenant.sh showroom <user>` volta ao terminal único.
-- **Console e Kiali.** Dois usuários por participante. O RHDP cria um; o
-  segundo é criado no Keycloak do cluster, pela API de admin que o `tenant.sh`
-  já usa para desligar o autocadastro. **Não testado.**
+- **Console. Feito e medido em 2026-10-26 (cluster-mz8j7, user5).** Dois
+  logins por participante: `<user>` (Infra, criado pelo RHDP) e `<user>-dev`,
+  que o `tenant.sh` cria no Keycloak do cluster (`_login_dev`) com os mesmos
+  papéis da identidade Dev do terminal, mais um papel só para ver os dois
+  projetos (sem ele a lista de Projects vinha vazia). Medido com o
+  `user5-dev`: Projects mostra `ingress-gateway-user5` e `travel-agency-user5`;
+  o Gateway abre com detalhes, YAML e policies, e o editor de YAML vem **só
+  leitura** ("Cannot edit in read-only editor"); Secret responde "Restricted
+  access"; a Policy Topology, "Access Denied". A senha nasce uma vez
+  (`travel-agency-<user>/login-dev`) e chega ao guia. Trocar de perfil é
+  sair e entrar: o logout da console agora encerra também a sessão do
+  Keycloak (`_logout_da_console`); sem isso o Keycloak lembraria o login.
+- **A Policy Topology não é por participante.** Ela desenha um objeto só
+  (`kuadrant-system/topology`), e o RBAC libera ou nega o objeto inteiro: o
+  `/ns/...` do endereço não filtra o desenho. Decisão de 2026-10-26: o Infra a
+  vê inteira, e o guia explica por quê (é a visão de quem opera o Connectivity
+  Link do cluster); o Dev não a vê; a parte de cada um sai recortada no
+  terminal, `bash scripts/topologia.sh`, que lê o mesmo objeto.
+- **Kiali.** Fora da sessão de Connectivity Link; não testado.
 - **Guia.** Cada parte abre dizendo o perfil: Infra, Dev ou os dois. Todo
   bloco clicável ganha um título (`Perfil Dev -- aba Terminal Dev`) e uma
   primeira linha, `perfil dev` ou `perfil infra`. O título só não bastava:

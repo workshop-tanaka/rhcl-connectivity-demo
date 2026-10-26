@@ -1,0 +1,34 @@
+# PASSO 4 -- a v1 avisa que vai sair, em toda resposta. E a mesma rota do
+# passo 1, com tres cabecalhos a mais na regra 'v1':
+#   Deprecation  desde quando a v1 esta descontinuada (RFC 9745: '@' + data em
+#                segundos desde 1970)
+#   Sunset       quando ela deixa de responder (RFC 8594: data HTTP)
+#   Link         para onde ir (rel="successor-version")
+# Nenhum cliente precisa ler e-mail nem nota de versao: o aviso viaja com a
+# resposta, e um cliente bem escrito o registra.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: travels-versoes
+  namespace: travel-agency
+spec:
+  parentRefs: [{name: prod-web, namespace: ingress-gateway}]
+  hostnames: ["api-travels.__DOMINIO__"]
+  rules:
+    - name: v1
+      matches: [{path: {type: PathPrefix, value: /v1}}]
+      filters:
+        - {type: URLRewrite, urlRewrite: {path: {type: ReplacePrefixMatch, replacePrefixMatch: /}}}
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - {name: Deprecation, value: "@1767225600"}
+              - {name: Sunset, value: "Wed, 30 Jun 2027 23:59:59 GMT"}
+              - {name: Link, value: '</v2/travels>; rel="successor-version"'}
+      backendRefs: [{name: travels, port: 8000}]
+    - name: v2
+      matches: [{path: {type: PathPrefix, value: /v2}}]
+      filters:
+        - {type: URLRewrite, urlRewrite: {path: {type: ReplacePrefixMatch, replacePrefixMatch: /}}}
+        - {type: ResponseHeaderModifier, responseHeaderModifier: {set: [{name: x-api-version, value: "2"}]}}
+      backendRefs: [{name: travels-v2, port: 8000}]

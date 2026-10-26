@@ -560,6 +560,7 @@ print("\n---\n".join(d for d in docs if re.search(r"(?m)^\s*namespace:\s*\S+-%s\
 
   # o client e o usuario de teste que a parte 'Chave ou identidade' usa
   _identidade "$t"
+  _login_dev "$t"
 
   # O ESCOPO DELE, por ultimo. A plataforma ja traz um Sidecar padrao (ver
   # _modelo_projeto): sem o dele, cada namespace do participante so conhece a
@@ -635,6 +636,31 @@ _remove() { # <tenant>
 # rotulo nem por prefixo. Serve a uma sala de aula cooperativa; NAO serve a
 # participantes que nao confiam uns nos outros.
 # ---------------------------------------------------------------------------
+# O LOGOUT DA CONSOLE ENCERRA TAMBEM A SESSAO DO KEYCLOAK. Cada participante
+# tem dois logins (<tenant> e <tenant>-dev), e trocar de perfil e sair e
+# entrar com o outro. Sem isto o Log out encerrava so a sessao do OpenShift,
+# o Keycloak lembrava o login e a tela voltava com o mesmo usuario. A console
+# manda o navegador ao fim de sessao do Keycloak, que devolve a console;
+# o client do OpenShift no realm aceita qualquer destino de volta ('+').
+# Medido no cluster-mz8j7 em 2026-10-26: logout do user5, a tela de login
+# pediu senha, entrou o user5-dev. A console reinicia ao gravar, uma vez.
+_logout_da_console() {
+  local idp issuer cid console url atual
+  idp="$(oc get oauth cluster -o jsonpath='{.spec.identityProviders[?(@.type=="OpenID")].name}' 2>/dev/null | awk '{print $1}')"
+  [[ -n "$idp" ]] || return 0      # sem Keycloak no login da console, nada a fazer
+  issuer="$(oc get oauth cluster -o jsonpath="{.spec.identityProviders[?(@.name==\"${idp}\")].openID.issuer}" 2>/dev/null)"
+  cid="$(oc get oauth cluster -o jsonpath="{.spec.identityProviders[?(@.name==\"${idp}\")].openID.clientID}" 2>/dev/null)"
+  console="$(oc whoami --show-console 2>/dev/null)"
+  [[ -n "$issuer" && -n "$cid" && -n "$console" ]] || return 0
+  url="${issuer}/protocol/openid-connect/logout?client_id=${cid}&post_logout_redirect_uri=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$console")"
+  atual="$(oc get console.config.openshift.io cluster -o jsonpath='{.spec.authentication.logoutRedirect}' 2>/dev/null)"
+  if [[ "$atual" == "$url" ]]; then _ok "logout da console encerra tambem a sessao do Keycloak (ja estava)"; return 0; fi
+  oc patch console.config.openshift.io cluster --type=merge \
+    -p "{\"spec\":{\"authentication\":{\"logoutRedirect\":\"${url}\"}}}" >/dev/null 2>&1 \
+    && _ok "logout da console encerra tambem a sessao do Keycloak (troca de perfil por logout)" \
+    || _warn "nao consegui gravar o logout da console -- trocar de perfil vai pedir logout tambem no Keycloak"
+}
+
 _keycloak_sem_registro() {
   local ns="${KEYCLOAK_NS:-keycloak}" host u pw tok realm
   host="$(oc get route -n "$ns" -o jsonpath='{.items[0].spec.host}' 2>/dev/null)"
@@ -755,6 +781,79 @@ json.dump({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
 PY
   then _ok "identidade de teste de ${t}: client echo-api-${t} e usuario teste-${t} no Keycloak; credencial em ${ns}/identidade-teste"
   else _warn "nao consegui criar a identidade de teste de ${t} — a parte 'Chave ou identidade' fica sem token"; fi
+  [[ ${#ca[@]} -eq 0 ]] || rm -f "${ca[1]}"
+}
+
+# ---------------------------------------------------------------------------
+# O LOGIN DO PERFIL DEV NA CONSOLE: o usuario '<tenant>-dev' no Keycloak do
+# cluster, ao lado do '<tenant>' que o RHDP cria. Os papeis dele sao os da
+# ServiceAccount do terminal Dev (o bloco DEV do _rbac_tenant), entao a
+# console mostra o mesmo "nao pode" que o terminal: o Gateway abre so para
+# leitura, Secret e Policy Topology recusam. Medido com o user5-dev no
+# cluster-mz8j7 em 2026-10-26. Trocar de perfil e sair (Log out) e entrar com
+# o outro: o logout da console encerra tambem a sessao do Keycloak
+# (_logout_da_console).
+#
+# A SENHA NASCE UMA VEZ: com o usuario e o Secret ja existindo, nada muda --
+# rodar de novo no meio da aula nao pode trocar a senha que o participante
+# esta usando. Ela fica em travel-agency-<tenant>/login-dev, que o perfil
+# Infra le (e a mesma pessoa) e o Dev nao, e chega ao guia (Seus acessos).
+# ---------------------------------------------------------------------------
+_login_dev() { # <tenant>
+  local t="$1" kns="${KEYCLOAK_NS:-keycloak}" host realm u pw tok
+  oc get ns "travel-agency-${t}" >/dev/null 2>&1 || return 0
+  if oc get secret login-dev -n "travel-agency-${t}" >/dev/null 2>&1; then
+    _ok "login do perfil Dev de ${t} na console: ${t}-dev (ja existia; senha mantida)"; return 0
+  fi
+  host="$(oc get route -n "$kns" -o jsonpath='{.items[0].spec.host}' 2>/dev/null)"
+  realm="$(oc get keycloakrealmimport -n "$kns" -o jsonpath='{.items[0].spec.realm.realm}' 2>/dev/null)"
+  u="$(oc get secret keycloak-initial-admin -n "$kns" -o jsonpath='{.data.username}' 2>/dev/null | base64 -d)"
+  pw="$(oc get secret keycloak-initial-admin -n "$kns" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)"
+  [[ -n "$host" && -n "$realm" && -n "$u" && -n "$pw" ]] || { _warn "sem Keycloak de plataforma — ${t} fica sem o login do perfil Dev na console"; return 0; }
+  # o certificado e conferido: por aqui passa a senha de admin do Keycloak
+  local ca=()
+  if ! curl -s -m 15 -o /dev/null "https://${host}/realms/master" 2>/dev/null; then
+    local caf; caf="$(mktemp)"
+    oc get cm default-ingress-cert -n openshift-config-managed -o jsonpath='{.data.ca-bundle\.crt}' > "$caf" 2>/dev/null
+    if curl -s -m 15 -o /dev/null --cacert "$caf" "https://${host}/realms/master" 2>/dev/null; then ca=(--cacert "$caf")
+    else rm -f "$caf"; _warn "o certificado do Keycloak (${host}) nao valida — nao criei o login Dev de ${t}"; return 0; fi
+  fi
+  tok="$(printf '%s' "$pw" | curl -s ${ca[@]+"${ca[@]}"} -m 20 "https://${host}/realms/master/protocol/openid-connect/token" \
+           -d grant_type=password -d client_id=admin-cli --data-urlencode "username=${u}" --data-urlencode password@- 2>/dev/null \
+         | python3 -c 'import sys, json; print(json.load(sys.stdin).get("access_token", ""))' 2>/dev/null)"
+  [[ -n "$tok" ]] || { _warn "nao consegui autenticar na API de admin do Keycloak — sem o login Dev de ${t}"; [[ ${#ca[@]} -eq 0 ]] || rm -f "${ca[1]}"; return 0; }
+  if KC="https://${host}/admin/realms/${realm}" TOK="$tok" T="$t" ROT="$ROTULO" CAF="${ca[1]:-}" python3 - <<'PY' | oc apply -f - >/dev/null
+import os, sys, json, ssl, secrets, urllib.request, urllib.error, urllib.parse
+KC, TOK, T = os.environ["KC"], os.environ["TOK"], os.environ["T"]
+CTX = ssl.create_default_context(cafile=os.environ.get("CAF") or None)
+def call(method, path, body=None):
+    req = urllib.request.Request(KC + path, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": "Bearer " + TOK, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, context=CTX, timeout=30) as r:
+            raw = r.read(); return r.status, (json.loads(raw) if raw else None)
+    except urllib.error.HTTPError as e:
+        return e.code, None
+def falha(passo, st):
+    sys.stderr.write("    login dev: %s respondeu HTTP %s\n" % (passo, st)); sys.exit(1)
+usuario = T + "-dev"
+st, d = call("GET", "/users?exact=true&username=" + urllib.parse.quote(usuario))
+if st != 200: falha("procurar o usuario", st)
+if not d:
+    st = call("POST", "/users", {"username": usuario, "enabled": True, "emailVerified": True,
+              "firstName": "Dev", "lastName": T, "email": "%s@example.invalid" % usuario})[0]
+    if st != 201: falha("criar o usuario", st)
+    st, d = call("GET", "/users?exact=true&username=" + urllib.parse.quote(usuario))
+    if st != 200 or not d: falha("reler o usuario", st)
+senha = secrets.token_urlsafe(12)
+st = call("PUT", "/users/%s/reset-password" % d[0]["id"], {"type": "password", "value": senha, "temporary": False})[0]
+if st != 204: falha("definir a senha", st)
+json.dump({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+           "metadata": {"name": "login-dev", "namespace": "travel-agency-" + T, "labels": {os.environ["ROT"]: T}},
+           "stringData": {"username": usuario, "password": senha}}, sys.stdout)
+PY
+  then _ok "login do perfil Dev de ${t} na console: ${t}-dev (senha em travel-agency-${t}/login-dev, e no guia)"
+  else _warn "nao consegui criar o login Dev de ${t} — o guia sai so com o login de sempre"; fi
   [[ ${#ca[@]} -eq 0 ]] || rm -f "${ca[1]}"
 }
 
@@ -922,6 +1021,7 @@ _plataforma() {
   # turma. O realm nasceu de um KeycloakRealmImport, que so importa uma vez:
   # mudar o CR nao muda o realm, entao a troca vai pela API de admin.
   _keycloak_sem_registro
+  _logout_da_console
 
   oc apply -f - <<'EOF' >/dev/null || _die "falha ao aplicar o RBAC de plataforma dos tenants"
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1084,9 +1184,12 @@ rules:
 # 'list' e 'watch' entram porque a console OBSERVA o objeto: um watch de um
 # recurso nomeado e autorizado pelo resourceNames quando vem com o seletor de
 # nome, que e como ela pede.
-# O desenho mostra os Gateways, rotas e policies da turma inteira -- o mesmo
-# que 'oc get httproute -A' ja mostra (docs/TURMA.md, secao 8). Nao ha segredo
-# nele.
+# O desenho mostra os Gateways, rotas e policies da turma inteira, e o
+# participante NAO lista isso de outro jeito (o 'oc get httproute -A' e
+# recusado desde o isolamento). Aceito de proposito (2026-10-26): e a visao de
+# quem opera o Connectivity Link, so nomes e ligacoes, sem segredo, e o guia
+# explica (parte 2.2); a parte dele sai recortada por scripts/topologia.sh. O
+# login Dev da console NAO recebe este papel: o Dev nao ve o mapa.
 # O Extra de DNS sobe um CoreDNS no laboratorio do participante, e o plugin
 # do Kuadrant lista DNSRecord NO CLUSTER INTEIRO: com permissao so no proprio
 # namespace ele recusa subir a zona ("Forbidden access to kuadrant.io API",
@@ -1301,7 +1404,10 @@ metadata: {name: app-dev-em-travel-agency, namespace: travel-agency-${t}, labels
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: app-dev-dono-da-rota}
 subjects: [{kind: ServiceAccount, name: dev, namespace: travel-agency-${t}}]
 ---
-# ver o Gateway a que se anexa, sem poder muda-lo
+# ver o Gateway a que se anexa, e as policies dele (o "teto" da plataforma),
+# sem poder mudar nenhum. Sem a leitura das policies, a aba Policies do
+# Gateway na console falhava para o Dev ("Error loading associated
+# resources", user5-dev no cluster-mz8j7 em 2026-10-26).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata: {name: dev-ve-o-gateway, namespace: ingress-gateway-${t}, labels: {${ROTULO}: ${t}}}
@@ -1309,12 +1415,59 @@ rules:
   - apiGroups: [gateway.networking.k8s.io]
     resources: [gateways]
     verbs: [get, list, watch]
+  - apiGroups: [kuadrant.io, extensions.kuadrant.io]
+    resources: [authpolicies, ratelimitpolicies, planpolicies, telemetrypolicies, tlspolicies, dnspolicies, tokenratelimitpolicies]
+    verbs: [get, list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata: {name: dev-ve-o-gateway, namespace: ingress-gateway-${t}, labels: {${ROTULO}: ${t}}}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: dev-ve-o-gateway}
 subjects: [{kind: ServiceAccount, name: dev, namespace: travel-agency-${t}}]
+---
+# O PERFIL DEV TAMBEM TEM LOGIN NA CONSOLE: o usuario '${t}-dev' do Keycloak
+# (_login_dev), com os MESMOS papeis da ServiceAccount do terminal Dev -- uma
+# regra so para os dois, e o que a pagina diz vale na tela e no terminal.
+# Mais um papel pequeno, so para a console listar os dois projetos: os
+# papeis acima dao acesso aos objetos, nao ao projeto, e a lista de Projects
+# vinha vazia (user5-dev no mz8j7).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: dev-pessoa-em-travel-agency, namespace: travel-agency-${t}, labels: {${ROTULO}: ${t}}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: app-dev-dono-da-rota}
+subjects: [{apiGroup: rbac.authorization.k8s.io, kind: User, name: ${t}-dev}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: dev-pessoa-ve-o-gateway, namespace: ingress-gateway-${t}, labels: {${ROTULO}: ${t}}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: dev-ve-o-gateway}
+subjects: [{apiGroup: rbac.authorization.k8s.io, kind: User, name: ${t}-dev}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: dev-ve-o-projeto, namespace: travel-agency-${t}, labels: {${ROTULO}: ${t}}}
+rules:
+  - {apiGroups: [""], resources: [namespaces], resourceNames: [travel-agency-${t}], verbs: [get]}
+  - {apiGroups: [project.openshift.io], resources: [projects], resourceNames: [travel-agency-${t}], verbs: [get]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: dev-pessoa-ve-o-projeto, namespace: travel-agency-${t}, labels: {${ROTULO}: ${t}}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: dev-ve-o-projeto}
+subjects: [{apiGroup: rbac.authorization.k8s.io, kind: User, name: ${t}-dev}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: dev-ve-o-projeto, namespace: ingress-gateway-${t}, labels: {${ROTULO}: ${t}}}
+rules:
+  - {apiGroups: [""], resources: [namespaces], resourceNames: [ingress-gateway-${t}], verbs: [get]}
+  - {apiGroups: [project.openshift.io], resources: [projects], resourceNames: [ingress-gateway-${t}], verbs: [get]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: dev-pessoa-ve-o-projeto, namespace: ingress-gateway-${t}, labels: {${ROTULO}: ${t}}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: dev-ve-o-projeto}
+subjects: [{apiGroup: rbac.authorization.k8s.io, kind: User, name: ${t}-dev}]
 ---
 # O TOKEN DELE, para a aba 'Terminal Dev' do guia: o pod do guia so monta
 # Secret do proprio namespace, e o 'showroom' copia este para la.
@@ -2079,10 +2232,13 @@ json.dump({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
     # e, nele, um KeycloakRealmImport com o nome de outro participante -- com
     # '-A' a "senha" plantada iria parar no guia da vitima.
     oc get keycloakrealmimport -n "${KEYCLOAK_NS:-keycloak}" -o json 2>/dev/null || printf '{"items":[]}'
+    printf '\n\x1e\n'
+    # o login do perfil Dev na console (_login_dev), se ele existir
+    oc get secret login-dev -n "travel-agency-${t}" -o json 2>/dev/null || printf '{}'
   } | PERFIS="$perfis" PERFIL_SH="$_PERFIL_SH" FOCO="$foco" CHE_URL="$che_url" GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
 import sys, json, os, re, base64
 t, dom = os.environ["TENANT"], os.environ["DOM"]
-objs, chaves, rotas, realms = sys.stdin.read().split("\x1e")
+objs, chaves, rotas, realms, logindev = sys.stdin.read().split("\x1e")
 senha = ""
 for r in json.loads(realms)["items"]:
     for u in r["spec"]["realm"].get("users", []):
@@ -2096,6 +2252,10 @@ troca = {"api_host": "api-travels-%s.%s" % (t, dom), "guid": t, "usuario_console
          "api_key_free": chave.get("free", ""), "api_key_silver": chave.get("silver", ""), "api_key_gold": chave.get("gold", ""),
          "portal_free_url": portal.get("portal-blue", ""), "portal_silver_url": portal.get("portal-green", ""),
          "portal_gold_url": portal.get("portal-red", ""), "senha_console": senha}
+_ld = json.loads(logindev).get("data", {})
+if _ld.get("username") and _ld.get("password"):
+    troca["usuario_console_dev"] = base64.b64decode(_ld["username"]).decode()
+    troca["senha_console_dev"] = base64.b64decode(_ld["password"]).decode()
 novos = {"user": t, "sufixo": "-" + t}
 pode = {"api_host", "api_key_free", "api_key_silver", "api_key_gold", "cluster_domain", "guid",
         "usuario_console", "demo_ref", "repo_no_ambiente", "repo_policies", "repo_apis"}
@@ -2273,7 +2433,7 @@ json.dump({"apiVersion": "v1", "kind": "List", "items": out}, sys.stdout)' \
     chave-vazada.sh contextos.sh demo.sh dns-nome.sh esteira.sh exposta-checklist.sh
     golden-path-limpa.sh grpc.sh identidade.sh interconnect.sh labs.sh listas.sh
     mapa-mtls.sh mtls-kuadrant.sh negado.sh parceiro-certificado.sh postman-env.sh
-    meus.sh prefixos.sh preflight.sh saida.sh tokens-ia.sh traffic.sh tunel-protege.sh versoes.sh"
+    meus.sh prefixos.sh preflight.sh saida.sh tokens-ia.sh traffic.sh topologia.sh tunel-protege.sh uso-por-versao.sh versoes.sh"
   local _excl=() _tira=() _b
   for _b in "$d"/scripts/*.sh; do
     _b="$(basename "$_b")"
@@ -2759,6 +2919,9 @@ case "${1:-}" in
     ;;
   identidade)
     _valida_tenant "${2:-}"; _identidade "$2"
+    ;;
+  login-dev)
+    _valida_tenant "${2:-}"; _login_dev "$2"
     ;;
   traces)
     _traces

@@ -1,0 +1,40 @@
+# PASSO 1 -- a v2 ao lado da v1, no MESMO hostname da API, sem policy nenhuma.
+#   - um Service 'travels-v2' para as mesmas pods da travels: a imagem e a
+#     mesma, e a versao e uma decisao da borda. Ser um Service proprio e o que
+#     deixa a metrica separar quem chama cada versao (passo 5);
+#   - uma rota 'travels-versoes' com duas regras COM NOME, 'v1' e 'v2'. E pelo
+#     nome que uma policy alcanca uma versao so (passos 3 e 6);
+#   - cada regra tira o prefixo (/v1/travels -> /travels): a aplicacao nao sabe
+#     que tem versao;
+#   - a v2 responde com o cabecalho 'x-api-version: 2'.
+# A rota /travels de sempre continua como estava.
+apiVersion: v1
+kind: Service
+metadata:
+  name: travels-v2
+  namespace: travel-agency
+  labels: {app: travels, versao: v2}
+spec:
+  selector: {app: travels}
+  ports: [{name: http, port: 8000, targetPort: 8000}]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: travels-versoes
+  namespace: travel-agency
+spec:
+  parentRefs: [{name: prod-web, namespace: ingress-gateway}]
+  hostnames: ["api-travels.__DOMINIO__"]
+  rules:
+    - name: v1
+      matches: [{path: {type: PathPrefix, value: /v1}}]
+      filters:
+        - {type: URLRewrite, urlRewrite: {path: {type: ReplacePrefixMatch, replacePrefixMatch: /}}}
+      backendRefs: [{name: travels, port: 8000}]
+    - name: v2
+      matches: [{path: {type: PathPrefix, value: /v2}}]
+      filters:
+        - {type: URLRewrite, urlRewrite: {path: {type: ReplacePrefixMatch, replacePrefixMatch: /}}}
+        - {type: ResponseHeaderModifier, responseHeaderModifier: {set: [{name: x-api-version, value: "2"}]}}
+      backendRefs: [{name: travels-v2, port: 8000}]

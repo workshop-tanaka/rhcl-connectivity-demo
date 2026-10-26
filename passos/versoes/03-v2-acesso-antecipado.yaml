@@ -1,0 +1,33 @@
+# PASSO 3 -- a v2 em acesso antecipado: so os planos gold e silver.
+# A policy alcanca SO a regra 'v2' (sectionName). Nessa regra ela vale no
+# lugar da policy da rota inteira, e por isso repete a chave: quem nao tem
+# chave continua recebendo 401, e o free recebe 403 com o motivo. A v1 nao
+# muda nada.
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: v2-acesso-antecipado
+  namespace: travel-agency
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: HTTPRoute, name: travels-versoes, sectionName: v2}
+  rules:
+    authentication:
+      chave:
+        apiKey: {allNamespaces: true, selector: {matchLabels: {app: partner}}}
+        credentials: {queryString: {name: APIKEY}}
+    authorization:
+      acesso-antecipado:
+        patternMatching:
+          patterns:
+            - predicate: 'auth.identity.metadata.labels["kuadrant.io/plan-id"] in ["gold", "silver"]'
+    response:
+      success:
+        headers:
+          x-partner:
+            plain:
+              expression: 'has(auth.identity.metadata.annotations) && "secret.kuadrant.io/user-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/user-id"] : auth.identity.metadata.name'
+      unauthorized:
+        headers:
+          content-type: {value: application/json}
+        body:
+          value: '{"error": "Forbidden", "message": "a v2 esta em acesso antecipado: so os planos gold e silver. Use /v1."}'
