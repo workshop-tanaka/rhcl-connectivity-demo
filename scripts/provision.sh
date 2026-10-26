@@ -1012,6 +1012,11 @@ st_gateway() {
     sed "s|echo\.travels\.example\.com|${ECHO_HOST}|" "${PR}/gateway/httproute-echo-api.yaml" \
       | oc apply -f - >/dev/null && _ok "HTTPRoute echo-api -> ${ECHO_HOST}" || _warn "falha na HTTPRoute do echo-api"
   fi
+
+  # ----- o nome que nao e do Gateway volta com 421 -----
+  # Sem isto, o navegador que reaproveita a conexao HTTP/2 da API recebe 404
+  # do Gateway na console, no Grafana, no GitLab e nos portais (ver o arquivo).
+  _apply platform-reference/gateway/pega-tudo-421.yaml || true
 }
 
 # ===========================================================================

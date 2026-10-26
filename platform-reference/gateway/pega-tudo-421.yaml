@@ -1,0 +1,51 @@
+# O GATEWAY RECUSA COM 421 O NOME QUE NAO E DELE.
+#
+# POR QUE ISTO EXISTE: todo nome '*.apps.<cluster>' resolve para o mesmo IP e
+# apresenta o mesmo certificado coringa, e o Gateway (publicado por Route
+# passthrough) fala HTTP/2. O navegador que ja tem uma conexao HTTP/2 aberta
+# com a API reaproveita essa conexao para OUTRO nome do coringa -- a norma
+# permite --, e o pedido do portal, da console, do Grafana ou do GitLab chega
+# ao Envoy do Gateway, que nao conhece o nome e responde 404. Na aba anonima
+# (sem conexao aberta) tudo abria. Medido no cluster-mz8j7 em 2026-10-26: os
+# portais, a console, o Grafana e o GitLab davam 404 no navegador e 200 por
+# curl.
+#
+# 421 (Misdirected Request) e o codigo que a norma do HTTP/2 define para isto:
+# o navegador repete o pedido numa conexao nova, que vai ao router. Medido no
+# mesmo dia, numa janela anonima nova: API do user5 aberta primeiro, depois o
+# portal dele -- abriu com esta rota, deu 404 no user1, que nao a tinha.
+#
+# A rota nao tem hostname: vale para todo nome do listener coringa que
+# nenhuma outra rota declara. A rota da API declara o dela, e por ser mais
+# especifica continua ganhando -- a API segue 401/200 como antes. O backend
+# nunca e chamado: a AuthPolicy nega antes, sem autenticar ninguem.
+#
+# So no prod-web: o listener do echo-web aceita apenas o nome do echo, e uma
+# rota sem hostname nao se anexa a ele (fica de fora, por enquanto).
+apiVersion: v1
+kind: Service
+metadata: {name: pega-tudo, namespace: ingress-gateway}
+spec:
+  ports: [{name: http, port: 8080}]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: pega-tudo, namespace: ingress-gateway}
+spec:
+  parentRefs: [{name: prod-web}]
+  rules:
+    - backendRefs: [{name: pega-tudo, port: 8080}]
+---
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata: {name: pega-tudo-421, namespace: ingress-gateway}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: HTTPRoute, name: pega-tudo}
+  rules:
+    authorization:
+      outro-nome:
+        opa: {rego: allow = false}
+    response:
+      unauthorized:
+        code: 421
+        body: {value: "Misdirected Request: este Gateway nao atende este nome"}
