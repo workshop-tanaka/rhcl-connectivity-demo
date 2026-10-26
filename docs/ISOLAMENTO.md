@@ -95,13 +95,14 @@ Decisões tomadas:
 - **Um terceiro login, `plataforma`, um só para a turma e só leitura**
   (`tenant.sh login-plataforma`, papel `rhcl-plataforma-leitura`). É a visão
   de quem opera o Connectivity Link: a topologia, `kuadrant-system` por
-  dentro (Limitador, AuthConfig, operadores), os objetos de Gateway API, de
+  dentro (Limitador, operadores), os objetos de Gateway API, de
   Kuadrant e de Istio do cluster e os alertas de todos. **Não é o
   `cluster-reader`**: esse lê a spec de Deployment, Pod e ConfigMap do
   cluster, e ali há credencial literal (medido no `cluster-mz8j7` em
   2026-10-26: o segredo HTTP do registro, ConfigMaps do GitLab, o segredo do
   controller do Pipelines). Fora do papel: Secret, `pods/log`, `exec`,
-  ConfigMap além do `topology`, OIDCPolicy e qualquer escrita. A senha vai
+  ConfigMap além do `topology`, OIDCPolicy, AuthPolicy e AuthConfig (o schema
+  admite valor literal, e o participante escreve as dele) e qualquer escrita. A senha vai
   para o guia de todos, o que só é aceitável por isso.
 
 ## 4. O que está aberto hoje

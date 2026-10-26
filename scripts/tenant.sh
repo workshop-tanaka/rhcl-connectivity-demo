@@ -1280,6 +1280,14 @@ rules:
 # FICA DE FORA: Secret, pods/log (a chave ainda trafega na query string),
 # exec, ConfigMap (fora o 'topology'), OIDCPolicy (o schema admite segredo de
 # client) e qualquer verbo de escrita.
+# AuthPolicy E AuthConfig TAMBEM FICAM DE FORA (revisao de seguranca,
+# 2026-10-26). Hoje nenhuma carrega segredo -- varridas no cluster-mz8j7, as
+# trocas de token do OIDC sao de client publico --, mas o schema admite valor
+# literal (cabecalho fixo na resposta, credencial numa chamada de metadata,
+# token escrito no rego), o participante e admin do projeto dele, e o AuthConfig
+# e a copia gerada da AuthPolicy. Com a senha deste login no guia de todos, o
+# que um escrevesse ali os outros leriam. Na topologia o AuthConfig continua
+# aparecendo como no, so pelo nome.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -1296,16 +1304,13 @@ rules:
     resources: [gatewayclasses, gateways, httproutes, grpcroutes, referencegrants, backendtlspolicies]
     verbs: [get, list, watch]
   - apiGroups: [kuadrant.io]
-    resources: [authpolicies, ratelimitpolicies, dnspolicies, tlspolicies, tokenratelimitpolicies, dnsrecords, dnshealthcheckprobes]
+    resources: [ratelimitpolicies, dnspolicies, tlspolicies, tokenratelimitpolicies, dnsrecords, dnshealthcheckprobes]
     verbs: [get, list, watch]
   - apiGroups: [extensions.kuadrant.io]
     resources: [planpolicies, telemetrypolicies]
     verbs: [get, list, watch]
   - apiGroups: [devportal.kuadrant.io]
     resources: [apiproducts]
-    verbs: [get, list, watch]
-  - apiGroups: [authorino.kuadrant.io]
-    resources: [authconfigs]
     verbs: [get, list, watch]
   - apiGroups: [networking.istio.io]
     resources: [envoyfilters]
