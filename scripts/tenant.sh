@@ -864,8 +864,13 @@ EOF
     # tres replicas ninguem nota; num cluster de no unico (SNO) as duas APIs
     # somem por minutos, e a turma que seguia na hora falhava inteira: Route
     # do Gateway nao criada (503 do router) e GitLab "ausente" (medido no
-    # cluster-bfrz2 em 2026-10-22). Espera o rollout terminar antes de seguir.
+    # cluster-bfrz2 em 2026-10-22). Espera o rollout terminar antes de seguir
+    # -- so com UMA replica: com tres a espera custou 345 s sem necessidade
+    # (cluster-mz8j7, 2026-10-26), porque as outras duas seguem atendendo.
     local _e=0
+    if [[ "$(oc get deploy apiserver -n openshift-apiserver -o jsonpath='{.spec.replicas}' 2>/dev/null)" -gt 1 ]] 2>/dev/null; then
+      _ok "modelo novo gravado; o openshift-apiserver reinicia em rodizio (mais de uma replica)"
+    else
     sleep 15
     until [[ "$(oc get co openshift-apiserver -o jsonpath='{.status.conditions[?(@.type=="Progressing")].status}/{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null)" == "False/True" ]] \
           && oc get routes -n openshift-console --request-timeout=10s >/dev/null 2>&1 || [[ $_e -ge 600 ]]; do
@@ -873,6 +878,7 @@ EOF
     done
     [[ $_e -ge 600 ]] && _warn "o openshift-apiserver nao terminou de reiniciar em 10 min -- confira: oc get co openshift-apiserver" \
       || _ok "openshift-apiserver reiniciado com o modelo novo (+$((_e + 15))s)"
+    fi
   fi
   _ok "modelo de projeto 'rhcl-projeto': projeto pedido nasce com o rotulo rhcl.demo/lab"
 }
