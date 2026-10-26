@@ -568,6 +568,7 @@ print("\n---\n".join(d for d in docs if re.search(r"(?m)^\s*namespace:\s*\S+-%s\
   # o client e o usuario de teste que a parte 'Chave ou identidade' usa
   _identidade "$t"
   _login_dev "$t"
+  _login_plataforma
 
   # O ESCOPO DELE, por ultimo. A plataforma ja traz um Sidecar padrao (ver
   # _modelo_projeto): sem o dele, cada namespace do participante so conhece a
@@ -807,31 +808,56 @@ PY
 # Infra le (e a mesma pessoa) e o Dev nao, e chega ao guia (Seus acessos).
 # ---------------------------------------------------------------------------
 _login_dev() { # <tenant>
-  local t="$1" kns="${KEYCLOAK_NS:-keycloak}" host realm u pw tok
+  local t="$1"
   oc get ns "travel-agency-${t}" >/dev/null 2>&1 || return 0
-  if oc get secret login-dev -n "travel-agency-${t}" >/dev/null 2>&1; then
-    _ok "login do perfil Dev de ${t} na console: ${t}-dev (ja existia; senha mantida)"; return 0
+  _login_keycloak "${t}-dev" "travel-agency-${t}" login-dev "do perfil Dev de ${t}" "$t"
+}
+
+# ---------------------------------------------------------------------------
+# O LOGIN PLATAFORMA NA CONSOLE: um so para a turma, 'plataforma', so leitura.
+# Os papeis sao os de _plataforma (rhcl-plataforma-leitura): a Policy
+# Topology, kuadrant-system por dentro, os Gateways e as policies de todos e
+# os alertas do cluster. E a visao de quem OPERA o Connectivity Link, que o
+# perfil Infra nao tem: o Infra e dono dos projetos dele, nao do cluster.
+# Um so, e nao um por participante: a visao e a mesma para todos, e N logins
+# custariam N usuarios no Keycloak sem mudar o que se ve. A senha vai para o
+# guia de todos -- por isso o papel nao escreve nada e nao le Secret.
+# Fica em <keycloak>/login-plataforma, que so o admin le.
+# ---------------------------------------------------------------------------
+_login_plataforma() {
+  local kns="${KEYCLOAK_NS:-keycloak}"
+  oc get ns "$kns" >/dev/null 2>&1 || return 0
+  _login_keycloak plataforma "$kns" login-plataforma "Plataforma (so leitura, da turma)" ""
+}
+
+# _login_keycloak <usuario> <ns do Secret> <nome do Secret> <descricao> <tenant ou vazio>
+# Cria o usuario no realm do cluster e grava usuario e senha no Secret. A
+# SENHA NASCE UMA VEZ: com o Secret ja existindo, nada muda.
+_login_keycloak() {
+  local usuario="$1" sns="$2" sec="$3" desc="$4" t="$5" kns="${KEYCLOAK_NS:-keycloak}" host realm u pw tok
+  if oc get secret "$sec" -n "$sns" >/dev/null 2>&1; then
+    _ok "login ${desc} na console: ${usuario} (ja existia; senha mantida)"; return 0
   fi
   host="$(oc get route -n "$kns" -o jsonpath='{.items[0].spec.host}' 2>/dev/null)"
   realm="$(oc get keycloakrealmimport -n "$kns" -o jsonpath='{.items[0].spec.realm.realm}' 2>/dev/null)"
   u="$(oc get secret keycloak-initial-admin -n "$kns" -o jsonpath='{.data.username}' 2>/dev/null | base64 -d)"
   pw="$(oc get secret keycloak-initial-admin -n "$kns" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)"
-  [[ -n "$host" && -n "$realm" && -n "$u" && -n "$pw" ]] || { _warn "sem Keycloak de plataforma — ${t} fica sem o login do perfil Dev na console"; return 0; }
+  [[ -n "$host" && -n "$realm" && -n "$u" && -n "$pw" ]] || { _warn "sem Keycloak de plataforma — sem o login ${desc} na console"; return 0; }
   # o certificado e conferido: por aqui passa a senha de admin do Keycloak
   local ca=()
   if ! curl -s -m 15 -o /dev/null "https://${host}/realms/master" 2>/dev/null; then
     local caf; caf="$(mktemp)"
     oc get cm default-ingress-cert -n openshift-config-managed -o jsonpath='{.data.ca-bundle\.crt}' > "$caf" 2>/dev/null
     if curl -s -m 15 -o /dev/null --cacert "$caf" "https://${host}/realms/master" 2>/dev/null; then ca=(--cacert "$caf")
-    else rm -f "$caf"; _warn "o certificado do Keycloak (${host}) nao valida — nao criei o login Dev de ${t}"; return 0; fi
+    else rm -f "$caf"; _warn "o certificado do Keycloak (${host}) nao valida — nao criei o login ${desc}"; return 0; fi
   fi
   tok="$(printf '%s' "$pw" | curl -s ${ca[@]+"${ca[@]}"} -m 20 "https://${host}/realms/master/protocol/openid-connect/token" \
            -d grant_type=password -d client_id=admin-cli --data-urlencode "username=${u}" --data-urlencode password@- 2>/dev/null \
          | python3 -c 'import sys, json; print(json.load(sys.stdin).get("access_token", ""))' 2>/dev/null)"
-  [[ -n "$tok" ]] || { _warn "nao consegui autenticar na API de admin do Keycloak — sem o login Dev de ${t}"; [[ ${#ca[@]} -eq 0 ]] || rm -f "${ca[1]}"; return 0; }
-  if KC="https://${host}/admin/realms/${realm}" TOK="$tok" T="$t" ROT="$ROTULO" CAF="${ca[1]:-}" ADOTA="${ADOTA:-0}" python3 - <<'PY' | oc apply -f - >/dev/null
+  [[ -n "$tok" ]] || { _warn "nao consegui autenticar na API de admin do Keycloak — sem o login ${desc}"; [[ ${#ca[@]} -eq 0 ]] || rm -f "${ca[1]}"; return 0; }
+  if KC="https://${host}/admin/realms/${realm}" TOK="$tok" T="$t" USUARIO="$usuario" SNS="$sns" SEC="$sec" ROT="$ROTULO" CAF="${ca[1]:-}" ADOTA="${ADOTA:-0}" python3 - <<'PY' | oc apply -f - >/dev/null
 import os, sys, json, ssl, secrets, urllib.request, urllib.error, urllib.parse
-KC, TOK, T = os.environ["KC"], os.environ["TOK"], os.environ["T"]
+KC, TOK, T, usuario = os.environ["KC"], os.environ["TOK"], os.environ["T"], os.environ["USUARIO"]
 CTX = ssl.create_default_context(cafile=os.environ.get("CAF") or None)
 def call(method, path, body=None):
     req = urllib.request.Request(KC + path, method=method, data=json.dumps(body).encode() if body is not None else None,
@@ -842,33 +868,34 @@ def call(method, path, body=None):
     except urllib.error.HTTPError as e:
         return e.code, None
 def falha(passo, st):
-    sys.stderr.write("    login dev: %s respondeu HTTP %s\n" % (passo, st)); sys.exit(1)
-usuario = T + "-dev"
+    sys.stderr.write("    login %s: %s respondeu HTTP %s\n" % (usuario, passo, st)); sys.exit(1)
 st, d = call("GET", "/users?exact=true&username=" + urllib.parse.quote(usuario))
 if st != 200: falha("procurar o usuario", st)
-# NAO ADOTA usuario que nao foi este script que criou: sem o Secret login-dev
-# (o shell so chega aqui sem ele), um '<tenant>-dev' que ja existe veio de
-# outro lugar -- um autocadastro, se ele estivesse ligado -- e os papeis do Dev
-# ja estao ligados a esse NOME. Trocar a senha dele entregaria a conta a quem
-# a criou. Para, e manda conferir (revisao de seguranca, 2026-10-26).
+# NAO ADOTA usuario que nao foi este script que criou: sem o Secret (o shell
+# so chega aqui sem ele), um usuario com este nome que ja existe veio de outro
+# lugar -- um autocadastro, se ele estivesse ligado -- e os papeis ja estao
+# ligados a esse NOME. Trocar a senha dele entregaria a conta a quem a criou.
+# Para, e manda conferir (revisao de seguranca, 2026-10-26).
 if d and os.environ.get("ADOTA") != "1":
-    sys.stderr.write("    login dev: %s ja existe no Keycloak e nao foi criado por este script -- confira quem o criou;\n"
+    sys.stderr.write("    login: %s ja existe no Keycloak e nao foi criado por este script -- confira quem o criou;\n"
                      "    se for seguro, rode de novo com ADOTA=1\n" % usuario); sys.exit(1)
 if not d:
     st = call("POST", "/users", {"username": usuario, "enabled": True, "emailVerified": True,
-              "firstName": "Dev", "lastName": T, "email": "%s@example.invalid" % usuario})[0]
+              "firstName": usuario.split("-")[-1].capitalize() if T else "Plataforma", "lastName": T or "turma",
+              "email": "%s@example.invalid" % usuario})[0]
     if st != 201: falha("criar o usuario", st)
     st, d = call("GET", "/users?exact=true&username=" + urllib.parse.quote(usuario))
     if st != 200 or not d: falha("reler o usuario", st)
 senha = secrets.token_urlsafe(12)
 st = call("PUT", "/users/%s/reset-password" % d[0]["id"], {"type": "password", "value": senha, "temporary": False})[0]
 if st != 204: falha("definir a senha", st)
-json.dump({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
-           "metadata": {"name": "login-dev", "namespace": "travel-agency-" + T, "labels": {os.environ["ROT"]: T}},
+meta = {"name": os.environ["SEC"], "namespace": os.environ["SNS"]}
+meta["labels"] = {os.environ["ROT"]: T} if T else {"rhcl.demo/multitenant": "true"}
+json.dump({"apiVersion": "v1", "kind": "Secret", "type": "Opaque", "metadata": meta,
            "stringData": {"username": usuario, "password": senha}}, sys.stdout)
 PY
-  then _ok "login do perfil Dev de ${t} na console: ${t}-dev (senha em travel-agency-${t}/login-dev, e no guia)"
-  else _warn "nao consegui criar o login Dev de ${t} — o guia sai so com o login de sempre"; fi
+  then _ok "login ${desc} na console: ${usuario} (senha em ${sns}/${sec}, e no guia)"
+  else _warn "nao consegui criar o login ${desc} — o guia sai sem ele"; fi
   [[ ${#ca[@]} -eq 0 ]] || rm -f "${ca[1]}"
 }
 
@@ -1195,16 +1222,17 @@ rules:
 # Authorino mostra as chamadas de todos, e o usuario da console nao precisa
 # dele), entao o participante abria Connectivity Link > Policy Topology e a
 # console respondia que ele nao tem permissao (visto com o user26, 2026-10-05).
-# Este e so o ConfigMap 'topology', pelo nome, e vai para a pessoa tambem.
+# Este e so o ConfigMap 'topology', pelo nome.
 # 'list' e 'watch' entram porque a console OBSERVA o objeto: um watch de um
 # recurso nomeado e autorizado pelo resourceNames quando vem com o seletor de
 # nome, que e como ela pede.
-# O desenho mostra os Gateways, rotas e policies da turma inteira, e o
-# participante NAO lista isso de outro jeito (o 'oc get httproute -A' e
-# recusado desde o isolamento). Aceito de proposito (2026-10-26): e a visao de
-# quem opera o Connectivity Link, so nomes e ligacoes, sem segredo, e o guia
-# explica (parte 2.2); a parte dele sai recortada por scripts/topologia.sh. O
-# login Dev da console NAO recebe este papel: o Dev nao ve o mapa.
+# QUEM ABRE A TELA E O LOGIN PLATAFORMA, nao o do participante (2026-10-26).
+# O desenho mostra os Gateways, rotas e policies da turma inteira, e o objeto
+# e um so: nao ha como recortar a parte de cada um. Ate aqui o login Infra o
+# recebia, e o guia tinha de avisar que aquela tela "e do cluster, nao sua";
+# agora o Infra ve so os projetos dele, o mapa inteiro fica com o login
+# Plataforma (rhcl-plataforma-leitura), e a ServiceAccount do terminal guarda
+# o papel para o scripts/topologia.sh recortar a parte do participante.
 # O Extra de DNS sobe um CoreDNS no laboratorio do participante, e o plugin
 # do Kuadrant lista DNSRecord NO CLUSTER INTEIRO: com permissao so no proprio
 # namespace ele recusa subir a zona ("Forbidden access to kuadrant.io API",
@@ -1235,6 +1263,110 @@ rules:
     resources: [configmaps]
     resourceNames: [topology]
     verbs: [get, list, watch]
+---
+# O LOGIN PLATAFORMA (_login_plataforma): a visao de quem opera o Connectivity
+# Link, so leitura. POR QUE EXISTE: o plano de controle e UM por cluster, e
+# parte do roteiro so se ve inteira dali -- a Policy Topology le um unico
+# ConfigMap (tudo ou nada, sem filtro por namespace), o Limitador e o
+# AuthConfig gerados moram em kuadrant-system, e a tela de alertas do cluster
+# mostra os de todos. Dar isso ao login Infra misturava "o seu projeto" com
+# "o cluster" (era o que a parte 2.2 tinha de explicar com um aviso).
+# POR QUE NAO O 'cluster-reader' DE FABRICA: ele nao le Secret, mas le a spec
+# de Deployment, Pod e ConfigMap do cluster inteiro, e ha credencial literal
+# ali -- medido no cluster-mz8j7 em 2026-10-26: REGISTRY_HTTP_SECRET no
+# image-registry, segredos em ConfigMap do GitLab, PAC_CONTROLLER_SECRET no
+# Pipelines. Aqui a lista e fechada: objetos de Gateway API, de Kuadrant e de
+# Istio no cluster; pods e operadores so em kuadrant-system (Role abaixo).
+# FICA DE FORA: Secret, pods/log (a chave ainda trafega na query string),
+# exec, ConfigMap (fora o 'topology'), OIDCPolicy (o schema admite segredo de
+# client) e qualquer verbo de escrita.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rhcl-plataforma-leitura
+  labels: {rhcl.demo/multitenant: "true"}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [project.openshift.io]
+    resources: [projects]
+    verbs: [get, list, watch]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [gatewayclasses, gateways, httproutes, grpcroutes, referencegrants, backendtlspolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [kuadrant.io]
+    resources: [authpolicies, ratelimitpolicies, dnspolicies, tlspolicies, tokenratelimitpolicies, dnsrecords, dnshealthcheckprobes]
+    verbs: [get, list, watch]
+  - apiGroups: [extensions.kuadrant.io]
+    resources: [planpolicies, telemetrypolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [devportal.kuadrant.io]
+    resources: [apiproducts]
+    verbs: [get, list, watch]
+  - apiGroups: [authorino.kuadrant.io]
+    resources: [authconfigs]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.istio.io]
+    resources: [envoyfilters]
+    verbs: [get, list, watch]
+  - apiGroups: [extensions.istio.io]
+    resources: [wasmplugins]
+    verbs: [get, list, watch]
+  - apiGroups: [security.istio.io]
+    resources: [peerauthentications, authorizationpolicies]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rhcl-plataforma-leitura
+  namespace: kuadrant-system
+  labels: {rhcl.demo/multitenant: "true"}
+rules:
+  - apiGroups: [""]
+    resources: [pods, services]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [kuadrant.io]
+    resources: [kuadrants]
+    verbs: [get, list, watch]
+  - apiGroups: [limitador.kuadrant.io]
+    resources: [limitadors]
+    verbs: [get, list, watch]
+  - apiGroups: [operator.authorino.kuadrant.io]
+    resources: [authorinos]
+    verbs: [get, list, watch]
+  - apiGroups: [operators.coreos.com]
+    resources: [clusterserviceversions, subscriptions]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: rhcl-plataforma-leitura, labels: {rhcl.demo/multitenant: "true"}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-plataforma-leitura}
+subjects: [{kind: User, apiGroup: rbac.authorization.k8s.io, name: plataforma}]
+---
+# a tela Observe > Alerting da administracao: os alertas de todos, so leitura
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: rhcl-plataforma-alertas, labels: {rhcl.demo/multitenant: "true"}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-monitoring-view}
+subjects: [{kind: User, apiGroup: rbac.authorization.k8s.io, name: plataforma}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: rhcl-plataforma-leitura, namespace: kuadrant-system, labels: {rhcl.demo/multitenant: "true"}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-plataforma-leitura}
+subjects: [{kind: User, apiGroup: rbac.authorization.k8s.io, name: plataforma}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: rhcl-plataforma-topologia, namespace: kuadrant-system, labels: {rhcl.demo/multitenant: "true"}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-topologia}
+subjects: [{kind: User, apiGroup: rbac.authorization.k8s.io, name: plataforma}]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -1383,7 +1515,7 @@ _rbac() { # <tenant>
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-leitura, namespace: %s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-leitura-plataforma}\nsubjects:\n' "$t" "$ns" "$ROTULO" "$t"; _so_sa
     done
     printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-logs, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-logs}\nsubjects:\n' "$t"; _so_sa
-    printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-topologia, namespace: kuadrant-system, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-topologia}\nsubjects:\n' "$t" "$ROTULO" "$t"; _sujeitos
+    printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-topologia, namespace: kuadrant-system, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-topologia}\nsubjects:\n' "$t" "$ROTULO" "$t"; _so_sa
     # O PERFIL DEV DELE: a ServiceAccount 'dev' no namespace da aplicacao, com o
     # mesmo papel que a persona 'app-dev' tem na demo -- dono da rota e das
     # policies que miram a rota, e so LEITOR do Gateway. O participante (que
@@ -2256,10 +2388,13 @@ json.dump({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
     printf '\n\x1e\n'
     # o login do perfil Dev na console (_login_dev), se ele existir
     oc get secret login-dev -n "travel-agency-${t}" -o json 2>/dev/null || printf '{}'
+    printf '\n\x1e\n'
+    # o login Plataforma da turma (_login_plataforma): o mesmo em todos os guias
+    oc get secret login-plataforma -n "${KEYCLOAK_NS:-keycloak}" -o json 2>/dev/null || printf '{}'
   } | PERFIS="$perfis" PERFIL_SH="$_PERFIL_SH" FOCO="$foco" CHE_URL="$che_url" GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
 import sys, json, os, re, base64
 t, dom = os.environ["TENANT"], os.environ["DOM"]
-objs, chaves, rotas, realms, logindev = sys.stdin.read().split("\x1e")
+objs, chaves, rotas, realms, logindev, loginplat = sys.stdin.read().split("\x1e")
 senha = ""
 for r in json.loads(realms)["items"]:
     for u in r["spec"]["realm"].get("users", []):
@@ -2277,6 +2412,10 @@ _ld = json.loads(logindev).get("data", {})
 if _ld.get("username") and _ld.get("password"):
     troca["usuario_console_dev"] = base64.b64decode(_ld["username"]).decode()
     troca["senha_console_dev"] = base64.b64decode(_ld["password"]).decode()
+_lp = json.loads(loginplat).get("data", {})
+if _lp.get("username") and _lp.get("password"):
+    troca["usuario_console_plataforma"] = base64.b64decode(_lp["username"]).decode()
+    troca["senha_console_plataforma"] = base64.b64decode(_lp["password"]).decode()
 novos = {"user": t, "sufixo": "-" + t}
 pode = {"api_host", "api_key_free", "api_key_silver", "api_key_gold", "cluster_domain", "guid",
         "usuario_console", "demo_ref", "repo_no_ambiente", "repo_policies", "repo_apis"}
@@ -2950,6 +3089,9 @@ case "${1:-}" in
     ;;
   login-dev)
     _valida_tenant "${2:-}"; _login_dev "$2"
+    ;;
+  login-plataforma)
+    _login_plataforma
     ;;
   traces)
     _traces

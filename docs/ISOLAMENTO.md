@@ -87,9 +87,22 @@ Decisões tomadas:
 - **O terminal e a pessoa têm a mesma permissão.** Hoje a identidade do
   terminal pode mais que a pessoa, e é por ela que os dados vazam.
 - **A Policy Topology é visão da plataforma.** O objeto que ela desenha é um
-  só para o cluster. O participante Infra a vê inteira, com a explicação; o
-  Dev não a vê; a parte de cada um sai pelo `topologia.sh` (ver a seção 6).
+  só para o cluster, e o RBAC o concede inteiro ou nada. Nem o Infra nem o Dev
+  a abrem; ela abre com o login Plataforma (abaixo), e a parte de cada um sai
+  pelo `topologia.sh` (ver a seção 6). Até 2026-10-26 o Infra a via inteira,
+  com um aviso no guia.
 - **Console com dois logins por participante**, um por perfil.
+- **Um terceiro login, `plataforma`, um só para a turma e só leitura**
+  (`tenant.sh login-plataforma`, papel `rhcl-plataforma-leitura`). É a visão
+  de quem opera o Connectivity Link: a topologia, `kuadrant-system` por
+  dentro (Limitador, AuthConfig, operadores), os objetos de Gateway API, de
+  Kuadrant e de Istio do cluster e os alertas de todos. **Não é o
+  `cluster-reader`**: esse lê a spec de Deployment, Pod e ConfigMap do
+  cluster, e ali há credencial literal (medido no `cluster-mz8j7` em
+  2026-10-26: o segredo HTTP do registro, ConfigMaps do GitLab, o segredo do
+  controller do Pipelines). Fora do papel: Secret, `pods/log`, `exec`,
+  ConfigMap além do `topology`, OIDCPolicy e qualquer escrita. A senha vai
+  para o guia de todos, o que só é aceitável por isso.
 
 ## 4. O que está aberto hoje
 
