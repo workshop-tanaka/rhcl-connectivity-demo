@@ -22,7 +22,7 @@
 # Dai tres regras em tres namespaces:
 #   monitoring      kuadrant_planpolicy_status  (kube-state-metrics)
 #   kuadrant-system limitador_up                (o proprio Limitador)
-#   travel-agency   istio_requests_total        (os sidecars)
+#   ingress-gateway istio_requests_total        (o Gateway, com o rotulo 'partner')
 #
 # Uso:
 #   bash scripts/alerta.sh aplica    # cria as tres regras
@@ -143,16 +143,21 @@ EOF
   cmd_aplica_parceiros
 }
 
-# A regra do ambiente do participante. Vive em 'travel-agency' -- que na copia
-# do tenant ja virou 'travel-agency-<user>' pela troca do tenant.sh, e e por
-# isso que esta funciona para ele e as outras duas nao.
+# A regra do ambiente do participante. Vive em 'ingress-gateway' -- que na
+# copia do tenant ja virou 'ingress-gateway-<user>' pela troca do tenant.sh, e
+# e por isso que esta e dele e as outras duas nao. ATE 2026-10-26 MORAVA EM
+# 'travel-agency' e nunca acendia: o 401 e o 429 nascem no GATEWAY e nao
+# chegam a aplicacao, e com o namespace injetado na consulta a regra via 0
+# serie (medido no cluster-mz8j7: 0 series de istio_requests_total em
+# travel-agency-user1, 20 em ingress-gateway-user1, com 'partner'). A tela de
+# alertas do projeto mostrava "No alerting rules found" para o participante.
 cmd_aplica_parceiros() {
   oc apply -f - >/dev/null <<'EOF'
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
   name: rhcl-parceiros
-  namespace: travel-agency
+  namespace: ingress-gateway
   labels: { rhcl.demo/finalidade: alerta }
 spec:
   groups:
@@ -180,7 +185,8 @@ spec:
               Mais de 10 recusas de credencial em 10 minutos. Chave revogada
               por engano, ou alguem tentando.
 EOF
-  _ok "travel-agency/rhcl-parceiros   (o consumidor que satura ou e recusado)"
+  oc delete prometheusrule rhcl-parceiros -n travel-agency --ignore-not-found >/dev/null 2>&1 || true   # o lugar antigo
+  _ok "ingress-gateway/rhcl-parceiros   (o consumidor que satura ou e recusado)"
   echo
   _nota "as regras levam ate ~1 min para serem avaliadas pela primeira vez."
   _nota "veja em: console -> Observe -> Alerting -> Alerting rules"
@@ -311,7 +317,7 @@ cmd_prova() {
 cmd_remove() {
   _sec "Removendo as regras"
   local n=0 p
-  for p in monitoring/rhcl-protecao kuadrant-system/rhcl-limitador travel-agency/rhcl-parceiros; do
+  for p in monitoring/rhcl-protecao kuadrant-system/rhcl-limitador ingress-gateway/rhcl-parceiros travel-agency/rhcl-parceiros; do
     oc delete prometheusrule "${p##*/}" -n "${p%%/*}" --ignore-not-found >/dev/null 2>&1 && n=$((n+1))
   done
   _ok "${n} regra(s) removida(s)"
