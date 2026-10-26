@@ -254,6 +254,13 @@ PERL
 # (read, e nao "$(cat <<...)": o bash 3.2 do macOS fecha o "$(" no primeiro
 # ')' de um padrao de case dentro do heredoc -- medido: a onda v0.68 caiu nisso)
 IFS= read -r -d '' _PERFIL_SH <<'BASH' || true
+# no Terminal Dev o autor dos commits e o <user>-dev, o mesmo que empurra (a
+# credencial do git sai do PERFIL, gitlab-turma.sh terminal): no merge
+# request, quem propoe e o Dev, e quem aprova e o Infra
+if [ "${PERFIL:-}" = dev ] && [ -n "${GUID:-}" ]; then
+  export GIT_AUTHOR_NAME="${GUID}-dev" GIT_COMMITTER_NAME="${GUID}-dev"
+  export GIT_AUTHOR_EMAIL="${GUID}-dev@workshop.invalid" GIT_COMMITTER_EMAIL="${GUID}-dev@workshop.invalid"
+fi
 # perfil: abre todo bloco clicavel do guia quando o ambiente tem os dois
 # perfis (tenant.sh): 'perfil dev && {' ... '}'. O botao do guia cola o bloco
 # na aba ABERTA,

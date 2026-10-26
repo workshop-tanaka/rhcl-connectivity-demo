@@ -118,6 +118,33 @@ cmd_login() {
   else
     _ok "client 'gitlab' ja existe no realm ${realm}"
   fi
+  # O SIGN OUT DO GITLAB ENCERRA TAMBEM A SESSAO DO KEYCLOAK. Cada participante
+  # tem dois logins (Infra e Dev), e o Infra aprova o merge request que o Dev
+  # abriu: trocar de um para o outro e sair e entrar. Sem isto o Keycloak
+  # lembrava o login e o GitLab voltava com o mesmo usuario (visto no
+  # cluster-mz8j7 em 2026-10-26). O GitLab manda o navegador ao fim de sessao
+  # do Keycloak, que devolve a tela de login dele -- destino que o client
+  # 'gitlab' passa a aceitar.
+  if KC="https://${kc_host}/admin/realms/${realm}" KTOK="$tok" CID="$cid" GLH="$GITLAB_HOST" GLT="$TOKEN" \
+     ISSUER="https://${kc_host}/realms/${realm}" CA_BUNDLE="$CA_BUNDLE" python3 - <<'PY'
+import os, json, ssl, urllib.request, urllib.parse
+CTX = ssl.create_default_context(cafile=os.environ.get("CA_BUNDLE") or None)
+def chama(url, metodo, cab, corpo=None):
+    r = urllib.request.Request(url, method=metodo, headers=dict(cab, **{"Content-Type": "application/json"}),
+                               data=json.dumps(corpo).encode() if corpo is not None else None)
+    with urllib.request.urlopen(r, context=CTX, timeout=30) as x:
+        raw = x.read(); return json.loads(raw) if raw else None
+volta = "https://%s/users/sign_in" % os.environ["GLH"]
+kc = {"Authorization": "Bearer " + os.environ["KTOK"]}
+c = chama(os.environ["KC"] + "/clients/" + os.environ["CID"], "GET", kc)
+if c.get("attributes", {}).get("post.logout.redirect.uris") != volta:
+    c.setdefault("attributes", {})["post.logout.redirect.uris"] = volta
+    chama(os.environ["KC"] + "/clients/" + os.environ["CID"], "PUT", kc, c)
+url = "%s/protocol/openid-connect/logout?client_id=gitlab&post_logout_redirect_uri=%s" % (os.environ["ISSUER"], urllib.parse.quote(volta, safe=""))
+chama("https://%s/api/v4/application/settings" % os.environ["GLH"], "PUT", {"PRIVATE-TOKEN": os.environ["GLT"]}, {"after_sign_out_path": url})
+PY
+  then _ok "o Sign out do GitLab encerra tambem a sessao do Keycloak (troca de perfil)"
+  else _warn "nao consegui ligar o Sign out do GitLab ao Keycloak -- trocar de perfil no GitLab vai pedir logout tambem no Keycloak"; fi
   sec="$(_curl -m 20 -H "Authorization: Bearer ${tok}" "https://${kc_host}/admin/realms/${realm}/clients/${cid}/client-secret" \
          | python3 -c 'import sys, json; print(json.load(sys.stdin).get("value", ""))' 2>/dev/null)"
   [[ -n "$sec" ]] || _die "nao consegui ler o segredo do client 'gitlab'"
@@ -539,12 +566,9 @@ cmd_confere() {
 #
 # O QUE NAO E DO PROJETO fica fora do git por '.git/info/exclude': a copia do
 # terminal tem arquivos de apoio que nao foram publicados.
-cmd_terminal() {
-  [[ $# -ge 1 ]] || _die "uso: bash scripts/gitlab-turma.sh terminal <userN> [userM...]"
-  local u tok falhou=0
-  for u in "$@"; do
-    [[ "$u" =~ ^user[0-9]{1,3}$ ]] || { _warn "${u}: nao e um nome de participante -- pulei"; falhou=$((falhou+1)); continue; }
-    tok="$(CA_BUNDLE="$CA_BUNDLE" GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" U="$u" python3 - <<'PY'
+# o token do terminal-do-guia de um usuario do GitLab (sai na saida padrao)
+_pat_terminal() { # <usuario do GitLab>
+  CA_BUNDLE="$CA_BUNDLE" GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" U="$1" python3 - <<'PY'
 import os, sys, json, ssl, datetime, urllib.request, urllib.error, urllib.parse
 HOST, TOKEN, U = os.environ["GITLAB_HOST"], os.environ["TOKEN"], os.environ["U"]
 CTX = ssl.create_default_context(cafile=os.environ.get("CA_BUNDLE") or None)
@@ -568,11 +592,23 @@ st, t = call("POST", "/users/%d/personal_access_tokens" % uid,
 if st not in (200, 201): sys.exit(1)
 sys.stdout.write(t["token"])
 PY
-)" || tok=""
+}
+
+cmd_terminal() {
+  [[ $# -ge 1 ]] || _die "uso: bash scripts/gitlab-turma.sh terminal <userN> [userM...]"
+  local u tok tokdev falhou=0
+  for u in "$@"; do
+    [[ "$u" =~ ^user[0-9]{1,3}$ ]] || { _warn "${u}: nao e um nome de participante -- pulei"; falhou=$((falhou+1)); continue; }
+    tok="$(_pat_terminal "$u")" || tok=""
+    # O PERFIL DEV EMPURRA COMO <user>-dev: quem propoe no merge request e o
+    # Dev, e o Infra (<user>) aprova. Sem a conta -dev no GitLab, o terminal Dev
+    # segue com a credencial de sempre.
+    tokdev="$(_pat_terminal "${u}-dev")" || tokdev=""
     [[ -n "$tok" ]] || { _warn "${u}: nao consegui emitir o token dele (existe no GitLab? rode 'semeia ${u}')"; falhou=$((falhou+1)); continue; }
-    if printf '%s' "$tok" | oc exec -i -n "showroom-${u}" deploy/showroom -c terminal -- env GL_HOST="$GITLAB_HOST" GL_USER="$u" bash -c '
+    if printf '%s\n%s\n' "$tok" "$tokdev" | oc exec -i -n "showroom-${u}" deploy/showroom -c terminal -- env GL_HOST="$GITLAB_HOST" GL_USER="$u" bash -c '
         set -e
-        read -r TK || true      # sem quebra de linha no fim, o read devolve erro mesmo tendo lido
+        read -r TK || true
+        read -r TKD || true
         [ -n "$TK" ]
         D=/home/lab-user/rhcl-connectivity-demo; C=/home/lab-user/.git-credenciais-ambiente
         cd "$D"
@@ -580,7 +616,11 @@ PY
         git remote remove origin 2>/dev/null || true
         git remote add origin "https://${GL_HOST}/workshop/participantes/${GL_USER}/ambiente.git"
         ( umask 077; printf "https://%s:%s@%s\n" "$GL_USER" "$TK" "$GL_HOST" > "$C" )
-        git config credential.helper "store --file=$C"
+        if [ -n "$TKD" ]; then ( umask 077; printf "https://%s-dev:%s@%s\n" "$GL_USER" "$TKD" "$GL_HOST" > /home/lab-user/.git-credenciais-dev )
+        else rm -f /home/lab-user/.git-credenciais-dev; fi
+        # a credencial sai do PERFIL do terminal: no Terminal Dev (PERFIL=dev),
+        # a do <user>-dev; no Infra, a de sempre
+        git config credential.helper "!f() { c=/home/lab-user/.git-credenciais-\${PERFIL:-ambiente}; [ -f \"\$c\" ] || c=$C; git credential-store --file=\"\$c\" \"\$@\"; }; f"
         git config user.name "$GL_USER"; git config user.email "${GL_USER}@workshop.invalid"
         git config core.fileMode false; git config pull.rebase false
         printf "%s\\n" ".tenant" ".kubeconfig" ".provision.log" ".out-*" "platform-reference/" "env/cluster-*/" "env/rhcl-1.2*/" "overlays/cluster-*/" "overlays/provisioned/" "postman/*.local.*" > .git/info/exclude
@@ -749,7 +789,7 @@ cmd_esteira() {
     # variavel, e dali vai por stdin ao 'oc apply': nunca e impressa.
     cred="$(CA_BUNDLE="$CA_BUNDLE" GITLAB_HOST="$GITLAB_HOST" TOKEN="$TOKEN" U="$u" ARGO="https://${argo_host}/api/webhook" PAC="https://${pac_host}" \
             PLANOS="${TDIR}/${u}/base/policies-plans/travels-plans.yaml" python3 - <<'PY'
-import os, sys, json, ssl, urllib.request, urllib.error, urllib.parse
+import os, sys, json, ssl, secrets, urllib.request, urllib.error, urllib.parse
 HOST, TOKEN, U, ARGO = os.environ["GITLAB_HOST"], os.environ["TOKEN"], os.environ["U"], os.environ["ARGO"]
 CTX = ssl.create_default_context(cafile=os.environ.get("CA_BUNDLE") or None)
 q = lambda s: urllib.parse.quote(s, safe="")
@@ -857,16 +897,41 @@ st, us = call("GET", "/users?username=" + q(U))
 if st == 200 and us:
     st, _ = call("PUT", "/groups/%d/members/%d" % (gid, us[0]["id"]), {"access_level": 30})
     if st not in (200, 201): diz("AVISO: nao consegui passar %s a Developer (HTTP %s)" % (U, st))
+    # QUEM PROPOE NAO APROVA. O perfil Infra (<user>, o login do console) e
+    # Maintainer DESTE projeto, e so ele aceita o merge request; o perfil Dev
+    # (<user>-dev, o terminal Dev) e Developer e propoe. Medido no user5 do
+    # cluster-mz8j7 em 2026-10-26: o Dev abre o merge request, o merge dele
+    # e recusado (e o pedido de merge automatico, ignorado sem erro), o Infra
+    # aceita depois da conferencia verde.
+    st, _ = call("POST", "/projects/%d/members" % pid, {"user_id": us[0]["id"], "access_level": 40})
+    if st == 409: st, _ = call("PUT", "/projects/%d/members/%d" % (pid, us[0]["id"]), {"access_level": 40})
+    if st not in (200, 201): diz("AVISO: nao consegui fazer %s Maintainer do projeto (HTTP %s) -- ninguem aprova o merge" % (U, st))
+st, ds = call("GET", "/users?username=" + q(U + "-dev"))
+if st == 200 and not ds:
+    st, ds = call("POST", "/users", {"username": U + "-dev", "name": U + "-dev", "email": "%s-dev@workshop.invalid" % U,
+        "password": secrets.token_urlsafe(24), "skip_confirmation": True, "provider": "openid_connect", "extern_uid": U + "-dev",
+        "projects_limit": 0, "can_create_group": False})
+    ds = [ds] if st in (200, 201) else []
+if ds:
+    st, _ = call("POST", "/groups/%d/members" % gid, {"user_id": ds[0]["id"], "access_level": 30})
+    if st == 409: st, _ = call("PUT", "/groups/%d/members/%d" % (gid, ds[0]["id"]), {"access_level": 30})
+    if st not in (200, 201): diz("AVISO: nao consegui dar Developer a %s-dev (HTTP %s)" % (U, st))
+    else: diz("%s propoe (Developer), %s aprova (Maintainer)" % (U + "-dev", U))
+else: diz("AVISO: sem a conta %s-dev no GitLab -- o Dev e o Infra empurram com a mesma identidade" % U)
 #    O main so aceita merge request. SEM ISTO A CONFERENCIA E DECORACAO: quem
 #    empurra direto no main pula o merge request e o pipeline. Falhar aqui
 #    para tudo (fail-closed) -- sumiu numa edicao em 2026-10-16 e a revisao
 #    automatica apontou; o cluster so ficou protegido porque a regra antiga
 #    continuava la.
 call("DELETE", "/projects/%d/protected_branches/main" % pid)
-st, d = call("POST", "/projects/%d/protected_branches" % pid, {"name": "main", "push_access_level": 40, "merge_access_level": 30,
+#    push 60 (so administrador): o Maintainer -- o perfil Infra -- tambem nao
+#    empurra no main, so aceita merge request; a administracao segue escrevendo
+#    (o .tekton/ abaixo, a republicacao). Com push 0 nem ela escrevia (403,
+#    medido). merge 40: so o Maintainer aceita.
+st, d = call("POST", "/projects/%d/protected_branches" % pid, {"name": "main", "push_access_level": 60, "merge_access_level": 40,
              "allow_force_push": False})
 if st not in (200, 201): diz("nao consegui proteger o main: %s -- a esteira NAO sobe sem isso" % str(d.get("message"))[:120]); sys.exit(1)
-diz("o main so aceita merge request (push direto: so a administracao)")
+diz("o main so aceita merge request, aceito pelo Maintainer (push direto: so a administracao)")
 # 5. a conferencia antes do merge, no OpenShift Pipelines (Pipelines as Code).
 #    A DEFINICAO do pipeline e lida do 'main' (pipelinerun_provenance no
 #    Repository), nao do branch do merge request: quem abre o merge request
