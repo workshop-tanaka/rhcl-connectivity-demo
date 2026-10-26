@@ -2353,6 +2353,13 @@ for o in itens:
     elif k == "Deployment":
         sp = o["spec"]["template"]["spec"]
         term = [c for c in sp["containers"] if c["name"] == "terminal"][0]
+        # OS ATRIBUTOS MUDAM SEM O DEPLOYMENT MUDAR (a senha do login Dev, uma
+        # chave nova): o ConfigMap era gravado e o pod seguia com o guia velho,
+        # porque o Antora so le os atributos ao subir (user5 no mz8j7). A
+        # impressao digital deles no molde do pod faz o rollout acontecer.
+        import hashlib
+        o["spec"]["template"].setdefault("metadata", {}).setdefault("annotations", {})["rhcl.demo/atributos"] = \
+            hashlib.sha256(json.dumps(dados, sort_keys=True).encode()).hexdigest()[:16]
         for c in sp["containers"]:
             for e in c.get("env", []):
                 if e["name"] in ("GUID", "USER"): e["value"] = t
