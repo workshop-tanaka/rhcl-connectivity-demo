@@ -155,7 +155,7 @@ ver [PROVISIONING-1.4 seção 7](PROVISIONING-1.4.md#7-consoles-integradas); o
 URLs saem do próprio preflight, ou:
 
 ```bash
-oc whoami --show-console                          # + /kuadrant/policy-topology e /ossmconsole/graph
+oc whoami --show-console                          # + /kuadrant/policy-topology/all-namespaces e /ossmconsole/graph
 oc get route grafana-route -n monitoring          -o jsonpath='{.spec.host}{"\n"}'
 oc get route kiali         -n istio-system        -o jsonpath='{.spec.host}{"\n"}'
 oc get route tempo-tempo-jaegerui -n tracing-system -o jsonpath='{.spec.host}{"/dev\n"}'   # plano B

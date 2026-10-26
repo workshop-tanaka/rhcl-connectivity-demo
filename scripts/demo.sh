@@ -523,11 +523,11 @@ step_telas() {
   # a home nua, o participante abria o Grafana da TURMA inteira.
   printf '    %s\n' "${g:+https://$g/d/rhcl-negocio-planos}"
   printf '  %sAba 2 — Policy Topology (precedencia), Traffic Graph e Traces (rastro)%s\n' "$_BLD" "$_RST"
-  printf '    %s\n' "${c}/kuadrant/policy-topology"
+  printf '    %s\n' "${c}/kuadrant/policy-topology/all-namespaces"
   printf '    %s\n' "$(_graf_url)"
   printf '    %s\n' "$(_traces_url)"
   printf '  %sAba 3 — API Catalog do console (planos): produtos, chaves, aprovacoes%s\n' "$_BLD" "$_RST"
-  printf '    %s\n' "${c}/kuadrant/apiproducts"
+  printf '    %s\n' "${c}/kuadrant/apiproducts/all-namespaces"
   # So com o portal instalado: sem ele sobrava o titulo da aba e uma linha vazia.
   if [[ -n "$r" ]]; then
     printf '  %sAba 4 — RHDH (so no caminho pavimentado)%s\n' "$_BLD" "$_RST"
@@ -668,7 +668,7 @@ step_ato3() {
   _look "Enforced=False, e a mensagem NOMEIA quem venceu — as policies das duas rotas"
   _say  "O cluster declara quem prevaleceu. Numa stack de anotacoes de ingress ou EnvoyFilter solto, descobrir isso e arqueologia. Aqui e um campo de status."
   echo
-  _log  "o mesmo fork esta desenhado em: $(_console)/kuadrant/policy-topology"
+  _log  "o mesmo fork esta desenhado em: $(_console)/kuadrant/policy-topology/all-namespaces"
   _why  "O grafo mostra o listener bifurcando para as duas rotas e as policies"
   _why  "chegando como aresta tracejada. Ele NAO marca quem venceu — nao ha badge"
   _why  "de 'overridden'. O desenho faz a pergunta; o status responde. Nao perca"
