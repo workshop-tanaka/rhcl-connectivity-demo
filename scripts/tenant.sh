@@ -1361,6 +1361,17 @@ metadata: {name: rhcl-plataforma-alertas, labels: {rhcl.demo/multitenant: "true"
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-monitoring-view}
 subjects: [{kind: User, apiGroup: rbac.authorization.k8s.io, name: plataforma}]
 ---
+# ...e o Alertmanager, que a mesma tela consulta para os silences: so com o
+# cluster-monitoring-view ela abre VAZIA, sem erro nenhum na tela -- a console
+# recebe as regras do Prometheus, o Alertmanager responde 403 (alertmanagers/api)
+# e a lista nao se desenha. Medido no cluster-mz8j7 em 2026-10-26. O papel e o
+# de fabrica, so leitura: ver alertas e silences, nao criar silence.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: rhcl-plataforma-alertmanager, namespace: openshift-monitoring, labels: {rhcl.demo/multitenant: "true"}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: monitoring-alertmanager-view}
+subjects: [{kind: User, apiGroup: rbac.authorization.k8s.io, name: plataforma}]
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata: {name: rhcl-plataforma-leitura, namespace: kuadrant-system, labels: {rhcl.demo/multitenant: "true"}}
