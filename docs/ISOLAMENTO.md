@@ -389,8 +389,9 @@ O que muda no roteiro:
 
 - a precedência (1.3) ganha autoria: o teto é do Infra, a exceção é do Dev;
 - a 1.4 deixa de simular outro usuário: o Dev é barrado de fato no Gateway;
-- a degradação do rate limit, o endereço público da 1.6 e os extras com Gateway
-  próprio são do Infra, e deixam de depender do instrutor.
+- o endereço público da 1.6 e os extras com Gateway próprio são do Infra, e
+  deixam de depender do instrutor. A degradação do rate limit **não**: ela
+  derruba o Limitador, que é um para a turma (ver a seção 7).
 
 ## 7. O que continua compartilhado, por construção
 
@@ -401,6 +402,19 @@ O que muda no roteiro:
   oscilou em 150 sondas, uma por segundo.
 - **Existência.** Nomes de serviços e namespaces dos colegas ainda aparecem em
   alguns lugares, como a busca de traces.
+
+- **O que mexe no plano de controle é do instrutor.** Medido como a SA do
+  terminal do `user1` no `cluster-mz8j7` em 2026-10-26:
+  - `patch` no `Limitador` e no `Deployment` `limitador-limitador`: **no**. A
+    6.2 (`demo.sh degrada`) não roda na turma, e também não é risco: ninguém
+    derruba o Limitador dos colegas. Na cópia da turma ela vira demonstração
+    do instrutor (o bloco perde o clique; a saída esperada fica na página);
+  - o audit log do apiserver (`oc adm node-logs`, que pede `nodes/log`):
+    **no**, e o `auditoria.sh negadas` volta "sem recusa na janela" em vez de
+    dizer que não pôde ler. O `argo` também volta vazio (o participante lê a
+    Application dele pelo nome, não lista). A 6.4 fica leitura na turma,
+    **menos o exercício da chave vazada**, que roda inteiro (cunha, chama,
+    revoga e prova o `401`); só a fonte "audit log" dele volta vazia.
 
 Se isso for inaceitável para um público, a saída é um cluster por cliente.
 

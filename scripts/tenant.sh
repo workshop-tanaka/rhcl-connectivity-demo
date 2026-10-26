@@ -324,13 +324,30 @@ if (/\A(?:include::[^\n]*\n)?= (?:1\.4|\{p-papeis\}) /) {
   # com os dois perfis o desenvolvedor tem aba propria: a nota diz qual
   s/O engenheiro de plataforma é você, pelo terminal do guia: é quem cuida do Gateway\. O desenvolvedor é a identidade \x60dev\x60 do seu ambiente, e onde a página diz \x60app-dev\x60 é ela que responde\. Os comandos abaixo já vêm ajustados\./O engenheiro de plataforma (perfil Infra) é a aba *Terminal Infra*: é quem cuida do Gateway. O desenvolvedor (perfil Dev) é a identidade \x60dev\x60 do seu ambiente, na aba *Terminal Dev*. Cada bloco diz em qual aba roda./ if $ENV{PERFIS};
 }
+# MENOS O EXERCICIO DA CHAVE VAZADA, que roda inteiro na turma: cunha a chave
+# no namespace das chaves do participante, chama a API, le managedFields e a
+# metrica, revoga e prova o 401 (medido como showroom-user1 no cluster-mz8j7
+# em 2026-10-26). So a fonte "audit log" dele volta vazia, e ele mesmo diz
+# por que. O bloco dele e marcado antes da limpeza e devolvido depois.
 if (/\A(?:include::[^\n]*\n)?= (?:3\.6|\{p-auditoria\}) /) {
+  s/(\.Perfil Infra -- aba[^\n]*\n)?\[source,bash,role="execute"\](\n----\n(?:perfil infra && \{\n)?bash scripts\/chave-vazada\.sh\n)/\x01$1\x02$2/g;
   s/,\s*role="execute"//g;
   # bloco de leitura nao e de perfil nenhum: sai o titulo e a linha 'perfil'
   s/^\.Perfil (?:Infra|Dev) -- aba[^\n]*\n//mg;
-  s/^----\nperfil (?:infra|dev) && \{\n((?:(?!^----$).*\n)*?)\}\n----$/----\n$1----/mg;
-  s/\A((?:[^\n]+\n)+)\n/$1\n[IMPORTANT]\n====\n*Nesta turma, esta parte é leitura.* Ela consulta o registro de auditoria do cluster inteiro, que mostra as ações de todos os participantes, e o seu ambiente não tem acesso a ele: os comandos desta página respondem \x60Forbidden\x60. As saídas de exemplo estão na própria página.\n====\n\n/;
+  s/^----\nperfil (?:infra|dev) && \{\n(?!bash scripts\/chave-vazada\.sh\n)((?:(?!^----$).*\n)*?)\}\n----$/----\n$1----/mg;
+  s/\x01([^\x02]*)\x02/$1\[source,bash,role="execute"\]/g;
+  s/\A((?:[^\n]+\n)+)\n/$1\n[IMPORTANT]\n====\n*Nesta turma, esta parte é leitura -- menos o exercício da chave vazada, que roda inteiro.* As outras fontes consultam o registro de auditoria e o Argo CD do cluster inteiro, que mostram as ações de todos os participantes, e o seu ambiente não tem acesso a eles: os comandos respondem \x60Forbidden\x60 ou voltam vazios. As saídas de exemplo estão na própria página.\n====\n\n/;
 }
+# A 6.2 E DO INSTRUTOR NUMA TURMA. 'demo.sh degrada' escala o Limitador a zero,
+# e o Limitador e UM para a turma: o participante nao tem 'patch' nele nem no
+# Deployment (can-i = no para a SA do terminal, cluster-mz8j7, 2026-10-26), e
+# o script parava no primeiro passo. Nao e risco para a turma -- ninguem o
+# derruba --, mas a parte nao roda: o bloco vira leitura e a saida esperada
+# fica na pagina. O 'traffic.sh metrics' continua clicavel.
+if (/\A(?:include::[^\n]*\n)?= (?:3\.4|\{p-degrada\}) /) {
+  s/(?:\.Perfil Infra[^\n]*\n)?\[source,bash,role="execute"\]\n----\n(?:perfil infra && \{\n)?bash scripts\/demo\.sh degrada\n(?:\}\n)?----\n/[IMPORTANT]\n====\n*Nesta turma, esta parte é demonstração do instrutor.* Ela derruba o Limitador, que é um só para a turma inteira: o seu ambiente não tem permissão para isso, e rodá-la tiraria o limite de todos ao mesmo tempo. O instrutor a mostra na tela dele; o resultado esperado está logo abaixo.\n====\n\n[source,bash]\n----\nbash scripts\/demo.sh degrada\n----\n/;
+}
+s/^(\* xref:m3-04-degrada\.adoc\[[^\]\n]*)\]/$1 -- do instrutor]/mg;
 # A PROVA DO ALERTA TAMBEM E LEITURA NUMA TURMA. 'alerta.sh prova' escala para
 # zero o Limitador, que e UM para a turma, e por isso o proprio script se
 # recusa quando roda no terminal de um participante. A pagina seguia mandando
@@ -342,7 +359,7 @@ if (/\A(?:include::[^\n]*\n)?= (?:3\.6|\{p-auditoria\}) /) {
 if (/\A(?:include::[^\n]*\n)?= (?:3\.5|\{p-alerta\}) /) {
   s/(?:\.Perfil Infra[^\n]*\n)?\[source,bash,role="execute"\]\n----\n(?:perfil infra && \{\n)?bash scripts\/alerta\.sh prova\n(?:\}\n)?----\n/[IMPORTANT]\n====\n*Nesta turma, a prova abaixo é leitura.* Ela derruba o Limitador, que é um só para a turma inteira: rodá-la tiraria o limite de todos os participantes ao mesmo tempo, e por isso o comando se recusa no seu terminal. A saída mostrada foi medida num ambiente de um participante só. O que você pode rodar aqui: \x60bash scripts\/alerta.sh status\x60, acima, e a parte anterior, que derruba e devolve o limite só no seu ambiente.\n====\n\n[source,bash]\n----\nbash scripts\/alerta.sh prova\n----\n/;
 }
-s/^(\* xref:m3-06-auditoria\.adoc\[[^\]\n]*)\]/$1 -- leitura]/mg;
+s/^(\* xref:m3-06-auditoria\.adoc\[[^\]\n]*)\]/$1 -- leitura e um exercício]/mg;
 # O painel consumo-plataforma e visao da plataforma INTEIRA por desenho, e o
 # Grafana de uma turma e filtrado, nao isolado (docs/TURMA.md, secao 8): e o
 # unico painel nao filtravel que o guia mandava o participante abrir.
