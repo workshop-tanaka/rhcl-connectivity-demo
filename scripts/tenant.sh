@@ -1321,6 +1321,17 @@ rules:
   - apiGroups: [security.istio.io]
     resources: [peerauthentications, authorizationpolicies]
     verbs: [get, list, watch]
+  # SO 'get', e e uma chave, nao uma leitura: o plugin de monitoramento da
+  # console pergunta se a pessoa pode 'get prometheusrules' em todos os
+  # namespaces e, se nao pode, troca a tela de alertas da administracao pela
+  # versao por projeto (a tenancy do Thanos, filtrada pelo projeto ativo) --
+  # que abria VAZIA, sem erro, mesmo com as regras chegando do Prometheus
+  # (cluster-mz8j7, 2026-10-26; a decisao esta no bundle do monitoring-plugin:
+  # useAlertsTenancy = !pode-get-prometheusrules). As regras vem da API do
+  # Prometheus (cluster-monitoring-view); sem 'list' ninguem enumera os objetos.
+  - apiGroups: [monitoring.coreos.com]
+    resources: [prometheusrules]
+    verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
