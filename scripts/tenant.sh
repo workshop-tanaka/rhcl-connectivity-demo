@@ -860,6 +860,19 @@ EOF
   if [[ "$atual" != "rhcl-projeto" ]]; then
     oc patch project.config.openshift.io cluster --type=merge -p '{"spec":{"projectRequestTemplate":{"name":"rhcl-projeto"}}}' >/dev/null 2>&1 \
       || { _warn "nao consegui apontar o cluster para o modelo de projeto 'rhcl-projeto'"; return 0; }
+    # A MUDANCA REINICIA O openshift-apiserver, que serve Route e Project. Com
+    # tres replicas ninguem nota; num cluster de no unico (SNO) as duas APIs
+    # somem por minutos, e a turma que seguia na hora falhava inteira: Route
+    # do Gateway nao criada (503 do router) e GitLab "ausente" (medido no
+    # cluster-bfrz2 em 2026-10-22). Espera o rollout terminar antes de seguir.
+    local _e=0
+    sleep 15
+    until [[ "$(oc get co openshift-apiserver -o jsonpath='{.status.conditions[?(@.type=="Progressing")].status}/{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null)" == "False/True" ]] \
+          && oc get routes -n openshift-console --request-timeout=10s >/dev/null 2>&1 || [[ $_e -ge 600 ]]; do
+      sleep 10; _e=$((_e + 10))
+    done
+    [[ $_e -ge 600 ]] && _warn "o openshift-apiserver nao terminou de reiniciar em 10 min -- confira: oc get co openshift-apiserver" \
+      || _ok "openshift-apiserver reiniciado com o modelo novo (+$((_e + 15))s)"
   fi
   _ok "modelo de projeto 'rhcl-projeto': projeto pedido nasce com o rotulo rhcl.demo/lab"
 }
