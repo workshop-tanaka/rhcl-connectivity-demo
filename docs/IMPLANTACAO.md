@@ -104,7 +104,7 @@ bash scripts/turma.sh <guid> [<guid>...]   # uma linha por participante; só lê
 ```
 
 Pronto é isto, por participante: **6 namespaces, 15/15 pods, 2/2 Gateways,
-10/10 policies (+3 sobrepostas), guia `ok`**. `Overridden` não é falha, e
+12/12 policies (+2 sobrepostas), guia `ok`** (10/10 +3 antes do 421 do Gateway, de 2026-10-26: a policy dele é uma a mais, e o deny-all do Gateway deixa de ficar só sobreposto). `Overridden` não é falha, e
 `SUBINDO` também não — o [TURMA.md](TURMA.md) explica as duas.
 
 Antes da tabela vem a plataforma que todos dividem. O número a olhar é a
