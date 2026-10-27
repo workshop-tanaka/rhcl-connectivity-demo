@@ -2516,6 +2516,15 @@ if foco in ("rhcl", "ossm", "rhsi"):
 # republicar sem EXTRAS. Nao precisa de onda nova para nenhum dos dois.
 for extra in os.environ.get("EXTRAS", "").split():
     if re.fullmatch(r"[a-z][a-z0-9_]*", extra): dados[extra] = "1"
+# TRILHAS: cada nome vira um guia INTEIRO a mais, construido pelo Antora com o
+# menu daquela trilha e servido em /<trilha>/ no mesmo Showroom (ver o init
+# container trilhas-builder e o comando do container content, abaixo). O
+# atributo trilhas_links faz a pagina "Escolha a sua trilha" mostrar os links.
+TODAS_TRILHAS = ("degustacao", "basico", "intermediario", "avancado", "infra", "desenvolvedor", "operacoes")
+trilhas = os.environ.get("TRILHAS", "").split()
+if trilhas == ["todas"]: trilhas = list(TODAS_TRILHAS)
+trilhas = [x for x in trilhas if x in TODAS_TRILHAS]
+if trilhas: dados["trilhas"] = "1"; dados["trilhas_links"] = "1"
 # Parte destes valores vem do cluster (hostname de Route, senha do usuario). O
 # arquivo e montado por concatenacao, entao valor com aspas, barra invertida ou
 # caractere de controle quebraria a string e injetaria atributo: nesse caso o
@@ -2586,6 +2595,30 @@ for o in itens:
                     {"name": "PERFIS", "value": os.environ.get("PERFIS", "")}, {"name": "FOCO", "value": os.environ.get("FOCO", "")}],
             "command": ["bash", "-c", "set -e; d=%s; n=$(find \"$d\" -name \"*.adoc\" | wc -l); [ \"$n\" -gt 0 ]; find \"$d\" -name \"*.adoc\" -print0 | xargs -0 perl -pi -e \"$PERL_TROCA\"; find \"$d\" -name \"*.adoc\" -print0 | VAZIOS=\"${VAZIOS:-__nenhum__}\" xargs -0 perl -0777 -pi -e \"$PERL_VAZIOS\"; echo \"troca aplicada a $n paginas; links sem destino: ${VAZIOS:-nenhum}\"; if [ \"$PERFIS\" = 1 ] && [ -f \"$d/ui-config.yml\" ] && ! grep -q terminal-dev \"$d/ui-config.yml\"; then if [ \"$FOCO\" = rhcl ]; then perl -0777 -pi -e \"s{\\n  - name: Terminal 2\\n    path: /terminal/\\n    port: 443\\n}{\\n  # o perfil Dev: outra identidade, a do desenvolvedor do ambiente (tenant.sh)\\n  - name: Terminal Dev\\n    path: /terminal-dev/\\n    port: 443\\n}\" \"$d/ui-config.yml\"; else perl -0777 -pi -e \"s{(\\n  - name: Terminal 2\\n    path: /terminal/\\n    port: 443\\n)}{\\$1\\n  # o perfil Dev: outra identidade, a do desenvolvedor do ambiente (tenant.sh)\\n  - name: Terminal Dev\\n    path: /terminal-dev/\\n    port: 443\\n}\" \"$d/ui-config.yml\"; fi; perl -0777 -pi -e \"s{\\n  - name: Terminal\\n    path: /terminal/\\n}{\\n  - name: Terminal Infra\\n    path: /terminal/\\n}\" \"$d/ui-config.yml\"; grep -q terminal-dev \"$d/ui-config.yml\" && echo \"abas Terminal Infra e Terminal Dev no guia\"; fi" % repo[0]["mountPath"]],
             "volumeMounts": repo})
+        # AS TRILHAS COMO GUIAS A PARTE: para cada nome em TRILHAS, um build do
+        # Antora com o atributo trilha_<nome> (o nav vira a trilha) em
+        # /showroom/www/<nome>/www, e a casca do nookbag copiada para
+        # /showroom/www/<nome>/ depois que o content a extrai -- o nookbag abre
+        # ./www/modules/<pagina>.html relativo a propria pasta. Resultado:
+        # https://<showroom>/<nome>/ e o guia so daquela trilha, com o mesmo
+        # terminal. Sem TRILHAS, nada disto existe (rollback = republicar sem).
+        ini[:] = [c for c in ini if c["name"] != "trilhas-builder"]
+        content = [c for c in sp["containers"] if c["name"] == "content"][0]
+        content.pop("command", None); content.pop("args", None)
+        if trilhas:
+            ab = [c for c in ini if c["name"] == "antora-builder"]
+            if ab:
+                ab = ab[0]
+                build = " && ".join(
+                    "antora --to-dir=\"$OUTPUT_DIR/%s/www\" --attribute trilha_%s=1 --attribute trilhas=1 --attribute trilhas_links=1 \"$ANTORA_SITE_FILE\"" % (x, x)
+                    for x in trilhas)
+                ini.insert(ini.index(ab) + 1, {
+                    "name": "trilhas-builder", "image": ab["image"], "env": ab.get("env", []),
+                    "volumeMounts": ab.get("volumeMounts", []),
+                    "command": ["bash", "-c", "set -e; cd \"${FILES_DIR:-/showroom/repo}\"; export OUTPUT_DIR=\"${OUTPUT_DIR:-/showroom/www}\" ANTORA_SITE_FILE=\"${ANTORA_SITE_FILE:-site.yml}\"; " + build + "; echo \"trilhas construidas: %s\"" % " ".join(trilhas)]})
+            casca = "for t in %s; do d=/showroom/www/$t; mkdir -p \"$d\"; cp /showroom/www/index.html /showroom/www/ui-config.yml \"$d/\"; ln -sfn ../assets \"$d/assets\"; done" % " ".join(trilhas)
+            content["command"] = ["bash", "-c",
+                "/usr/local/bin/entrypoint.sh & p=$!; n=0; until [ -f /showroom/www/ui-config.yml ] && [ -d /showroom/www/assets ]; do sleep 2; n=$((n+2)); [ $n -ge 300 ] && break; done; sleep 3; " + casca + "; echo \"cascas das trilhas: %s\"; wait $p" % " ".join(trilhas)]
         # OS DOIS PERFIS, cada um com a SUA credencial. O token do pod deixa de
         # ser montado em todo container: o terminal de sempre (Infra) recebe o
         # da ServiceAccount do pod, e o 'terminal-dev' recebe o da identidade
