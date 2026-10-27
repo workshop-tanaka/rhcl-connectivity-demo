@@ -743,6 +743,16 @@ _runner_esteira() {
   local pac; pac="$(oc get route pipelines-as-code-controller -n openshift-pipelines -o jsonpath='{.spec.host}' 2>/dev/null)"
   [[ -n "$pac" ]] && _ok "Pipelines as Code no ar (${pac}) -- o 'gitlab-turma.sh esteira' o libera na rede do GitLab" \
     || _warn "o Pipelines as Code nao publicou a rota em 10 min -- veja: oc get pods -n openshift-pipelines"
+  # AS TELAS DA ESTEIRA. O workshop nao roda as etapas 'gitops' nem 'cicd', que
+  # sao as que habilitam os plugins de console do Argo CD e do Pipelines -- e
+  # sem eles a console mostra o PipelineRun como recurso generico, so com
+  # Details e YAML, sem log nem menu Pipelines (visto pelo Sandro no user2 do
+  # mz8j7, 2026-10-27). Aqui e onde os dois ja existem.
+  local _p
+  for _p in pipelines-console-plugin gitops-plugin; do
+    oc get consoleplugin "$_p" >/dev/null 2>&1 && _enable_console_plugin "$_p"
+  done
+  return 0
 }
 
 # ===========================================================================
