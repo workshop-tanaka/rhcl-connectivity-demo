@@ -2522,7 +2522,9 @@ for extra in os.environ.get("EXTRAS", "").split():
 # container trilhas-builder e o comando do container content, abaixo). O
 # atributo trilhas_links faz a pagina "Escolha a sua trilha" mostrar os links.
 TODAS_TRILHAS = ("degustacao", "basico", "intermediario", "avancado", "infra", "desenvolvedor", "operacoes")
-trilhas = os.environ.get("TRILHAS", "").split()
+# Padrao: TODAS, prontas para o participante abrir a qualquer momento (decisao
+# do Sandro, 2026-10-27); o guia completo segue em /. TRILHAS="" desliga.
+trilhas = os.environ.get("TRILHAS", "todas").split()
 if trilhas == ["todas"]: trilhas = list(TODAS_TRILHAS)
 trilhas = [x for x in trilhas if x in TODAS_TRILHAS]
 if trilhas: dados["trilhas"] = "1"; dados["trilhas_links"] = "1"
