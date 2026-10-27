@@ -2510,6 +2510,12 @@ if os.environ.get("PERFIS") == "1":
 foco = os.environ.get("FOCO", "")
 if foco in ("rhcl", "ossm", "rhsi"):
     dados["foco_" + foco] = "1"
+# EXTRAS: atributos de conteudo ligados POR PARTICIPANTE (ex.: "fase8 trilhas"),
+# para validar paginas que existem inertes na onda (nav e paginas sob ifdef).
+# Ligar = EXTRAS="fase8 trilhas" tenant.sh showroom userN; desligar =
+# republicar sem EXTRAS. Nao precisa de onda nova para nenhum dos dois.
+for extra in os.environ.get("EXTRAS", "").split():
+    if re.fullmatch(r"[a-z][a-z0-9_]*", extra): dados[extra] = "1"
 # Parte destes valores vem do cluster (hostname de Route, senha do usuario). O
 # arquivo e montado por concatenacao, entao valor com aspas, barra invertida ou
 # caractere de controle quebraria a string e injetaria atributo: nesse caso o
