@@ -21,7 +21,7 @@ campo a campo — **duas diferenças, e as duas são do protocolo:**
 | | bookinfo (HTTP) | grpc-echo |
 | --- | --- | --- |
 | `targetRef.kind` | `HTTPRoute` | `GRPCRoute` |
-| `credentials` | `queryString: APIKEY` | `customHeader: apikey` (metadata — gRPC não tem query string) |
+| `credentials` | `authorizationHeader: APIKEY` | `customHeader: apikey` (em gRPC a credencial vai em metadata, o equivalente do header) |
 
 Tudo o mais é idêntico. E não há porta nem Gateway novos.
 

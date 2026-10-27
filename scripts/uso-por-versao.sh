@@ -49,10 +49,10 @@ cmd_trafego() {
   # tres por rodada fica dentro do plano free (3 a cada 10 s): a tabela mostra uso, nao 429
   for n in 1 2; do
     for _ in 1 2 3; do
-      curl -sk -o /dev/null "https://${h}/v1/travels?APIKEY=${a}"
-      curl -sk -o /dev/null "https://${h}/v2/travels?APIKEY=${g}"
-      curl -sk -o /dev/null "https://${h}/v1/travels?APIKEY=${i}"
-      curl -sk -o /dev/null "https://${h}/v2/travels?APIKEY=${i}"
+      curl -sk -o /dev/null -H "Authorization: APIKEY ${a}" "https://${h}/v1/travels"
+      curl -sk -o /dev/null -H "Authorization: APIKEY ${g}" "https://${h}/v2/travels"
+      curl -sk -o /dev/null -H "Authorization: APIKEY ${i}" "https://${h}/v1/travels"
+      curl -sk -o /dev/null -H "Authorization: APIKEY ${i}" "https://${h}/v2/travels"
     done
     [[ $n == 2 ]] || sleep 11
   done

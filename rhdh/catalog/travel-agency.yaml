@@ -68,10 +68,10 @@ metadata:
   name: travel-agency-authpolicy
   title: AuthPolicy — API key na rota
   description: >-
-    AuthPolicy na HTTPRoute travel-agency. Aceita API key da query string
-    (?APIKEY=) a partir de Secrets com label app=partner em kuadrant-system, e
-    sobrepoe o deny-all do Gateway para esta rota. Tambem exporta a identidade
-    como dynamic metadata (namespace 'demo'), que e o que permite a
+    AuthPolicy na HTTPRoute travel-agency. Aceita API key do header
+    (Authorization: APIKEY <chave>) a partir de Secrets com label app=partner
+    em kuadrant-system, e sobrepoe o deny-all do Gateway para esta rota. Tambem
+    exporta a identidade como dynamic metadata (namespace 'demo'), que e o que permite a
     TelemetryPolicy rotular metrica por parceiro.
   links:
     - url: https://${CONSOLE_HOST}/k8s/ns/travel-agency/kuadrant.io~v1~AuthPolicy/travel-agency-authpolicy

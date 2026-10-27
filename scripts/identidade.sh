@@ -108,14 +108,14 @@ cmd_compara() {
     local chave; chave="$(oc get secrets -n kuadrant-system -l 'app=partner,kuadrant.io/plan-id=gold' -o jsonpath='{.items[0].data.api_key}' 2>/dev/null | base64 -d)"
     _log "o travels, governado por AuthPolicy com chave:"
     printf '      sem chave ....... %s\n' "$(curl -sk -o /dev/null -m 20 -w '%{http_code}' "https://${API}/travels")"
-    [[ -n "$chave" ]] && printf '      com chave ....... %s\n' "$(curl -sk -o /dev/null -m 20 -w '%{http_code}' "https://${API}/travels?APIKEY=${chave}")"
+    [[ -n "$chave" ]] && printf '      com chave ....... %s\n' "$(curl -sk -o /dev/null -m 20 -w '%{http_code}' -H "Authorization: APIKEY ${chave}" "https://${API}/travels")"
     _nota "401 e uma recusa seca, com o motivo no cabecalho."
     _nota "Faz sentido: do outro lado ha um programa, que nao sabe fazer login."
   fi
   echo
   _log "e a chave do travels serve no echo?"
   local chave2; chave2="$(oc get secrets -n kuadrant-system -l 'app=partner,kuadrant.io/plan-id=gold' -o jsonpath='{.items[0].data.api_key}' 2>/dev/null | base64 -d)"
-  printf '      echo com a chave do travels: %s\n' "$(curl -sk -o /dev/null -m 20 -w '%{http_code}' "https://${ECHO_HOST}/x?APIKEY=${chave2}")"
+  printf '      echo com a chave do travels: %s\n' "$(curl -sk -o /dev/null -m 20 -w '%{http_code}' -H "Authorization: APIKEY ${chave2}" "https://${ECHO_HOST}/x")"
   _nota "302 de novo -- a chave nao e recusada, e IGNORADA. Nao e a credencial"
   _nota "que este produto aceita."
 }

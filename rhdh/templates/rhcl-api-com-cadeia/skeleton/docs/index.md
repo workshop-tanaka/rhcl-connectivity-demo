@@ -19,7 +19,7 @@ A API responde **401 a tudo** até existir uma chave — a recusa acontece na
 borda, e a aplicação sequer é chamada.
 
 ```bash
-curl -sk "https://${{ values.hostname }}/?APIKEY=$KEY"
+curl -sk -H "Authorization: APIKEY $KEY" "https://${{ values.hostname }}/"
 ```
 
 A chave é emitida no portal (**Catálogo → APIs → ${{ values.name }} → API

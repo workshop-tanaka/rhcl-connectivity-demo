@@ -12,7 +12,7 @@ developer portal — sem que nada disso tenha sido escrito à mão.
 | Endpoint | `https://${{ values.hostname }}` |
 | Namespace | `${{ values.namespace }}` (criado por este repo, já com `istio-injection=enabled`) |
 | Imagem | `${{ values.image }}` na porta `${{ values.port }}` |
-| Autenticação | API key em query string (`?APIKEY=`) — imposta na borda |
+| Autenticação | API key no header `Authorization: APIKEY <chave>` — imposta na borda |
 | Planos | ${{ values.planPreset }} · leitura do plano: **${{ values.planReading }}** |
 | Emissão de chave | ${{ values.approvalMode }} |
 | mTLS | PeerAuthentication ${{ "STRICT" if values.mtlsStrict else "PERMISSIVE" }} |
@@ -103,11 +103,11 @@ aceita → policies `Accepted`+`Enforced` → produto descoberto → 401 sem cha
 curl -sk "https://${{ values.hostname }}/" -o /dev/null -w '%{http_code}\n'
 
 # com chave -> 200
-curl -sk "https://${{ values.hostname }}/?APIKEY=$KEY" -o /dev/null -w '%{http_code}\n'
+curl -sk -H "Authorization: APIKEY $KEY" "https://${{ values.hostname }}/" -o /dev/null -w '%{http_code}\n'
 
 # rajada -> 429 a partir do limite do plano
 for i in $(seq 1 14); do
-  curl -sk "https://${{ values.hostname }}/?APIKEY=$KEY" -o /dev/null -w '%{http_code} '
+  curl -sk -H "Authorization: APIKEY $KEY" "https://${{ values.hostname }}/" -o /dev/null -w '%{http_code} '
 done; echo
 ```
 

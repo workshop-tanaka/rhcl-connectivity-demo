@@ -101,12 +101,12 @@ _ip() { oc get svc borda-istio -n "$GW_NS" -o jsonpath='{.spec.clusterIP}' 2>/de
 
 _codigo() { # <caminho> [chave]
   oc exec -n "$GW_NS" cliente -- curl -s -o /dev/null -m 8 -w '%{http_code}' \
-    --resolve "${HOST}:80:$(_ip)" "http://${HOST}${1}${2:+?APIKEY=$2}" 2>/dev/null
+    ${2:+-H "Authorization: APIKEY $2"} --resolve "${HOST}:80:$(_ip)" "http://${HOST}${1}" 2>/dev/null
 }
 
 _corpo() { # <caminho> [chave] -- quem atendeu, e com qual caminho
   oc exec -n "$GW_NS" cliente -- curl -s -m 8 \
-    --resolve "${HOST}:80:$(_ip)" "http://${HOST}${1}${2:+?APIKEY=$2}" 2>/dev/null \
+    ${2:+-H "Authorization: APIKEY $2"} --resolve "${HOST}:80:$(_ip)" "http://${HOST}${1}" 2>/dev/null \
     | python3 -c '
 import sys, json
 try:
@@ -232,7 +232,7 @@ spec:
     authentication:
       chave:
         apiKey: {allNamespaces: true, selector: {matchLabels: {app: pfx-cliente}}}
-        credentials: {queryString: {name: APIKEY}}
+        credentials: {authorizationHeader: {prefix: APIKEY}}
 ---
 # EQUIPE B: dona do prefixo /api2, e decidiu deixar a dela anonima.
 apiVersion: gateway.networking.k8s.io/v1
@@ -279,7 +279,7 @@ spec:
     authentication:
       chave:
         apiKey: {allNamespaces: true, selector: {matchLabels: {app: pfx-cliente}}}
-        credentials: {queryString: {name: APIKEY}}
+        credentials: {authorizationHeader: {prefix: APIKEY}}
     authorization:
       so-gold:
         patternMatching:

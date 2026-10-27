@@ -276,22 +276,33 @@ curl -s -o /dev/null -w '%{http_code}\n' https://api-travels.apps.<dom>/travels 
 
 ### A forma da credencial de API mudou
 
-O `AuthPolicy` usa **query string**, não header:
+O `AuthPolicy` da travel-agency usa o **header `Authorization`**, não a query
+string (regra `api-key-authn`):
 
 ```yaml
 credentials:
-  queryString:
-    name: APIKEY
+  authorizationHeader:
+    prefix: APIKEY
 ```
 
 ```bash
-curl "https://api-travels.apps.<dom>/travels?APIKEY=<chave>"     # 200
-curl -H "Authorization: APIKEY <chave>" .../travels              # 401 — NÃO funciona
+curl -H "Authorization: APIKEY <chave>" "https://api-travels.apps.<dom>/travels"   # 200
+curl "https://api-travels.apps.<dom>/travels?APIKEY=<chave>"                       # 200 só na travel-agency
 ```
 
-> O `acessos.sh` documentava a forma de header, que não autentica. Corrigido em
-> 2026-08-24: a folha agora sai com `?APIKEY=<chave>`. Folhas geradas antes
-> dessa data mandam quem lê para um 401.
+A query string (`?APIKEY=`) continua aceita **só na travel-agency**, pela
+segunda regra `api-key-portais`: os três portais de parceiro usam uma imagem de
+terceiro que ainda monta a chave na URL. Fora dela (echo, bookinfo, golden
+path) a query string dá **401**. Medido no mz8j7 em 2026-10-27: header dá 200,
+o 401 sem chave traz dois `www-authenticate` (`realm="api-key-authn"` e
+`realm="api-key-portais"`, um por regra de identidade) e o free continua
+cortando em 3.
+
+> Até 2026-08-24 o `acessos.sh` mostrava o header, que então não autenticava;
+> passou para `?APIKEY=`. Em 2026-10-27 a credencial foi para o header e a
+> folha de acessos volta a mostrar `Authorization: APIKEY <chave>`. Folhas
+> geradas entre as duas datas mandam quem lê para a forma antiga, que só a
+> travel-agency ainda aceita.
 
 ---
 
@@ -478,7 +489,7 @@ Service Mesh, que não é o mesmo do Ato 2):
 
 ```bash
 # /travels SEM cidade não chama o discounts — 'tiers' não serve para primar o v2
-curl -sk -H "user: theonlyuser" "https://<host>/travels/Rome?APIKEY=<gold>"
+curl -sk -H "user: theonlyuser" -H "Authorization: APIKEY <gold>" "https://<host>/travels/Rome"
 ```
 
 ### 5.10 `Enforced=False` é quase sempre o reconciler passando
@@ -735,8 +746,9 @@ onde a narração do script diz `401`.
 
 `Kuadrant.spec.mtls.enable` cifra o salto Gateway → Authorino/Limitador, que
 sem ele é **texto claro** (config_dump do Envoy: `kuadrant-auth-service` e
-`kuadrant-ratelimit-service` sem `transport_socket`). Como a chave de API vai
-na query string, ela atravessava o cluster legível até quem a valida.
+`kuadrant-ratelimit-service` sem `transport_socket`). Como a chave de API viaja
+na requisição (hoje no header; até a v0.89, na query string), ela atravessava o
+cluster legível até quem a valida.
 
 Ligar tem dois efeitos, um esperado e um não:
 

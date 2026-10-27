@@ -2417,7 +2417,7 @@ json.dump({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
     # AS CHAVES DE TESTE MORAM ONDE 'tenant.sh chaves' AS DEIXOU. Lia-se sempre
     # de kuadrant-system; com as chaves no namespace do participante a lista
     # voltava vazia e o guia saia sem chave nenhuma -- a tabela de 'Seus
-    # acessos' em branco e todo comando '?APIKEY=' sem valor (medido no cqfs4
+    # acessos' em branco e todo 'Authorization: APIKEY' sem valor (medido no cqfs4
     # em 2026-10-09: os tres atributos api_key_* vazios nos 10 participantes).
     oc get secret -n "$(_chaves_no_tenant "$t" && printf 'travel-agency-%s' "$t" || printf 'kuadrant-system')" \
        -l "app=partner-${t},rhcl.demo/finalidade=teste" -o json
@@ -3045,7 +3045,7 @@ _chaves_prova() { # <tenant> <namespace das chaves>
     while read -r chave nome; do
       [[ -n "$chave" ]] || continue
       n=$((n+1))
-      c="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "https://${host}/travels/Rome?APIKEY=$(printf '%s' "$chave" | base64 -d)")"
+      c="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' -H "Authorization: APIKEY $(printf '%s' "$chave" | base64 -d)" "https://${host}/travels/Rome")"
       [[ "$c" == "200" || "$c" == "429" ]] || ruins="${ruins} ${nome}(${c})"
     done < <(oc get secrets -n "$kns" -l "app=partner-${t},!devportal.kuadrant.io/enforcement" \
                -o jsonpath='{range .items[*]}{.data.api_key}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null)

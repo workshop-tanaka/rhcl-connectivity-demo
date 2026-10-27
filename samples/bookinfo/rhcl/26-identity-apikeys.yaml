@@ -11,8 +11,8 @@
 # seletor da AuthPolicy de cada produto exige o par completo. Teste de dez
 # segundos, com os dois hostnames:
 #
-#   curl -o /dev/null -w '%{http_code}\n' "https://bookinfo.<d>/api/v1/products?APIKEY=gold-bookinfo-9c2e14"   # 200
-#   curl -o /dev/null -w '%{http_code}\n' "https://api-travels.<d>/?APIKEY=gold-bookinfo-9c2e14"               # 401
+#   curl -o /dev/null -w '%{http_code}\n' -H 'Authorization: APIKEY gold-bookinfo-9c2e14' "https://bookinfo.<d>/api/v1/products"   # 200
+#   curl -o /dev/null -w '%{http_code}\n' -H 'Authorization: APIKEY gold-bookinfo-9c2e14' "https://api-travels.<d>/"               # 401
 #
 # CHAVES LITERAIS NUM REPOSITÓRIO: são de demonstração, e o valor delas não
 # concede nada além de ler resenhas de livros num cluster efêmero. As chaves que

@@ -113,8 +113,8 @@ e3() {
   _cmd "curl -D- https://${API}/travels            # sem chave nenhuma"
   curl -sk -m 20 -D- -o /dev/null "https://${API}/travels" 2>/dev/null \
     | grep -iE '^(HTTP/|www-authenticate|x-ext-auth-reason)' | sed 's/^/    /'
-  _cmd "curl -D- 'https://${API}/travels?APIKEY=chave-errada'"
-  curl -sk -m 20 -D- -o /dev/null "https://${API}/travels?APIKEY=chave-errada" 2>/dev/null \
+  _cmd "curl -D- -H 'Authorization: APIKEY chave-errada' 'https://${API}/travels'"
+  curl -sk -m 20 -D- -o /dev/null -H 'Authorization: APIKEY chave-errada' "https://${API}/travels" 2>/dev/null \
     | grep -iE '^(HTTP/|x-ext-auth-reason)' | sed 's/^/    /'
   _nota ""
   _nota "O mesmo 401, por causas OPOSTAS -- e quem as separa e um cabecalho de"
@@ -148,10 +148,10 @@ e4() {
   _cmd "seis chamadas seguidas com a chave do plano gratuito"
   printf '    '
   local i
-  for i in $(seq 6); do curl -sk -o /dev/null -m 15 -w '%{http_code} ' "https://${API}/travels?APIKEY=${k}"; done
+  for i in $(seq 6); do curl -sk -o /dev/null -m 15 -w '%{http_code} ' -H "Authorization: APIKEY ${k}" "https://${API}/travels"; done
   echo
   _cmd "curl -D- na setima, para ver TUDO que o cliente recebe"
-  curl -sk -m 20 -D- -o /dev/null "https://${API}/travels?APIKEY=${k}" 2>/dev/null \
+  curl -sk -m 20 -D- -o /dev/null -H "Authorization: APIKEY ${k}" "https://${API}/travels" 2>/dev/null \
     | grep -iE '^(HTTP/|x-ratelimit|retry-after)' | sed 's/^/    /'
   _nota ""
   _nota "So a linha de status, e nada mais. A recusa por cota e MUDA: o cliente"
@@ -285,13 +285,13 @@ desafio() {
        curl -sk -m 15 -o /dev/null -w '    → HTTP=%{http_code} exit=%{exitcode}\n' "https://api-que-nao-existe.exemplo.invalid/travels" 2>/dev/null ;;
     2) _cmd "curl https://nao-existe-rota.${DOM}/"
        curl -sk -m 20 -o /dev/null -w '    → HTTP=%{http_code}\n' "https://nao-existe-rota.${DOM}/" 2>/dev/null ;;
-    3) _cmd "curl -D- 'https://${API}/travels?APIKEY=<algo>'"
-       curl -sk -m 20 -D- -o /dev/null "https://${API}/travels?APIKEY=sorteada" 2>/dev/null \
+    3) _cmd "curl -D- -H 'Authorization: APIKEY <algo>' 'https://${API}/travels'"
+       curl -sk -m 20 -D- -o /dev/null -H 'Authorization: APIKEY sorteada' "https://${API}/travels" 2>/dev/null \
          | grep -iE '^(HTTP/|x-ext-auth-reason)' | sed 's/^/    → /' ;;
     4) local k; k="$(_free)"
        _cmd "oito chamadas seguidas, e os cabecalhos da ultima"
-       printf '    → '; local i; for i in $(seq 8); do curl -sk -o /dev/null -m 15 -w '%{http_code} ' "https://${API}/travels?APIKEY=${k}"; done; echo
-       curl -sk -m 20 -D- -o /dev/null "https://${API}/travels?APIKEY=${k}" 2>/dev/null \
+       printf '    → '; local i; for i in $(seq 8); do curl -sk -o /dev/null -m 15 -w '%{http_code} ' -H "Authorization: APIKEY ${k}" "https://${API}/travels"; done; echo
+       curl -sk -m 20 -D- -o /dev/null -H "Authorization: APIKEY ${k}" "https://${API}/travels" 2>/dev/null \
          | grep -iE '^(HTTP/|x-ratelimit|retry-after)' | sed 's/^/    → /' ;;
     5) local p; p="$(oc get pods -n travel-agency -l app=travels --no-headers 2>/dev/null | awk 'NR==1{print $1}')"
        _cmd "uma chamada de um servico para outro, por dentro"

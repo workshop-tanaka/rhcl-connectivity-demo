@@ -47,7 +47,7 @@
           },
           "api_key": {
             "title": "Chave do parceiro",
-            "description": "Vai na query string APIKEY -- e o que o AuthPolicy da rota espera.",
+            "description": "Vai no header Authorization: APIKEY <chave> -- e o que o AuthPolicy da rota espera.",
             "type": "string",
             "minLength": 1,
             "maxLength": 128,

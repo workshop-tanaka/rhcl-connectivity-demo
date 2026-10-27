@@ -63,7 +63,7 @@ mint_key() {
 if [[ "${1:-}" == "key" ]]; then
   k="$(mint_key "${2:-free}")"
   printf 'chave (%s): %s\n' "${2:-free}" "$k"
-  printf 'teste:  curl -sk "https://%s/?APIKEY=%s" -o /dev/null -w "%%{http_code}\\n"\n' "$HOST" "$k"
+  printf 'teste:  curl -sk -H "Authorization: APIKEY %s" "https://%s/" -o /dev/null -w "%%{http_code}\\n"\n' "$k" "$HOST"
   exit 0
 fi
 
@@ -146,7 +146,7 @@ done
 if [[ -z "$key" ]]; then
   _warn "nenhuma chave emitida para este produto" "bash verify.sh key   # emite uma chave 'free' e imprime"
 else
-  code_ok="$(curl -sk -o /dev/null -w '%{http_code}' -m 10 "https://${HOST}/?APIKEY=${key}" 2>/dev/null)"
+  code_ok="$(curl -sk -o /dev/null -w '%{http_code}' -m 10 -H "Authorization: APIKEY ${key}" "https://${HOST}/" 2>/dev/null)"
   [[ "$code_ok" == "200" ]] && _ok "com chave -> 200" \
     || _bad "com chave -> ${code_ok}" "Authorino nao reindexa Secret depois de churn de policy: oc label secret <s> -n kuadrant-system touch- --overwrite"
 
@@ -154,7 +154,7 @@ else
   # for limitada, o plano nao foi atribuido -- e o fail-open do predicate.
   codes=""; limited=0
   for _ in $(seq 1 14); do
-    c="$(curl -sk -o /dev/null -w '%{http_code}' -m 5 "https://${HOST}/?APIKEY=${key}" 2>/dev/null)"
+    c="$(curl -sk -o /dev/null -w '%{http_code}' -m 5 -H "Authorization: APIKEY ${key}" "https://${HOST}/" 2>/dev/null)"
     codes="${codes}${c} "; [[ "$c" == "429" ]] && limited=$((limited+1))
   done
   printf '    %s%s%s\n' "$_DIM" "$codes" "$_RST"

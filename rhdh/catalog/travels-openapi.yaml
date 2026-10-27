@@ -14,10 +14,10 @@ info:
   version: "1.0.0"
   description: >-
     API da agencia de viagens, exposta pelo Gateway prod-web e governada pelo
-    Red Hat Connectivity Link. A autenticacao e por API key na query string,
-    imposta na borda pela AuthPolicy -- o servico travels nao valida credencial
-    por conta propria. O limite depende do plano da chave, classificado pelo
-    PlanPolicy travels-plans.
+    Red Hat Connectivity Link. A autenticacao e por API key no header
+    Authorization (APIKEY <chave>), imposta na borda pela AuthPolicy -- o
+    servico travels nao valida credencial por conta propria. O limite depende do
+    plano da chave, classificado pelo PlanPolicy travels-plans.
 servers:
   # O valor SAI DO AMBIENTE: ate 2026-08-27 este arquivo era copiado sem
   # envsubst e publicava o host de outro cluster -- que ainda por cima usava
@@ -27,7 +27,7 @@ servers:
   - url: https://${DEMO_API_HOST}
     description: Gateway prod-web deste ambiente
 security:
-  - ApiKeyQuery: []
+  - ApiKeyHeader: []
 paths:
   /:
     get:
@@ -48,10 +48,12 @@ paths:
             chave sem plano cai no catch-all de 1/60s.
 components:
   securitySchemes:
-    ApiKeyQuery:
+    ApiKeyHeader:
       type: apiKey
-      in: query
-      name: APIKEY
+      in: header
+      name: Authorization
       description: >-
-        Chave emitida pelo developer portal do RHCL. O tier vem do label
-        kuadrant.io/plan-id no Secret da chave.
+        Formato: "Authorization: APIKEY <chave>" -- o prefixo APIKEY e o que o
+        AuthPolicy (credentials.authorizationHeader) espera. Chave emitida pelo
+        developer portal do RHCL. O tier vem do label kuadrant.io/plan-id no
+        Secret da chave.

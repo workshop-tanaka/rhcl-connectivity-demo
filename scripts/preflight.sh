@@ -371,8 +371,8 @@ else
         "oc logs -n kuadrant-system deploy/kuadrant-operator-controller-manager | grep 'Discovered extension'"
 fi
 
-# mTLS Gateway -> Authorino/Limitador. Sem ele a chave de API (query string)
-# atravessa o cluster em texto claro ate quem a valida. Com ele, a excecao da
+# mTLS Gateway -> Authorino/Limitador. Sem ele a chave de API (header
+# Authorization) atravessa o cluster em texto claro ate quem a valida. Com ele, a excecao da
 # porta de metricas precisa ser MAIS ANTIGA que a 'default' do operador --
 # Istio usa a PeerAuthentication de workload mais antiga -- senao o Prometheus
 # leva reset e o alerta LimitadorForaDoAr dispara com o Limitador de pe.
@@ -670,7 +670,7 @@ if [[ -n "$HOST" ]]; then
     sleep 11
     _ok200=0; _ok429=0
     for _i in $(seq 1 8); do
-      case "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "${URL}?APIKEY=${_key}")" in
+      case "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 -H "Authorization: APIKEY ${_key}" "${URL}")" in
         200) _ok200=$((_ok200+1)) ;;
         429) _ok429=$((_ok429+1)) ;;
       esac
@@ -700,12 +700,12 @@ if [[ -n "$HOST" ]]; then
   _gold="$(oc get secrets -n kuadrant-system -l 'app=partner,kuadrant.io/plan-id=gold' \
              -o jsonpath='{.items[0].data.api_key}' 2>/dev/null | base64 -d 2>/dev/null)"
   if [[ -n "$_gold" ]]; then
-    _dest="$(curl -sk --max-time 15 "${URL}?APIKEY=${_gold}" -H 'user: theonlyuser' 2>/dev/null)"
+    _dest="$(curl -sk --max-time 15 -H "Authorization: APIKEY ${_gold}" "${URL}" -H 'user: theonlyuser' 2>/dev/null)"
     if [[ "$_dest" == "[]" ]]; then
       _bad "a lista de destinos voltou VAZIA — sem fan-out, nao ha rastro nem fronteira leste-oeste" \
            "a app depende do banco; onde ele vem por Skupper, confira o outro site: oc get site,listener -n travel-db e 'octets=' no log do skupper-router"
     elif [[ -z "$_dest" ]]; then
-      _warn "nao consegui ler a lista de destinos" "curl -k ${URL}?APIKEY=<gold>"
+      _warn "nao consegui ler a lista de destinos" "curl -k -H 'Authorization: APIKEY <gold>' ${URL}"
     else
       _ok "lista de destinos com dado — o fan-out do rastro e da fronteira leste-oeste tem de onde sair"
     fi
@@ -1957,7 +1957,7 @@ if oc get crd sites.skupper.io >/dev/null 2>&1 && \
   _ic_gold="$(oc get secrets -n kuadrant-system -l 'app=partner,kuadrant.io/plan-id=gold' \
                 -o jsonpath='{.items[0].data.api_key}' 2>/dev/null | base64 -d)"
   if [[ -n "${HOST:-}" && -n "$_ic_gold" ]]; then
-    _ic_n="$(curl -sk --max-time 12 "https://${HOST}/travels?APIKEY=${_ic_gold}" 2>/dev/null \
+    _ic_n="$(curl -sk --max-time 12 -H "Authorization: APIKEY ${_ic_gold}" "https://${HOST}/travels" 2>/dev/null \
              | python3 -c 'import sys,json
 try: print(len(json.load(sys.stdin)))
 except Exception: print(0)' 2>/dev/null)"

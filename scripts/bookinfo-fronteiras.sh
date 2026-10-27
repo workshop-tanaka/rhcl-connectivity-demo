@@ -139,13 +139,13 @@ cmd_prova() {
 
   printf '    %-34s %s\n' "interface, sem chave"  "$(_http "https://${GOV}/productpage")"
   printf '    %-34s %s\n' "API, sem chave"        "$(_http "https://${GOV}/api/v1/products")"
-  printf '    %-34s %s\n' "API, chave invalida"   "$(_http "https://${GOV}/api/v1/products?APIKEY=nao-existe")"
+  printf '    %-34s %s\n' "API, chave invalida"   "$(_http -H 'Authorization: APIKEY nao-existe' "https://${GOV}/api/v1/products")"
   local k; k="$(_chave free)"
   printf '    %-34s ' "API, free (2 a cada 10s)"
-  for i in 1 2 3 4 5; do printf '%s ' "$(_http "https://${GOV}/api/v1/products?APIKEY=${k}")"; done; echo
+  for i in 1 2 3 4 5; do printf '%s ' "$(_http -H "Authorization: APIKEY ${k}" "https://${GOV}/api/v1/products")"; done; echo
   k="$(_chave gold)"
   printf '    %-34s ' "API, gold (20 a cada 10s)"
-  for i in 1 2 3 4 5; do printf '%s ' "$(_http "https://${GOV}/api/v1/products?APIKEY=${k}")"; done; echo
+  for i in 1 2 3 4 5; do printf '%s ' "$(_http -H "Authorization: APIKEY ${k}" "https://${GOV}/api/v1/products")"; done; echo
   _nota "mesmo pod, mesmo codigo, mesmo hostname para as duas rotas. A interface"
   _nota "segue publica; a API tem chave e plano. A fronteira e por ROTA."
   _nota ""

@@ -25,7 +25,7 @@ O caminho de uma requisição, na ordem em que as decisões acontecem:
    negada com um JSON de `Forbidden`. A rota `travel-agency` escapa porque tem
    a sua.
 3. **AuthPolicy `travel-agency-authpolicy`** (escopo de rota). O Authorino
-   valida o parâmetro de query `APIKEY` contra Secrets com label
+   valida o header `Authorization: APIKEY <chave>` contra Secrets com label
    `app: partner` — `allNamespaces: false`, ou seja, só no namespace onde ele
    roda, `kuadrant-system`. Chave ausente ou inválida: **401**, sem identidade
    (a métrica sai com `partner="unknown"`). Sucesso: a policy injeta o header
@@ -69,7 +69,7 @@ grafo do Kiali e a aba de traces do portal.
 | SecurityContext | `readOnlyRootFilesystem: true`, `capabilities.drop: [ALL]`, sem escalonamento de privilégio |
 | Backends (env) | `FLIGHTS_SERVICE`, `HOTELS_SERVICE`, `CARS_SERVICE`, `INSURANCES_SERVICE` → `http://<svc>.travel-agency:8000` |
 | HTTPRoute | `travel-agency` → Gateway `prod-web` (namespace `ingress-gateway`), `PathPrefix /` |
-| AuthPolicy | `travel-agency-authpolicy` — API key em `?APIKEY=`, Secrets `app: partner` em `kuadrant-system`, injeta header `x-partner` |
+| AuthPolicy | `travel-agency-authpolicy` — API key em `Authorization: APIKEY <chave>` (query string só para os portais de parceiro), Secrets `app: partner` em `kuadrant-system`, injeta header `x-partner` |
 | PlanPolicy | `travels-plans` — gold 30 req/10s (100000/dia), silver 10 req/10s (10000/dia), free 3 req/10s (1000/dia), catch-all `unclassified` 1 req/60s |
 | Tracing | Zipkin em `zipkin.istio-system:9411`, sampling 10%, custom tags `portal`/`device`/`user`/`travel` |
 | Ligação com o portal | label `app: travels` no Deployment, na HTTPRoute e nas duas policies — é o que o `backstage.io/kubernetes-label-selector` da entidade casa |

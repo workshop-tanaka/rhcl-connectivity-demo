@@ -304,7 +304,7 @@ carregam anotações de SCC com faixas de UID do cluster antigo.
 > Confira com:
 >
 > ```bash
-> curl -s ".../travels?APIKEY=<chave>" | head -c 120
+> curl -s -H "Authorization: APIKEY <chave>" .../travels | head -c 120
 > # [{"city":"Amsterdam","lat":"52.3500",...   <- com banco
 > # []                                          <- sem banco
 > ```

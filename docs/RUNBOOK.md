@@ -194,8 +194,13 @@ chave invalida   -> 401
 cabecalhos da recusa:
   HTTP/2 401
   www-authenticate: APIKEY realm="api-key-authn"
+  www-authenticate: APIKEY realm="api-key-portais"
   x-ext-auth-reason: credential not found
 ```
+
+São dois `www-authenticate` porque a AuthPolicy tem duas regras de identidade
+(header e, só para os portais de parceiro, query string), e cada regra anuncia
+o próprio realm. Medido no `user1` do mz8j7 em 2026-10-27.
 
 O ponto não é o 401. É que **nenhuma linha da aplicação trata autenticação** —
 o `travels` é o mesmo binário que já rodava. Quem recusa é o gateway, por causa
@@ -301,8 +306,8 @@ A prova de que a fronteira é por **produto**, e não "tem chave / não tem chav
 passou a ser esta — a chave do travels contra o echo:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' "https://echo-travels.apps.<dominio>/?APIKEY=<chave gold>"   # 401
-curl -s -o /dev/null -w '%{http_code}\n' "https://api-travels.apps.<dominio>/travels?APIKEY=<chave gold>"  # 200
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: APIKEY <chave gold>" "https://echo-travels.apps.<dominio>/"   # 401
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: APIKEY <chave gold>" "https://api-travels.apps.<dominio>/travels"  # 200
 ```
 
 A mesma chave, válida e classificada em `gold`, abre um produto e não abre o
@@ -1075,7 +1080,7 @@ detectam**. Sem ele:
 ```
 [hotels/v1] Internal Error: dial tcp: lookup mysqldb.travel-db: no such host
 
-curl .../travels?APIKEY=...   ->   HTTP 200   []
+curl -H "Authorization: APIKEY ..." .../travels   ->   HTTP 200   []
 ```
 
 A API responde `200` com **corpo vazio**. Os atos medem código de status —
@@ -1092,7 +1097,7 @@ oc create secret generic mysql-credentials -n travel-agency \
 Confira sempre o corpo, não só o status:
 
 ```bash
-curl -s ".../travels?APIKEY=<chave>" | head -c 120
+curl -s -H "Authorization: APIKEY <chave>" .../travels | head -c 120
 # [{"city":"Amsterdam","lat":"52.3500",...    <- certo
 # []                                           <- banco ausente
 ```
@@ -1108,8 +1113,8 @@ vai para a tela. O `00-seed-enrich.yaml` reescreve as quatro tabelas de oferta
 com catálogos reais e preço proporcional ao custo da praça:
 
 ```bash
-curl -s ".../travels/Oslo?APIKEY=<chave>"   # Hilton Oslo 506, Hostel Oslo Central 67
-curl -s ".../travels/Sofia?APIKEY=<chave>"  # Grand Hotel Sofia 340, ibis Sofia 89
+curl -s -H "Authorization: APIKEY <chave>" .../travels/Oslo   # Hilton Oslo 506, Hostel Oslo Central 67
+curl -s -H "Authorization: APIKEY <chave>" .../travels/Sofia  # Grand Hotel Sofia 340, ibis Sofia 89
 ```
 
 O porte da cidade também conta: Paris tem 9 voos, Vaduz tem 2. É determinístico

@@ -269,11 +269,12 @@ if [[ -n "$APIHOST" ]]; then
   # justo a chave da armadilha 1, a que passa sem limite. Ela tem que APARECER.
   while IFS='|' read -r _tier _b64 _partner _nome; do
     [[ -z "$_b64" ]] && continue
-    # QUERY STRING, nao header: o AuthPolicy usa credentials.queryString.
-    # Medido em 2026-08-24 no cxr7d -- ?APIKEY=<chave> da 200, o header
-    # 'Authorization: APIKEY <chave>' da 401. A folha antiga documentava o
-    # header e mandava a plateia para um 401.
-    _nota="query string: ?APIKEY=<senha> (header NAO autentica)"
+    # HEADER: a regra principal da AuthPolicy (api-key-authn) usa
+    # credentials.authorizationHeader com prefixo APIKEY. A query string
+    # ?APIKEY=<chave> so e aceita pela regra api-key-portais, que existe para
+    # os tres portais de parceiro (imagem de terceiro, ainda monta a chave na
+    # URL) -- nao e a forma que a folha ensina.
+    _nota="header: Authorization: APIKEY <senha>"
     [[ -z "$_tier" ]] && _nota="SEM kuadrant.io/plan-id — passa sem limite (armadilha 1 do RUNBOOK); $_nota"
     # sem a anotação de parceiro (chave cunhada fora do base/identity), o nome
     # do Secret identifica melhor que um "parceiro" generico

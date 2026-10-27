@@ -47,9 +47,10 @@
           request_count, expected_tier) ou o tier nao existe no PlanPolicy.
         quiet: true
 
-    # A chave vai na QUERY STRING, nao em header: o AuthPolicy da rota declara
-    # 'credentials.queryString.name: APIKEY'. Mandada como header, a requisicao
-    # volta 401 e parece chave invalida.
+    # A chave vai no HEADER, nao na query string: o AuthPolicy da rota declara
+    # 'credentials.authorizationHeader.prefix: APIKEY'. Mandada na query
+    # string, a requisicao volta 401 e parece chave invalida -- a forma antiga
+    # (?APIKEY=) so e aceita para os portais de parceiro (regra api-key-portais).
     #
     # status_code aceita 401/403/429 porque sao RESULTADOS do teste, nao falhas
     # do playbook -- sem isso o uri aborta na primeira recusa e o relatorio
@@ -59,8 +60,10 @@
     # as chamadas esconderia o 429.
     - name: Disparar as requisicoes
       ansible.builtin.uri:
-        url: "https://{{ api_host }}{{ endpoint_path }}?APIKEY={{ api_key }}"
+        url: "https://{{ api_host }}{{ endpoint_path }}"
         method: GET
+        headers:
+          Authorization: "APIKEY {{ api_key }}"
         status_code: [200, 401, 403, 429]
         # O gateway responde com o certificado wildcard do cluster, que o EE
         # nao tem na store. Verificar aqui so trocaria o resultado do teste por

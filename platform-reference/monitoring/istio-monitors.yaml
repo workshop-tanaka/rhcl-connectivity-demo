@@ -172,8 +172,8 @@ spec:
 # kuadrant-system entrou em 2026-09-21, junto com Kuadrant.spec.mtls.enable:
 # o operador poe Authorino e Limitador no mesh (sidecar nativo) para cifrar o
 # canal Gateway -> Authorino/Limitador, que ate ali era texto claro -- e a
-# chave de API vai na query string. Sem este monitor os dois somem do Kiali,
-# e o preflight acusa.
+# chave de API viaja na requisicao (hoje no header). Sem este monitor os dois
+# somem do Kiali, e o preflight acusa.
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:

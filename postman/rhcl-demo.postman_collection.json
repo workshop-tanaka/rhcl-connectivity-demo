@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "RHCL Demo — travel-agency, planos, pacotes e CDC",
-    "description": "Testes das APIs do Red Hat Connectivity Link, agrupados por assunto.\n\nSETUP: gere o environment com as chaves reais do cluster:\n    bash scripts/postman-env.sh\ne importe postman/rhcl-demo.local.postman_environment.json.\n\nA chave vai por query (?APIKEY=...), como as policies esperam. O corte de\nrate limit tem DOIS caminhos: o request 'estourar o free' prova o 429 numa\nexecucao so (pre-request queima a cota), e o Runner com 14 iteracoes na\npasta 'Planos comerciais' mostra o corte requisicao a requisicao.",
+    "description": "Testes das APIs do Red Hat Connectivity Link, agrupados por assunto.\n\nSETUP: gere o environment com as chaves reais do cluster:\n    bash scripts/postman-env.sh\ne importe postman/rhcl-demo.local.postman_environment.json.\n\nA chave vai no header Authorization: APIKEY <chave>, como as policies\nesperam; a query string ficou so para os portais de parceiro. O corte de\nrate limit tem DOIS caminhos: o request 'estourar o free' prova o 429 numa\nexecucao so (pre-request queima a cota), e o Runner com 14 iteracoes na\npasta 'Planos comerciais' mostra o corte requisicao a requisicao.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -43,9 +43,15 @@
           "name": "travels com chave INVALIDA -> 401",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "APIKEY nao-existe",
+                "type": "text"
+              }
+            ],
             "url": {
-              "raw": "https://{{api_host}}/travels/Rome?APIKEY=nao-existe",
+              "raw": "https://{{api_host}}/travels/Rome",
               "protocol": "https",
               "host": [
                 "{{api_host}}"
@@ -53,12 +59,6 @@
               "path": [
                 "travels",
                 "Rome"
-              ],
-              "query": [
-                {
-                  "key": "APIKEY",
-                  "value": "nao-existe"
-                }
               ]
             },
             "description": ""
@@ -125,9 +125,15 @@
           "name": "free (3 req/10s)",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "APIKEY {{api_key_free}}",
+                "type": "text"
+              }
+            ],
             "url": {
-              "raw": "https://{{api_host}}/travels/Rome?APIKEY={{api_key_free}}",
+              "raw": "https://{{api_host}}/travels/Rome",
               "protocol": "https",
               "host": [
                 "{{api_host}}"
@@ -135,12 +141,6 @@
               "path": [
                 "travels",
                 "Rome"
-              ],
-              "query": [
-                {
-                  "key": "APIKEY",
-                  "value": "{{api_key_free}}"
-                }
               ]
             },
             "description": "No Runner (14 iteracoes): 3x 200 e depois 429."
@@ -163,9 +163,15 @@
           "name": "silver (10 req/10s)",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "APIKEY {{api_key_silver}}",
+                "type": "text"
+              }
+            ],
             "url": {
-              "raw": "https://{{api_host}}/travels/Rome?APIKEY={{api_key_silver}}",
+              "raw": "https://{{api_host}}/travels/Rome",
               "protocol": "https",
               "host": [
                 "{{api_host}}"
@@ -173,12 +179,6 @@
               "path": [
                 "travels",
                 "Rome"
-              ],
-              "query": [
-                {
-                  "key": "APIKEY",
-                  "value": "{{api_key_silver}}"
-                }
               ]
             },
             "description": ""
@@ -200,9 +200,15 @@
           "name": "gold (30 req/10s)",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "APIKEY {{api_key_gold}}",
+                "type": "text"
+              }
+            ],
             "url": {
-              "raw": "https://{{api_host}}/travels/Rome?APIKEY={{api_key_gold}}",
+              "raw": "https://{{api_host}}/travels/Rome",
               "protocol": "https",
               "host": [
                 "{{api_host}}"
@@ -210,12 +216,6 @@
               "path": [
                 "travels",
                 "Rome"
-              ],
-              "query": [
-                {
-                  "key": "APIKEY",
-                  "value": "{{api_key_gold}}"
-                }
               ]
             },
             "description": ""
@@ -236,9 +236,15 @@
           "name": "estourar o free numa execucao (429 deterministico)",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "APIKEY {{api_key_free}}",
+                "type": "text"
+              }
+            ],
             "url": {
-              "raw": "https://{{api_host}}/travels/Rome?APIKEY={{api_key_free}}",
+              "raw": "https://{{api_host}}/travels/Rome",
               "protocol": "https",
               "host": [
                 "{{api_host}}"
@@ -246,12 +252,6 @@
               "path": [
                 "travels",
                 "Rome"
-              ],
-              "query": [
-                {
-                  "key": "APIKEY",
-                  "value": "{{api_key_free}}"
-                }
               ]
             },
             "description": "O pre-request queima a cota do free (4 chamadas em serie); esta e a 5a."
@@ -271,10 +271,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const u = pm.variables.replaceIn('https://{{api_host}}/travels/Rome?APIKEY={{api_key_free}}');",
+                  "const u = pm.variables.replaceIn('https://{{api_host}}/travels/Rome');",
                   "function bate(n, done) {",
                   "  if (n === 0) return done();",
-                  "  pm.sendRequest(u, () => bate(n - 1, done));",
+                  "  pm.sendRequest({url: u, method: 'GET', header: {Authorization: 'APIKEY ' + pm.variables.replaceIn('{{api_key_free}}')}}, () => bate(n - 1, done));",
                   "}",
                   "bate(4, () => console.log('cota do free queimada'));"
                 ]

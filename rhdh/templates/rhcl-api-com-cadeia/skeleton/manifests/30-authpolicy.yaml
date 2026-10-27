@@ -50,7 +50,7 @@ spec:
               app: ${{ values.apiKeyGroup }}
               devportal.kuadrant.io/apiproduct: ${{ values.name }}
         credentials:
-          queryString:
-            name: APIKEY
+          authorizationHeader:
+            prefix: APIKEY
         metrics: false
         priority: 0

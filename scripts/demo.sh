@@ -634,8 +634,8 @@ step_ato1() {
   _why "de identidade. Mandar a chave do travels nao abre nada."
   _pause || return 0
   local gold; gold="$(_key_of gold)"
-  _do_as "curl -s -o /dev/null -w '%{http_code}\\n' \"https://${eh}/?APIKEY=<chave gold do travels>\"" \
-    curl -s -o /dev/null -w '%{http_code}\n' "https://${eh}/?APIKEY=${gold}"
+  _do_as "curl -s -o /dev/null -w '%{http_code}\\n' -H 'Authorization: APIKEY <chave gold do travels>' \"https://${eh}/\"" \
+    curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: APIKEY ${gold}" "https://${eh}/"
   _look "302 — o gateway manda logar no Keycloak; a chave do travels e ignorada"
   _why "Dois produtos, o mesmo gateway, mecanismos de credencial diferentes."
   _why "A fronteira e por PRODUTO, e nao 'tem chave / nao tem chave'."
@@ -1135,10 +1135,12 @@ step_papeis() {
 # Chama o Gateway por dentro, com o SNI correto. De fora nao da: o Gateway e
 # ClusterIP (nao ha LoadBalancer aqui) e so os hostnames com Route existem.
 # Dentro, o --resolve entrega o SNI que o listener espera.
-_exposta_curl() { # _exposta_curl <host> <ip> <sufixo-da-url> [quantas]
-  local h="$1" ip="$2" q="${3:-}" n="${4:-1}"
+_exposta_curl() { # _exposta_curl <host> <ip> [chave] [quantas]
+  local h="$1" ip="$2" k="${3:-}" n="${4:-1}" hdr=""
+  # a chave vai no header Authorization: APIKEY <chave>; sem chave, sem header
+  [[ -n "$k" ]] && hdr="-H 'Authorization: APIKEY ${k}'"
   oc run "probe-$RANDOM" -n "$_NS_SONDA" --rm -i --restart=Never --image=registry.access.redhat.com/ubi9/ubi-minimal -- \
-    sh -c "for i in \$(seq $n); do curl -sk -m 10 -o /dev/null -w '%{http_code} ' --resolve ${h}:443:${ip} 'https://${h}/${q}'; done; echo" 2>/dev/null | grep -E '^[0-9]{3}'
+    sh -c "for i in \$(seq $n); do curl -sk -m 10 -o /dev/null -w '%{http_code} ' ${hdr} --resolve ${h}:443:${ip} 'https://${h}/'; done; echo" 2>/dev/null | grep -E '^[0-9]{3}'
 }
 
 step_exposta() {
@@ -1217,7 +1219,7 @@ step_exposta() {
       platform-reference/golden-path-manual/03-echo-exposta-chave.yaml | oc apply -f - >/dev/null
     sleep 15
     printf '  sem chave: '; _exposta_curl "$host" "$ip" "" 1
-    printf '  com chave: '; _exposta_curl "$host" "$ip" "?APIKEY=${chave_exposta}" 1
+    printf '  com chave: '; _exposta_curl "$host" "$ip" "${chave_exposta}" 1
   fi
   _look "401 sem chave, 200 com chave. A sua policy venceu o deny-all do Gateway."
   echo
@@ -1233,7 +1235,7 @@ step_exposta() {
   _do oc apply -f platform-reference/golden-path-manual/04-echo-exposta-plano.yaml
   if [[ $DRY_RUN -eq 0 ]]; then
     sleep 25
-    printf '  seis chamadas seguidas (limite 3 em 10s): '; _exposta_curl "$host" "$ip" "?APIKEY=${chave_exposta}" 6
+    printf '  seis chamadas seguidas (limite 3 em 10s): '; _exposta_curl "$host" "$ip" "${chave_exposta}" 6
   fi
   _look "200 200 200 429 429 429 -- o tier 'experimental' cortou na quarta"
 
@@ -1412,7 +1414,7 @@ step_degrada() {
 
   _why "1. Com o Limitador de pe: o tier free corta na quarta."
   _do_as "14 requisicoes com a chave free" \
-    bash -c "for i in \$(seq 14); do curl -s -o /dev/null -w '%{http_code} ' 'https://${api}/travels?APIKEY=${free}'; done; echo"
+    bash -c "for i in \$(seq 14); do curl -s -o /dev/null -w '%{http_code} ' -H 'Authorization: APIKEY ${free}' 'https://${api}/travels'; done; echo"
   echo
   _look "os 429 aparecem — o limite esta sendo aplicado"
   echo
@@ -1452,7 +1454,7 @@ step_degrada() {
   echo
   _why "3. A MESMA rajada, com o contador inalcancavel:"
   _do_as "14 requisicoes com a chave free" \
-    bash -c "for i in \$(seq 14); do curl -s -o /dev/null -w '%{http_code} ' 'https://${api}/travels?APIKEY=${free}'; done; echo"
+    bash -c "for i in \$(seq 14); do curl -s -o /dev/null -w '%{http_code} ' -H 'Authorization: APIKEY ${free}' 'https://${api}/travels'; done; echo"
   echo
   _look "as 14 passam: sem quem contar, o gateway serve em vez de recusar"
   _say  "Um gateway que falha fechado no rate limit transforma um incidente de telemetria em indisponibilidade. Este falha aberto, e isso e uma decisao de produto, nao um descuido."
@@ -1576,7 +1578,7 @@ step_trace() {
 
   _why "1. Meia duzia de chamadas limpas, para ter o que olhar."
   _do_as "6 requisicoes com a chave gold" \
-    bash -c "for i in 1 2 3 4 5 6; do curl -s -o /dev/null -w '%{http_code} ' 'https://${api}/travels/Rome?APIKEY=${gold}'; done; echo"
+    bash -c "for i in 1 2 3 4 5 6; do curl -s -o /dev/null -w '%{http_code} ' -H 'Authorization: APIKEY ${gold}' 'https://${api}/travels/Rome'; done; echo"
   _why "   a coleta leva ~25s: o span sai do proxy, passa pelo collector e so"
   _why "   entao e indexado. Fale enquanto isso."
   sleep 28
@@ -1741,7 +1743,7 @@ step_canario() {
     _do_sh "oc -n travel-agency patch virtualservice discounts --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/http/0/route/0/weight\",\"value\":${v1}},{\"op\":\"replace\",\"path\":\"/spec/http/0/route/1/weight\",\"value\":${v2}}]'"
     # trafego durante o passo, senao o painel nao tem o que mostrar
     _do_as "trafego para o passo ${v1}/${v2}" \
-      bash -c "for i in \$(seq 12); do curl -s -o /dev/null 'https://${api}/travels/Rome?APIKEY=${gold}' -H 'user: theonlyuser'; done; echo '  ${v1}% para v1, ${v2}% para v2'"
+      bash -c "for i in \$(seq 12); do curl -s -o /dev/null -H 'Authorization: APIKEY ${gold}' 'https://${api}/travels/Rome' -H 'user: theonlyuser'; done; echo '  ${v1}% para v1, ${v2}% para v2'"
   done
   echo
   _look "cinco passos, e o medidor do Grafana subiu junto com eles"
@@ -1862,8 +1864,8 @@ step_falha() {
   trap '_revert_vs; trap - INT RETURN' RETURN
   _do_sh "oc patch virtualservice discounts -n travel-agency --type=merge -p '{\"spec\":{\"http\":[{\"fault\":{\"abort\":{\"httpStatus\":503,\"percentage\":{\"value\":100}}},\"route\":[{\"destination\":{\"host\":\"discounts.travel-agency.svc.cluster.local\",\"subset\":\"v1\"},\"weight\":100}]}]}}'"
   local api gold; api="$(_api_host)"; gold="$(_key_of gold)"
-  _do_as "curl -s \"https://${api}/travels/Oslo?APIKEY=<gold>\" -H 'user: theonlyuser' | head -c 300" \
-    bash -c "curl -s 'https://${api}/travels/Oslo?APIKEY=${gold}' -H 'user: theonlyuser' | head -c 300; echo"
+  _do_as "curl -s -H 'Authorization: APIKEY <gold>' \"https://${api}/travels/Oslo\" -H 'user: theonlyuser' | head -c 300" \
+    bash -c "curl -s -H 'Authorization: APIKEY ${gold}' 'https://${api}/travels/Oslo' -H 'user: theonlyuser' | head -c 300; echo"
   echo
   _look "200 com o catalogo, e o campo de desconto vazio — a API degradou, nao caiu"
   echo

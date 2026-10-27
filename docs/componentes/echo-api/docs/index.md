@@ -29,7 +29,7 @@ troca: o status da policy do Gateway registra
 quem venceu, rota por rota**.
 
 O isolamento entre produtos é deliberado e está no selector. A
-`echo-api-authpolicy` aceita API key por query string (`?APIKEY=`), mas só
+`echo-api-authpolicy` aceita API key no header `Authorization: APIKEY <chave>`, mas só
 indexa `Secret` com **dois** labels: `app: partner` **e**
 `devportal.kuadrant.io/apiproduct: echo-api`. As chaves do travels carregam só
 o primeiro — por isso o `401`. A rota do travels continua com o selector
@@ -62,7 +62,7 @@ produto. O que interessa medir neste componente é a borda: `401` sem chave,
 | Requests / limits | cpu `10m` / `200m` · memória `64Mi` / `256Mi` |
 | Service | `echo-api`, ClusterIP, porta `8080` → `targetPort: http` |
 | HTTPRoute | `echo-api`, `parentRef` → Gateway `prod-web` (ns `ingress-gateway`), match `PathPrefix /`, backend `echo-api:8080` |
-| AuthPolicy | `echo-api-authpolicy` — API key via query string `APIKEY`; selector `app: partner` + `devportal.kuadrant.io/apiproduct: echo-api`; `allNamespaces: false`; `rules` direto, **não** `defaults.rules` |
+| AuthPolicy | `echo-api-authpolicy` — API key no header `Authorization: APIKEY <chave>`; selector `app: partner` + `devportal.kuadrant.io/apiproduct: echo-api`; `allNamespaces: false`; `rules` direto, **não** `defaults.rules` |
 | PlanPolicy | `echo-plans` — tier único `default`, `predicate: 'true'`, `20 req/10s` e `2000/dia` |
 | APIProduct | `echo-api` — `v1`, `approvalMode: automatic`, `publishStatus: Published`, tags `utility`, `diagnostics` |
 | Onde moram as policies | `env/rhcl-1.4_ocp-4.21/devportal/echo-api.yaml` — `APIProduct` é CRD do 1.4 e a `base/` tem de continuar aplicável no 1.2 |

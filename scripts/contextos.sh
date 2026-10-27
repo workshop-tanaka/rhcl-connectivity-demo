@@ -90,7 +90,7 @@ _ip() { oc get svc lab-istio -n "$LAB_NS" -o jsonpath='{.spec.clusterIP}' 2>/dev
 _http() { # <host> <caminho> [chave]
   local ip; ip="$(_ip)"
   oc exec -n "$LAB_NS" cliente -- curl -s -o /dev/null -m 8 -w '%{http_code}' \
-    --resolve "${1}:80:${ip}" "http://${1}${2}${3:+?APIKEY=$3}" 2>/dev/null
+    ${3:+-H "Authorization: APIKEY $3"} --resolve "${1}:80:${ip}" "http://${1}${2}" 2>/dev/null
 }
 
 _chave() { oc get secret "$1" -n "$LAB_NS" -o jsonpath='{.data.api_key}' 2>/dev/null | base64 -d; }
@@ -101,7 +101,7 @@ _chave() { oc get secret "$1" -n "$LAB_NS" -o jsonpath='{.data.api_key}' 2>/dev/
 _rajada() { # <host> <caminho> <chave> <n>
   local ip; ip="$(_ip)"
   oc exec -n "$LAB_NS" cliente -- bash -c \
-    "for i in \$(seq 1 $4); do printf '%s ' \"\$(curl -s -o /dev/null -m 8 -w '%{http_code}' --resolve $1:80:${ip} 'http://$1$2?APIKEY=$3')\"; done" 2>/dev/null
+    "for i in \$(seq 1 $4); do printf '%s ' \"\$(curl -s -o /dev/null -m 8 -w '%{http_code}' -H 'Authorization: APIKEY $3' --resolve $1:80:${ip} 'http://$1$2')\"; done" 2>/dev/null
   echo
 }
 
@@ -212,7 +212,7 @@ spec:
     authentication:
       chave:
         apiKey: {allNamespaces: true, selector: {matchLabels: {app: ctx-lab-cliente}}}
-        credentials: {queryString: {name: APIKEY}}
+        credentials: {authorizationHeader: {prefix: APIKEY}}
 ---
 # NIVEL REGRA: /listall e publico. Sobrepoe a policy da rota PARA BAIXO.
 apiVersion: kuadrant.io/v1
@@ -235,7 +235,7 @@ spec:
     authentication:
       chave:
         apiKey: {allNamespaces: true, selector: {matchLabels: {app: ctx-lab-cliente}}}
-        credentials: {queryString: {name: APIKEY}}
+        credentials: {authorizationHeader: {prefix: APIKEY}}
     authorization:
       so-gold:
         patternMatching:

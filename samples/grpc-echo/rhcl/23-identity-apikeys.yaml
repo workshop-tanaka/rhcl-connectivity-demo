@@ -6,7 +6,7 @@
 # protocolo:
 #
 #   grpcurl -insecure -H 'apikey: grpc-echo-3f71b2' grpc-echo.<d>:443 list   # ok
-#   curl -o /dev/null -w '%{http_code}\n' "https://api-travels.<d>/?APIKEY=grpc-echo-3f71b2"  # 401
+#   curl -o /dev/null -w '%{http_code}\n' -H 'Authorization: APIKEY grpc-echo-3f71b2' "https://api-travels.<d>/"  # 401
 #
 # A fronteira e do produto. Nao do protocolo, e nao do endereco.
 # ===========================================================================

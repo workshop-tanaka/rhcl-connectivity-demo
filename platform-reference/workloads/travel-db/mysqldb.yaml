@@ -17,7 +17,7 @@
 #
 #   [hotels/v1] Internal Error: dial tcp: lookup mysqldb.travel-db: no such host
 #
-#   curl .../travels?APIKEY=...   ->   HTTP 200   []
+#   curl -H "Authorization: APIKEY ..." .../travels   ->   HTTP 200   []
 #
 # A API respondia 200 com CORPO VAZIO. Os Atos 1-4 do roteiro medem codigo de
 # status (401/200/429) e o rate limit acontece no gateway, antes da aplicacao --

@@ -4,8 +4,8 @@
 # POR QUE ISTO EXISTE: o mTLS do Service Mesh cobre todo salto entre servicos
 # (a parte 2.1 mede), mas NAO o salto do Gateway ate o Authorino e o
 # Limitador: eles ficam fora do mesh, e o Envoy do Gateway fala com os dois
-# sem TLS nenhum. Como a chave de API vai na query string, ela atravessa o
-# cluster legivel ate quem a valida. Medido no config_dump do Envoy:
+# sem TLS nenhum. Como a chave de API vai no header Authorization, ela
+# atravessa o cluster legivel ate quem a valida. Medido no config_dump do Envoy:
 #
 #   kuadrant-auth-service        sem transport_socket
 #   kuadrant-ratelimit-service   sem transport_socket
@@ -71,7 +71,7 @@ _sonda() { # <segundos> <arquivo>
   local fim=$((SECONDS + $1)) t0=$SECONDS
   while [[ $SECONDS -lt $fim ]]; do
     printf '%s %s %s\n' "$((SECONDS - t0))" \
-      "$(curl -s -o /dev/null -m 4 -w '%{http_code}' "https://${API}/travels?APIKEY=${gold}")" \
+      "$(curl -s -o /dev/null -m 4 -w '%{http_code}' -H "Authorization: APIKEY ${gold}" "https://${API}/travels")" \
       "$(curl -s -o /dev/null -m 4 -w '%{http_code}' "https://${API}/travels")"
     sleep 1
   done > "$2"
@@ -122,7 +122,7 @@ _troca() { # <true|false>
   local free; free="$(oc get secrets -n "$KNS" -l 'app=partner,kuadrant.io/plan-id=free' -o jsonpath='{.items[0].data.api_key}' 2>/dev/null | base64 -d)"
   sleep 11   # janela do limite do free
   printf '    rajada free: '
-  for _ in 1 2 3 4 5 6 7 8; do printf '%s ' "$(curl -s -o /dev/null -m 10 -w '%{http_code}' "https://${API}/travels?APIKEY=${free}")"; done; echo
+  for _ in 1 2 3 4 5 6 7 8; do printf '%s ' "$(curl -s -o /dev/null -m 10 -w '%{http_code}' -H "Authorization: APIKEY ${free}" "https://${API}/travels")"; done; echo
 }
 
 case "${1:-status}" in

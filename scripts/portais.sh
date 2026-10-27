@@ -128,6 +128,10 @@ spec:
             # O server.ts monta '<endpoint>/<cidade>?<nome>=<valor>'. Os dois
             # apontam para o MESMO caminho de proposito: a listagem e o detalhe
             # sao o mesmo recurso da nossa API.
+            # A chave segue na QUERY STRING porque a imagem e de terceiro e nao
+            # sabe mandar header: a AuthPolicy da travel-agency aceita essa forma
+            # pela regra 'api-key-portais', enquanto a principal (api-key-authn)
+            # le 'Authorization: APIKEY <chave>'. Se a imagem mudar, cai a regra.
             - name: API_GET_CITIES
               value: "https://${API_HOST}/travels"
             - name: API_GET_DETAILS_FOR_CITY

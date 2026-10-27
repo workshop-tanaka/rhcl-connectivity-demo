@@ -17,7 +17,7 @@ info:
 servers:
   - url: https://${{ values.hostname }}
 security:
-  - ApiKeyQuery: []
+  - ApiKeyHeader: []
 paths:
   /:
     get:
@@ -51,11 +51,13 @@ paths:
           description: Limite do plano excedido
 components:
   securitySchemes:
-    ApiKeyQuery:
+    ApiKeyHeader:
       type: apiKey
-      in: query
-      name: APIKEY
+      in: header
+      name: Authorization
       description: >-
-        Chave emitida pelo developer portal do RHCL. Vive como Secret em
-        kuadrant-system (namespace do Authorino), com os labels
+        Formato: "Authorization: APIKEY <chave>" -- o prefixo APIKEY e o que o
+        AuthPolicy (credentials.authorizationHeader) espera. Chave emitida pelo
+        developer portal do RHCL. Vive como Secret em kuadrant-system (namespace
+        do Authorino), com os labels
         app=${{ values.apiKeyGroup }} e devportal.kuadrant.io/apiproduct=${{ values.name }}.

@@ -93,7 +93,7 @@ cmd_auth() {
     _bad "nao respondeu: $(printf '%s' "$saida" | grep -oE 'code = [A-Za-z]+.*' | head -1)"
   fi
   _nota ""
-  _nota "gRPC nao tem query string, entao a credencial viaja em METADATA."
+  _nota "Em HTTP a chave vai em 'Authorization: APIKEY <chave>'; em gRPC ela viaja em METADATA."
   _nota "E a unica diferenca de credencial entre esta policy e a de HTTP."
 }
 
@@ -132,7 +132,7 @@ cmd_compara() {
   _nota "Duas diferencas, e as duas sao do PROTOCOLO. Nada mais muda."
   printf '\n    %-22s %-24s %s\n' "" "HTTP (travels)" "gRPC (bookings)"
   printf '    %-22s %-24s %s\n' "targetRef.kind" "HTTPRoute" "GRPCRoute"
-  printf '    %-22s %-24s %s\n' "credentials" "queryString: APIKEY" "customHeader: apikey"
+  printf '    %-22s %-24s %s\n' "credentials" "authorizationHeader: APIKEY" "customHeader: apikey"
   printf '    %-22s %-24s %s\n' "selector das chaves" "app=partner" "app=partner (igual)"
   printf '    %-22s %-24s %s\n' "Gateway" "prod-web" "prod-web (o mesmo)"
   printf '    %-22s %-24s %s\n' "listener" "HTTPS/443" "HTTPS/443 (o mesmo, h2 por ALPN)"

@@ -204,7 +204,7 @@ bash scripts/demo.sh ato1
 
 ```bash
 bash scripts/traffic.sh anon
-curl -s -o /dev/null -w '%{http_code}\n' "https://<echo-host>/?APIKEY=<chave gold do travels>"
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: APIKEY <chave gold do travels>" "https://<echo-host>/"
 ```
 </details>
 
@@ -217,8 +217,13 @@ chave invalida   -> 401
 cabecalhos da recusa:
   HTTP/2 401
   www-authenticate: APIKEY realm="api-key-authn"
+  www-authenticate: APIKEY realm="api-key-portais"
   x-ext-auth-reason: credential not found
 ```
+
+São dois `www-authenticate` porque a AuthPolicy tem duas regras de identidade
+(header e, só para os portais de parceiro, query string), e cada regra anuncia
+o próprio realm. Medido no `user1` do mz8j7 em 2026-10-27.
 
 **O que explicar.** O ponto não é o 401 — é que **nenhuma linha da aplicação
 trata autenticação**. O `travels` é o mesmo binário que já rodava. Quem recusa é

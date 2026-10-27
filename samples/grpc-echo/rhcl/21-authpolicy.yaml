@@ -6,10 +6,10 @@
 # DUAS diferencas, e ambas sao do protocolo, nao da policy:
 #
 #   targetRef.kind      GRPCRoute no lugar de HTTPRoute
-#   credentials         customHeader no lugar de queryString
+#   credentials         customHeader no lugar de authorizationHeader
 #
-# gRPC NAO TEM QUERY STRING. A chave entra em METADATA, que e o equivalente de
-# cabecalho em HTTP/2. No grpcurl: -H 'apikey: <valor>'.
+# Em gRPC a credencial vai em METADATA, que e o equivalente do cabecalho HTTP
+# -- por isso customHeader. No grpcurl: -H 'apikey: <valor>'.
 #
 # Este e o argumento inteiro do ato de gRPC desta demo, e ele so e forte porque
 # a policy e reconheciveis identica -- se fosse "a versao gRPC da AuthPolicy",

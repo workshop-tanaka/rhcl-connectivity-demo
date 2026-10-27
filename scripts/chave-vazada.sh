@@ -88,7 +88,7 @@ cria() {
   printf '    '
   local i
   for i in $(seq 8); do
-    curl -sk -o /dev/null -m 15 -w '%{http_code} ' "https://${api}/travels?APIKEY=${chave}"
+    curl -sk -o /dev/null -m 15 -w '%{http_code} ' -H "Authorization: APIKEY ${chave}" "https://${api}/travels"
   done
   echo
   _nota "e isso que a auditoria vai ter de reconstituir daqui a pouco."
@@ -234,7 +234,7 @@ revoga() {
   if [[ -z "$chave" ]]; then _warn "a chave ja nao existe"; else
     _log "antes da revogacao:"
     printf '    '
-    curl -sk -o /dev/null -m 15 -w '%{http_code}\n' "https://${api}/travels?APIKEY=${chave}"
+    curl -sk -o /dev/null -m 15 -w '%{http_code}\n' -H "Authorization: APIKEY ${chave}" "https://${api}/travels"
 
     oc delete secret "$SECRET" -n "$NS" >/dev/null 2>&1
     _ok "revogada -- revogar e apagar um objeto, nao sincronizar um banco de chaves"
@@ -244,7 +244,7 @@ revoga() {
     printf '    '
     local i
     for i in 1 2 3; do
-      curl -sk -o /dev/null -m 15 -w '%{http_code} ' "https://${api}/travels?APIKEY=${chave}"
+      curl -sk -o /dev/null -m 15 -w '%{http_code} ' -H "Authorization: APIKEY ${chave}" "https://${api}/travels"
     done
     echo
   fi

@@ -172,7 +172,7 @@ for p in d.get('spec',{}).get('plans',[]):
 _burst() {
   local key="$1" n="$2" code ok=0 rl=0 other=0
   for ((i=0; i<n; i++)); do
-    code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "${URL}?APIKEY=${key}")"
+    code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 -H "Authorization: APIKEY ${key}" "${URL}")"
     case "$code" in
       200) printf '%s200%s ' "$_GRN" "$_RST"; ((ok++)) ;;
       429) printf '%s429%s ' "$_RED" "$_RST"; ((rl++)) ;;
@@ -220,7 +220,7 @@ mode_burst() {
 mode_anon() {
   _log "alvo: ${URL}"
   printf 'sem chave        -> %s\n' "$(curl -sk -o /dev/null -w '%{http_code}' "$URL")"
-  printf 'chave invalida   -> %s\n' "$(curl -sk -o /dev/null -w '%{http_code}' "${URL}?APIKEY=nao-existe")"
+  printf 'chave invalida   -> %s\n' "$(curl -sk -o /dev/null -w '%{http_code}' -H 'Authorization: APIKEY nao-existe' "${URL}")"
   echo
   # O AuthPolicy da rota nao define response.unauthorized, entao a recusa vem
   # sem corpo -- o motivo vive no header. Quem define corpo customizado e o
@@ -248,7 +248,7 @@ mode_soak() {
   start="$(date +%s)"
   while :; do
     i=$(( n % ${#TIERS[@]} ))
-    curl -sk -o /dev/null --max-time 5 "${URL}?APIKEY=${KEYS[$i]}" &
+    curl -sk -o /dev/null --max-time 5 -H "Authorization: APIKEY ${KEYS[$i]}" "${URL}" &
     n=$((n+1))
     (( n % 40 == 0 )) && printf '%s  %d requisicoes\n' "$_DIM$(date +%H:%M:%S)$_RST" "$n"
     [[ "$DURATION" != "0" && $(( $(date +%s) - start )) -ge "$DURATION" ]] && break
@@ -292,7 +292,7 @@ mode_mesh() {
   # endpoint aqui: alimentar as chamadas que de fato atravessam o Service Mesh.
   local -a CITIES=()
   while IFS= read -r c; do [[ -n "$c" ]] && CITIES+=("$c"); done < <(
-    curl -sk --max-time 10 "${base}/travels?APIKEY=${gold}" \
+    curl -sk --max-time 10 -H "Authorization: APIKEY ${gold}" "${base}/travels" \
       | python3 -c 'import json,sys
 try: print("\n".join(d["city"] for d in json.load(sys.stdin)))
 except Exception: pass' 2>/dev/null)
@@ -335,8 +335,8 @@ except Exception: pass' 2>/dev/null)
   # Primeira chamada fria descartada: a conexao inicial de cada servico com o
   # discounts as vezes estoura o timeout e o campo volta 'null' na resposta.
   # Nao e erro de policy nem do Service Mesh, mas no palco parece um.
-  curl -sk -o /dev/null --max-time 15 "${HDRS[@]}" \
-    "${base}/travels/${CITIES[0]}?APIKEY=${gold}" 2>/dev/null || true
+  curl -sk -o /dev/null --max-time 15 "${HDRS[@]}" -H "Authorization: APIKEY ${gold}" \
+    "${base}/travels/${CITIES[0]}" 2>/dev/null || true
   echo
   # A cota diaria do gold (5000) e o teto real deste modo, e nao a janela de
   # 30/10s -- esta o trafego nunca encosta. Quando a diaria estoura, TUDO vira
@@ -363,8 +363,8 @@ except Exception: pass' 2>/dev/null)
     # cada chamada e o que permite contar 429 -- o 'soak' descarta essa
     # informacao, e por isso nao percebe quando esta so gerando recusa.
     code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 \
-              "${HDRS[@]}" \
-              "${base}/travels/${city}?APIKEY=${gold}")"
+              "${HDRS[@]}" -H "Authorization: APIKEY ${gold}" \
+              "${base}/travels/${city}")"
     n=$((n+1)); [[ "$code" == "429" ]] && rl=$((rl+1))
     (( n % 20 == 0 )) && printf '%s  %s%d requisicoes, %d limitadas%s\n' \
       "$_DIM$(date +%H:%M:%S)" "$_DIM" "$n" "$rl" "$_RST"
@@ -456,7 +456,7 @@ mode_all() {
   local gold; gold="$(_key_of gold)"
   [[ -n "$gold" ]] || _die "chave do tier 'gold' nao encontrada."
   while IFS= read -r c; do [[ -n "$c" ]] && CITIES+=("$c"); done < <(
-    curl -sk --max-time 10 "https://${travels_host}/travels?APIKEY=${gold}" \
+    curl -sk --max-time 10 -H "Authorization: APIKEY ${gold}" "https://${travels_host}/travels" \
       | python3 -c 'import json,sys
 try: print("\n".join(d["city"] for d in json.load(sys.stdin)))
 except Exception: pass' 2>/dev/null)
@@ -487,8 +487,8 @@ except Exception: pass' 2>/dev/null)
   local slot key code url city
   # Warm-up: a primeira chamada de cada servico ao discounts as vezes estoura o
   # timeout e volta null dentro de um 200. Fora da contagem, de proposito.
-  curl -sk -o /dev/null --max-time 15 "${HDRS[@]}" \
-    "https://${travels_host}/travels/${CITIES[0]}?APIKEY=${gold}" 2>/dev/null || true
+  curl -sk -o /dev/null --max-time 15 "${HDRS[@]}" -H "Authorization: APIKEY ${gold}" \
+    "https://${travels_host}/travels/${CITIES[0]}" 2>/dev/null || true
 
   while :; do
     slot="${CYCLE[$(( n % ${#CYCLE[@]} ))]}"
@@ -500,8 +500,8 @@ except Exception: pass' 2>/dev/null)
       key="$(_key_of "$slot")"
       if [[ -z "$key" ]]; then n=$((n+1)); continue; fi
       city="${CITIES[$(( RANDOM % ${#CITIES[@]} ))]}"
-      url="https://${travels_host}/travels/${city}?APIKEY=${key}"
-      code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "${HDRS[@]}" "$url")"
+      url="https://${travels_host}/travels/${city}"
+      code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "${HDRS[@]}" -H "Authorization: APIKEY ${key}" "$url")"
     fi
     n=$((n+1))
 
@@ -742,8 +742,8 @@ mode_mesh_split() {
     # discounts e esta medicao devolve zero. Mesmo motivo do modo 'mesh';
     # ver a nota do Ato 5 no runbook.
     curl -sk -o /dev/null --max-time 10 \
-      -H "user: ${MESH_USER:-theonlyuser}" \
-      "https://${HOST}/travels/${CITIES[$(( n % ${#CITIES[@]} ))]}?APIKEY=${gold}"
+      -H "user: ${MESH_USER:-theonlyuser}" -H "Authorization: APIKEY ${gold}" \
+      "https://${HOST}/travels/${CITIES[$(( n % ${#CITIES[@]} ))]}"
     n=$((n+1))
     (( n % 10 == 0 )) && printf '%s  %d/%d%s\n' "$_DIM" "$n" "$reqs" "$_RST"
     sleep 0.4

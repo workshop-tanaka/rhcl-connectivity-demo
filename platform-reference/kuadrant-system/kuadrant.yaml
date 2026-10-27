@@ -1,9 +1,10 @@
 # spec.mtls desde 2026-09-21. Sem ele, o Envoy do Gateway fala com o Authorino
 # e com o Limitador em TEXTO CLARO (config_dump: kuadrant-auth-service e
-# kuadrant-ratelimit-service sem transport_socket) -- e a chave de API vai na
-# query string, entao atravessava o cluster legivel ate quem a valida. Com o
-# campo, o operador poe os dois no mesh (sidecar nativo + PeerAuthentication
-# STRICT em kuadrant-system) e o canal vira mTLS.
+# kuadrant-ratelimit-service sem transport_socket) -- e a chave de API viaja na
+# requisicao (hoje no header Authorization), entao atravessava o cluster
+# legivel ate quem a valida. Com o campo, o operador poe os dois no mesh
+# (sidecar nativo + PeerAuthentication STRICT em kuadrant-system) e o canal
+# vira mTLS.
 #
 # Medido ao ligar num ambiente vivo (scripts/mtls-kuadrant.sh liga): ~8s de 500
 # para TODOS (gold e sem chave) enquanto os pods trocam -- falha FECHADA, nunca

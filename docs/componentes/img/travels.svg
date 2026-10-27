@@ -17,7 +17,7 @@
   <rect x="10" y="130" width="112" height="64" rx="6" fill="#fff" stroke="#64748b" stroke-width="1.5"/>
   <text x="66" y="152" text-anchor="middle" font-size="12" font-weight="bold" fill="#1e293b">Parceiro</text>
   <text x="66" y="168" text-anchor="middle" font-size="9.5" fill="#1e293b">GET /travels/…</text>
-  <text x="66" y="182" text-anchor="middle" font-size="9.5" fill="#1e293b">?APIKEY=…</text>
+  <text x="66" y="182" text-anchor="middle" font-size="9.5" fill="#1e293b">Authorization: APIKEY …</text>
 
   <line x1="122" y1="162" x2="158" y2="162" stroke="#64748b" stroke-width="1.5" marker-end="url(#seta-neutra)"/>
 
@@ -30,7 +30,7 @@
   <rect x="172" y="128" width="130" height="60" rx="4" fill="#fff" stroke="#64748b" stroke-width="1"/>
   <text x="237" y="143" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1e293b">AuthPolicy</text>
   <text x="237" y="156" text-anchor="middle" font-size="8" fill="#1e293b">travel-agency-authpolicy</text>
-  <text x="237" y="169" text-anchor="middle" font-size="8.5" fill="#1e293b">?APIKEY → x-partner</text>
+  <text x="237" y="169" text-anchor="middle" font-size="8.5" fill="#1e293b">APIKEY → x-partner</text>
 
   <rect x="172" y="198" width="130" height="66" rx="4" fill="#fff" stroke="#64748b" stroke-width="1"/>
   <text x="237" y="212" text-anchor="middle" font-size="9.5" font-weight="bold" fill="#1e293b">PlanPolicy travels-plans</text>

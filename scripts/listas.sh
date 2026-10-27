@@ -99,10 +99,10 @@ _ip() { oc get svc lab-istio -n "$LAB_NS" -o jsonpath='{.spec.clusterIP}' 2>/dev
 # COM REPETICAO: logo depois de criada, a Route pode responder 503 por alguns
 # segundos enquanto o router aprende o destino (medido no terminal do
 # workshop). Repetir e mais honesto do que exibir um 503 que nao e da policy.
-_fora() {
+_fora() { # [opcoes do curl] <url>
   local i c
   for i in 1 2 3 4 5; do
-    c="$(curl -sk -m 15 -o /dev/null -w '%{http_code}' "$1" 2>/dev/null)"
+    c="$(curl -sk -m 15 -o /dev/null -w '%{http_code}' "$@" 2>/dev/null)"
     [[ "$c" != "503" && "$c" != "000" ]] && { printf '%s' "$c"; return; }
     sleep 3
   done
@@ -452,7 +452,7 @@ spec:
     authentication:
       chave:
         apiKey: {allNamespaces: true, selector: {matchLabels: {app: listas-lab}}}
-        credentials: {queryString: {name: APIKEY}}
+        credentials: {authorizationHeader: {prefix: APIKEY}}
     authorization:
       nao-e-da-lista:
         patternMatching:
@@ -461,8 +461,8 @@ spec:
 EOF
   for i in $(seq 1 20); do [[ "$(_fora "https://${HE}/aberto")" == "401" ]] && break; sleep 3; done
   printf '    %-34s %s\n' "sem chave"                "$(_fora "https://${HE}/aberto")"
-  printf '    %-34s %s\n' "chave na lista de bloqueio" "$(_fora "https://${HE}/aberto?APIKEY=${K_BLOQ}")"
-  printf '    %-34s %s\n' "chave liberada"             "$(_fora "https://${HE}/aberto?APIKEY=${K_OK}")"
+  printf '    %-34s %s\n' "chave na lista de bloqueio" "$(_fora -H "Authorization: APIKEY ${K_BLOQ}" "https://${HE}/aberto")"
+  printf '    %-34s %s\n' "chave liberada"             "$(_fora -H "Authorization: APIKEY ${K_OK}" "https://${HE}/aberto")"
   _nota "esta lista nao depende de quem e o proximo salto de rede: ela olha a"
   _nota "credencial, que atravessa NAT, CDN e troca de operadora sem mudar."
 }

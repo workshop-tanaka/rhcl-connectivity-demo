@@ -297,7 +297,7 @@ cmd_prova() {
   _log "1. com o Limitador de pe, o tier gratuito corta:"
   printf '       '
   local i
-  for i in $(seq 8); do curl -sk -o /dev/null -m 15 -w '%{http_code} ' "https://${api}/travels?APIKEY=${chave}"; done; echo
+  for i in $(seq 8); do curl -sk -o /dev/null -m 15 -w '%{http_code} ' -H "Authorization: APIKEY ${chave}" "https://${api}/travels"; done; echo
 
   _log ""
   _log "2. agora o Limitador sai do ar"
@@ -309,7 +309,7 @@ cmd_prova() {
   _log ""
   _log "3. a MESMA rajada, sem quem contar:"
   printf '       '
-  for i in $(seq 8); do curl -sk -o /dev/null -m 15 -w '%{http_code} ' "https://${api}/travels?APIKEY=${chave}"; done; echo
+  for i in $(seq 8); do curl -sk -o /dev/null -m 15 -w '%{http_code} ' -H "Authorization: APIKEY ${chave}" "https://${api}/travels"; done; echo
   _ok "as oito passaram -- o trafego esta SAUDAVEL do ponto de vista do cliente"
   _nota "nenhum painel de trafego acusa nada. Nenhum cliente reclama."
 
