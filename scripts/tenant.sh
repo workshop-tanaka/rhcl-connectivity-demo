@@ -338,16 +338,11 @@ if (/\A(?:include::[^\n]*\n)?= (?:3\.6|\{p-auditoria\}) /) {
   s/\x01([^\x02]*)\x02/$1\[source,bash,role="execute"\]/g;
   s/\A((?:[^\n]+\n)+)\n/$1\n[IMPORTANT]\n====\n*Nesta turma, esta parte é leitura -- menos o exercício da chave vazada, que roda inteiro.* As outras fontes consultam o registro de auditoria e o Argo CD do cluster inteiro, que mostram as ações de todos os participantes, e o seu ambiente não tem acesso a eles: os comandos respondem \x60Forbidden\x60 ou voltam vazios. As saídas de exemplo estão na própria página.\n====\n\n/;
 }
-# A 6.2 E DO INSTRUTOR NUMA TURMA. 'demo.sh degrada' escala o Limitador a zero,
-# e o Limitador e UM para a turma: o participante nao tem 'patch' nele nem no
-# Deployment (can-i = no para a SA do terminal, cluster-mz8j7, 2026-10-26), e
-# o script parava no primeiro passo. Nao e risco para a turma -- ninguem o
-# derruba --, mas a parte nao roda: o bloco vira leitura e a saida esperada
-# fica na pagina. O 'traffic.sh metrics' continua clicavel.
-if (/\A(?:include::[^\n]*\n)?= (?:3\.4|\{p-degrada\}) /) {
-  s/(?:\.Perfil Infra[^\n]*\n)?\[source,bash,role="execute"\]\n----\n(?:perfil infra && \{\n)?bash scripts\/demo\.sh degrada\n(?:\}\n)?----\n/[IMPORTANT]\n====\n*Nesta turma, esta parte é demonstração do instrutor.* Ela derruba o Limitador, que é um só para a turma inteira: o seu ambiente não tem permissão para isso, e rodá-la tiraria o limite de todos ao mesmo tempo. O instrutor a mostra na tela dele; o resultado esperado está logo abaixo.\n====\n\n[source,bash]\n----\nbash scripts\/demo.sh degrada\n----\n/;
-}
-s/^(\* xref:m3-04-degrada\.adoc\[[^\]\n]*)\]/$1 -- do instrutor]/mg;
+# A 6.2 RODA INTEIRA NUMA TURMA desde a v0.83: ela corta o caminho do Gateway
+# DO PARTICIPANTE ate o Limitador e o Authorino com uma NetworkPolicy no
+# namespace dele (passos/degrada/), em vez de escalar o Limitador da turma a
+# zero. Ate a v0.82 a parte virava 'demonstracao do instrutor' -- e nao ha
+# instrutor (decisao fechada: o participante aplica, ou vira leitura).
 # A PROVA DO ALERTA TAMBEM E LEITURA NUMA TURMA. 'alerta.sh prova' escala para
 # zero o Limitador, que e UM para a turma, e por isso o proprio script se
 # recusa quando roda no terminal de um participante. A pagina seguia mandando
@@ -363,7 +358,7 @@ s/^(\* xref:m3-06-auditoria\.adoc\[[^\]\n]*)\]/$1 -- leitura e um exercício]/mg
 # O painel consumo-plataforma e visao da plataforma INTEIRA por desenho, e o
 # Grafana de uma turma e filtrado, nao isolado (docs/TURMA.md, secao 8): e o
 # unico painel nao filtravel que o guia mandava o participante abrir.
-s/tem dashboard\s+próprio: \{grafana_url\}\/d\/rhcl-consumo-plataforma\[[^\]]*\]\.\n\nEle separa por produto[^\n]*(?:\n[^\n]+)*/é visão da plataforma inteira; nesta turma, quem a abre é o instrutor./;
+s/tem dashboard\s+próprio: \{grafana_url\}\/d\/rhcl-consumo-plataforma\[[^\]]*\]\.\n\nEle separa por produto[^\n]*(?:\n[^\n]+)*/é visão da plataforma inteira -- nesta turma, ele soma o consumo de todos os participantes, e por isso fica fora do seu percurso./;
 PERL
 )"
 
@@ -2791,6 +2786,14 @@ _turma() { # <N> [primeiro=1]
         || _warn "o Dev Spaces nao ficou ligado ao GitLab -- o guia sai sem o link dele"
     else _warn "o GitLab existe mas nao ficou pronto para a turma -- sigo sem o repositorio; depois: gitlab-turma.sh login, semeia, e 'showroom' de cada um"; fi
   fi
+  # AS REGRAS DE ALERTA DA PLATAFORMA saem aqui, uma vez para a turma. A 6.3 do
+  # participante aplica so a dele; as duas de plataforma (monitoring e
+  # kuadrant-system) dependiam de "o instrutor aplica", e nao ha instrutor: no
+  # mz8j7 (2026-10-27) nenhuma das duas existia, e o 'alerta.sh status' de cada
+  # participante as listava como "(nao esta no ar)".
+  _sec "turma: regras de alerta da plataforma"
+  if ( cd "${_here}" && bash scripts/alerta.sh aplica >/dev/null 2>&1 ); then _ok "monitoring/rhcl-protecao e kuadrant-system/rhcl-limitador no ar"
+  else _warn "as regras de alerta da plataforma nao subiram -- depois: bash scripts/alerta.sh aplica"; fi
   _sec "turma: user${ini}..user${n}, ${larg} por vez"
   i=$ini
   while [[ $i -le $n ]]; do

@@ -156,7 +156,7 @@ cmd_quem() {
     echo
     _warn "nao consegui procurar o original: sem leitura de Certificate no cluster inteiro."
     _nota "quem emite o certificado da borda mora num namespace de plataforma; a"
-    _nota "busca por um Certificate com o MESMO serial e do instrutor."
+    _nota "busca por um Certificate com o MESMO serial e de quem administra o cluster."
   fi
   while IFS='|' read -r ns nome s_sec renova; do
     [[ -z "$ns" ]] && continue

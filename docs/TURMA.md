@@ -209,12 +209,25 @@ sessão sem esteira. As recusas da esteira (namespace de outro, Gateway de
 outro, tipo fora da lista) foram medidas no cqfs4 e estão no
 [gitlab-turma.sh](../scripts/gitlab-turma.sh).
 
-## 4. O que fica com o instrutor
+## 4. O que vira leitura
+
+**Não há trilha do instrutor** (decisão fechada, reafirmada em 2026-10-27): o
+que o participante não pode rodar com segurança vira leitura com a saída
+medida, e a preparação de plataforma vai para o provisionamento.
 
 | passo | por quê |
 | --- | --- |
-| 3.6 auditoria (até a v0.30 era a 1.8), e o Extra da chave vazada | leem o audit log do kube-apiserver, que exige cluster-admin e mostra as ações de todos |
-| a prova do alerta, no 3.5 | a regra `absent(limitador_up)` não dispara com o corte por `NetworkPolicy` |
+| a pergunta 1 da 6.4 (auditoria; até a v0.30 era a 1.8) | lê o audit log do kube-apiserver, que exige cluster-admin e mostra as ações de todos; o resto da 6.4 e o exercício da chave vazada rodam |
+| a prova do alerta, na 6.3 | a regra `absent(limitador_up)` não dispara com o corte por `NetworkPolicy`, e derrubar o Limitador de verdade tira o limite da turma |
+
+**A 6.2 roda inteira desde a v0.83.** Em vez de escalar o Limitador a zero, ela
+corta, com uma `NetworkPolicy` de saída no namespace do Gateway do
+participante, o caminho até o Limitador e depois até o Authorino
+(`passos/degrada/`). Medido no user1 do mz8j7: o free passa 8 de 8 sem o
+Limitador, sem chave segue `401`, e sem o Authorino toda chamada vira `500`; os
+outros participantes não sentem nada. As duas regras de alerta de plataforma
+(`monitoring/rhcl-protecao`, `kuadrant-system/rhcl-limitador`) saem no
+`tenant.sh turma`.
 
 Os oito Extras que sobem laboratório próprio (certificado, contextos, listas,
 prefixos, tokens de IA, parceiro com certificado, DNS e saída) **rodam como

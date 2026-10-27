@@ -76,10 +76,10 @@ cmd_aplica() {
   # tela e concluir que o ambiente esta quebrado.
   if [[ -f .tenant ]]; then
     _sec "Uma regra para voce, duas para a plataforma"
-    _nota "o alerta mora onde a metrica e coletada; as duas de plataforma sao do instrutor"
+    _nota "o alerta mora onde a metrica e coletada; as duas de plataforma ja estao no ar para a turma"
     cmd_aplica_parceiros
     _ok "a regra do SEU ambiente esta no ar"
-    _nota "monitoring/rhcl-protecao e kuadrant-system/rhcl-limitador: o instrutor as aplica uma vez, para a turma"
+    _nota "monitoring/rhcl-protecao e kuadrant-system/rhcl-limitador: o provisionamento da turma as aplica uma vez"
     _nota "'alerta.sh status' mostra as tres, inclusive as que nao sao suas"
     return 0
   fi
@@ -349,14 +349,14 @@ cmd_remove() {
   # Conta so o que o oc diz que apagou: com --ignore-not-found o 'nao existia'
   # tambem sai com 0, e a tela dizia "2 removidas" com uma so aplicada
   # (medido no user1, 2026-10-27). Na turma as duas de plataforma sao do
-  # instrutor (ver cmd_aplica) e nem se tenta.
+  # provisionamento da turma (ver tenant.sh _turma) e nem se tenta.
   local n=0 p alvos="monitoring/rhcl-protecao kuadrant-system/rhcl-limitador"
   [[ -f .tenant ]] && alvos=""
   for p in $alvos ingress-gateway/rhcl-parceiros travel-agency/rhcl-parceiros; do
     oc delete prometheusrule "${p##*/}" -n "${p%%/*}" --ignore-not-found 2>/dev/null | grep -q deleted && n=$((n+1))
   done
   _ok "${n} regra(s) removida(s)"
-  [[ -f .tenant ]] && _nota "as duas de plataforma ficam com o instrutor"
+  [[ -f .tenant ]] && _nota "as duas de plataforma ficam no ar: sao da turma inteira"
   return 0
 }
 

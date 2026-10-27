@@ -114,7 +114,7 @@ nascimento() {
   # Sem leitura de nodes/proxy o node-logs falha, e o erro mudo parecia
   # "o log rotacionou" (medido no terminal de um participante, 2026-10-27).
   if [[ "$(oc auth can-i get nodes --subresource=proxy 2>/dev/null)" != "yes" ]]; then
-    _warn "sem permissao de ler o audit log (nodes/proxy): ele e do instrutor, nao do seu terminal."
+    _warn "sem permissao de ler o audit log (nodes/proxy): ele e de quem administra o cluster, nao do seu terminal."
     _nota "e o mesmo limite que a parte de auditoria descreve: quem le o audit log e"
     _nota "quem administra o cluster -- o RHCL nao tem como responder esta pergunta."
     return 0

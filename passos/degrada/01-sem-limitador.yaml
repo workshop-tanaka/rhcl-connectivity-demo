@@ -1,0 +1,27 @@
+# Passo 1 da parte "Quando a policy cai": o SEU Gateway deixa de alcancar o
+# Limitador. O Limitador continua no ar para os outros -- e um por cluster, e
+# derruba-lo de verdade tiraria o limite de todos. Do ponto de vista do seu
+# Gateway, porem, e a mesma falha: a chamada gRPC ao Limitador nao volta.
+#
+# Como: uma NetworkPolicy de SAIDA nos pods do Gateway prod-web, que libera
+# tudo menos o kuadrant-system -- e, dentro dele, so o Authorino. Apagar o
+# arquivo devolve o caminho.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: simula-limitador-fora
+  namespace: ingress-gateway
+spec:
+  podSelector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: prod-web
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchExpressions:
+              - {key: kubernetes.io/metadata.name, operator: NotIn, values: [kuadrant-system]}
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kuadrant-system}
+          podSelector:
+            matchLabels: {authorino-resource: authorino}

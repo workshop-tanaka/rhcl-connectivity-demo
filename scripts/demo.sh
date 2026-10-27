@@ -1082,7 +1082,7 @@ step_papeis() {
   _pause || return 0
   if [[ -z "$_KC_DEV" ]] && ! _dev_login; then
     _warn "nao consegui logar como app-dev -- as personas existem?"
-    _warn "  as personas do Keycloak nao estao no ar -- avise o instrutor"
+    _warn "  as personas do Keycloak nao estao no ar -- confira: bash scripts/preflight.sh"
     return 0
   fi
   _cmd oc whoami

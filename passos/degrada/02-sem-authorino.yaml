@@ -1,0 +1,22 @@
+# Passo 2 da parte "Quando a policy cai": o mesmo corte, agora do lado do
+# Authorino. O Gateway alcanca o Limitador e nao alcanca quem decide se a
+# chave vale. Apagar o arquivo devolve o caminho.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: simula-authorino-fora
+  namespace: ingress-gateway
+spec:
+  podSelector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: prod-web
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchExpressions:
+              - {key: kubernetes.io/metadata.name, operator: NotIn, values: [kuadrant-system]}
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kuadrant-system}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: limitador}
