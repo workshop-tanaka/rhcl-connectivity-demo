@@ -1090,6 +1090,12 @@ subjects:
 EOF
     then _ok "${u}: esteira-${u} criada no Argo CD (projeto turma-${u})"
     else _warn "${u}: o cluster recusou o projeto ou a Application do Argo"; falhou=$((falhou+1)); continue; fi
+    # A CREDENCIAL DE LEITURA E NOVA A CADA RODADA, e o Argo guarda a ultima
+    # comparacao: no user5 do mz8j7 (2026-10-27, onda v0.82) a Application
+    # ficou 'Unknown' com "HTTP Basic: Access denied" ate um refresh forcado.
+    # Pedir o refresh aqui tira a dependencia de sorte no momento da troca.
+    oc annotate application "esteira-${u}" -n "$argo_ns" argocd.argoproj.io/refresh=hard --overwrite >/dev/null 2>&1 \
+      || _warn "${u}: nao consegui pedir o refresh da esteira-${u} -- se ficar Unknown: oc annotate application esteira-${u} -n ${argo_ns} argocd.argoproj.io/refresh=hard --overwrite"
   done
   [[ $falhou -eq 0 ]] || _die "${falhou} esteira(s) nao ficaram de pe"
 }
