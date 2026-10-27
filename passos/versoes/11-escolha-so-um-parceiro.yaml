@@ -1,0 +1,37 @@
+# PASSO 8, a policy -- so UM parceiro pode pedir a v2 pelo endereco sem versao.
+# Mesma forma do acesso antecipado do passo 3, com duas diferencas: aponta para
+# a regra 'atual-v2' (sectionName), e o predicado e a chave, nao o plano.
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: v2-so-um-parceiro
+  namespace: travel-agency
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: HTTPRoute, name: travels-versoes, sectionName: atual-v2}
+  rules:
+    authentication:
+      chave:
+        apiKey:
+          # false aqui; numa turma com as chaves no namespace do participante a
+          # copia dele sai com true (tenant.sh, regra CHAVES), e quem impede o
+          # rotulo de um servir a outro e a regra de admissao das chaves
+          allNamespaces: false
+          selector: {matchLabels: {app: partner}}
+        credentials: {queryString: {name: APIKEY}}
+    authorization:
+      so-um-parceiro:
+        patternMatching:
+          patterns:
+            # a chave pelo NOME do Secret: um parceiro, nao um plano
+            - predicate: 'auth.identity.metadata.name == "apikey-teste-gold"'
+    response:
+      success:
+        headers:
+          x-partner:
+            plain:
+              expression: 'has(auth.identity.metadata.annotations) && "secret.kuadrant.io/user-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/user-id"] : auth.identity.metadata.name'
+      unauthorized:
+        headers:
+          content-type: {value: application/json}
+        body:
+          value: '{"error": "Forbidden", "message": "a v2 por este endereco esta liberada para um parceiro so. Use /atual sem o cabecalho."}'

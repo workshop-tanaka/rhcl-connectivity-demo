@@ -154,7 +154,7 @@ if ($ENV{CHAVES}) {
   s/^(\s*namespace:\s*)kuadrant-system(\s*)$/$1$kns$2/
     if $ARGV =~ m{(?:base/identity/|env/[^/]+/kustomization\.yaml$|03-echo-exposta-chave\.yaml$)};
   s/^(\s*allNamespaces:\s*)false\b/$1true/
-    if $ARGV =~ m{(?:travel-agency-authpolicy|bookings-grpc-policies|versoes/0[23]-[a-z0-9-]+)\.yaml$};
+    if $ARGV =~ m{(?:travel-agency-authpolicy|bookings-grpc-policies|versoes/[0-9]{2}-[a-z0-9-]+)\.yaml$};
 }
 # SO NOS SCRIPTS (fora do conteudo): os Extras com laboratorio proprio criam e
 # apagam o namespace deles, e 'create namespace' e de cluster-admin. Projeto,

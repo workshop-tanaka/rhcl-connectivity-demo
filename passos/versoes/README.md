@@ -14,6 +14,8 @@ aplicação e no hostname da API de sempre: a rota `/travels` não muda.
 | `07-atual-na-v1.yaml` | a mesma rota com a regra `atual`: `/atual` reescrito para a v1 | o cliente chama `/atual/travels` e recebe a v1 (`x-api-version: 1`) |
 | `08-atual-na-v2.yaml` | só a regra `atual` muda: entrega na v2 | `/atual` passa a ser a v2 -- e o free chega a ela (200), embora a `/v2` direta lhe dê `403`: a policy é da regra, não da versão |
 | `09-atual-redireciona.yaml` | a regra `atual` como redirect `302` para `/v2` | o cliente vê a versão; na segunda chamada valem as policies da regra `v2` (free `403`) |
+| `10-atual-com-escolha.yaml` | a regra `atual-v2`: o mesmo `/atual`, com o cabeçalho `x-api-version: 2`, entrega na v2 | sem policy própria, qualquer chave que mande o cabeçalho chega à v2 |
+| `11-escolha-so-um-parceiro.yaml` | `AuthPolicy` na regra `atual-v2`, com o predicado no nome da chave | só a chave escolhida recebe a v2 pelo cabeçalho; as outras, `403` |
 
 O passo 5 não tem arquivo: é a pergunta "quem ainda chama a v1?", respondida
 por `bash scripts/uso-por-versao.sh` (perfil Infra, que lê as chaves para
@@ -25,5 +27,5 @@ Aplicar: `oc apply -f passos/versoes/<arquivo>`. Desfazer tudo:
 `__DOMINIO__` é o domínio de aplicações do cluster; na cópia de cada
 participante o hostname já sai com o nome dele (`api-travels-<usuario>`).
 
-Os passos 7 a 9 foram medidos no terminal Dev do user3 do mesmo cluster em 2026-10-27. Medido no `cluster-mz8j7` em 2026-10-26, com o terminal Dev do user5 (o passo 5
+Os passos 7 e 8 (arquivos 07 a 11) foram medidos no terminal Dev do user3 do mesmo cluster em 2026-10-27. Medido no `cluster-mz8j7` em 2026-10-26, com o terminal Dev do user5 (o passo 5
 no terminal Infra): os seis passos, a limpeza e o desfazer do passo 6.
