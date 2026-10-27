@@ -1,0 +1,36 @@
+# PASSO 7 -- um endereco sem versao. A mesma rota do passo 4, com uma regra a
+# mais: '/atual' reescreve o caminho e entrega na versao vigente -- hoje a v1.
+# O cliente chama sempre '/atual/travels' e nao precisa saber qual versao e.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: travels-versoes
+  namespace: travel-agency
+spec:
+  parentRefs: [{name: prod-web, namespace: ingress-gateway}]
+  hostnames: ["api-travels.__DOMINIO__"]
+  rules:
+    - name: v1
+      matches: [{path: {type: PathPrefix, value: /v1}}]
+      filters:
+        - {type: URLRewrite, urlRewrite: {path: {type: ReplacePrefixMatch, replacePrefixMatch: /}}}
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - {name: Deprecation, value: "@1767225600"}
+              - {name: Sunset, value: "Wed, 30 Jun 2027 23:59:59 GMT"}
+              - {name: Link, value: '</v2/travels>; rel="successor-version"'}
+      backendRefs: [{name: travels, port: 8000}]
+    - name: v2
+      matches: [{path: {type: PathPrefix, value: /v2}}]
+      filters:
+        - {type: URLRewrite, urlRewrite: {path: {type: ReplacePrefixMatch, replacePrefixMatch: /}}}
+        - {type: ResponseHeaderModifier, responseHeaderModifier: {set: [{name: x-api-version, value: "2"}]}}
+      backendRefs: [{name: travels-v2, port: 8000}]
+    # o endereco sem versao: hoje, a v1
+    - name: atual
+      matches: [{path: {type: PathPrefix, value: /atual}}]
+      filters:
+        - {type: URLRewrite, urlRewrite: {path: {type: ReplacePrefixMatch, replacePrefixMatch: /}}}
+        - {type: ResponseHeaderModifier, responseHeaderModifier: {set: [{name: x-api-version, value: "1"}]}}
+      backendRefs: [{name: travels, port: 8000}]
