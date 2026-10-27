@@ -448,6 +448,12 @@ _render() { # <tenant> <destino>
   done
 
   printf '%s\n' "$t" > "${dest}/.tenant"
+  # A SESSAO VAI JUNTO, num arquivo: o participante nao le o ConfigMap da
+  # sessao (rhcl-workshop-runner), e sem isto o preflight do terminal dele
+  # tratava a sessao sem Service Mesh como a completa -- 7 avisos mandando
+  # instalar o que a sessao deixa de fora (medido no user1, 2026-10-27).
+  local _f; _f="$(_foco)"
+  if [[ -n "$_f" ]]; then printf '%s\n' "$_f" > "${dest}/.foco"; else rm -f "${dest}/.foco"; fi
 }
 
 # ---------------------------------------------------------------------------

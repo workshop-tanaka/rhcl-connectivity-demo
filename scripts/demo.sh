@@ -433,6 +433,18 @@ _key_of() {
   oc get secrets -n kuadrant-system -l "app=partner,kuadrant.io/plan-id=$1" \
     -o jsonpath='{.items[0].data.api_key}' 2>/dev/null | base64 -d
 }
+# A SESSAO so de Connectivity Link sobe sem Service Mesh (provision.sh,
+# _sem_mesh). A mesma leitura do preflight.sh: FOCO, o ConfigMap que o
+# playbook grava e, no terminal de uma turma -- que nao le esse ConfigMap --,
+# o '.foco' que o tenant.sh render deixa ao lado do '.tenant'.
+_sem_mesh() {
+  local f r; r="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
+  if [[ -n "${FOCO+x}" ]]; then f="$FOCO"
+  else f="$(oc get cm rhcl-workshop-sessao -n rhcl-workshop-runner -o jsonpath='{.data.foco}' 2>/dev/null)"
+       [[ -z "$f" && -f "${r}/.foco" ]] && f="$(cat "${r}/.foco")"; fi
+  [[ "$f" == "rhcl" ]]
+}
+
 _route() { # host de uma route, vazio se nao existir
   oc get route "$1" -n "$2" -o jsonpath='{.spec.host}' 2>/dev/null
 }
@@ -522,10 +534,18 @@ step_telas() {
   # tenant.sh casa '/d/rhcl-negocio-planos' e acrescenta o 'var-ambiente'. Com
   # a home nua, o participante abria o Grafana da TURMA inteira.
   printf '    %s\n' "${g:+https://$g/d/rhcl-negocio-planos}"
-  printf '  %sAba 2 — Policy Topology (precedencia), Traffic Graph e Traces (rastro)%s\n' "$_BLD" "$_RST"
+  # O GRAFO E OS TRACES SO QUANDO HA TELA para eles. Na sessao sem Service
+  # Mesh nao ha Kiali, aba de Service Mesh nem Traces, e a lista mandava o
+  # participante para tres enderecos que nao abrem (medido no user1 do
+  # mz8j7, 2026-10-27: ossmconsole/graph, observe/traces e um "Kiali" vazio).
+  local gr="" tr=""
+  if [[ -n "$k" ]] || oc get consoleplugin ossmconsole >/dev/null 2>&1; then gr="$(_graf_url)"; fi
+  if [[ -n "$t" || -n "$(_route tracing-ui tracing-system)" ]] \
+     || oc get consoleplugin distributed-tracing-console-plugin >/dev/null 2>&1; then tr="$(_traces_url)"; fi
+  printf '  %sAba 2 — Policy Topology (precedencia)%s%s%s\n' "$_BLD" "${gr:+, Traffic Graph}" "${tr:+, Traces (rastro)}" "$_RST"
   printf '    %s\n' "${c}/kuadrant/policy-topology/all-namespaces"
-  printf '    %s\n' "$(_graf_url)"
-  printf '    %s\n' "$(_traces_url)"
+  [[ -n "$gr" ]] && printf '    %s\n' "$gr"
+  [[ -n "$tr" ]] && printf '    %s\n' "$tr"
   printf '  %sAba 3 — API Catalog do console (planos): produtos, chaves, aprovacoes%s\n' "$_BLD" "$_RST"
   printf '    %s\n' "${c}/kuadrant/apiproducts/all-namespaces"
   # So com o portal instalado: sem ele sobrava o titulo da aba e uma linha vazia.
@@ -533,12 +553,15 @@ step_telas() {
     printf '  %sAba 4 — RHDH (so no caminho pavimentado)%s\n' "$_BLD" "$_RST"
     printf '    %s\n' "https://$r"
   fi
-  echo
-  _why "Planos B, se um plugin do console nao abrir:"
-  printf '    %-14s %s\n' "Kiali" "${k:+https://$k}"
   # A tela do Jaeger some quando o Tempo liga o controle por namespace
   # ('tenant.sh traces'): sem a rota, a linha ficava com o rotulo e sem endereco.
-  [[ -n "$t" ]] && printf '    %-14s %s\n' "Jaeger UI" "https://$t/dev  (deprecada; o /dev e o tenant)"
+  # O mesmo vale para o Kiali, e sem nenhum dos dois o titulo tambem sai.
+  if [[ -n "$k" || -n "$t" ]]; then
+    echo
+    _why "Planos B, se um plugin do console nao abrir:"
+    [[ -n "$k" ]] && printf '    %-14s %s\n' "Kiali" "https://$k"
+    [[ -n "$t" ]] && printf '    %-14s %s\n' "Jaeger UI" "https://$t/dev  (deprecada; o /dev e o tenant)"
+  fi
   echo
   # NAO aponte o participante para o acessos.sh: e a folha de credenciais da
   # plataforma, e num cluster de turma ela nao e dele. O guia dele ja traz o
@@ -554,7 +577,7 @@ step_check() {
   _pause || return 0
   _do bash "scripts/preflight.sh"
   echo
-  _look "termina em '[OK] demo pronta.' — qualquer ✗ vermelho e bloqueante"
+  _look "termina em '[OK] o ambiente esta inteiro' — qualquer ✗ vermelho e bloqueante"
 }
 
 step_aquece() {
@@ -1890,10 +1913,15 @@ step_pos() {
   # 1. mTLS de volta a STRICT. O contraste PERMISSIVE do Ato 7 e uma edicao ao
   #    vivo, e quem a faz esta no meio de uma explicacao -- esquecer de voltar e
   #    o desfecho normal, nao a excecao.
+  # Os itens 1 e 2 sao do Service Mesh: na sessao sem ele nao ha
+  # PeerAuthentication nem VirtualService, e o aviso de "ausente" contradizia o
+  # "nada a ajustar" da mesma tela (medido no user1, 2026-10-27).
   local mode
   mode="$(oc get peerauthentication travel-agency-mtls -n travel-agency \
             -o jsonpath='{.spec.mtls.mode}' 2>/dev/null)"
-  if [[ -z "$mode" ]]; then
+  if _sem_mesh; then
+    _ok "sessao sem Service Mesh: nada de mTLS leste-oeste nem fault injection a desfazer"
+  elif [[ -z "$mode" ]]; then
     _warn "PeerAuthentication travel-agency-mtls ausente (a fronteira leste-oeste nao roda sem ela)"
   elif [[ "$mode" != "STRICT" ]]; then
     _warn "mTLS em ${mode} — a sonda leste-oeste devolveria 403 em vez de exit=56"
@@ -1909,7 +1937,9 @@ step_pos() {
   local fault
   fault="$(oc get virtualservice discounts -n travel-agency \
              -o jsonpath='{.spec.http[*].fault}' 2>/dev/null)"
-  if [[ -n "$fault" ]]; then
+  if _sem_mesh; then
+    :
+  elif [[ -n "$fault" ]]; then
     _warn "fault injection ainda ativa no discounts — o canary mediria 100/0"
     _do oc apply -f base/mesh/virtualservice-discounts.yaml
     mudou=1
@@ -1942,10 +1972,14 @@ step_pos() {
   fi
 
   # 4. Chaves cunhadas pelo portal: reporta, nao apaga. Ver o cabecalho.
+  # Sem leitura de Secret em kuadrant-system (o terminal de uma turma) a
+  # contagem dava zero e a tela afirmava "nenhuma chave": abster-se.
   local portal
   portal="$(oc get secret -n kuadrant-system -l devportal.kuadrant.io/enforcement=true \
               --no-headers 2>/dev/null | wc -l | tr -d ' ')"
-  if [[ "$portal" != "0" ]]; then
+  if [[ "$(oc auth can-i list secrets -n kuadrant-system 2>/dev/null)" != "yes" ]]; then
+    _log "chaves do developer portal: sem leitura de kuadrant-system -- nao conferido"
+  elif [[ "$portal" != "0" ]]; then
     _warn "${portal} chave(s) cunhada(s) pelo developer portal em kuadrant-system"
     _why  "  Nao apago sozinho: pode ser assinatura legitima do golden path. Se"
     _why  "  foi aprovacao acidental durante a demo, o comando e"

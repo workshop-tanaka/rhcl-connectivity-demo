@@ -61,10 +61,17 @@ _warn() { WARN=$((WARN+1)); _dado AVISO "$1" "${2:-}"; [[ "$TSV" == "1" ]] && re
 # DE PROPOSITO. Medido no cqfs4: sem isto o veredito saia com 6 avisos que
 # mandavam instalar justamente o que a sessao deixa de fora. A sessao vem de
 # FOCO ou do ConfigMap que o playbook grava -- a mesma leitura do tenant.sh.
+# NO TERMINAL DE UMA TURMA o participante nao le esse ConfigMap, e a sessao
+# virava "completa": 7 dos 12 avisos do veredito dele mandavam instalar o
+# Service Mesh (medido no user1 do mz8j7, 2026-10-27). Por isso a copia do
+# tenant leva a sessao num arquivo, '.foco', ao lado do '.tenant'
+# (tenant.sh render).
+_RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
 _sem_mesh() {
-  local f
+  local f r; r="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
   if [[ -n "${FOCO+x}" ]]; then f="$FOCO"
-  else f="$(oc get cm rhcl-workshop-sessao -n rhcl-workshop-runner -o jsonpath='{.data.foco}' 2>/dev/null)"; fi
+  else f="$(oc get cm rhcl-workshop-sessao -n rhcl-workshop-runner -o jsonpath='{.data.foco}' 2>/dev/null)"
+       [[ -z "$f" && -f "${r}/.foco" ]] && f="$(cat "${r}/.foco")"; fi
   [[ "$f" == "rhcl" ]]
 }
 # Aviso que so vale onde ha Service Mesh; na sessao sem ele vira nota.
@@ -916,8 +923,9 @@ for r in "grafana-route:monitoring:Grafana" "kiali:istio-system:Kiali" "tempo-te
     # mostra a cada um so os traces dos proprios namespaces.
     _ok "${_label}: sem rota, de proposito (traces por participante) -- a tela e Observe > Traces no console"
   else
-    if [[ "$_ns" == "tracing-system" ]]; then _warn "${_label}: route ausente em ${_ns}" "o passo correspondente fica sem tela"
-    else _warn_mesh "${_label}: route ausente em ${_ns}" "o passo correspondente fica sem tela"; fi
+    # o tracing tambem fica fora da sessao sem Service Mesh (provision.sh,
+    # st_tracing): a rota ausente do Tempo e esperada la, como a do Kiali
+    _warn_mesh "${_label}: route ausente em ${_ns}" "o passo correspondente fica sem tela"
   fi
 done
 
@@ -1166,7 +1174,7 @@ if [[ -z "$_tempo" ]] && oc get svc tempo-tempo-gateway -n tracing-system >/dev/
     _warn "Tempo sem traces do prod-web na ultima hora" "gere tráfego e aguarde ~30s"
   fi
 elif [[ -z "$_tempo" ]]; then
-  _warn "route do Tempo não encontrada em tracing-system" \
+  _warn_mesh "route do Tempo não encontrada em tracing-system" \
         "o rastro fica sem tela — platform-reference/tracing/tempo-monolithic.yaml"
 else
   _svcs="$(curl -sk --max-time 15 -H "Authorization: Bearer $(oc whoami -t)" \
@@ -1443,7 +1451,17 @@ _discover_rhdh_ns() {
 }
 _rhdh_ns="${RHDH_NS:-$(_discover_rhdh_ns)}"
 _rhdh="$(oc get route backstage-developer-hub -n "$_rhdh_ns" -o jsonpath='{.spec.host}' 2>/dev/null)"
-if [[ -z "$_rhdh" ]]; then
+# NA TURMA o participante nao lista Backstage nem le a rota do portal: o
+# vazio de cima nao distingue "nao instalado" de "nao posso ver". A CRD
+# distingue -- e ele le CRD. Sem a CRD o portal nao existe mesmo, e para ele
+# isso e a parte de leitura do caminho pavimentado, nao algo a instalar.
+if [[ -z "$_rhdh" && -f "${_RAIZ}/.tenant" ]]; then
+  if oc get crd backstages.rhdh.redhat.com >/dev/null 2>&1; then
+    _nota "Developer Hub: sem leitura do portal daqui -- a verificacao se abstem"
+  else
+    _nota "Developer Hub não instalado neste ambiente: o caminho pavimentado fica como leitura"
+  fi
+elif [[ -z "$_rhdh" ]]; then
   _warn "RHDH não instalado" "bash rhdh/install.sh — ou pule o caminho pavimentado"
 else
   if [[ "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://${_rhdh}")" =~ ^(200|302)$ ]]; then
@@ -1593,7 +1611,23 @@ _sec "GitLab do cluster (SCM do golden path)"
 _glhost="$(oc get route -n gitlab-system \
   -o jsonpath='{range .items[?(@.spec.to.name=="gitlab-webservice-default")]}{.spec.host}{"\n"}{end}' 2>/dev/null | head -1)"
 
-if [[ -z "$_glhost" ]]; then
+# NA TURMA o participante nao le rota em gitlab-system, e o vazio virava
+# "GitLab não instalado" -- com a fase 5 inteira rodando nele (medido no
+# user1, 2026-10-27). O GitLab dele e o remoto do proprio clone; o resto desta
+# secao (PAT, grupos, ApplicationSet) e da plataforma e fica com o instrutor.
+if [[ -z "$_glhost" && -f "${_RAIZ}/.tenant" ]]; then
+  _glhost="$(git -C "$_RAIZ" remote get-url origin 2>/dev/null | sed -nE 's|^https://([^/@]*@)?([^/]+)/.*|\2|p')"
+  if [[ -z "$_glhost" ]]; then
+    _nota "GitLab: sem leitura de gitlab-system e sem remoto no seu repositório -- a verificacao se abstem"
+  else
+    _glcode="$(curl -s -m 15 -o /dev/null -w '%{http_code}' "https://${_glhost}/" 2>/dev/null)"
+    if [[ "$_glcode" =~ ^(200|302)$ ]]; then
+      _ok "GitLab no ar: https://${_glhost} (o remoto do seu repositório)"
+    else
+      _bad "GitLab não responde (http=${_glcode:-000})" "o remoto do seu repositório: git -C ${_RAIZ} remote -v"
+    fi
+  fi
+elif [[ -z "$_glhost" ]]; then
   _warn "GitLab não instalado — o golden path não tem onde publicar" \
         "bash scripts/provision.sh gitlab"
 else
@@ -2045,7 +2079,14 @@ for r in "authpolicy:travel-agency-authpolicy:travel-agency" \
          "planpolicy:travels-plans:travel-agency" \
          "telemetrypolicy:prod-web-telemetry:ingress-gateway"; do
   _k="${_k:-}"; IFS=':' read -r _k _n _ns <<< "$r"
-  if [[ -n "$(oc get "$_k" "$_n" -n "$_ns" -o jsonpath='{.metadata.annotations.argocd\.argoproj\.io/tracking-id}' 2>/dev/null)" ]]; then
+  _tid="$(oc get "$_k" "$_n" -n "$_ns" -o jsonpath='{.metadata.annotations.argocd\.argoproj\.io/tracking-id}' 2>/dev/null)"
+  # NA TURMA a esteira do participante (fase 5) e dona de travels-plans DE
+  # PROPOSITO: a Application 'esteira-<user>' aplica a pasta esteira/. O aviso
+  # mandava rodar o capture.sh no terminal dele (medido no user1, 2026-10-27).
+  if [[ -n "$_tid" && -n "${_tn:-}" && "$_tid" == "esteira-${_tn:-}:"* ]]; then
+    _ok "${_k}/${_n} é da sua esteira (Application esteira-${_tn}) — esperado a partir da fase 5"
+    [[ "$_drift" == "0" ]] && _drift=2
+  elif [[ -n "$_tid" ]]; then
     _warn "${_k}/${_n} passou a ser rastreado pelo Argo" "rode 'bash scripts/capture.sh' — o recurso mudou de árvore"
     _drift=1
   fi

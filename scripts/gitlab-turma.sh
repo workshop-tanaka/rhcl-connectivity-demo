@@ -623,7 +623,7 @@ cmd_terminal() {
         git config credential.helper "!f() { c=/home/lab-user/.git-credenciais-\${PERFIL:-ambiente}; [ -f \"\$c\" ] || c=$C; git credential-store --file=\"\$c\" \"\$@\"; }; f"
         git config user.name "$GL_USER"; git config user.email "${GL_USER}@workshop.invalid"
         git config core.fileMode false; git config pull.rebase false
-        printf "%s\\n" ".tenant" ".kubeconfig" ".provision.log" ".out-*" "platform-reference/" "env/cluster-*/" "env/rhcl-1.2*/" "overlays/cluster-*/" "overlays/provisioned/" "postman/*.local.*" > .git/info/exclude
+        printf "%s\\n" ".tenant" ".foco" ".kubeconfig" ".provision.log" ".out-*" "platform-reference/" "env/cluster-*/" "env/rhcl-1.2*/" "overlays/cluster-*/" "overlays/provisioned/" "postman/*.local.*" > .git/info/exclude
         git fetch -q origin main
         git reset -q --mixed origin/main
         # o participante pode ter mexido no terminal: o que ele mudou FICA; so volta

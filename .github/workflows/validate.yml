@@ -122,6 +122,11 @@ jobs:
               # cluster novo. Consolidado em rhdh/lib.sh; o preflight mantem copia
               # por ser self-contained.
               ("_discover_rhdh_ns", ["scripts/preflight.sh", "rhdh/lib.sh", "scripts/setup-cicd.sh"]),
+              # _sem_mesh decide se a sessao tem Service Mesh (ConfigMap da sessao,
+              # ou o .foco que o tenant.sh grava no terminal do participante). Se
+              # as copias divergirem, o preflight cala um aviso que o demo.sh pos
+              # ainda da -- e o participante ve as duas telas discordarem.
+              ("_sem_mesh", ["scripts/preflight.sh", "scripts/demo.sh"]),
           ]
 
           def corpo(path, fn):
