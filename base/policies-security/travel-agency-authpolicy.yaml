@@ -3,7 +3,7 @@
 #
 # Autenticacao por API key: o Authorino procura Secrets com 'app: partner' no
 # proprio namespace (allNamespaces: false => kuadrant-system, onde ele roda) e
-# casa contra o parametro de query APIKEY. Os Secrets estao em base/identity/.
+# casa contra o header 'Authorization: APIKEY <chave>'. Os Secrets estao em base/identity/.
 #
 # ---------------------------------------------------------------------------
 # NAO adicione aqui um bloco response.success.dynamicMetadata.
@@ -48,7 +48,10 @@ spec:
       # mas a chave ia para access log, para a URL de cada trace e para o
       # historico de quem colou o endereco. Medido no mz8j7 (2026-10-27): com
       # authorizationHeader o header da 200, a query string passa a dar 401 e o
-      # PlanPolicy segue cortando o free em 3.
+      # PlanPolicy segue cortando o free em 3. Na v0.90 houve uma segunda regra
+      # (api-key-portais, query string) para os portais de parceiro, cuja imagem
+      # colava a chave na URL; a imagem ganhou o patch do header
+      # (platform-reference/portais/) e a regra saiu na v0.91.
       api-key-authn:
         apiKey:
           allNamespaces: false
@@ -58,25 +61,6 @@ spec:
         credentials:
           authorizationHeader:
             prefix: APIKEY
-        metrics: false
-        priority: 0
-      # OS PORTAIS DE PARCEIRO (scripts/portais.sh) AINDA MANDAM NA QUERY
-      # STRING: a imagem deles e de terceiro (travels-demo-ui) e monta
-      # '<endpoint>/<cidade>?APIKEY=<valor>'; trocar isso e rebuild da imagem.
-      # Enquanto ela nao muda, esta segunda regra aceita a forma antiga -- as
-      # MESMAS chaves, so outro lugar. O Authorino avalia as duas e basta uma
-      # casar. E a forma de uma migracao real: a borda aceita os dois formatos
-      # enquanto os consumidores legados nao mudam, e esta regra sai quando o
-      # ultimo mudar.
-      api-key-portais:
-        apiKey:
-          allNamespaces: false
-          selector:
-            matchLabels:
-              app: partner
-        credentials:
-          queryString:
-            name: APIKEY
         metrics: false
         priority: 0
     # IDENTIDADE COMO HEADER -- e o que torna possivel medir consumo POR

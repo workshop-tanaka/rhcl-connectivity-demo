@@ -290,13 +290,13 @@ curl -H "Authorization: APIKEY <chave>" "https://api-travels.apps.<dom>/travels"
 curl "https://api-travels.apps.<dom>/travels?APIKEY=<chave>"                       # 200 só na travel-agency
 ```
 
-A query string (`?APIKEY=`) continua aceita **só na travel-agency**, pela
-segunda regra `api-key-portais`: os três portais de parceiro usam uma imagem de
-terceiro que ainda monta a chave na URL. Fora dela (echo, bookinfo, golden
-path) a query string dá **401**. Medido no mz8j7 em 2026-10-27: header dá 200,
-o 401 sem chave traz dois `www-authenticate` (`realm="api-key-authn"` e
-`realm="api-key-portais"`, um por regra de identidade) e o free continua
-cortando em 3.
+A query string (`?APIKEY=`) **não é mais aceita** em nenhuma rota: dá `401`.
+Os três portais de parceiro, que montavam a chave na URL, passaram a mandá-la
+no header com a imagem patchada (`platform-reference/portais/`); entre a
+v0.90 e a v0.91 a travel-agency teve uma segunda regra (`api-key-portais`,
+query string) só para eles. Medido no mz8j7 em 2026-10-27: header dá 200, o
+401 sem chave traz um `www-authenticate` (`realm="api-key-authn"`) e o free
+continua cortando em 3.
 
 > Até 2026-08-24 o `acessos.sh` mostrava o header, que então não autenticava;
 > passou para `?APIKEY=`. Em 2026-10-27 a credencial foi para o header e a

@@ -24,9 +24,3 @@
 - op: add
   path: /spec/rules/authentication/api-key-authn/apiKey/selector/matchLabels/devportal.kuadrant.io~1apiproduct
   value: travels-api
-# A regra dos portais (api-key-portais, query string) recebe o MESMO criterio:
-# sem isto a forma legada aceitaria qualquer 'app: partner', inclusive a chave
-# assinada para o echo -- um caminho mais largo do que o principal.
-- op: add
-  path: /spec/rules/authentication/api-key-portais/apiKey/selector/matchLabels/devportal.kuadrant.io~1apiproduct
-  value: travels-api

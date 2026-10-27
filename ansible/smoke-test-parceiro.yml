@@ -49,8 +49,8 @@
 
     # A chave vai no HEADER, nao na query string: o AuthPolicy da rota declara
     # 'credentials.authorizationHeader.prefix: APIKEY'. Mandada na query
-    # string, a requisicao volta 401 e parece chave invalida -- a forma antiga
-    # (?APIKEY=) so e aceita para os portais de parceiro (regra api-key-portais).
+    # string (a forma antiga, ?APIKEY=), a requisicao volta 401 e parece chave
+    # invalida.
     #
     # status_code aceita 401/403/429 porque sao RESULTADOS do teste, nao falhas
     # do playbook -- sem isso o uri aborta na primeira recusa e o relatorio
