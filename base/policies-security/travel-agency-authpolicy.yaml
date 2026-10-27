@@ -43,7 +43,32 @@ spec:
   # em 'Failed=True reason=AuthSchemeNotFound'. Ver a armadilha no RUNBOOK.
   rules:
     authentication:
+      # A CREDENCIAL VIAJA NO HEADER: 'Authorization: APIKEY <chave>'. Ate a
+      # workshop-v0.89 era '?APIKEY=' na query string -- facil de demonstrar,
+      # mas a chave ia para access log, para a URL de cada trace e para o
+      # historico de quem colou o endereco. Medido no mz8j7 (2026-10-27): com
+      # authorizationHeader o header da 200, a query string passa a dar 401 e o
+      # PlanPolicy segue cortando o free em 3.
       api-key-authn:
+        apiKey:
+          allNamespaces: false
+          selector:
+            matchLabels:
+              app: partner
+        credentials:
+          authorizationHeader:
+            prefix: APIKEY
+        metrics: false
+        priority: 0
+      # OS PORTAIS DE PARCEIRO (scripts/portais.sh) AINDA MANDAM NA QUERY
+      # STRING: a imagem deles e de terceiro (travels-demo-ui) e monta
+      # '<endpoint>/<cidade>?APIKEY=<valor>'; trocar isso e rebuild da imagem.
+      # Enquanto ela nao muda, esta segunda regra aceita a forma antiga -- as
+      # MESMAS chaves, so outro lugar. O Authorino avalia as duas e basta uma
+      # casar. E a forma de uma migracao real: a borda aceita os dois formatos
+      # enquanto os consumidores legados nao mudam, e esta regra sai quando o
+      # ultimo mudar.
+      api-key-portais:
         apiKey:
           allNamespaces: false
           selector:

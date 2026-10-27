@@ -48,5 +48,5 @@ spec:
             matchLabels:
               app: echo-exposta
         credentials:
-          queryString:
-            name: APIKEY
+          authorizationHeader:
+            prefix: APIKEY

@@ -18,7 +18,7 @@ spec:
           # rotulo de um servir a outro e a regra de admissao das chaves
           allNamespaces: false
           selector: {matchLabels: {app: partner}}
-        credentials: {queryString: {name: APIKEY}}
+        credentials: {authorizationHeader: {prefix: APIKEY}}
     response:
       success:
         headers:

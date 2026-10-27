@@ -43,8 +43,8 @@ spec:
               app: partner
               devportal.kuadrant.io/apiproduct: bookinfo-api
         credentials:
-          queryString:
-            name: APIKEY
+          authorizationHeader:
+            prefix: APIKEY
         metrics: false
         priority: 0
     response:

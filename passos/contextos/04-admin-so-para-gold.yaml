@@ -10,7 +10,7 @@ spec:
     authentication:
       chave:
         apiKey: {allNamespaces: true, selector: {matchLabels: {app: ctx-lab}}}
-        credentials: {queryString: {name: APIKEY}}
+        credentials: {authorizationHeader: {prefix: APIKEY}}
     authorization:
       so-gold:
         patternMatching:
