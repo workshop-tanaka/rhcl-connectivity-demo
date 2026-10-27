@@ -503,7 +503,7 @@ st_operators() {
       _g=0
       until _has_crd wasmplugins.extensions.istio.io || [[ $_g -ge 300 ]]; do sleep 10; _g=$((_g + 10)); done
       _has_crd wasmplugins.extensions.istio.io && _ok "tipos do provedor nativo presentes (WasmPlugin)" \
-        || _warn "o tipo WasmPlugin ainda nao existe — o Kuadrant pode nascer sem enxergar o provedor (a etapa 'platform' troca o pod dele se for o caso)"
+        || _warn "o tipo WasmPlugin ainda nao existe — o Connectivity Link pode nascer sem enxergar o provedor (a etapa 'platform' troca o pod dele se for o caso)"
     fi
   else
     _wait_csv openshift-operators servicemeshoperator3
@@ -825,9 +825,9 @@ st_platform() {
     if [[ $DRY_RUN -eq 1 ]]; then _cmd "aplicar o Kuadrant com mtls.enable: false"
     else
       sed -E 's/^([[:space:]]*enable:[[:space:]]*)true[[:space:]]*$/\1false/' "${PR}/kuadrant-system/kuadrant.yaml" | oc apply -f - >/dev/null \
-        && _ok "Kuadrant aplicado com mtls.enable: false" || _warn "falha ao aplicar o Kuadrant"
+        && _ok "CR Kuadrant aplicado com mtls.enable: false" || _warn "falha ao aplicar o CR Kuadrant"
       [[ "$(oc get kuadrant kuadrant -n kuadrant-system -o jsonpath='{.spec.mtls.enable}' 2>/dev/null)" != "true" ]] \
-        || _die "o Kuadrant ficou com mtls.enable: true numa sessao sem Service Mesh — toda chamada daria 500"
+        || _die "o CR Kuadrant ficou com mtls.enable: true numa sessao sem Service Mesh — toda chamada daria 500"
     fi
   else
     _apply platform-reference/kuadrant-system/peerauthentication-metricas.yaml
@@ -850,7 +850,7 @@ st_platform() {
       _tkz=$((_tkz + 5)); sleep 5
     done
     if [[ "$_krz" == "MissingDependency" ]] && _has_crd wasmplugins.extensions.istio.io; then
-      _warn "operator do Kuadrant nasceu antes do Istio (deteccao so no boot) -- trocando o pod para redetectar"
+      _warn "operator do Connectivity Link nasceu antes do Istio (deteccao so no boot) -- trocando o pod para redetectar"
       oc get pods -n kuadrant-system -o name 2>/dev/null \
         | grep kuadrant-operator-controller-manager \
         | xargs -r oc delete -n kuadrant-system --wait=false >/dev/null 2>&1 || true
@@ -1143,7 +1143,7 @@ st_consoles() {
     if oc get istag kuadrant-console:latest -n kuadrant-console >/dev/null 2>&1; then
       _ok "imagem da console customizada ja existe"
     else
-      _log "construindo a Kuadrant Console customizada (webpack via Docker build -- minutos)..."
+      _log "construindo a console do Connectivity Link customizada (webpack via Docker build -- minutos)..."
       oc start-build kuadrant-console -n kuadrant-console --follow >/dev/null 2>&1 \
         && _ok "console customizada construida" \
         || _warn "build da console customizada falhou -- oc logs bc/kuadrant-console -n kuadrant-console"

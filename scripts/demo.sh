@@ -804,7 +804,7 @@ step_ato6() {
     _why "   sem marca       entregue pela Red Hat -- na imagem do RHDH (Kubernetes,"
     _why "                   Topology) ou compilada por ela no rhdh-plugin-export-"
     _why "                   overlays (Kiali, Imagem/Quay)"
-    _why "   (comunidade)    de terceiro, do npm publico -- as abas do Kuadrant"
+    _why "   (comunidade)    de terceiro, do npm publico -- as abas do Connectivity Link"
     _why "   (customizado)   construido para esta demo -- Traces e Connectivity Link"
     _say  "Dizer isso ANTES custa dez segundos. Descobrir depois, quando alguem"
     _say  "perguntar 'isso vem no produto?', custa a credibilidade do resto."

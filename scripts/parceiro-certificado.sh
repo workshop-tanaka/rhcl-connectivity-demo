@@ -220,7 +220,7 @@ EOF
   _espera_gold 401 || true
   _linha "parceiro-gold"                 "$(_chama parceiro-gold)"
   _nota "o Envoy VALIDOU o certificado no handshake -- e mesmo assim o Authorino"
-  _nota "diz que ele nao veio. O wasm-shim do Kuadrant nao repassa o certificado"
+  _nota "diz que ele nao veio. O filtro do Connectivity Link no Gateway (wasm-shim) nao repassa o certificado"
   _nota "do cliente na chamada ao Authorino. Com x509, ninguem entra."
 
   _sec "4. O contorno: o Gateway escreve o certificado num cabecalho"

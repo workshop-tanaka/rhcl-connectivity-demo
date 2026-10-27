@@ -21,6 +21,10 @@ funcionar ao vivo.
 - **Nome de produto e de recurso fica em inglês**: Service Mesh (nunca
   "malha"), Connectivity Link, Gateway, AuthPolicy. A troca leva junto a
   concordância — "no Service Mesh", não "na malha".
+- **O produto é o Connectivity Link; Kuadrant é o projeto upstream.** Na prosa
+  do guia e nas mensagens dos scripts, escrever Connectivity Link. Só os nomes
+  reais do cluster ficam como são: `kuadrant-system`, `kuadrant.io`, o CR
+  `Kuadrant`, `kuadrant-operator`, `kuadrant-console-plugin`.
 
 ## Leia antes de agir
 

@@ -1055,7 +1055,7 @@ _plataforma() {
   # devolveria ao que o CSV diz.
   oc patch subscription.operators.coreos.com rhcl-operator -n kuadrant-system --type=merge \
     -p '{"spec":{"config":{"resources":{"requests":{"cpu":"200m","memory":"512Mi"},"limits":{"cpu":"1","memory":"2Gi"}}}}}' >/dev/null 2>&1 \
-    || _warn "nao consegui ampliar os recursos do operator do Kuadrant (Subscription rhcl-operator) — acima de ~20 participantes ele morre por OOM e as policies deixam de ser aplicadas"
+    || _warn "nao consegui ampliar os recursos do operator do Connectivity Link (Subscription rhcl-operator) — acima de ~20 participantes ele morre por OOM e as policies deixam de ser aplicadas"
   # O KIALI DEIXA DE SER ANONIMO. Em modo 'anonymous' quem age e a
   # ServiceAccount do proprio Kiali, que escreve em qualquer namespace: num
   # cluster compartilhado qualquer participante editava, pela tela, a
