@@ -342,6 +342,12 @@ Medições de 2026-10-27 no `cluster-mz8j7`. [MEDIDO] salvo indicação.
 
 ## 7. Referências externas analisadas (2026-10-27)
 
+**Hierarquia das fontes (regra do projeto):** a documentação oficial
+versionada (`docs.redhat.com/.../red_hat_connectivity_link/1.4`) vale sobre
+artigo e blog -- estes podem estar presos a uma versão antiga ou trazer a
+interpretação do autor. O artigo abaixo é usado só como pista, e ele mesmo se
+declara não mantido.
+
 Três documentos trazidos pelo Sandro (`rhcl-capacity-planning-e-arquitetura.md`,
 `rhcl-infra-nodes-architecture-v2.md`, `rhcl-instalacao-basica.md`), sem autor
 nem links, conferidos contra o artigo
