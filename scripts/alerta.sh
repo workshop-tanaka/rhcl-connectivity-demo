@@ -45,6 +45,10 @@ _warn() { printf '    %s!%s %s\n' "$_YEL" "$_RST" "$*"; }
 command -v oc >/dev/null || { echo "oc nao encontrado" >&2; exit 1; }
 oc whoami >/dev/null 2>&1 || { echo "sem sessao no cluster" >&2; exit 1; }
 
+# Os tres namespaces das regras (ver o cabecalho). Na copia do tenant o do
+# Gateway ja chega como 'ingress-gateway-<user>' pela troca do tenant.sh.
+NS_REGRAS="monitoring kuadrant-system ingress-gateway"
+
 _thanos() { # consulta o Thanos e imprime o numero de series
   local q="$1" th tok
   th="$(oc get route thanos-querier -n openshift-monitoring -o jsonpath='{.spec.host}' 2>/dev/null)"
@@ -197,22 +201,48 @@ cmd_status() {
   local th tok
   th="$(oc get route thanos-querier -n openshift-monitoring -o jsonpath='{.spec.host}' 2>/dev/null)"
   tok="$(oc whoami -t 2>/dev/null)"
-  if [[ -z "$th" || -z "$tok" ]]; then _warn "Thanos indisponivel"; return 0; fi
-  curl -sk --max-time 25 -H "Authorization: Bearer ${tok}" "https://${th}/api/v1/rules?type=alert" 2>/dev/null \
-    | python3 -c '
-import sys, json
+  if [[ -z "$tok" ]]; then _warn "sem token da sessao: nao consigo consultar o Thanos"; return 0; fi
+  # A rota do Thanos pede leitura do cluster inteiro, e o terminal de uma
+  # turma leva 403 nela -- a tela dizia "nao consegui ler as regras" e parecia
+  # defeito (medido no user1, 2026-10-27). A porta de tenancy (9093) responde
+  # por namespace, so dentro do cluster: uma consulta por namespace de regra.
+  python3 - "$th" "$tok" $NS_REGRAS <<'PY'
+import sys, json, ssl, urllib.request, urllib.error, urllib.parse
+th, tok, nss = sys.argv[1], sys.argv[2], sys.argv[3:]
 NOSSOS = ("ProtecaoDeixouDeValer","LimitadorForaDoAr","ParceiroBatendoNoLimite","ParceiroSendoRecusado")
-try: g = json.load(sys.stdin)["data"]["groups"]
-except Exception: print("    (nao consegui ler as regras)"); raise SystemExit
-achou = False
+ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+def le(url):
+    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok})
+    try: return json.load(urllib.request.urlopen(req, context=ctx, timeout=25))["data"]["groups"], None
+    except urllib.error.HTTPError as e: return None, e.code
+    except Exception as e: return None, type(e).__name__
+grupos, erro = le("https://%s/api/v1/rules?type=alert" % th) if th else (None, "sem rota")
+negados = []
+if grupos is None:
+    grupos = []
+    for ns in nss:
+        g, e = le("https://thanos-querier.openshift-monitoring.svc:9093/api/v1/rules?" + urllib.parse.urlencode({"type": "alert", "namespace": ns}))
+        if g is None: negados.append("%s (%s)" % (ns, e))
+        else: grupos += g
+if negados and len(negados) == len(nss):
+    print("    (nao consegui ler as regras: %s)" % ", ".join(negados))
+    if any("403" in n or "401" in n for n in negados):
+        print("    falta permissao de ler as regras do monitoramento nesses namespaces.")
+    raise SystemExit
+vistos = set()
 print("    %-26s %-10s %s" % ("ALERTA","ESTADO","DISPARANDO"))
-for grupo in g:
+for grupo in grupos:
     for r in grupo.get("rules", []):
         n = r.get("name","")
         if n in NOSSOS:
-            achou = True
+            vistos.add(n)
             print("    %-26s %-10s %s" % (n, r.get("state","?"), len(r.get("alerts",[]))))
-if not achou: print("    (nenhuma regra nossa encontrada -- rode: bash scripts/alerta.sh aplica)")'
+if not vistos: print("    (nenhuma regra nossa encontrada -- rode: bash scripts/alerta.sh aplica)")
+else:
+    for n in NOSSOS:
+        if n not in vistos: print("    %-26s %s" % (n, "(nao esta no ar)"))
+for n in negados: print("    (sem leitura das regras de %s)" % n)
+PY
   echo
   _nota "'inactive' e o estado saudavel: a condicao nao esta valendo."
   _nota "'pending' e a condicao valendo, mas ainda dentro do 'for'."
@@ -316,11 +346,18 @@ cmd_prova() {
 
 cmd_remove() {
   _sec "Removendo as regras"
-  local n=0 p
-  for p in monitoring/rhcl-protecao kuadrant-system/rhcl-limitador ingress-gateway/rhcl-parceiros travel-agency/rhcl-parceiros; do
-    oc delete prometheusrule "${p##*/}" -n "${p%%/*}" --ignore-not-found >/dev/null 2>&1 && n=$((n+1))
+  # Conta so o que o oc diz que apagou: com --ignore-not-found o 'nao existia'
+  # tambem sai com 0, e a tela dizia "2 removidas" com uma so aplicada
+  # (medido no user1, 2026-10-27). Na turma as duas de plataforma sao do
+  # instrutor (ver cmd_aplica) e nem se tenta.
+  local n=0 p alvos="monitoring/rhcl-protecao kuadrant-system/rhcl-limitador"
+  [[ -f .tenant ]] && alvos=""
+  for p in $alvos ingress-gateway/rhcl-parceiros travel-agency/rhcl-parceiros; do
+    oc delete prometheusrule "${p##*/}" -n "${p%%/*}" --ignore-not-found 2>/dev/null | grep -q deleted && n=$((n+1))
   done
   _ok "${n} regra(s) removida(s)"
+  [[ -f .tenant ]] && _nota "as duas de plataforma ficam com o instrutor"
+  return 0
 }
 
 case "${1:-status}" in

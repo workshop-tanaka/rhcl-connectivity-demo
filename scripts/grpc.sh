@@ -59,10 +59,15 @@ CHAVE="$(oc get secrets -n kuadrant-system -l 'app=partner,kuadrant.io/plan-id=g
 _NS_SONDA="default"
 _raiz="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -f "${_raiz}/.tenant" ]] && _NS_SONDA="showroom-$(cat "${_raiz}/.tenant")"
+# O 'oc run -i' imprime o aviso de gravacao da sessao e a dica do prompt na
+# mesma saida do pod; sem filtrar, o aviso passava por resposta do servico e o
+# check marcava verde sem resposta nenhuma (medido no user1, 2026-10-27). O
+# -q cala a dica; o grep tira o resto.
 _chama() { # _chama <nome-do-pod> [cabecalho]
   local nome="$1"; shift
-  oc run "$nome" --rm -i --restart=Never -n "$_NS_SONDA" --image="$IMG" --timeout=120s -- \
-    -insecure -authority "$HOST" "$@" "$GW" list 2>&1 | grep -vE '^pod |deleted'
+  oc run "$nome" -q --rm -i --restart=Never -n "$_NS_SONDA" --image="$IMG" --timeout=120s -- \
+    -insecure -authority "$HOST" "$@" "$GW" list 2>&1 \
+    | grep -vE "^pod |deleted|All commands and output|If you don't see a command prompt"
 }
 
 cmd_auth() {
@@ -78,11 +83,14 @@ cmd_auth() {
   fi
   _log ""
   _log "com a chave, no metadata 'apikey':"
-  local s; s="$(_chama grpc-com -H "apikey: ${CHAVE}" | head -3 | tr '\n' ' ')"
-  if [[ -n "$s" && "$s" != *code\ =* ]]; then
-    _ok "respondeu: ${s}"
+  # So conta como resposta o que o 'list' do grpcurl devolve: nomes de
+  # servico (pacote.Servico). Qualquer outra coisa e erro ou ruido.
+  local saida s; saida="$(_chama grpc-com -H "apikey: ${CHAVE}")"
+  s="$(printf '%s\n' "$saida" | grep -E '^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$' | head -3 | tr '\n' ' ')"
+  if [[ -n "$s" ]]; then
+    _ok "respondeu, listando os servicos: ${s}"
   else
-    _bad "nao respondeu: ${s}"
+    _bad "nao respondeu: $(printf '%s' "$saida" | grep -oE 'code = [A-Za-z]+.*' | head -1)"
   fi
   _nota ""
   _nota "gRPC nao tem query string, entao a credencial viaja em METADATA."
@@ -90,7 +98,7 @@ cmd_auth() {
 }
 
 cmd_limite() {
-  _sec "2. O limite: declarado, Enforced, e sem efeito"
+  _sec "3. O limite: declarado, Enforced, e sem efeito"
   local teto
   teto="$(oc get ratelimitpolicy -n "$NS_APP" -o jsonpath='{.items[0].spec.limits.*.rates[0].limit}' 2>/dev/null | awk '{print $1}')"
   _nota "teto declarado: ${teto:-?} por janela"
@@ -99,9 +107,12 @@ cmd_limite() {
   _warn "cada chamada e um pod proprio (a imagem nao tem shell); ~1 min"
   local i passou=0
   for i in 1 2 3 4 5 6 7 8; do
-    local r; r="$(_chama "grpc-l$i" -H "apikey: ${CHAVE}" | grep -oE 'code = [A-Za-z]+' | head -1)"
-    if [[ -z "$r" ]]; then passou=$((passou+1)); printf '      %s: passou\n' "$i"
-    else printf '      %s: %s\n' "$i" "$r"; fi
+    local o r; o="$(_chama "grpc-l$i" -H "apikey: ${CHAVE}")"
+    r="$(printf '%s\n' "$o" | grep -oE 'code = [A-Za-z]+' | head -1)"
+    # passou = o servico respondeu de verdade, nao "nao veio erro"
+    if [[ -z "$r" ]] && printf '%s\n' "$o" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$'; then
+      passou=$((passou+1)); printf '      %s: passou\n' "$i"
+    else printf '      %s: %s\n' "$i" "${r:-sem resposta}"; fi
   done
   _log ""
   if [[ "$passou" -gt "${teto:-5}" ]]; then
@@ -117,7 +128,7 @@ cmd_limite() {
 }
 
 cmd_compara() {
-  _sec "3. O diff que interessa: a policy de HTTP e a de gRPC"
+  _sec "2. O diff que interessa: a policy de HTTP e a de gRPC"
   _nota "Duas diferencas, e as duas sao do PROTOCOLO. Nada mais muda."
   printf '\n    %-22s %-24s %s\n' "" "HTTP (travels)" "gRPC (bookings)"
   printf '    %-22s %-24s %s\n' "targetRef.kind" "HTTPRoute" "GRPCRoute"

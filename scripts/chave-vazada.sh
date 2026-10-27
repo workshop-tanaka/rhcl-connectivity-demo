@@ -28,10 +28,15 @@
 set -uo pipefail
 
 NS="kuadrant-system"
+# O namespace do Gateway: e onde a metrica do Envoy mora, e e por ele que o
+# terminal de uma turma consulta o Thanos (a porta de tenancy pede namespace).
+NS_GW="ingress-gateway"
 # O nome ganha sufixo aleatorio a cada ensaio: ele vira o valor de 'partner'
 # na metrica, e com nome fixo o contador do Envoy acumulava os ensaios
 # anteriores (medido: um ensaio logo depois do outro contou 4x200 em vez de 3).
-# Os subcomandos acham a chave do ensaio corrente pelo label.
+# O user-id do Secret e o proprio nome, para as duas fontes que a AuthPolicy
+# considera darem o mesmo valor. Os subcomandos acham a chave do ensaio
+# corrente pelo label.
 ROTULO="rhcl.demo/lab=chave-vazada"
 PARCEIRO="Parceiro Comprometido"
 
@@ -70,7 +75,7 @@ cria() {
       "$ROTULO"
     oc annotate secret "$SECRET" -n "$NS" --overwrite >/dev/null \
       "kuadrant.io/partner-name=${PARCEIRO}" \
-      secret.kuadrant.io/user-id=parceiro-vazado
+      "secret.kuadrant.io/user-id=${SECRET}"
     _ok "chave cunhada: ${SECRET} (tier free)"
   fi
 
@@ -106,6 +111,14 @@ nascimento() {
   echo
   _nota "fonte b: o audit log do apiserver, que e quem guarda o nome"
   local nos tmp achou
+  # Sem leitura de nodes/proxy o node-logs falha, e o erro mudo parecia
+  # "o log rotacionou" (medido no terminal de um participante, 2026-10-27).
+  if [[ "$(oc auth can-i get nodes --subresource=proxy 2>/dev/null)" != "yes" ]]; then
+    _warn "sem permissao de ler o audit log (nodes/proxy): ele e do instrutor, nao do seu terminal."
+    _nota "e o mesmo limite que a parte de auditoria descreve: quem le o audit log e"
+    _nota "quem administra o cluster -- o RHCL nao tem como responder esta pergunta."
+    return 0
+  fi
   nos="$(oc get nodes -l node-role.kubernetes.io/control-plane -o name 2>/dev/null | sed 's|node/||')"
   [[ -n "$nos" ]] || { _warn "nao consegui listar os control-planes"; return 0; }
   tmp="$(mktemp)"; trap 'rm -f "$tmp"' RETURN
@@ -144,11 +157,11 @@ PY
 # pergunta respondivel por CHAVE, nao so por plano (armadilha 3).
 uso() {
   _sec "2. O que essa chave acessou?"
-  _nota "fonte: metricas do Service Mesh com a dimensao 'partner'"
+  _nota "fonte: metricas do Envoy do Gateway, com a dimensao 'partner'"
   _nota "(base/policies-telemetry/istio-partner-dimension.yaml)"
   local th tok; th="$(oc get route thanos-querier -n openshift-monitoring -o jsonpath='{.spec.host}' 2>/dev/null)"
   tok="$(oc whoami -t 2>/dev/null)"
-  [[ -n "$th" && -n "$tok" ]] || { _warn "Thanos indisponivel"; return 0; }
+  [[ -n "$tok" ]] || { _warn "sem token da sessao: nao consigo consultar o Thanos"; return 0; }
 
   # A conta e "desde que ESTA chave nasceu": o valor agora menos o valor no
   # creationTimestamp do Secret -- defesa extra caso um Secret com o mesmo
@@ -157,20 +170,39 @@ uso() {
   # increase=0 (medido em 2026-09-21 com 4x200 e 5x429 no contador).
   local nasceu; nasceu="$(oc get secret "$SECRET" -n "$NS" -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null)"
   [[ -n "$nasceu" ]] || { _warn "o Secret nao existe; rode 'cria' antes"; return 0; }
+  # O valor de 'partner' sai do nome do Secret (medido em 2026-10-27, mesmo
+  # com a annotation user-id presente); um Secret reaproveitado de versao
+  # anterior tem user-id diferente do nome, e a consulta aceita os dois.
+  local parceiro; parceiro="$(oc get secret "$SECRET" -n "$NS" -o jsonpath='{.metadata.annotations.secret\.kuadrant\.io/user-id}' 2>/dev/null)"
+  parceiro="${SECRET}${parceiro:+|${parceiro}}"
 
   # A metrica precisa ser raspada antes de existir. Esperar calado parece
   # travado; esperar avisando e honesto -- e o tempo e real, nao enfeite.
-  local tentativa saida q="sum by (response_code) (istio_requests_total{partner=\"${SECRET}\"})"
+  local tentativa saida q="sum by (response_code) (istio_requests_total{partner=~\"${parceiro}\"})"
+  local rc=0
   for tentativa in 1 2 3 4 5 6; do
-    saida="$(python3 - "$th" "$tok" "$q" "$nasceu" <<'PY' 2>/dev/null
-import sys, json, ssl, urllib.request, urllib.parse, datetime
-th, tok, q, nasceu = sys.argv[1:5]
+    saida="$(python3 - "$th" "$tok" "$q" "$nasceu" "$NS_GW" <<'PY' 2>/dev/null
+import sys, json, ssl, urllib.request, urllib.error, urllib.parse, datetime
+th, tok, q, nasceu, ns_gw = sys.argv[1:6]
 ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+# A rota do Thanos pede leitura do cluster inteiro; o terminal de uma turma
+# leva 403 nela e consulta pela porta de tenancy (9092), que so responde
+# dentro do cluster e so mostra o namespace pedido -- o do Gateway.
+bases = (["https://%s/api/v1/query?" % th] if th else []) + \
+        ["https://thanos-querier.openshift-monitoring.svc:9092/api/v1/query?namespace=%s&" % ns_gw]
 def consulta(**extra):
-    url = "https://%s/api/v1/query?%s" % (th, urllib.parse.urlencode(dict(query=q, **extra)))
-    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok})
-    r = json.load(urllib.request.urlopen(req, context=ctx, timeout=20))["data"]["result"]
-    return {x["metric"].get("response_code", "-"): float(x["value"][1]) for x in r}
+    negado = False
+    for b in bases:
+        url = b + urllib.parse.urlencode(dict(query=q, **extra))
+        req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok})
+        try:
+            r = json.load(urllib.request.urlopen(req, context=ctx, timeout=20))["data"]["result"]
+        except urllib.error.HTTPError as e:
+            negado = negado or e.code in (401, 403); continue
+        except Exception:
+            continue
+        return {x["metric"].get("response_code", "-"): float(x["value"][1]) for x in r}
+    raise SystemExit(3 if negado else 2)
 t0 = datetime.datetime.strptime(nasceu, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc).timestamp() - 1
 agora, antes = consulta(), consulta(time=str(t0))
 vivos = {k: round(v - antes.get(k, 0)) for k, v in agora.items() if round(v - antes.get(k, 0)) > 0}
@@ -178,7 +210,11 @@ if not vivos: raise SystemExit(1)
 print("    %-16s %s" % ("RESPOSTA", "CHAMADAS"))
 for k in sorted(vivos): print("    %-16s %s" % (k, vivos[k]))
 PY
-)" && { printf '%s\n' "$saida"; break; }
+)"; rc=$?
+    [[ $rc -eq 0 ]] && { printf '%s\n' "$saida"; break; }
+    # sem acesso ao Thanos nao adianta esperar a raspagem
+    [[ $rc -eq 3 ]] && { _warn "o Thanos recusou a consulta (sem permissao de ler metricas de ${NS_GW})"; saida=""; return 0; }
+    [[ $rc -eq 2 ]] && { _warn "nao consegui falar com o Thanos (nem pela rota, nem pela porta de tenancy)"; saida=""; return 0; }
     [[ $tentativa -lt 6 ]] && { _log "aguardando a raspagem do Prometheus (${tentativa}/6, ~20s cada)"; sleep 20; }
   done
   if [[ -z "${saida:-}" ]]; then
@@ -216,8 +252,9 @@ revoga() {
   _nota "estas chamadas entram como partner=\"unknown\", porque a autenticacao"
   _nota "falhou e nao ha identidade para injetar no header."
   _nota ""
-  _nota "A serie de ${SECRET} PARA de crescer -- e essa e a prova. Nao e que"
-  _nota "alguem afirmou que revogou: o contador da chave nao anda mais."
+  _nota "A serie da chave (partner=\"${SECRET}\") PARA de crescer -- e essa"
+  _nota "e a prova. Nao e que alguem afirmou que revogou: o contador da chave"
+  _nota "nao anda mais."
 }
 
 limpa() {

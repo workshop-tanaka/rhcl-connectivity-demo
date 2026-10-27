@@ -130,8 +130,11 @@ cmd_quem() {
   fi
   local cert_anot; cert_anot="$(oc get secret "$sec" -n "$gw_ns" -o jsonpath='{.metadata.annotations.cert-manager\.io/certificate-name}' 2>/dev/null)"
   if [[ -n "$cert_anot" ]]; then
-    if oc get certificate "$cert_anot" -n "$gw_ns" >/dev/null 2>&1; then
+    local err; err="$(oc get certificate "$cert_anot" -n "$gw_ns" 2>&1 >/dev/null)"
+    if [[ -z "$err" ]]; then
       _ok "o Secret e gerido pelo Certificate ${cert_anot}"
+    elif [[ "$err" == *Forbidden* || "$err" == *forbidden* ]]; then
+      _warn "o Secret diz ser do Certificate '${cert_anot}', e voce nao tem leitura de Certificate em ${gw_ns}"
     else
       _no "o Secret diz ser do Certificate '${cert_anot}' -- que NAO EXISTE"
       _nota "a annotation ficou de um dono que foi embora. Ninguem mais renova."
@@ -144,6 +147,17 @@ cmd_quem() {
   # certificado (mesmo serial). Se houver, o Secret da borda e uma copia.
   local serial; serial="$(printf '%s' "$pem" | _cert serial)"
   local linha ns nome s_sec renova achou=""
+  # SEM LEITURA DO CLUSTER INTEIRO (o terminal de uma turma) as duas buscas
+  # abaixo eram negadas caladas, e a tela simplesmente nao falava da copia
+  # (medido no user1, 2026-10-27). Melhor dizer o que nao deu para ver.
+  local busca=1
+  if [[ "$(oc auth can-i list certificates.cert-manager.io -A 2>/dev/null)" != "yes" ]]; then
+    busca=0
+    echo
+    _warn "nao consegui procurar o original: sem leitura de Certificate no cluster inteiro."
+    _nota "quem emite o certificado da borda mora num namespace de plataforma; a"
+    _nota "busca por um Certificate com o MESMO serial e do instrutor."
+  fi
   while IFS='|' read -r ns nome s_sec renova; do
     [[ -z "$ns" ]] && continue
     [[ "$ns" == "$gw_ns" && "$s_sec" == "$sec" ]] && continue
@@ -151,7 +165,7 @@ cmd_quem() {
       achou="${ns}/${nome}|${renova}"; break
     fi
   done <<EOF
-$(oc get certificate -A -o jsonpath='{range .items[*]}{.metadata.namespace}|{.metadata.name}|{.spec.secretName}|{.status.renewalTime}{"\n"}{end}' 2>/dev/null)
+$( [[ $busca -eq 1 ]] && oc get certificate -A -o jsonpath='{range .items[*]}{.metadata.namespace}|{.metadata.name}|{.spec.secretName}|{.status.renewalTime}{"\n"}{end}' 2>/dev/null)
 EOF
   if [[ -n "$achou" ]]; then
     echo

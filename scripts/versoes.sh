@@ -40,6 +40,20 @@ oc whoami >/dev/null 2>&1 || { echo "sem sessao no cluster" >&2; exit 1; }
 # com a subshell, e as 16 chamadas pagariam a leitura de novo. Foi assim que a
 # primeira versao deste conserto economizou 25s em vez de 300s.
 _CSVS="$(oc get csv -A --no-headers 2>/dev/null | awk '{print $2}' | sort -u)"
+# SEM LEITURA DO CLUSTER INTEIRO (o terminal de uma turma), o -A e negado e a
+# tabela saia so com OpenShift e Kubernetes, calada (medido no user1,
+# 2026-10-27). O OLM copia o CSV de todo operador 'AllNamespaces' para cada
+# namespace, entao o do proprio ambiente ja mostra quase todos; os que moram
+# so num namespace de plataforma ficam de fora -- e a tabela diz isso.
+_CSV_PARCIAL=""
+if [[ -z "$_CSVS" ]]; then
+  for _ns in travel-agency kuadrant-system openshift-operators istio-system; do
+    _l="$(oc get csv -n "$_ns" --no-headers 2>/dev/null | awk '{print $1}')"
+    [[ -n "$_l" ]] && { _CSVS+="${_l}"$'\n'; _CSV_PARCIAL+="${_CSV_PARCIAL:+, }${_ns}"; }
+  done
+  _CSVS="$(printf '%s' "$_CSVS" | sort -u)"
+  [[ -n "$_CSV_PARCIAL" ]] || _CSV_PARCIAL="-"
+fi
 _csv() { # versao de um operador pelo prefixo do CSV
   printf '%s\n' "$_CSVS" | grep -m1 "^$1" | sed 's/.*\.v//'
 }
@@ -97,6 +111,7 @@ if [[ $MD -eq 1 ]]; then
   printf '| camada | componente | versão |\n| --- | --- | --- |\n'
   for l in "${LINHAS[@]}"; do printf '| %s | %s | `%s` |\n' "${l%%|*}" "$(echo "$l" | cut -d'|' -f2)" "${l##*|}"; done
   printf '\n_Lido do cluster em %s._\n' "$(date +%Y-%m-%d\ %H:%M)"
+  [[ -n "$_CSV_PARCIAL" ]] && printf '_Sem leitura de CSV no cluster inteiro: operadores lidos de %s._\n' "$_CSV_PARCIAL"
   exit 0
 fi
 
@@ -107,4 +122,10 @@ for l in "${LINHAS[@]}"; do
   [[ "$c" != "$camada" ]] && { printf '\n  %s%s%s\n' "$_BLU$_BLD" "$c" "$_RST"; camada="$c"; }
   printf '    %-24s %s\n' "$n" "$v"
 done
+if [[ "$_CSV_PARCIAL" == "-" ]]; then
+  printf '\n  %ssem leitura de CSV: nenhum operador aparece (falta permissao, nao operador)%s\n' "$_DIM" "$_RST"
+elif [[ -n "$_CSV_PARCIAL" ]]; then
+  printf '\n  %ssem leitura de CSV no cluster inteiro: operadores lidos de %s;%s\n' "$_DIM" "$_CSV_PARCIAL" "$_RST"
+  printf '  %so que mora so em namespace de plataforma nao aparece aqui%s\n' "$_DIM" "$_RST"
+fi
 printf '\n  %spara colar num chamado: bash scripts/versoes.sh --md%s\n\n' "$_DIM" "$_RST"
