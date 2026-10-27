@@ -557,8 +557,18 @@ mode_metrics() {
   local out
   out="$(curl -s --max-time 5 "localhost:${port}/metrics" 2>/dev/null)"
   [[ -n "$out" ]] || _die "nao consegui ler as metricas do Limitador."
+  # CLUSTER COMPARTILHADO: o Limitador e UM para a turma, e a lista inteira
+  # trazia as series de todos os participantes (medido no user1, 2026-10-27:
+  # user2 a user5 misturados com as dele). O namespace de cada serie termina
+  # com o nome do participante; fica so o que e dele.
+  local t _raiz; _raiz="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  [[ -f "${_raiz}/.tenant" ]] && t="$(cat "${_raiz}/.tenant")"
+  if [[ -n "${t:-}" ]]; then
+    out="$(printf '%s\n' "$out" | grep -E "^(authorized|limited)_calls.*limitador_namespace=\"[a-z0-9-]+-${t}/")"
+    _log "so as series do seu ambiente (${t}); o Limitador e um para a turma"
+  fi
   printf '%sservidas por plano%s\n' "$_BLD" "$_RST"
-  printf '%s\n' "$out" | grep '^authorized_calls' | sed 's/^/  /'
+  printf '%s\n' "$out" | grep '^authorized_calls' | sed 's/^/  /' || echo "  (nenhuma ainda)"
   printf '\n%slimitadas (429) por plano%s\n' "$_BLD" "$_RST"
   printf '%s\n' "$out" | grep '^limited_calls' | sed 's/^/  /' || echo "  (nenhuma ainda)"
 
@@ -627,7 +637,14 @@ mode_reset() {
 import sys, json
 o = json.load(sys.stdin)
 m = o["metadata"]
+# AS ANNOTATIONS VAO JUNTO: sem elas o PlanPolicy voltava sem o
+# argocd.argoproj.io/tracking-id da esteira do participante, e o Argo deixava
+# de reconhece-lo como dele (o preflight mudava de opiniao entre duas rodadas,
+# medido no user1 em 2026-10-27). So a last-applied sai: o apply escreve outra.
+a = {k: v for k, v in (m.get("annotations") or {}).items()
+     if k != "kubectl.kubernetes.io/last-applied-configuration"}
 o["metadata"] = {k: m[k] for k in ("name", "namespace", "labels") if k in m}
+if a: o["metadata"]["annotations"] = a
 o.pop("status", None)
 json.dump(o, sys.stdout)' > "$guarda" 2>/dev/null
     [[ -s "$guarda" ]] || _die "nao consegui ler o PlanPolicy travels-plans."
