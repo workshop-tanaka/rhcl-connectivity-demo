@@ -636,6 +636,147 @@ spec:
             "showThresholdLabels": false,
             "showThresholdMarkers": true
           }
+        },
+        {
+          "type": "row",
+          "title": "Versões — a borda decide quem vê qual versão (sem Service Mesh)",
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 35
+          },
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "type": "bargauge",
+          "title": "Versões · Respostas por versão na borda (5 min)",
+          "description": "Medido no Gateway, por Service de destino: travels e a v1, travels-v2 e a v2 (parte de versoes). A /travels de sempre tambem vai ao Service travels e entra na coluna da v1.",
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 36
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (destination_service_name) (round(increase(istio_requests_total{destination_service_name=~\"travels|travels-v2\"}[5m])))",
+              "legendFormat": "{{destination_service_name}}",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "displayMode": "gradient",
+            "orientation": "horizontal",
+            "showUnfilled": true,
+            "valueMode": "color",
+            "sizing": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "minVizWidth": 8,
+            "minVizHeight": 16,
+            "namePlacement": "left"
+          }
+        },
+        {
+          "type": "gauge",
+          "title": "Versões · Peso efetivo da v2 na borda",
+          "description": "O que o rollout da parte de versoes declara nos pesos da rota, medido no trafego real: a fracao das respostas do Gateway que foi ao Service travels-v2. A /travels de sempre tambem vai a v1 e puxa o numero para baixo.",
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 36
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "100 * sum(rate(istio_requests_total{destination_service_name=\"travels-v2\"}[5m])) / sum(rate(istio_requests_total{destination_service_name=~\"travels|travels-v2\"}[5m]))",
+              "legendFormat": "v2",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "decimals": 1,
+              "min": 0,
+              "max": 100,
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "orange",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true
+          }
         }
       ]
     }

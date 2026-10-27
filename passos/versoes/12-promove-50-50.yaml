@@ -1,0 +1,53 @@
+# PASSO 9 -- a v2 vira a permanente, aos poucos. A regra 'atual' aponta para
+# as duas versoes com PESO: de cada 100 chamadas, cerca de 50 vao para cada
+# uma. Em producao o primeiro degrau e menor (10%); aqui 50 deixa a divisao
+# visivel em 20 chamadas. Cada destino marca a resposta com a versao.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: travels-versoes
+  namespace: travel-agency
+spec:
+  parentRefs: [{name: prod-web, namespace: ingress-gateway}]
+  hostnames: ["api-travels.__DOMINIO__"]
+  rules:
+    - name: v1
+      matches: [{path: {type: PathPrefix, value: /v1}}]
+      filters:
+        - {type: URLRewrite, urlRewrite: {path: {type: ReplacePrefixMatch, replacePrefixMatch: /}}}
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - {name: Deprecation, value: "@1767225600"}
+              - {name: Sunset, value: "Wed, 30 Jun 2027 23:59:59 GMT"}
+              - {name: Link, value: '</v2/travels>; rel="successor-version"'}
+      backendRefs: [{name: travels, port: 8000}]
+    - name: v2
+      matches: [{path: {type: PathPrefix, value: /v2}}]
+      filters:
+        - {type: URLRewrite, urlRewrite: {path: {type: ReplacePrefixMatch, replacePrefixMatch: /}}}
+        - {type: ResponseHeaderModifier, responseHeaderModifier: {set: [{name: x-api-version, value: "2"}]}}
+      backendRefs: [{name: travels-v2, port: 8000}]
+    # o endereco sem versao: a v1 por padrao...
+    # metade para cada versao
+    - name: atual
+      matches: [{path: {type: PathPrefix, value: /atual}}]
+      filters:
+        - {type: URLRewrite, urlRewrite: {path: {type: ReplacePrefixMatch, replacePrefixMatch: /}}}
+      backendRefs:
+        - name: travels
+          port: 8000
+          weight: 50
+          filters: [{type: ResponseHeaderModifier, responseHeaderModifier: {set: [{name: x-api-version, value: "1"}]}}]
+        - name: travels-v2
+          port: 8000
+          weight: 50
+          filters: [{type: ResponseHeaderModifier, responseHeaderModifier: {set: [{name: x-api-version, value: "2"}]}}]
+    # ...e a v2 para quem pedir, com o cabecalho 'x-api-version: 2'. Quem pode
+    # pedir e decisao da policy desta regra (arquivo 11), nao da rota.
+    - name: atual-v2
+      matches: [{path: {type: PathPrefix, value: /atual}, headers: [{name: x-api-version, value: "2"}]}]
+      filters:
+        - {type: URLRewrite, urlRewrite: {path: {type: ReplacePrefixMatch, replacePrefixMatch: /}}}
+        - {type: ResponseHeaderModifier, responseHeaderModifier: {set: [{name: x-api-version, value: "2"}]}}
+      backendRefs: [{name: travels-v2, port: 8000}]
