@@ -39,6 +39,7 @@
 #   bash scripts/tenant.sh sobe user7             # gera e aplica: plataforma do tenant, borda, demo
 #   bash scripts/tenant.sh remove user7           # apaga os namespaces e as chaves do tenant
 #   bash scripts/tenant.sh showroom user7         # o guia e o terminal dele, com a copia dentro
+#   bash scripts/tenant.sh userinfo [user7 ...]   # a pagina do pedido no RHDP: guia, trilhas, logins, chaves por participante
 #   bash scripts/tenant.sh turma 30               # user1..user30, em lotes (LARGURA=4)
 #   bash scripts/tenant.sh isola user7            # fecha a rede e as rotas dele para os outros ('abre' desfaz)
 #   FOCO=rhcl bash scripts/tenant.sh showroom user7   # o guia dele com o menu de UMA sessao: rhcl | ossm | rhsi (sem FOCO, a completa)
@@ -2525,6 +2526,7 @@ trilhas = os.environ.get("TRILHAS", "").split()
 if trilhas == ["todas"]: trilhas = list(TODAS_TRILHAS)
 trilhas = [x for x in trilhas if x in TODAS_TRILHAS]
 if trilhas: dados["trilhas"] = "1"; dados["trilhas_links"] = "1"
+dados["trilhas_construidas"] = " ".join(trilhas)
 # Parte destes valores vem do cluster (hostname de Route, senha do usuario). O
 # arquivo e montado por concatenacao, entao valor com aspas, barra invertida ou
 # caractere de controle quebraria a string e injetaria atributo: nesse caso o
@@ -2870,6 +2872,59 @@ _confere_turma() {
   wait
 }
 
+# A PAGINA DO PEDIDO NO RHDP, por participante. O RHDP mostra o que estiver no
+# ConfigMap com o label demo.redhat.com/userinfo (criado pelo Job no namespace
+# do Showroom do instrutor); a chave users_json ('{"users": {"user1": {...}}}')
+# e a convencao do AgnosticD para dados POR USUARIO. Este comando monta o
+# users_json a partir do showroom-userdata de cada participante (o mesmo que
+# alimenta o guia dele): o guia, as trilhas construidas, a console e o login,
+# a API e as tres chaves, o GitLab e o repositorio, o Grafana e os traces.
+# Medido ainda nao: se o RHDP RELE o ConfigMap depois do fim do Job -- testar
+# num pedido real (patch e olhar a pagina). Senha do participante entra de
+# proposito: e a pagina DELE no RHDP, e e la que o RHDP ja mostra credenciais.
+_userinfo() { # [tenant ...] (vazio = todos)
+  local ns cm lista t
+  cm="$(oc get cm -A -l demo.redhat.com/userinfo -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null | head -1)"
+  [[ -n "$cm" ]] || _die "nenhum ConfigMap com o label demo.redhat.com/userinfo (o Job do RHDP o cria no Showroom do instrutor)"
+  ns="${cm%%/*}"; cm="${cm#*/}"
+  lista="$*"; [[ -n "$lista" ]] || lista="$(oc get ns -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sed -n 's/^showroom-\(user[0-9]*\)$/\1/p' | sort -V | tr '\n' ' ')"
+  local tmp; tmp="$(mktemp)"
+  for t in $lista; do
+    oc get cm showroom-userdata -n "showroom-${t}" -o jsonpath='{.data.user_data\.yml}' 2>/dev/null | sed "s/^/${t}\t/" >> "$tmp" || true
+  done
+  DOM="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)" python3 - "$tmp" <<'PY' > "${tmp}.json"
+import sys, json, os, re
+users = {}
+for linha in open(sys.argv[1]):
+    if "\t" not in linha: continue
+    t, kv = linha.rstrip("\n").split("\t", 1)
+    m = re.match(r'^"?([a-z_0-9]+)"?:\s*"?(.*?)"?\s*$', kv)
+    if not m: continue
+    users.setdefault(t, {})[m.group(1)] = m.group(2)
+saida = {"users": {}}
+for t, d in users.items():
+    base = "https://showroom-showroom-%s.%s" % (t, os.environ["DOM"])
+    u = {"guia": base, "usuario": t}
+    for nome in (d.get("trilhas_construidas") or "").split():
+        u["guia_trilha_" + nome] = base + "/" + nome + "/"
+    pares = [("console_openshift", "openshift_console_url"), ("console_usuario", "usuario_console"), ("console_senha", "senha_console"),
+             ("api", "api_host"), ("chave_free", "api_key_free"), ("chave_silver", "api_key_silver"), ("chave_gold", "api_key_gold"),
+             ("gitlab", "gitlab_url"), ("repositorio", "repo_no_ambiente"), ("grafana", "grafana_url"), ("traces", "traces_url"),
+             ("portal_free", "portal_free_url"), ("portal_silver", "portal_silver_url"), ("portal_gold", "portal_gold_url")]
+    for k, src in pares:
+        v = d.get(src, "")
+        if v and v != "https://": u[k] = ("https://" + v) if k == "api" and not v.startswith("http") else v
+    saida["users"][t] = u
+print(json.dumps(saida, ensure_ascii=False))
+PY
+  local n; n="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["users"]))' "${tmp}.json")"
+  oc create cm "$cm" -n "$ns" --from-file=users_json="${tmp}.json" --dry-run=client -o json \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"data": {"users_json": d["data"]["users_json"]}}))' \
+    | oc patch cm "$cm" -n "$ns" --type=merge -p "$(cat)" >/dev/null
+  rm -f "$tmp" "${tmp}.json"
+  _ok "users_json com ${n} participante(s) em ${ns}/${cm} (a pagina do pedido no RHDP)"
+}
+
 _lista() {
   local dom; dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
   printf '  %-10s %-5s %-6s %s\n' TENANT NS BORDA HOST
@@ -3169,6 +3224,9 @@ case "${1:-}" in
     ;;
   lista)
     _lista
+    ;;
+  userinfo)
+    shift; _userinfo "$@"
     ;;
   plataforma)
     _plataforma
