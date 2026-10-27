@@ -2884,9 +2884,15 @@ _confere_turma() {
 # proposito: e a pagina DELE no RHDP, e e la que o RHDP ja mostra credenciais.
 _userinfo() { # [tenant ...] (vazio = todos)
   local ns cm lista t
-  cm="$(oc get cm -A -l demo.redhat.com/userinfo -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null | head -1)"
-  [[ -n "$cm" ]] || _die "nenhum ConfigMap com o label demo.redhat.com/userinfo (o Job do RHDP o cria no Showroom do instrutor)"
-  ns="${cm%%/*}"; cm="${cm#*/}"
+  # SO NO NAMESPACE DO SHOWROOM DO INSTRUTOR, achado pelo ClusterRoleBinding
+  # (objeto de cluster, que participante nao cria). Procurar o label no cluster
+  # inteiro deixaria um participante plantar um ConfigMap com o label no
+  # namespace dele e receber as credenciais de todos (revisao de seguranca).
+  ns="${SHOWROOM_ORIGEM:-$(oc get clusterrolebinding -l demo.redhat.com/application=showroom \
+          -o jsonpath='{range .items[?(@.roleRef.name=="cluster-admin")]}{.subjects[0].namespace}{"\n"}{end}' 2>/dev/null | head -1)}"
+  [[ -n "$ns" ]] || _die "nao achei o Showroom do instrutor (defina SHOWROOM_ORIGEM=<namespace>)"
+  cm="$(oc get cm -n "$ns" -l demo.redhat.com/userinfo -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)"
+  [[ "$(printf '%s\n' "$cm" | grep -c .)" -eq 1 ]] || _die "esperava exatamente um ConfigMap com o label demo.redhat.com/userinfo em ${ns}; achei: ${cm:-nenhum}"
   lista="$*"; [[ -n "$lista" ]] || lista="$(oc get ns -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sed -n 's/^showroom-\(user[0-9]*\)$/\1/p' | sort -V | tr '\n' ' ')"
   local tmp; tmp="$(mktemp)"
   for t in $lista; do
