@@ -59,7 +59,13 @@ metadata:
   name: rhcl-operator
   namespace: kuadrant-system
 spec:
-  channel: stable
+  # CANAL FIXO NA 1.4, nao 'stable'. Medido no catalogo do OCP 4.22 em
+  # 2026-10-27: 'stable' -> 1.4.3, 'stable-1.4' -> 1.4.4, 'stable-1.5' ->
+  # 1.5.0. No dia em que a Red Hat mover o 'stable' para a 1.5, todo cluster
+  # novo da edicao 1.x nasceria na 1.5 sem ninguem pedir (installPlanApproval
+  # Automatic). O canal por minor e o que torna a edicao reproduzivel; a 1.5
+  # entra por decisao, numa edicao propria, depois de medida.
+  channel: stable-1.4
   name: rhcl-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace

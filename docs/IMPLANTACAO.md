@@ -193,6 +193,13 @@ Regra: minor sobe quando entra conteúdo que o participante faz; major, quando o
 menu ou as fases mudam. O CI do workshop reprova se os títulos não terminarem
 com a edição.
 
+**A edição fixa a versão do produto pelo canal do operador**, não pelo acaso
+do `stable`: a `Subscription` em `platform-reference/operators/subscriptions.yaml`
+usa `stable-1.4`. Medido em 2026-10-27 no catálogo do OpenShift 4.22: `stable`
+servia 1.4.3, `stable-1.4` 1.4.4 e `stable-1.5` 1.5.0 -- quando o `stable`
+mover, um cluster novo da edição nasceria na versão seguinte sem ninguém pedir.
+Mudar de minor é uma decisão de edição, depois de medida num cluster.
+
 **Entrega** é um evento, não uma versão: para quem, quando, em qual cluster, com
 que versões medidas. Um arquivo por entrega em `entregas/` no repo do workshop,
 pelo `entregas/MODELO.md` -- cinco minutos no dia, e é o que permite identificar
