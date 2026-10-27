@@ -9,10 +9,10 @@
 # Sem eles, "a API esta fechada" e um 401 num curl e "a cota estourou" e um
 # 429. Com eles, sao tres navegadores se comportando de formas diferentes.
 #
-# A IMAGEM E OFICIAL DA DEMO DE APIM da Red Hat
-# (github.com/redhat-servicemesh-apim-demo/travels-demo-ui), e ela ja espera
-# exatamente a forma da nossa API -- o server.ts monta
-# '<endpoint>/<cidade>?<nome-da-chave>=<valor>'. Nada a adaptar.
+# A IMAGEM E A DA DEMO DE APIM da Red Hat
+# (github.com/redhat-servicemesh-apim-demo/travels-demo-ui), com dois patches
+# nossos (platform-reference/portais/): a cor de cada portal e a chave de API
+# SO no header -- o server.ts original a colava tambem na query string.
 #
 # POR QUE NAO HA CORS AQUI, e isto vale saber antes de procurar: o Angular
 # chama o PROPRIO servidor Node ('/api/getcities'), e e o servidor que chama a
@@ -50,7 +50,12 @@ NS="parceiros"
 # do topo e o titulo da aba dizem qual portal e (Portal Vermelho, Verde, Azul),
 # pela variavel WHOAMI. Com os tres abertos lado a lado eram tres abas iguais.
 # A imagem original, sem o patch, era a 7feeeab38828...
-IMAGEM="quay.io/stanaka-redhat/travels-demo-ui@sha256:c3f0b6728c309085921d3da9fe5e1541feee7ead4c37ba951070b8092e11ea46"
+# COM O PATCH DO HEADER desde 2026-10-27 (platform-reference/portais/
+# travels-demo-ui-header.patch): a chave vai SO em 'Authorization: APIKEY
+# <chave>', e nao mais na query string. Medido no user1 do mz8j7: os tres
+# portais listam 45 cidades e o log do portal mostra a URL sem a chave. A
+# imagem anterior (so com a cor) era a c3f0b6728c30...
+IMAGEM="quay.io/stanaka-redhat/travels-demo-ui@sha256:5158cfb5058bbce4d38046745f84610be19345abb7b143ef03b639d0e8228c91"
 
 if [[ -t 1 ]]; then
   _BLD=$'\033[1m'; _RST=$'\033[0m'; _GRN=$'\033[32m'; _YEL=$'\033[33m'; _DIM=$'\033[2m'
@@ -125,21 +130,20 @@ spec:
               value: "8080"
             - name: WHOAMI
               value: "${cor}"
-            # O server.ts monta '<endpoint>/<cidade>?<nome>=<valor>'. Os dois
+            # O server.ts monta '<endpoint>' e '<endpoint>/<cidade>'. Os dois
             # apontam para o MESMO caminho de proposito: a listagem e o detalhe
             # sao o mesmo recurso da nossa API.
-            # A chave segue na QUERY STRING porque a imagem e de terceiro e nao
-            # sabe mandar header: a AuthPolicy da travel-agency aceita essa forma
-            # pela regra 'api-key-portais', enquanto a principal (api-key-authn)
-            # le 'Authorization: APIKEY <chave>'. Se a imagem mudar, cai a regra.
             - name: API_GET_CITIES
               value: "https://${API_HOST}/travels"
             - name: API_GET_DETAILS_FOR_CITY
               value: "https://${API_HOST}/travels"
+            # O server.ts (com o patch do header) manda
+            # '<API_USER_KEY_NAME>: <API_USER_KEY_VALUE>' em toda chamada: aqui
+            # vira 'Authorization: APIKEY <chave>', que e o que a AuthPolicy le.
             - name: API_USER_KEY_NAME
-              value: "APIKEY"
+              value: "Authorization"
             - name: API_USER_KEY_VALUE
-              value: "${chave}"
+              value: "APIKEY ${chave}"
             # NAO desligamos a verificacao de TLS. Neste cluster o certificado
             # da API e publicamente confiavel (medido: emissor Google Trust
             # Services), mas num cluster com certificado proprio o axios do

@@ -1,0 +1,37 @@
+diff --git a/server.ts b/server.ts
+index 18aaa78..ca7d68e 100644
+--- a/server.ts
++++ b/server.ts
+@@ -58,7 +58,9 @@ export function app(): express.Express {
+   const bodyParser = require('body-parser');
+   const axios = require('axios');
+ 
+-  if(API_MANAGEMENT_FLAG && API_MANAGEMENT_FLAG =='YES') {
++  // A credencial vai SO no header (ex.: Authorization: APIKEY <chave>). Antes ia
++  // tambem na query string, e a chave aparecia no access log e no trace.
++  if (API_USER_KEY_VALUE!=null && API_USER_KEY_VALUE!="") {
+     axios.defaults.headers.common[API_USER_KEY_NAME] = API_USER_KEY_VALUE // for all requests
+   }
+ 
+@@ -80,10 +82,6 @@ export function app(): express.Express {
+   //res.send(cities);
+   console.log("GET_CITIES invoked")
+   var url = API_GET_CITIES;
+-  if (API_USER_KEY_VALUE!=null && API_USER_KEY_VALUE!="") {
+-    url = url + "?" + API_USER_KEY_NAME + "=" + API_USER_KEY_VALUE;
+-  }
+-
+   console.log("GET_CITIES Url is>>" + url + "<<");
+ 
+   axios.get(url)
+@@ -99,10 +97,6 @@ export function app(): express.Express {
+     console.log("GET_DETAILS_FOR_CITY invoke for city:" + city);
+     var city =  req.query["city"]
+     var url = API_GET_DETAILS_FOR_CITY + "/" + city;
+-    if (API_USER_KEY_VALUE!=null && API_USER_KEY_VALUE!="") {
+-      url = url + "?" + API_USER_KEY_NAME + "=" + API_USER_KEY_VALUE;
+-    }
+-
+     console.log("GET_DETAILS_FOR_CITY Url is>>" + url + "<<");
+ 
+     axios
