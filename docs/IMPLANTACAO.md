@@ -42,7 +42,7 @@ Item **Field Sourced Content - OpenShift Base**.
 | Campo | Valor |
 | --- | --- |
 | Repositório | o do workshop (`rhcl-connectivity-workshop`) |
-| Revision | a tag da onda corrente — `git tag --sort=-creatordate \| head -1` |
+| Revision | a **edição** que se entrega, na variante da sessão — `v1.0-rhcl` (a receita de cada edição está em `edicoes/` no repo do workshop). Para testar uma onda antes de ela virar edição, a tag da onda: `workshop-vN-rhcl` |
 | Path | `.` |
 | Create users | o número de participantes, até 30 (só no modo de turma) |
 | Interface de workshop | ligada |
@@ -133,15 +133,14 @@ bash scripts/turma.sh --vigia              # repete a cada 30s
 só, e os links do seu guia já abrem filtrados em você*. É o que transforma um
 limite em combinado.
 
-Ficam com o instrutor, por desenho: a auditoria (1.8), a prova do alerta (3.5)
-e o Extra de DNS. No guia do
-participante essas páginas vêm com um aviso de destaque, os comandos travados e
-a marca "— instrutor" no menu. A lista completa e o motivo de cada um estão na
-seção 4 do [TURMA.md](TURMA.md).
+**Não há trilha do instrutor.** Tudo o que o guia pede roda no terminal do
+participante; o que ele não pode rodar com segurança (a pergunta 1 da 6.4,
+que lê o audit log, e a prova do alerta na 6.3) virou leitura com a saída
+medida. A lista e o motivo de cada um estão na seção 4 do [TURMA.md](TURMA.md).
 
-A parte 5.1 é leitura, e os Módulos 4 e 5 aparecem no guia como "em breve":
-o Service Interconnect e o caminho pavimentado pedem componentes que este
-ambiente não sobe (uma rede entre sites; Developer Hub e GitLab).
+Os produtos que ficam de fora da sessão (Service Mesh, Service Interconnect,
+Developer Hub, WAF) aparecem como leituras de apoio, e nenhuma delas pede
+componente que este ambiente não sobe.
 
 **Grafo vazio no Kiali não é defeito** — ele desenha a janela de tempo, e sem
 tráfego nela não há o que desenhar. Medido: 7 arestas antes, 17 depois de
