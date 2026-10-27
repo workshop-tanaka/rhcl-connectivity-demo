@@ -179,7 +179,28 @@ bash scripts/tenant.sh showroom user7      # republica o guia e o terminal
 O raciocínio, as medições e o que inverteria cada decisão estão na seção 8 do
 [TURMA.md](TURMA.md).
 
-## 9. Referência medida
+## 9. Edições e entregas
+
+Duas versões convivem, com papéis diferentes:
+
+| | onda | edição |
+| --- | --- | --- |
+| nome | `workshop-v0.89` | `v1.0` (e `v1.0-rhcl`, a que se pede) |
+| o que é | cada corte de conteúdo e scripts; várias por dia | o que se apresenta à audiência |
+| onde aparece | `demo_ref` do guia (*Conferir o ambiente*), `versoes.sh --md` | título do guia (barra do topo e menu), *Conferir o ambiente*, o pedido no RHDP |
+| como se corta | as quatro refs do repo do workshop (`values.yaml` ×3, `catalog`) | o atributo `edicao` e os dois títulos (`site.yml`, `content/antora.yml`) no repo do workshop, mais as tags `vX.Y` e `vX.Y-rhcl` nos **dois** repositórios apontando para a onda, e um Release no GitHub com `edicoes/vX.Y.md` (notas para a audiência e a lista de materiais medida) |
+
+Regra: minor sobe quando entra conteúdo que o participante faz; major, quando o
+menu ou as fases mudam. O CI do workshop reprova se os títulos não terminarem
+com a edição.
+
+**Entrega** é um evento, não uma versão: para quem, quando, em qual cluster, com
+que versões medidas. Um arquivo por entrega em `entregas/` no repo do workshop,
+pelo `entregas/MODELO.md` -- cinco minutos no dia, e é o que permite identificar
+o ambiente num chamado e recriá-lo depois com o mesmo pedido. O procedimento de
+registrar e de recriar está em `entregas/README.md`.
+
+## 10. Referência medida
 
 Dois clusters de 30 participantes, em 2026-10-05. Servem de régua para o
 próximo; não são promessa.

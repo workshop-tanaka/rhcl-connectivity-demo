@@ -215,6 +215,12 @@ Mensagens em **português sem acentos**, escopo no início, corpo com o porquê 
 a medição que expôs o problema. Commitar por unidade coerente conforme o
 trabalho avança, sem perguntar a cada vez; **push continua sendo sob pedido**.
 
+**Duas versões:** a onda (`workshop-vX`, o build, várias por dia) e a edição
+(`vX.Y` e `vX.Y-rhcl`, o que a audiência vê e pede; tags nos dois repositórios
+apontando para uma onda, com Release e `edicoes/vX.Y.md` no workshop). Entrega
+(cliente, data, cluster, versões medidas) é um arquivo em `entregas/` no
+workshop. Ver [docs/IMPLANTACAO.md](docs/IMPLANTACAO.md) §9.
+
 Usar `git commit --only -- <paths>`: o índice costuma ter trabalho em curso do
 usuário, e `git add <paths> && git commit` leva o índice inteiro — foi assim
 que `ACESSOS.md` (credenciais vivas, gitignored) quase virou histórico. O mesmo
