@@ -56,6 +56,7 @@ provisionamento; ambos executam `scripts/demo.sh` e `scripts/provision.sh`, e
 oc apply -k overlays/rhcl-1.4        # RHCL 1.4 / OCP 4.21 — release suportada
 bash scripts/preflight.sh            # verifica a cadeia inteira (~45s); 'core' = só o caminho de dados
 bash scripts/traffic.sh tiers        # os três planos lado a lado
+bash scripts/testa-borda.sh          # a bateria da borda (coleção do Postman via newman num pod); rc = newman
 
 # amostras do Istio, SEM RHCL (NÃO usar 'oc apply -k' direto — há __DOMAIN__)
 bash scripts/provision.sh samples            # as quatro
