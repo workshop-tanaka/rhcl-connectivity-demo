@@ -174,6 +174,13 @@ bash scripts/tenant.sh showroom user7      # republica o guia e o terminal
    `tenant.sh traces`: o vizinho vê que o trace existe, não o que há nele. A
    proteção vale para a pessoa na console; o token do terminal ainda lê tudo,
    como já lê as chaves de API.
+5. **Os traces da borda (sessão de Connectivity Link, parte 6.2) são da turma,
+   como o Grafana.** O Authorino e o Limitador são um só para todos, e o tenant
+   `dev` do Tempo é lido por qualquer usuário autenticado: o `trace.sh` filtra
+   pelo hostname da API do participante, mas quem abrir a tela do Jaeger vê os
+   traces dos colegas. Os spans não carregam credencial: trazem hostname,
+   `x-request-id`, nomes de policy e a decisão (`limited`, `status`). Clientes
+   diferentes nunca dividem cluster, pelo mesmo motivo das chaves.
 
 O raciocínio, as medições e o que inverteria cada decisão estão na seção 8 do
 [TURMA.md](TURMA.md).
