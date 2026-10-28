@@ -1,5 +1,9 @@
 # Proposta: o Extension SDK e as policies que ainda não existem
 
+> **Feita na onda v0.132 (2026-10-28)**: leitura 7.8 *Quando a policy que você
+> precisa não existe*, na trilha Avançado; a 7.7 e a 8.2 apontam para ela.
+> Laboratório fica para a edição com 1.5.
+
 Proposta de 2026-10-28, a pedido do Sandro: um conteúdo sobre o **Extension
 SDK** do Connectivity Link 1.5 (custom policies), com um caso de uso relevante
 para a história do guia. Sem comparação com outros produtos, por decisão do
