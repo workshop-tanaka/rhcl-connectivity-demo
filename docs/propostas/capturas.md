@@ -45,7 +45,7 @@ quando precisar.
 | 2.1 | painel *401 na borda* | `401 -> unknown` | **feito** (amostra) |
 | 2.1 | painel de recusas | 401, 429 | **feito** (amostra) |
 | 4.1 | painel *Servidas por plano* | os três planos | **feito** (amostra) |
-| 2.1 | *Observe → Metrics* da console | o projeto do Gateway e a linha do resultado | script não trata o login OAuth (página de escolha de provedor) |
+| 2.1 | *Observe → Metrics* da console | o projeto do Gateway e a linha do resultado | **feito** (v0.118): login do Keycloak tratado; `viewport` e `clicar` por captura |
 | 4.2 | painel por parceiro | a linha do parceiro | |
 | 5.2 | o merge request no GitLab | aba Changes, botão Merge | login do GitLab |
 | 5.3 | a conferência reprovando | a linha *RECUSADO* no log | login do GitLab |
