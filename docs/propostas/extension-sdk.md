@@ -1,8 +1,9 @@
 # Proposta: o Extension SDK e as policies que ainda não existem
 
 Proposta de 2026-10-28, a pedido do Sandro: um conteúdo sobre o **Extension
-SDK** do Connectivity Link 1.5 (custom policies), com um caso de uso que o
-3scale oferecia e o Connectivity Link ainda não.
+SDK** do Connectivity Link 1.5 (custom policies), com um caso de uso relevante
+para a história do guia. Sem comparação com outros produtos, por decisão do
+Sandro: a leitura parte do que a Rota Viagens precisa.
 
 Fonte: capítulo 3 de *Develop APIs with the web console* da 1.5
 (`.../red_hat_connectivity_link/1.5/html-single/develop_apis_with_the_web_console/#con-rhcl-develop-extension-sdk_rhcl-develop-extension-sdk`),
@@ -32,33 +33,28 @@ mais o guia do SDK e os exemplos do upstream (`Kuadrant/example-extensions`,
   em Technology Preview. O que o participante usou na 4.1 passa a ser o
   primeiro exemplo do mecanismo.
 
-## 2. O que o 3scale tinha e o Connectivity Link não tem
+## 2. O que o produto não expressa hoje, e a Rota Viagens precisa
 
-O 3scale tinha duas camadas: a cadeia de policies do APIcast e a plataforma
-comercial (contas, aplicações, planos, faturamento). O Connectivity Link cobre
-bem a primeira (`AuthPolicy`, `RateLimitPolicy`, `TLSPolicy`, `DNSPolicy`, os
-filtros do `HTTPRoute`) e parte da segunda (`PlanPolicy`, `APIProduct`,
-`APIKey`, o catálogo na console). O que não tem hoje:
+A escolha do caso partiu da história do guia, não de uma lista de produto.
+Três necessidades da Rota Viagens que as policies de hoje não expressam, e
+que o SDK expressa:
 
-| no 3scale | no Connectivity Link 1.4/1.5 | daria uma extensão? |
+| a necessidade | por que as policies de hoje não bastam | a extensão |
 | --- | --- | --- |
-| **o plano vem do sistema comercial**: a aplicação do parceiro tem um plano na conta, o gerente muda no admin portal, o APIcast obedece no minuto seguinte | o plano é um rótulo no `Secret` da chave (4.1). Mudar só o rótulo não muda o limite; é preciso recriar o Secret (medido na 4.1) | **sim** -- é o exemplo `TieredBillingPolicy` que a própria documentação cita |
-| **cotas mensais com preço** (pricing rules, invoice) | janelas de segundos/minutos/dia; sem noção de ciclo de faturamento nem de preço | parcialmente: a extensão decide o limite por requisição; faturar continua sendo de outro sistema |
-| **maintenance mode** por serviço, com mensagem | não há policy; o caminho é mexer na rota | sim, trivial -- mas um filtro do `HTTPRoute` resolve quase igual |
-| **content caching** no proxy | não há | não é policy: é o Envoy, e a extensão não configura cache |
-| **custom metrics** por regra (ex.: contar por `status` e por cabeçalho) | `TelemetryPolicy` conta por dimensões fixas da requisição | sim: a extensão registra o rótulo (é o que o exemplo de residência faz) |
-| **conditional policies** (uma policy só quando a requisição casa um predicado) | `predicates` CEL nas policies de 1.4 cobrem a maioria | não precisa |
-| **chamar um serviço externo para decidir** (o "Camel service", o "threat"...) | `AuthPolicy` consulta metadados HTTP, mas a decisão fica dentro do Authorino | sim: é o caso principal do SDK |
+| **o plano do parceiro vem do contrato**, que muda no sistema comercial, não do rótulo gravado na chave | o plano é um rótulo no `Secret` da chave (4.1); mudar só o rótulo não muda o limite, e é preciso recriar o Secret -- um ticket para a plataforma a cada renegociação | `ContratoPolicy`: consulta o sistema de contratos por requisição e decide o plano ali |
+| **uma decisão que depende de um serviço da própria empresa** -- fraude, residência de dados, classificação do chamador | a `AuthPolicy` lê metadados HTTP, mas a decisão fica dentro do Authorino, com a resposta como veio | uma extensão com ação no caminho de dados: chama o serviço e nega com `403` |
+| **uma métrica com a dimensão que o negócio pede** (o plano do contrato, a região, o canal) | a `TelemetryPolicy` conta por dimensões da requisição e da identidade, não por um valor resolvido fora | a extensão registra o rótulo, e o painel da 4.2 ganha a dimensão |
 
-A linha que mais vale no workshop é a primeira, porque é a história inteira
-do guia: *"o contrato existe; a plataforma não sabe disso"*.
+A primeira é a que vale no workshop, porque é a história inteira do guia: *"o
+contrato existe; a plataforma não sabe disso"*. As outras duas aparecem na
+mesma extensão, de carona.
 
 ## 3. O caso de uso proposto: o plano vem do contrato
 
 **O problema, na Rota Viagens.** O comercial renegociou o parceiro Azul do
 gratuito para o intermediário. Hoje isso vira um ticket para a plataforma:
 alguém recria o Secret com `plan-id: silver`, e até lá o parceiro leva `429`.
-O 3scale resolvia isso no admin portal, sem ninguém da plataforma.
+O contrato mudou num sistema; a borda só vai saber quando alguém copiar.
 
 **A extensão: `ContratoPolicy`.** Anexa-se à `HTTPRoute` da API e aponta para
 o sistema comercial:
@@ -119,9 +115,8 @@ tabela da 1.5 e é onde a `PlanPolicy`-como-extensão ganha uma linha.
 
 Roteiro da página:
 
-1. **A pergunta** (*"e quando a policy que eu preciso não existe?"*), com a
-   lista do 3scale da seção 2 como tabela -- é a pergunta que todo cliente
-   que vem do 3scale faz.
+1. **A pergunta** (*"e quando a policy que eu preciso não existe?"*), com as
+   três necessidades da seção 2 como tabela.
 2. **O que uma extensão é** (seção 1), com o diagrama: pod da extensão ⇄ gRPC
    ⇄ operator; a topologia; o data binding chegando ao Authorino e ao
    Limitador; a ação no Envoy.
@@ -166,6 +161,5 @@ cluster é 1.4. O que cabe numa edição futura, quando o ambiente for 1.5:
 
 ## 6. Custo
 
-Leitura: ~2 h (texto, diagrama, tabela do 3scale conferida contra a
-documentação do APIcast). Laboratório na edição 1.5: ~1 dia (a extensão em
+Leitura: ~2 h (texto, diagrama, o YAML conferido contra o guia do SDK). Laboratório na edição 1.5: ~1 dia (a extensão em
 Go, a imagem, o serviço de contratos, o provisionamento e a página).
