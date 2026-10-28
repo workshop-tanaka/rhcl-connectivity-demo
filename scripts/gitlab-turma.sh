@@ -640,7 +640,9 @@ cmd_terminal() {
         # projeto: a copia do terminal volta ao que o main tem, senao a versao
         # da onda fica como "modificado" e o commit -am do roteiro a leva junto
         # (medido no user2 em 2026-10-28: esteira/kustomization.yaml).
-        git checkout -q -- esteira planejamento 2>/dev/null || true
+        # um pathspec que nao casa (planejamento/ pode nao existir) aborta o
+        # checkout INTEIRO, inclusive o da esteira/: por isso um por vez.
+        for d in esteira planejamento; do git checkout -q -- "$d" 2>/dev/null || true; done
         n="$(git status --porcelain -- . ":!esteira" ":!planejamento" | grep -vc "^??" || true)"
         [ "$n" -eq 0 ] || echo "AVISO: ${n} arquivo(s) do terminal diferem do main do projeto -- rode gitlab-turma.sh semeia ${GL_USER}" >&2
         # o participante pode ter mexido no terminal: o que ele mudou FICA; so volta
