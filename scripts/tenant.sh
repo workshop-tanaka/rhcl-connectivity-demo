@@ -2687,7 +2687,7 @@ json.dump({"apiVersion": "v1", "kind": "List", "items": out}, sys.stdout)' \
   _SO_PARTICIPANTE="alerta.sh auditoria.sh bookinfo-fronteiras.sh certificado.sh
     chave-vazada.sh contextos.sh demo.sh dns-nome.sh esteira.sh exposta-checklist.sh
     golden-path-limpa.sh grpc.sh identidade.sh interconnect.sh labs.sh listas.sh
-    mapa-mtls.sh mtls-kuadrant.sh negado.sh parceiro-certificado.sh postman-env.sh
+    mapa-mtls.sh mtls-kuadrant.sh negado.sh parceiro-certificado.sh postman-env.sh testa-borda.sh
     meus.sh prefixos.sh preflight.sh saida.sh tokens-ia.sh traffic.sh topologia.sh tunel-protege.sh uso-por-versao.sh versoes.sh"
   local _excl=() _tira=() _b
   for _b in "$d"/scripts/*.sh; do
