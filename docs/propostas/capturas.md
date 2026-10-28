@@ -51,7 +51,8 @@ quando precisar.
 | 4.1 | API Products na console | o produto publicado | **feito** (v0.119) |
 | 5.2 | os merge requests do projeto no GitLab | o menu | **feito** (v0.119); o MR aberto com Changes e Merge fica |
 | 5.3 | os PipelineRuns da conferência na console | Failed e Succeeded | **feito** (v0.119); a linha *RECUSADO* no log do GitLab fica |
-| 5.4 | o `OutOfSync` no Argo | o recurso divergente | o participante não enxerga a aplicação na UI do Argo e o guia não a abre: fica fora |
+| 5.1 | a Application no Argo CD, *Synced* | o status | **feito** (v0.120): a UI do Argo precisa de ~20 s depois do login |
+| 5.4 | o `OutOfSync` no Argo | o recurso divergente | a mesma tela com o desvio da 5.4 em curso; captura em duas etapas (patch, foto, revert) |
 | 6.1 | o trace no Tempo | o salto em que nasceu o 401 | console |
 | 6.3 | *Observe → Alerts* no projeto do Gateway | a regra e o alerta aceso | console |
 | 7.x | a topologia de policies na console | o Gateway e as policies | abre com o login da plataforma, mas desenha a turma inteira; falta filtrar o namespace pela UI |
