@@ -1,5 +1,11 @@
 # Proposta: a seção "A solução de conectividade", mais leve
 
+> **Feita na onda v0.130 (2026-10-28)**, aprovada pelo Sandro no mesmo dia com
+> o nome da seção mantido. Decisões tomadas por omissão: a leitura de ingresso
+> ficou na Fase 3 (antes da 3.1) e o aviso de versões virou um colapsável no
+> fim de *Seus acessos*. `historia.adoc` carrega `page-aliases: aplicacao.adoc`
+> e `fronteiras.adoc` carrega `sessoes.adoc`.
+
 Proposta de 2026-10-28, a pedido do Sandro: a primeira seção do menu está
 completa, mas é cansativa antes do primeiro exercício. O objetivo é deixá-la
 **prática**, tirar o que se repete e levar para a fase certa o que lá é
