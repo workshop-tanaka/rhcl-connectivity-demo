@@ -270,7 +270,11 @@ spec:
             },
             "minVizWidth": 8,
             "minVizHeight": 16,
-            "namePlacement": "left"
+            "namePlacement": "left",
+            "text": {
+              "titleSize": 18,
+              "valueSize": 28
+            }
           }
         },
         {
