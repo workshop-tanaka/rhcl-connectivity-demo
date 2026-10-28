@@ -33,15 +33,18 @@ oc whoami >/dev/null 2>&1 || _die "sem sessao no cluster (oc login)"
 TOKEN="$(oc whoami -t 2>/dev/null || true)"
 [[ -n "$TOKEN" ]] || _die "a sessao nao tem token (oc whoami -t vazio)"
 
-# A rota do Tempo: pelo objeto, e se a sessao nao le rotas de tracing-system,
-# pelo dominio de apps (o nome da rota e fixo no TempoMonolithic do repo).
+# A rota do Tempo SO pelo objeto Route: o token da sessao vai no cabecalho, e
+# um nome montado a partir do dominio poderia levar o token a outro lugar.
 _rota="$(oc get route tempo-tempo-jaegerui -n tracing-system -o jsonpath='{.spec.host}' 2>/dev/null || true)"
-if [[ -z "$_rota" ]]; then
-  _dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)"
-  [[ -n "$_dom" ]] || _die "nao achei a rota do Tempo nem o dominio de apps -- o tracing esta instalado? (provision.sh tracing)"
-  _rota="tempo-tempo-jaegerui-tracing-system.${_dom}"
-fi
+[[ -n "$_rota" ]] || _die "nao achei a rota tempo-tempo-jaegerui em tracing-system -- o tracing esta instalado (provision.sh tracing) e a sua sessao le rotas dali?"
 API="https://${_rota}/api/traces/v1/dev/tempo/api"
+
+# TLS verificado: o certificado da rota e o do ingresso do cluster, cuja CA
+# esta num ConfigMap que todo usuario autenticado le. Sem ele, fica a
+# confianca do sistema -- nunca '-k' com o token no cabecalho.
+_CA="$(mktemp)"; trap 'rm -f "$_CA"' EXIT
+oc get cm default-ingress-cert -n openshift-config-managed -o jsonpath='{.data.ca-bundle\.crt}' > "$_CA" 2>/dev/null || true
+if [[ -s "$_CA" ]]; then _TLS=(--cacert "$_CA"); else _TLS=(); fi
 
 # a API do participante: o hostname da HTTPRoute, que e o que o filtro grava no span
 API_HOST="$(oc get httproute travel-agency -n travel-agency -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null || true)"
@@ -49,7 +52,7 @@ API_HOST="$(oc get httproute travel-agency -n travel-agency -o jsonpath='{.spec.
 _tempo() { # <caminho> [param=valor ...]
   local p="$1"; shift; local args=()
   for a in "$@"; do args+=(--data-urlencode "$a"); done
-  curl -sk -G -H "Authorization: Bearer ${TOKEN}" "${API}${p}" "${args[@]+"${args[@]}"}"
+  curl -s "${_TLS[@]+"${_TLS[@]}"}" -G -H "Authorization: Bearer ${TOKEN}" "${API}${p}" "${args[@]+"${args[@]}"}"
 }
 
 _imprime() { # le o JSON do trace no stdin e imprime a arvore
