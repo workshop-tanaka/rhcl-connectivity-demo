@@ -60,8 +60,10 @@ for arg in "$@"; do
 done
 
 _sec "1. environment e dados por plano (deste cluster)"
-bash scripts/postman-env.sh | sed 's/^/  /'
-[[ -s "$ENVFILE" ]] || _die "environment nao gerado"
+# 2>&1: o postman-env.sh explica no stderr por que parou (sem dominio, sem
+# chave); engolir isso deixava so um '== 1 ==' e um rc=1 mudo.
+bash scripts/postman-env.sh 2>&1 | sed 's/^/  /' || true
+[[ -s "$ENVFILE" ]] || _die "environment nao gerado -- no modo de turma, rode no perfil Infra (aba Terminal): o perfil Dev nao le as chaves de teste da plataforma nem o dominio do cluster"
 [[ -s "$DADOS" ]]   || _die "dados por plano nao gerados"
 
 _sec "2. Secret testa-borda em $NS (apagado no fim)"
