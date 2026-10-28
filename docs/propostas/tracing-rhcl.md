@@ -1,3 +1,11 @@
+> **Feito em 2026-10-28 (onda `workshop-v0.127`).** O CR `Kuadrant` do repositório
+> declara o tracing (`platform-reference/kuadrant-system/kuadrant.yaml`), a etapa
+> `tracing` do `provision.sh` roda também na sessão só de Connectivity Link,
+> `scripts/trace.sh` lê o trace no terminal (filtro por `hostname` do span raiz
+> e por `request_id`), e a parte **6.2 Onde a requisição gastou o tempo** entrou
+> no guia com os três traces. Fica no backlog: o span do próprio Gateway (seção
+> 3, passo 7) e a decisão de nível/amostragem por edição.
+
 # Proposta: tracing do Connectivity Link, sem Service Mesh
 
 Proposta e medições de 2026-10-27 no `cluster-mz8j7` (OpenShift 4.21, RHCL
