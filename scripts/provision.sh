@@ -1205,7 +1205,13 @@ st_consoles() {
 # ===========================================================================
 st_tracing() {
   _sec "tracing (Observe -> Traces)"
-  if _sem_mesh; then
+  # Na sessao so de Connectivity Link o tracing e o do proprio produto: o CR
+  # Kuadrant (kuadrant-system/kuadrant.yaml) exporta Authorino, Limitador e o
+  # filtro do Gateway para o collector desta etapa, e a parte 6.2 do guia le
+  # o trace no terminal (scripts/trace.sh) e na UI do Jaeger do Tempo. O que
+  # NAO existe sem o Service Mesh e o span do proprio Gateway (o destino dos
+  # traces do Envoy e declarado no CR Istio, que o provedor nativo nao le).
+  if _sem_mesh && [[ "${TRACING_SEM_MESH:-1}" != "1" ]]; then
     _log "sessao so de Connectivity Link: sem tracing. O destino dos traces e declarado no CR Istio, que o provedor nativo de Gateway nao le (medido: o proxy sobe sem configuracao de tracing)"
     return 0
   fi

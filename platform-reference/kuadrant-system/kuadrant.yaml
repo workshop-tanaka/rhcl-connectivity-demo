@@ -21,3 +21,22 @@ metadata:
 spec:
   mtls:
     enable: true
+  # TRACING DO PROPRIO CONNECTIVITY LINK, sem Service Mesh: o endpoint abaixo
+  # configura de uma vez o Authorino, o Limitador e o filtro do Gateway
+  # (servico 'wasm-shim' nos traces). O collector e o Tempo sao da etapa
+  # 'tracing' do provision.sh (platform-reference/tracing/). Medido no mz8j7
+  # (2026-10-27/28): com 'debug' o filtro vira a raiz e encadeia Authorino e
+  # Limitador num trace so, mesmo sem traceparent do cliente; no nivel padrao
+  # cada componente abre um trace proprio. O custo do 'debug' sob carga (p99 de
+  # 24 para 88 ms a 400 req/s) e o que a parte 6.2 do guia diz; o ambiente do
+  # workshop tem trafego baixo e o liga; em producao, amostragem e nivel padrao.
+  # 'httpHeaderIdentifier' poe o x-request-id da chamada nos spans e no log --
+  # e o que liga o 'curl -D -' do participante ao trace dele.
+  observability:
+    tracing:
+      defaultEndpoint: rpc://otel-collector.tracing-system.svc.cluster.local:4317
+      insecure: true
+    dataPlane:
+      httpHeaderIdentifier: x-request-id
+      defaultLevels:
+        - debug: "true"
