@@ -636,6 +636,11 @@ cmd_terminal() {
         # merge bloqueado e o "esteira.sh espera" sem fim. Quem atualiza o main
         # e o 'semeia', pela API, do lado de quem opera (tenant.sh o chama antes
         # deste passo); aqui so se confere que a arvore ficou limpa.
+        # esteira/ e planejamento/ sao do participante e nao sao republicadas no
+        # projeto: a copia do terminal volta ao que o main tem, senao a versao
+        # da onda fica como "modificado" e o commit -am do roteiro a leva junto
+        # (medido no user2 em 2026-10-28: esteira/kustomization.yaml).
+        git checkout -q -- esteira planejamento 2>/dev/null || true
         n="$(git status --porcelain -- . ":!esteira" ":!planejamento" | grep -vc "^??" || true)"
         [ "$n" -eq 0 ] || echo "AVISO: ${n} arquivo(s) do terminal diferem do main do projeto -- rode gitlab-turma.sh semeia ${GL_USER}" >&2
         # o participante pode ter mexido no terminal: o que ele mudou FICA; so volta
