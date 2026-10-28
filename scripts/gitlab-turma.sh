@@ -642,7 +642,12 @@ cmd_terminal() {
         # (medido no user2 em 2026-10-28: esteira/kustomization.yaml).
         # um pathspec que nao casa (planejamento/ pode nao existir) aborta o
         # checkout INTEIRO, inclusive o da esteira/: por isso um por vez.
-        for d in esteira planejamento; do git checkout -q -- "$d" 2>/dev/null || true; done
+        # devfile.yaml e README.md sao ESCRITOS pelo semeia (a imagem do Dev
+        # Spaces vem do CSV instalado), e a copia renderizada nao os traz: quando
+        # o operador do Dev Spaces sobe de versao entre duas publicacoes, o main
+        # muda e o terminal fica com o antigo como "modificado" (medido no user2
+        # em 2026-10-28: udi-rhel9 3.31.1, 'sujos: 1' depois da v0.133).
+        for d in esteira planejamento devfile.yaml README.md; do git checkout -q -- "$d" 2>/dev/null || true; done
         n="$(git status --porcelain -- . ":!esteira" ":!planejamento" | grep -vc "^??" || true)"
         [ "$n" -eq 0 ] || echo "AVISO: ${n} arquivo(s) do terminal diferem do main do projeto -- rode gitlab-turma.sh semeia ${GL_USER}" >&2
         # o participante pode ter mexido no terminal: o que ele mudou FICA; so volta
