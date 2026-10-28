@@ -47,12 +47,14 @@ quando precisar.
 | 4.1 | painel *Servidas por plano* | os três planos | **feito** (amostra) |
 | 2.1 | *Observe → Metrics* da console | o projeto do Gateway e a linha do resultado | **feito** (v0.118): login do Keycloak tratado; `viewport` e `clicar` por captura |
 | 4.2 | painel por parceiro | a linha do parceiro | |
-| 5.2 | o merge request no GitLab | aba Changes, botão Merge | login do GitLab |
-| 5.3 | a conferência reprovando | a linha *RECUSADO* no log | login do GitLab |
-| 5.4 | o `OutOfSync` no Argo | o recurso divergente | login do Argo |
+| 2.3 | lista de policies do projeto na console | a AuthPolicy | **feito** (v0.119) |
+| 4.1 | API Products na console | o produto publicado | **feito** (v0.119) |
+| 5.2 | os merge requests do projeto no GitLab | o menu | **feito** (v0.119); o MR aberto com Changes e Merge fica |
+| 5.3 | os PipelineRuns da conferência na console | Failed e Succeeded | **feito** (v0.119); a linha *RECUSADO* no log do GitLab fica |
+| 5.4 | o `OutOfSync` no Argo | o recurso divergente | o participante não enxerga a aplicação na UI do Argo e o guia não a abre: fica fora |
 | 6.1 | o trace no Tempo | o salto em que nasceu o 401 | console |
 | 6.3 | *Observe → Alerts* no projeto do Gateway | a regra e o alerta aceso | console |
-| 7.x | a topologia de policies na console | o Gateway e as policies | console |
+| 7.x | a topologia de policies na console | o Gateway e as policies | abre com o login da plataforma, mas desenha a turma inteira; falta filtrar o namespace pela UI |
 
 Também no backlog:
 
