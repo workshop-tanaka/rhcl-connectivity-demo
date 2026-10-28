@@ -845,10 +845,10 @@ spec:
                 # --no-renames: com deteccao de renomeacao o git so lista o nome NOVO, e
                 # mover .tekton/confere.yaml para esteira/ passaria (apontado pela revisao
                 # de seguranca). -z e quotePath=false: o nome sai cru, sem aspas.
-                fora="$(git -c core.quotePath=false diff --no-renames --name-only -z FETCH_HEAD...HEAD | tr '\\0' '\\n' | grep -vE '^(esteira|planejamento)/' || true)"
+                fora="$(git -c core.quotePath=false diff --no-renames --name-only -z FETCH_HEAD...HEAD | tr '\\0' '\\n' | grep -vE '^esteira/' || true)"
                 if [ -n "$fora" ]; then
-                  echo "    NAO o merge request so pode mudar as pastas esteira/ e planejamento/:"; echo "$fora" | sed 's/^/          /'
-                  echo; echo "    RECUSADO: tire do merge request o que esta fora de esteira/ e planejamento/"; exit 1
+                  echo "    NAO o merge request so pode mudar a pasta esteira/:"; echo "$fora" | sed 's/^/          /'
+                  echo; echo "    RECUSADO: tire do merge request o que esta fora de esteira/"; exit 1
                 fi
                 ESTEIRA_NS=travel-agency-%(u)s ESTEIRA_RAIZ=/tmp/w bash /conferencia/esteira.sh confere
 """

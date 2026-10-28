@@ -1,3 +1,11 @@
+> **Superada em 2026-10-28.** A Fase 8 publicada (`workshop-v0.106`) seguiu outra
+> abordagem, por decisão do Sandro: a fase vem **antes** da escolha por adotar o
+> Connectivity Link, então é só leitura -- perguntas com o que o workshop mediu,
+> o que ver no ambiente do cliente e quem responde --, sem exercício, sem pasta
+> `planejamento/`, sem piloto, sem caso Trajeto e sem número de dimensionamento.
+> A conferência da fase 5 voltou a aceitar só `esteira/`. O texto abaixo fica
+> como registro da proposta original.
+
 # Proposta: Fase 8 — Decidimos pelo Connectivity Link. E agora?
 
 Proposta de 2026-10-27. Nada foi alterado no repositório nem no cluster. Junta
