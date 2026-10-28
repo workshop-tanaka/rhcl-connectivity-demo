@@ -33,7 +33,7 @@ gastou o tempo* -- só depois de ver o trace real.
 | Service Mesh | ausente: sem CRD `Istio`, sem sidecar na `travel-agency-userN` |
 | operadores Tempo e OpenTelemetry | instalados em `openshift-operators` |
 | instância de Tempo / collector | nenhuma (até hoje, ver seção 2) |
-| UI de traces no console | ausente: não há Cluster Observability Operator (`uiplugin` não existe) |
+| UI de traces no console | ausente na proposta: não havia Cluster Observability Operator (`uiplugin` não existia); instalado em 2026-10-28 (`consoles/uiplugin-distributed-tracing.yaml`), e a 6.2 usa a aba desde a v0.129 |
 | CR `Kuadrant` | `spec.observability: {}` -- tracing desligado |
 | campos de tracing no RHCL 1.4.3 | `Kuadrant.spec.observability.tracing.{defaultEndpoint,insecure}`, `observability.dataPlane.{defaultLevels,httpHeaderIdentifier}`; `Authorino.spec.tracing.endpoint` (hoje `""`); `Limitador.spec.tracing.endpoint` |
 | Gateway nativo | `istiod-openshift-gateway`, gerido pelo operador de ingresso (`managed-by: sail-library`); o `mesh` dele não tem `extensionProviders`, só métricas Prometheus |
@@ -184,9 +184,12 @@ Roteiro:
    Limitador devolve a negação, e o tempo total é o mesmo de uma chamada que
    passa. Recusar não sai mais barato que aceitar -- e isso vira argumento de
    capacidade (proposta de sizing).
-5. **A tela.** A Jaeger UI do Tempo (rota do `TempoMonolithic`), entrando com o
-   login do cluster. A aba *Observe → Traces* do console fica para quando houver
-   o Cluster Observability Operator.
+5. **A tela.** A aba *Observe → Traces* do console (plugin do Cluster
+   Observability Operator, que o mz8j7 ganhou em 2026-10-28, v0.129), com a
+   instância `tracing-system / tempo`, o tenant `dev` e a consulta TraceQL pelo
+   hostname da API. A Jaeger UI do Tempo (v0.127 e v0.128) fica como plano B
+   do `trace.sh url` quando a aba não existe: a própria tela a marca como
+   descontinuada.
 6. **O que isso prova.** A plataforma de API explica o próprio custo, por
    etapa, sem Service Mesh: cada policy tem um preço que se mede.
 7. **O que o trace não mostra aqui.** O tempo da aplicação atrás do Gateway

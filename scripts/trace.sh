@@ -7,7 +7,10 @@
 # em dez linhas de terminal, e o participante nao precisa sair dele para
 # responder. Este script consulta a API do Tempo pelo gateway do tenant 'dev',
 # com o token da sessao, e imprime os spans em arvore: servico, nome, duracao
-# e a decisao (ratelimit.limited, status_code).
+# e a decisao (ratelimit.limited, status_code). A tela e a aba Observe ->
+# Traces do console (plugin do Cluster Observability Operator), que le o mesmo
+# tenant; a UI do Jaeger do Tempo esta marcada como descontinuada e fica so
+# como plano B quando a aba nao existe.
 #
 # O QUE SEPARA O PARTICIPANTE: o span raiz do filtro ('kuadrant_filter') traz
 # o hostname da API ('hostname') e o id da requisicao ('request_id', o mesmo
@@ -18,7 +21,7 @@
 #   bash scripts/trace.sh ultimo            # o ultimo trace da SUA API
 #   bash scripts/trace.sh ultimo 3          # os tres ultimos
 #   bash scripts/trace.sh id <x-request-id> # o trace de UMA chamada
-#   bash scripts/trace.sh url               # o endereco da tela (Jaeger UI)
+#   bash scripts/trace.sh url               # a tela: Observe -> Traces do console, ja filtrada pela sua API
 #
 # Nao faz 'source' de nada (scripts de scripts/ sao self-contained).
 set -euo pipefail
@@ -48,6 +51,20 @@ if [[ -s "$_CA" ]]; then _TLS=(--cacert "$_CA"); else _TLS=(); fi
 
 # a API do participante: o hostname da HTTPRoute, que e o que o filtro grava no span
 API_HOST="$(oc get httproute travel-agency -n travel-agency -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null || true)"
+
+# A tela: a aba Observe -> Traces do console, apontando para esta instancia e
+# este tenant (sem os parametros a aba abre em "No Tempo instance selected").
+# Sem o plugin, a UI do Jaeger pela rota do Tempo.
+_CONSOLE="$(oc whoami --show-console 2>/dev/null || true)"
+_TELA=""
+if [[ -n "$_CONSOLE" ]] && oc get consoleplugin distributed-tracing-console-plugin >/dev/null 2>&1; then
+  _TELA="${_CONSOLE}/observe/traces"
+fi
+_urlenc() { python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$1"; }
+_tela_trace() { # <traceID> -> URL da tela daquele trace
+  if [[ -n "$_TELA" ]]; then printf '%s/%s?namespace=tracing-system&name=tempo&tenant=dev' "$_TELA" "$1"
+  else printf 'https://%s/api/traces/v1/dev/trace/%s' "$_rota" "$1"; fi
+}
 
 _tempo() { # <caminho> [param=valor ...]
   local p="$1"; shift; local args=()
@@ -103,7 +120,7 @@ _mostra() { # <traceID>
   local tid="$1"
   printf '%strace %s%s\n' "$_DIM" "$tid" "$_RST"
   _tempo "/traces/${tid}" | _imprime
-  printf '%s  tela: https://%s/api/traces/v1/dev/trace/%s%s\n' "$_DIM" "$_rota" "$tid" "$_RST"
+  printf '%s  tela: %s%s\n' "$_DIM" "$(_tela_trace "$tid")" "$_RST"
 }
 
 _busca() { # <traceql> <limite>  -> ids, um por linha
@@ -144,7 +161,13 @@ case "$cmd" in
     _mostra "$ids"
     ;;
   url)
-    printf 'https://%s/api/traces/v1/dev/search?service=wasm-shim\n' "$_rota"
+    if [[ -n "$_TELA" ]]; then
+      [[ -n "$API_HOST" ]] || _die "nao achei a HTTPRoute travel-agency -- a API do seu ambiente esta de pe?"
+      printf '%s?namespace=tracing-system&name=tempo&tenant=dev&start=1h&q=%s\n' "$_TELA" "$(_urlenc "{ span.hostname = \"${API_HOST}\" }")"
+    else
+      printf '%s[!]%s a aba Observe -> Traces nao esta no console (plugin do Cluster Observability Operator ausente); fica a UI do Jaeger do Tempo\n' "$_RED" "$_RST" >&2
+      printf 'https://%s/api/traces/v1/dev/search?service=wasm-shim\n' "$_rota"
+    fi
     ;;
   -h|--help) sed -n '2,24p' "$0" ;;
   *) _die "comando desconhecido: $cmd (ultimo | id <x-request-id> | url)" ;;

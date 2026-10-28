@@ -53,7 +53,7 @@ quando precisar.
 | 5.3 | os PipelineRuns da conferência na console | Failed e Succeeded | **feito** (v0.119); a linha *RECUSADO* no log do GitLab fica |
 | 5.1 | a Application no Argo CD, *Synced* | o status | **feito** (v0.120): a UI do Argo precisa de ~20 s depois do login |
 | 5.4 | o `OutOfSync` no Argo | o recurso divergente | a mesma tela com o desvio da 5.4 em curso; captura em duas etapas (patch, foto, revert) |
-| 6.2 | o trace do `429` no Jaeger do Tempo | `should_rate_limit` e `send_reply` | **feito** (v0.128): login do OpenShift pelo gateway do Tempo; marca a linha inteira (`ate`) porque o nome do span fica cortado pelo overflow |
+| 6.2 | *Observe → Traces* do console: a lista filtrada pela API e o trace do `429` | instância, *Run query*, o trace; `should_rate_limit` e `send_reply` | **feito** (v0.129, no lugar do Jaeger da v0.128, que a própria tela marca como descontinuado); o rótulo do span mistura `<strong>` e texto, então `texto` casa também o elemento mais fundo com o texto inteiro |
 | 6.3 | *Observe → Alerts* no projeto do Gateway | a regra e o alerta aceso | console |
 | 7.x | a topologia de policies na console | o Gateway e as policies | abre com o login da plataforma, mas desenha a turma inteira; falta filtrar o namespace pela UI |
 
