@@ -8,12 +8,14 @@
 # precisa rodar tambem onde nao ha Postman: no terminal do participante e na
 # esteira. O terminal do Showroom nao tem Node; o runner oficial (newman)
 # roda num pod descartavel no namespace da API, com a colecao, o environment e
-# os dados por plano montados de um ConfigMap. Mesmo arquivo, mesmo resultado.
+# os dados por plano montados de um Secret. Mesmo arquivo, mesmo resultado.
 #
 # O que faz, na ordem:
 #   1. scripts/postman-env.sh  -> environment + planos.local.csv (hosts e
 #      chaves DESTE cluster, lidos na hora; nunca versionados)
-#   2. ConfigMap testa-borda no namespace da API (sobrescreve o anterior)
+#   2. Secret testa-borda no namespace da API (sobrescreve o anterior; o
+#      environment e o CSV carregam chaves de API vivas -- por isso Secret, e
+#      por isso ele e apagado no fim, junto com o pod)
 #   3. pod newman (imagem oficial), newman run com as pastas pedidas
 #   4. mostra a saida do newman; o codigo de saida e o do newman: 0 = todas as
 #      assercoes passaram
@@ -62,8 +64,13 @@ bash scripts/postman-env.sh | sed 's/^/  /'
 [[ -s "$ENVFILE" ]] || _die "environment nao gerado"
 [[ -s "$DADOS" ]]   || _die "dados por plano nao gerados"
 
-_sec "2. ConfigMap testa-borda em $NS"
-oc create configmap testa-borda -n "$NS" \
+_sec "2. Secret testa-borda em $NS (apagado no fim)"
+# limpeza garantida: o Secret carrega chaves vivas e o pod nao precisa
+# sobreviver ao resultado. 'trap' cobre Ctrl-C e falha no meio.
+_limpa() { oc delete secret testa-borda -n "$NS" --ignore-not-found >/dev/null 2>&1 || true
+           oc delete pod testa-borda -n "$NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true; }
+trap _limpa EXIT
+oc create secret generic testa-borda -n "$NS" \
   --from-file=colecao.json="$COLECAO" \
   --from-file=env.json="$ENVFILE" \
   --from-file=planos.csv="$DADOS" \
@@ -97,7 +104,7 @@ oc run testa-borda -n "$NS" --image="$IMAGEM" --restart=Never --quiet \
   "containers":[{"name":"newman","image":"$IMAGEM","command":["/bin/sh","-c",$SH_JSON],
     "volumeMounts":[{"name":"dados","mountPath":"/dados"}],
     "resources":{"requests":{"cpu":"100m","memory":"128Mi"},"limits":{"cpu":"1","memory":"512Mi"}}}],
-  "volumes":[{"name":"dados","configMap":{"name":"testa-borda"}}]}}
+  "volumes":[{"name":"dados","secret":{"secretName":"testa-borda"}}]}}
 EOF
 )" >/dev/null
 for _ in $(seq 1 60); do
@@ -108,8 +115,6 @@ done
 [[ "$fase" == "Succeeded" || "$fase" == "Failed" ]] || _die "o pod testa-borda nao terminou em 2 min (oc describe pod testa-borda -n $NS)"
 oc logs testa-borda -n "$NS"
 rc="$(oc get pod testa-borda -n "$NS" -o jsonpath='{.status.containerStatuses[0].state.terminated.exitCode}')"
-oc delete pod testa-borda -n "$NS" --wait=false >/dev/null 2>&1 || true
-
 printf '\n'
 if [[ "$rc" == "0" ]]; then
   printf '%s[OK]%s a borda esta como o contrato diz (newman rc=0).\n' "$_GRN" "$_RST"
