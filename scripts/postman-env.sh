@@ -70,6 +70,28 @@ if [[ "$(_conta "$_sel")" == "0" ]]; then
   fi
 fi
 
+# O limite de cada plano vem do CONTRATO, nao do cluster: o que esta no Git e
+# a promessa; o cluster e o que esta valendo. Se os dois divergem (um 'oc
+# patch' a mao, como na parte 5.4), o teste precisa reprovar -- e so reprova
+# se esperar o valor do Git. Ordem: esteira/planos.yaml (o repositorio do
+# participante), base/policies-plans/travels-plans.yaml (a demo), e o cluster
+# como ultimo recurso. A conversao YAML->JSON e do proprio oc, sem servidor.
+_PLANOS_JSON=""
+for _f in esteira/planos.yaml base/policies-plans/travels-plans.yaml; do
+  if [[ -f "$_f" ]]; then
+    _PLANOS_JSON="$(oc create -f "$_f" --dry-run=client --validate=false -o json 2>/dev/null \
+      | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+itens=d.get("items",[d]) if d.get("kind")=="List" else [d]
+pp=[i for i in itens if i.get("kind")=="PlanPolicy"]
+print(json.dumps(pp[0]) if pp else "")' 2>/dev/null || true)"
+    [[ -n "$_PLANOS_JSON" ]] && { _PLANOS_ORIGEM="$_f"; break; }
+  fi
+done
+if [[ -z "$_PLANOS_JSON" ]]; then
+  _PLANOS_JSON="$(oc get planpolicy travels-plans -n travel-agency -o json 2>/dev/null || true)"; _PLANOS_ORIGEM="o cluster (sem arquivo de planos no repositorio)"
+fi
+export _PLANOS_JSON _PLANOS_ORIGEM
 oc get secrets -n kuadrant-system -l "$_sel" \
   -o jsonpath='{range .items[*]}{.metadata.labels.kuadrant\.io/plan-id}{"\t"}{.data.api_key}{"\n"}{end}' 2>/dev/null \
   | awk -F'\t' '!seen[$1]++' \
@@ -98,6 +120,25 @@ open(os.environ["SAIDA"], "w").write(json.dumps(env, indent=2))
 faltando = [t for t in ("free", "silver", "gold") if t not in chaves]
 if faltando:
     print("  AVISO: sem chave para: " + ", ".join(faltando) + " (aplicou o overlay da demo?)")
+# os dados por plano para a pasta Planos-por-dados (newman -d): plano,
+# chave, limite da janela de 10 s. O limite sai do PlanPolicy do cluster, que e
+# a fonte -- se alguem mudou o free para 6, o teste espera 6.
+limites = {}
+try:
+    pp = json.loads(os.environ.get("_PLANOS_JSON") or "{}")
+    for pl in pp.get("spec", {}).get("plans", []):
+        for c in pl.get("limits", {}).get("custom", []):
+            if c.get("window") == "10s":
+                limites[pl["tier"]] = c["limit"]
+except Exception:
+    pass
+csv_path = os.environ["SAIDA"].replace(".local.postman_environment.json", "") + "-planos.local.csv"
+with open(csv_path, "w") as f:
+    f.write("plano,chave,limite\n")
+    for tier in ("free", "silver", "gold"):
+        if tier in chaves:
+            f.write("%s,%s,%s\n" % (tier, chaves[tier], limites.get(tier, {"free": 3, "silver": 10, "gold": 30}[tier])))
+print("  escrito: " + csv_path + " (plano, chave, limite -- limites de " + os.environ.get("_PLANOS_ORIGEM", "?") + ")")
 if _vazios:
     print("  sem host para: " + ", ".join(_vazios) + " -- essas pastas da colecao nao rodam neste cluster")
 '

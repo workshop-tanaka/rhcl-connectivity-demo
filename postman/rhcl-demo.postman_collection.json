@@ -1,15 +1,100 @@
 {
   "info": {
-    "name": "RHCL Demo — travel-agency, planos, pacotes e CDC",
-    "description": "Testes das APIs do Red Hat Connectivity Link, agrupados por assunto.\n\nSETUP: gere o environment com as chaves reais do cluster:\n    bash scripts/postman-env.sh\ne importe postman/rhcl-demo.local.postman_environment.json.\n\nA chave vai no header Authorization: APIKEY <chave>, como as policies\nesperam; a query string ficou so para os portais de parceiro. O corte de\nrate limit tem DOIS caminhos: o request 'estourar o free' prova o 429 numa\nexecucao so (pre-request queima a cota), e o Runner com 14 iteracoes na\npasta 'Planos comerciais' mostra o corte requisicao a requisicao.",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    "name": "RHCL — bateria da borda: contrato, fechada, planos, versoes",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "A bateria de testes da borda. Nucleo (roda sempre): 'Contrato', 'A borda e fechada', 'Planos por dados'. Opcionais: 'Versoes' (depois da parte 4.3), 'Echo OIDC', e as pastas de outros ambientes. Environment: scripts/postman-env.sh; dados por plano: postman/planos.local.csv (gerado pelo mesmo script)."
   },
   "item": [
     {
-      "name": "A borda e fechada",
+      "name": "Contrato — travels",
+      "description": "O que a API promete no corpo. Um campo a menos ou um tipo diferente reprova aqui, mesmo com 200.",
       "item": [
         {
-          "name": "travels SEM chave -> 401",
+          "name": "GET /travels -> lista de destinos (schema)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "APIKEY {{api_key_gold}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{api_host}}/travels",
+              "protocol": "https",
+              "host": [
+                "{{api_host}}"
+              ],
+              "path": [
+                "travels"
+              ]
+            },
+            "description": "O contrato da lista. Se um campo sumir ou mudar de tipo, e aqui que cai."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('JSON', () => pm.expect(pm.response.headers.get('content-type')).to.match(/application\\/json/));",
+                  "const schema = {type:'array', minItems:1, items:{type:'object', required:['city','lat','lng'], properties:{city:{type:'string'}, lat:{type:'string'}, lng:{type:'string'}}}};",
+                  "pm.test('contrato: lista de {city, lat, lng}', () => pm.response.to.have.jsonSchema(schema));",
+                  "pm.test('x-request-id presente (rastreavel)', () => pm.response.to.have.header('x-request-id'));",
+                  "pm.test('responde em menos de 2 s', () => pm.expect(pm.response.responseTime).to.be.below(2000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /travels/Rome -> um destino (schema)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "APIKEY {{api_key_gold}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{api_host}}/travels/Rome",
+              "protocol": "https",
+              "host": [
+                "{{api_host}}"
+              ],
+              "path": [
+                "travels",
+                "Rome"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const schema = {type:'object', required:['city','status','flights','hotels'], properties:{city:{type:'string'}, status:{type:'string'}, flights:{type:'array', items:{type:'object', required:['airline','price'], properties:{airline:{type:'string'}, price:{type:'number'}}}}, hotels:{type:'array'}}};",
+                  "pm.test('contrato: city, status, flights[{airline, price}], hotels[]', () => pm.response.to.have.jsonSchema(schema));",
+                  "pm.test('city e o pedido', () => pm.expect(pm.response.json().city).to.eql('Rome'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "A borda é fechada",
+      "description": "Sem credencial valida, 401 na borda; a aplicacao nao e chamada.",
+      "item": [
+        {
+          "name": "sem chave -> 401",
           "request": {
             "method": "GET",
             "header": [],
@@ -22,32 +107,101 @@
               "path": [
                 "travels",
                 "Rome"
-              ],
-              "query": []
-            },
-            "description": ""
+              ]
+            }
           },
+          "response": [],
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('sem chave e 401 (deny-all na borda)', () => pm.response.to.have.status(401));"
+                  "pm.test('401 sem credencial', () => pm.response.to.have.status(401));"
                 ]
               }
             }
           ]
         },
         {
-          "name": "travels com chave INVALIDA -> 401",
+          "name": "chave invalida -> 401",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "APIKEY nao-existe",
-                "type": "text"
+                "value": "APIKEY nao-existe-{{$randomInt}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{api_host}}/travels/Rome",
+              "protocol": "https",
+              "host": [
+                "{{api_host}}"
+              ],
+              "path": [
+                "travels",
+                "Rome"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 com chave que nao existe', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "chave na query string -> 401 (so o header vale)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://{{api_host}}/travels/Rome?APIKEY={{api_key_gold}}",
+              "protocol": "https",
+              "host": [
+                "{{api_host}}"
+              ],
+              "path": [
+                "travels",
+                "Rome?APIKEY={{api_key_gold}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401: a chave na URL nao e aceita', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Planos — por dados",
+      "description": "Roda uma vez por linha de planos.local.csv: {{plano}}, {{chave}}, {{limite}}. A 1a responde 200; a limite+1 em 10 s leva 429.",
+      "item": [
+        {
+          "name": "{{plano}}: dentro do limite -> 200",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "APIKEY {{chave}}"
               }
             ],
             "url": {
@@ -61,7 +215,244 @@
                 "Rome"
               ]
             },
-            "description": ""
+            "description": "Orientado a dados: uma linha por plano em postman/planos.local.csv (plano, chave, limite)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(pm.iterationData.get('plano') + ': a primeira do plano responde 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "{{plano}}: a requisicao limite+1 em 10 s -> 429",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "APIKEY {{chave}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{api_host}}/travels/Rome",
+              "protocol": "https",
+              "host": [
+                "{{api_host}}"
+              ],
+              "path": [
+                "travels",
+                "Rome"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// queima o resto da janela: ja gastou 1 na requisicao anterior; manda (limite-1) e a desta vira limite+1",
+                  "const u = pm.variables.replaceIn('https://{{api_host}}/travels/Rome');",
+                  "const chave = pm.iterationData.get('chave');",
+                  "const n = Number(pm.iterationData.get('limite')) - 1;",
+                  "function bate(k, done) { if (k <= 0) return done(); pm.sendRequest({url: u, method: 'GET', header: {Authorization: 'APIKEY ' + chave}}, () => bate(k - 1, done)); }",
+                  "bate(n, () => console.log(pm.iterationData.get('plano') + ': ' + n + ' requisicoes a mais na janela'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const lim = Number(pm.iterationData.get('limite'));",
+                  "pm.test(pm.iterationData.get('plano') + ': a requisicao ' + (lim + 1) + ' em 10 s leva 429 do Limitador', () => pm.response.to.have.status(429));",
+                  "pm.test('o 429 nasce na borda: corpo curto, sem JSON da aplicacao', () => pm.expect(pm.response.text()).to.include('Too Many Requests'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Versões (depois da 4.3)",
+      "description": "So depois da parte 4.3 (a rota travels-versoes). v1 avisa, v2 marca a versao, free nao entra na v2.",
+      "item": [
+        {
+          "name": "v1 com gold -> 200 e aviso de descontinuacao",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "APIKEY {{api_key_gold}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{api_host}}/v1/travels",
+              "protocol": "https",
+              "host": [
+                "{{api_host}}"
+              ],
+              "path": [
+                "v1",
+                "travels"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('Deprecation presente', () => pm.response.to.have.header('deprecation'));",
+                  "pm.test('link para a sucessora', () => pm.expect(pm.response.headers.get('link') || '').to.include('successor-version'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "v2 com gold -> 200 e x-api-version: 2",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "APIKEY {{api_key_gold}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{api_host}}/v2/travels",
+              "protocol": "https",
+              "host": [
+                "{{api_host}}"
+              ],
+              "path": [
+                "v2",
+                "travels"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('x-api-version: 2', () => pm.expect(pm.response.headers.get('x-api-version')).to.eql('2'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "v2 com free -> 403 (acesso antecipado so gold e silver)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "APIKEY {{api_key_free}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{api_host}}/v2/travels",
+              "protocol": "https",
+              "host": [
+                "{{api_host}}"
+              ],
+              "path": [
+                "v2",
+                "travels"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 para o free', () => pm.response.to.have.status(403));",
+                  "pm.test('a mensagem diz para onde ir', () => pm.expect(pm.response.text()).to.include('/v1'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Echo — OIDC pelo Keycloak (planos por identidade)",
+      "item": [
+        {
+          "name": "obter token (sistema-teste)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "url": {
+              "raw": "https://{{keycloak_host}}/realms/sso/protocol/openid-connect/token",
+              "protocol": "https",
+              "host": [
+                "{{keycloak_host}}"
+              ],
+              "path": [
+                "realms",
+                "sso",
+                "protocol",
+                "openid-connect",
+                "token"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "client_id",
+                  "value": "echo-api"
+                },
+                {
+                  "key": "grant_type",
+                  "value": "password"
+                },
+                {
+                  "key": "username",
+                  "value": "sistema-teste"
+                },
+                {
+                  "key": "password",
+                  "value": "redhat123"
+                },
+                {
+                  "key": "scope",
+                  "value": "openid",
+                  "description": "sem ele o /userinfo responde 403 no Keycloak recente (medido 2026-09-01)"
+                }
+              ]
+            },
+            "description": "Password grant no client publico echo-api. O token carrega preferred_username=sistema-teste, que vira o x-partner nas metricas e decide o PLANO (gold) no echo-plans."
           },
           "event": [
             {
@@ -69,7 +460,60 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('chave invalida e 401', () => pm.response.to.have.status(401));"
+                  "pm.test('200 com access_token', () => pm.expect(pm.response.json().access_token).to.exist);",
+                  "pm.environment.set('token_echo', pm.response.json().access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ver os claims do token (quem sou eu para a policy)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_echo}}"
+              }
+            ],
+            "url": {
+              "raw": "https://{{keycloak_host}}/realms/sso/protocol/openid-connect/userinfo",
+              "protocol": "https",
+              "host": [
+                "{{keycloak_host}}"
+              ],
+              "path": [
+                "realms",
+                "sso",
+                "protocol",
+                "openid-connect",
+                "userinfo"
+              ],
+              "query": []
+            },
+            "description": "Duas visoes da mesma identidade: o USERINFO do Keycloak (esta resposta) e o PAYLOAD do proprio JWT, decodificado no script de teste -- abra o Console do Postman para ver os claims anotados. Sao eles que a AuthPolicy le: preferred_username decide o PLANO no echo-plans e vira o x-partner nas metricas; iss tem de casar com o issuerUrl da policy; exp explica por que o request 3 comeca a dar 401 depois de ~5 min (token expirado, nao policy quebrada)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('userinfo 200 (token valido para o proprio emissor)', () => pm.response.to.have.status(200));",
+                  "pm.test('identidade presente', () => pm.expect(pm.response.json().preferred_username).to.exist);",
+                  "",
+                  "// decodifica o payload do JWT localmente -- base64url, sem chamar ninguem",
+                  "const tok = pm.environment.get('token_echo') || '';",
+                  "const b64 = tok.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');",
+                  "const claims = JSON.parse(atob(b64));",
+                  "console.log('=== claims do JWT (o que a AuthPolicy enxerga) ===');",
+                  "console.log('preferred_username :', claims.preferred_username, ' <- decide o PLANO (echo-plans) e o x-partner (metricas)');",
+                  "console.log('iss                :', claims.iss, ' <- tem de casar com o issuerUrl da AuthPolicy');",
+                  "console.log('exp                :', new Date(claims.exp * 1000).toISOString(), ' <- depois disso, 401 (token, nao policy)');",
+                  "console.log('azp (client)       :', claims.azp);",
+                  "console.log('claims completos   :', JSON.stringify(claims, null, 2));",
+                  "pm.test('iss aponta para o realm sso deste cluster', () => pm.expect(claims.iss).to.include('/realms/sso'));"
                 ]
               }
             }
@@ -81,17 +525,16 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://{{echo_host}}/qualquer",
+              "raw": "https://{{echo_host}}/x",
               "protocol": "https",
               "host": [
                 "{{echo_host}}"
               ],
               "path": [
-                "qualquer"
+                "x"
               ],
               "query": []
-            },
-            "description": "O deny-all e de GATEWAY: rota nova sem AuthPolicy propria ja nasce negada."
+            }
           },
           "event": [
             {
@@ -99,11 +542,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// OIDCPolicy desde 2026-09-01: sem credencial o gateway REDIRECIONA",
-                  "// para o login do Keycloak em vez do 401 seco da AuthPolicy antiga.",
-                  "// Desligue 'Automatically follow redirects' nas settings do Postman",
-                  "// para ver o 302; com follow ligado, o teste aceita a pagina de login.",
-                  "pm.test('echo sem token redireciona ao Keycloak (ou entrega o login)', () => {",
+                  "// OIDCPolicy (2026-09-01): sem token o gateway REDIRECIONA ao login",
+                  "// do Keycloak -- e a prova viva da integracao, melhor que o 401 seco.",
+                  "// Com 'follow redirects' ligado o Postman entrega a pagina de login.",
+                  "pm.test('sem token: redirect ao Keycloak (ou a pagina de login)', () => {",
                   "    if (pm.response.code === 302) {",
                   "        pm.expect(pm.response.headers.get('Location')).to.include('/protocol/openid-connect/auth');",
                   "    } else {",
@@ -115,35 +557,29 @@
               }
             }
           ]
-        }
-      ]
-    },
-    {
-      "name": "Planos comerciais",
-      "item": [
+        },
         {
-          "name": "free (3 req/10s)",
+          "name": "echo COM token -> autenticado (404 e do app)",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "APIKEY {{api_key_free}}",
-                "type": "text"
+                "value": "Bearer {{token_echo}}"
               }
             ],
             "url": {
-              "raw": "https://{{api_host}}/travels/Rome",
+              "raw": "https://{{echo_host}}/x",
               "protocol": "https",
               "host": [
-                "{{api_host}}"
+                "{{echo_host}}"
               ],
               "path": [
-                "travels",
-                "Rome"
-              ]
+                "x"
+              ],
+              "query": []
             },
-            "description": "No Runner (14 iteracoes): 3x 200 e depois 429."
+            "description": "O que importa: NAO e 401/403 de auth. O 404 e o proprio app respondendo -- o JWT atravessou a AuthPolicy. sistema-teste e gold: 30 req/10s."
           },
           "event": [
             {
@@ -151,132 +587,63 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('free: 200 ou 429', () => pm.expect([200,429]).to.include(pm.response.code));",
-                  "if (pm.response.code === 200) pm.test('corpo com dados', () => pm.expect(pm.response.text().length).to.be.above(2));",
-                  "console.log('free -> ' + pm.response.code);"
+                  "pm.test('autenticou (nao e 401)', () => pm.expect(pm.response.code).to.not.eql(401));"
                 ]
               }
             }
           ]
         },
         {
-          "name": "silver (10 req/10s)",
+          "name": "estourar o free POR IDENTIDADE (acme-trips) -> 429",
           "request": {
             "method": "GET",
             "header": [
               {
                 "key": "Authorization",
-                "value": "APIKEY {{api_key_silver}}",
-                "type": "text"
+                "value": "Bearer {{token_acme}}"
               }
             ],
             "url": {
-              "raw": "https://{{api_host}}/travels/Rome",
+              "raw": "https://{{echo_host}}/x",
               "protocol": "https",
               "host": [
-                "{{api_host}}"
+                "{{echo_host}}"
               ],
               "path": [
-                "travels",
-                "Rome"
-              ]
-            },
-            "description": ""
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('silver: 200 ou 429', () => pm.expect([200,429]).to.include(pm.response.code));",
-                  "console.log('silver -> ' + pm.response.code);"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "gold (30 req/10s)",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "APIKEY {{api_key_gold}}",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "https://{{api_host}}/travels/Rome",
-              "protocol": "https",
-              "host": [
-                "{{api_host}}"
+                "x"
               ],
-              "path": [
-                "travels",
-                "Rome"
-              ]
+              "query": []
             },
-            "description": ""
+            "description": "O pre-request loga como acme-trips (free por CLAIM, nao por chave) e queima as 3 do plano; esta e a 4a. O tier acompanha QUEM voce e no Keycloak."
           },
           "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('gold nao corta', () => pm.response.to.have.status(200));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "estourar o free numa execucao (429 deterministico)",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "APIKEY {{api_key_free}}",
-                "type": "text"
-              }
-            ],
-            "url": {
-              "raw": "https://{{api_host}}/travels/Rome",
-              "protocol": "https",
-              "host": [
-                "{{api_host}}"
-              ],
-              "path": [
-                "travels",
-                "Rome"
-              ]
-            },
-            "description": "O pre-request queima a cota do free (4 chamadas em serie); esta e a 5a."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('a 5a requisicao em 10s leva 429 do Limitador', () => pm.response.to.have.status(429));"
-                ]
-              }
-            },
             {
               "listen": "prerequest",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const u = pm.variables.replaceIn('https://{{api_host}}/travels/Rome');",
-                  "function bate(n, done) {",
-                  "  if (n === 0) return done();",
-                  "  pm.sendRequest({url: u, method: 'GET', header: {Authorization: 'APIKEY ' + pm.variables.replaceIn('{{api_key_free}}')}}, () => bate(n - 1, done));",
-                  "}",
-                  "bate(4, () => console.log('cota do free queimada'));"
+                  "const kc = pm.variables.replaceIn('https://{{keycloak_host}}/realms/sso/protocol/openid-connect/token');",
+                  "pm.sendRequest({url: kc, method: 'POST', body: {mode: 'urlencoded', urlencoded: [",
+                  "  {key:'client_id', value:'echo-api'}, {key:'grant_type', value:'password'},",
+                  "  {key:'username', value:'acme-trips'}, {key:'password', value:'redhat123'}]}},",
+                  "  (e, r) => {",
+                  "    const tok = r.json().access_token;",
+                  "    pm.environment.set('token_acme', tok);",
+                  "    const alvo = pm.variables.replaceIn('https://{{echo_host}}/x');",
+                  "    const cab = {Authorization: 'Bearer ' + tok};",
+                  "    function bate(n, done) { if (n === 0) return done();",
+                  "      pm.sendRequest({url: alvo, method: 'GET', header: cab}, () => bate(n - 1, done)); }",
+                  "    bate(3, () => console.log('cota free da persona queimada'));",
+                  "  });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('4a chamada do free leva 429', () => pm.response.to.have.status(429));"
                 ]
               }
             }
@@ -658,259 +1025,7 @@
           ]
         }
       ]
-    },
-    {
-      "name": "Echo — OIDC pelo Keycloak (planos por identidade)",
-      "item": [
-        {
-          "name": "obter token (sistema-teste)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/x-www-form-urlencoded"
-              }
-            ],
-            "url": {
-              "raw": "https://{{keycloak_host}}/realms/sso/protocol/openid-connect/token",
-              "protocol": "https",
-              "host": [
-                "{{keycloak_host}}"
-              ],
-              "path": [
-                "realms",
-                "sso",
-                "protocol",
-                "openid-connect",
-                "token"
-              ],
-              "query": []
-            },
-            "body": {
-              "mode": "urlencoded",
-              "urlencoded": [
-                {
-                  "key": "client_id",
-                  "value": "echo-api"
-                },
-                {
-                  "key": "grant_type",
-                  "value": "password"
-                },
-                {
-                  "key": "username",
-                  "value": "sistema-teste"
-                },
-                {
-                  "key": "password",
-                  "value": "redhat123"
-                },
-                {
-                  "key": "scope",
-                  "value": "openid",
-                  "description": "sem ele o /userinfo responde 403 no Keycloak recente (medido 2026-09-01)"
-                }
-              ]
-            },
-            "description": "Password grant no client publico echo-api. O token carrega preferred_username=sistema-teste, que vira o x-partner nas metricas e decide o PLANO (gold) no echo-plans."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('200 com access_token', () => pm.expect(pm.response.json().access_token).to.exist);",
-                  "pm.environment.set('token_echo', pm.response.json().access_token);"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "ver os claims do token (quem sou eu para a policy)",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token_echo}}"
-              }
-            ],
-            "url": {
-              "raw": "https://{{keycloak_host}}/realms/sso/protocol/openid-connect/userinfo",
-              "protocol": "https",
-              "host": [
-                "{{keycloak_host}}"
-              ],
-              "path": [
-                "realms",
-                "sso",
-                "protocol",
-                "openid-connect",
-                "userinfo"
-              ],
-              "query": []
-            },
-            "description": "Duas visoes da mesma identidade: o USERINFO do Keycloak (esta resposta) e o PAYLOAD do proprio JWT, decodificado no script de teste -- abra o Console do Postman para ver os claims anotados. Sao eles que a AuthPolicy le: preferred_username decide o PLANO no echo-plans e vira o x-partner nas metricas; iss tem de casar com o issuerUrl da policy; exp explica por que o request 3 comeca a dar 401 depois de ~5 min (token expirado, nao policy quebrada)."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('userinfo 200 (token valido para o proprio emissor)', () => pm.response.to.have.status(200));",
-                  "pm.test('identidade presente', () => pm.expect(pm.response.json().preferred_username).to.exist);",
-                  "",
-                  "// decodifica o payload do JWT localmente -- base64url, sem chamar ninguem",
-                  "const tok = pm.environment.get('token_echo') || '';",
-                  "const b64 = tok.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');",
-                  "const claims = JSON.parse(atob(b64));",
-                  "console.log('=== claims do JWT (o que a AuthPolicy enxerga) ===');",
-                  "console.log('preferred_username :', claims.preferred_username, ' <- decide o PLANO (echo-plans) e o x-partner (metricas)');",
-                  "console.log('iss                :', claims.iss, ' <- tem de casar com o issuerUrl da AuthPolicy');",
-                  "console.log('exp                :', new Date(claims.exp * 1000).toISOString(), ' <- depois disso, 401 (token, nao policy)');",
-                  "console.log('azp (client)       :', claims.azp);",
-                  "console.log('claims completos   :', JSON.stringify(claims, null, 2));",
-                  "pm.test('iss aponta para o realm sso deste cluster', () => pm.expect(claims.iss).to.include('/realms/sso'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "echo SEM token -> 302 para o Keycloak (OIDCPolicy)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "https://{{echo_host}}/x",
-              "protocol": "https",
-              "host": [
-                "{{echo_host}}"
-              ],
-              "path": [
-                "x"
-              ],
-              "query": []
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "// OIDCPolicy (2026-09-01): sem token o gateway REDIRECIONA ao login",
-                  "// do Keycloak -- e a prova viva da integracao, melhor que o 401 seco.",
-                  "// Com 'follow redirects' ligado o Postman entrega a pagina de login.",
-                  "pm.test('sem token: redirect ao Keycloak (ou a pagina de login)', () => {",
-                  "    if (pm.response.code === 302) {",
-                  "        pm.expect(pm.response.headers.get('Location')).to.include('/protocol/openid-connect/auth');",
-                  "    } else {",
-                  "        pm.expect(pm.response.code).to.equal(200);",
-                  "        pm.expect(pm.response.text()).to.include('Sign in');",
-                  "    }",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "echo COM token -> autenticado (404 e do app)",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token_echo}}"
-              }
-            ],
-            "url": {
-              "raw": "https://{{echo_host}}/x",
-              "protocol": "https",
-              "host": [
-                "{{echo_host}}"
-              ],
-              "path": [
-                "x"
-              ],
-              "query": []
-            },
-            "description": "O que importa: NAO e 401/403 de auth. O 404 e o proprio app respondendo -- o JWT atravessou a AuthPolicy. sistema-teste e gold: 30 req/10s."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('autenticou (nao e 401)', () => pm.expect(pm.response.code).to.not.eql(401));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "estourar o free POR IDENTIDADE (acme-trips) -> 429",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token_acme}}"
-              }
-            ],
-            "url": {
-              "raw": "https://{{echo_host}}/x",
-              "protocol": "https",
-              "host": [
-                "{{echo_host}}"
-              ],
-              "path": [
-                "x"
-              ],
-              "query": []
-            },
-            "description": "O pre-request loga como acme-trips (free por CLAIM, nao por chave) e queima as 3 do plano; esta e a 4a. O tier acompanha QUEM voce e no Keycloak."
-          },
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const kc = pm.variables.replaceIn('https://{{keycloak_host}}/realms/sso/protocol/openid-connect/token');",
-                  "pm.sendRequest({url: kc, method: 'POST', body: {mode: 'urlencoded', urlencoded: [",
-                  "  {key:'client_id', value:'echo-api'}, {key:'grant_type', value:'password'},",
-                  "  {key:'username', value:'acme-trips'}, {key:'password', value:'redhat123'}]}},",
-                  "  (e, r) => {",
-                  "    const tok = r.json().access_token;",
-                  "    pm.environment.set('token_acme', tok);",
-                  "    const alvo = pm.variables.replaceIn('https://{{echo_host}}/x');",
-                  "    const cab = {Authorization: 'Bearer ' + tok};",
-                  "    function bate(n, done) { if (n === 0) return done();",
-                  "      pm.sendRequest({url: alvo, method: 'GET', header: cab}, () => bate(n - 1, done)); }",
-                  "    bate(3, () => console.log('cota free da persona queimada'));",
-                  "  });"
-                ]
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('4a chamada do free leva 429', () => pm.response.to.have.status(429));"
-                ]
-              }
-            }
-          ]
-        }
-      ]
     }
-  ]
+  ],
+  "variable": []
 }
