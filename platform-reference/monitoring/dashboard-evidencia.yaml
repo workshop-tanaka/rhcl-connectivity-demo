@@ -309,7 +309,7 @@ spec:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "sum by (plan) (round(increase(authorized_calls[15m])))",
+              "expr": "sum by (plan) (round(increase(authorized_calls{plan!=\"\"}[15m])))",
               "legendFormat": "{{plan}}",
               "refId": "A",
               "instant": true
@@ -374,7 +374,7 @@ spec:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "sum by (plan) (round(increase(limited_calls[15m])))",
+              "expr": "sum by (plan) (round(increase(limited_calls{plan!=\"\"}[15m])))",
               "legendFormat": "{{plan}}",
               "refId": "A",
               "instant": true
