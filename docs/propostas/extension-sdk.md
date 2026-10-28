@@ -106,6 +106,31 @@ de dados: se o serviço de contratos cair, a extensão precisa de um
 discussão da 6.3. E o SDK é Technology Preview: o guia diz isso em
 negrito, como diz do `GRPCRoute`.
 
+## 3b. Outros casos de uso, pelo que o SDK permite
+
+Cada um nasce de uma parte do guia e usa uma das quatro capacidades do SDK
+(topologia, policies próprias, data binding por requisição, ação no caminho
+de dados). Os três marcados com ★ são os que mais rendem numa leitura ao lado
+da `ContratoPolicy`.
+
+| policy | o problema da Rota Viagens | o que ela faz | por que precisa do SDK | parte do guia |
+| --- | --- | --- | --- | --- |
+| ★ **`ParceiroPolicy`** (onboarding) | cada parceiro novo é quatro objetos à mão: o Secret da chave, o plano, o rótulo de telemetria, a entrada no portal | um CR por parceiro (`nome`, `plano`, `contato`, `validade`) cria e mantém os quatro; apagar o CR revoga tudo | coordenar várias policies atrás de uma interface só, e ser dona delas | 7.1 *Muitos parceiros, muitas APIs*, 4.1 |
+| ★ **`DepreciacaoPolicy`** (sunset de versão) | a v1 vai sair; hoje ninguém avisa o parceiro, e desligar é cortar | na rota da v1: cabeçalhos `Deprecation` e `Sunset` com a data; depois da data, `410 Gone` -- exceto para os parceiros com prazo estendido no CR; métrica `versao_depreciada` por parceiro | lê a topologia (as rotas das versões), decide por requisição (data e parceiro) e age na resposta | 4.3 *Uma API, duas versões* |
+| ★ **`RotacaoDeChavePolicy`** | trocar a chave de um parceiro hoje é cortar o acesso até ele atualizar | aceita a chave antiga e a nova por N dias; conta o uso da antiga por parceiro; ao fim do prazo só a nova vale; avisa com `X-Key-Expires` | cria a AuthPolicy com as duas credenciais, data binding para saber qual foi usada, métrica | 2.1, o script `chave-vazada.sh` |
+| **`JanelaDeManutencaoPolicy`** | a aplicação para para manutenção, e cada parceiro descobre pelo erro | entre `inicio` e `fim`: `503` com `Retry-After` e mensagem, exceto para os parceiros em `exceto` (o plano completo continua) | empacota predicado de tempo, resposta e exceção por identidade num objeto que a operação entende | 6.3 *Quando a policy cai* |
+| **`ReputacaoPolicy`** (antifraude) | a Rota Viagens tem um serviço de reputação de chamadores, e a borda não o consulta | chama o serviço por requisição com o endereço e a identidade; nega acima de um `limiar`; grava a nota como rótulo de métrica | um serviço seu no caminho de dados, decidindo | 6.1 *Onde a requisição morreu* (mais uma estação) |
+| **`ResidenciaDePolicy`** (dados por região) | a API da UE só pode responder a chamadores da UE, e o auditor quer prova | o exemplo da documentação: classifica a origem, nega com `403`, carimba a região na resposta e na métrica | idem, com evidência | 6.6 *Quatro perguntas, quatro fontes* |
+| **`CotaContratualPolicy`** | o contrato fala em chamadas por mês com aviso, não em rajadas por segundo | cota mensal por parceiro; `X-Quota-Remaining` em toda resposta; a partir de 80% um alerta; ao estourar, `429` até o dia 1º | janela longa, cabeçalhos informativos na resposta e o alerta vêm de uma policy só | 4.2 *Isso vira número*, 6.4 *O alerta* |
+| **`AuditoriaPolicy`** | a auditoria pergunta "quem chamou o quê, sob qual plano, e o que a borda decidiu", e a resposta está em quatro fontes | em cada requisição, envia a um coletor seu: parceiro, plano, rota, decisão, `x-request-id` | ação no caminho de dados com o resultado das outras policies | 6.6 |
+| **`IdentidadeDeCargaPolicy`** | um parceiro é um serviço, não uma pessoa, e quer entrar com a identidade de carga (SPIFFE), não com chave | valida o token de identidade de carga antes do Authorino e injeta a identidade no cabeçalho | o exemplo `WorkloadIdentityPolicy` da documentação | Extra *Parceiro com certificado* |
+| **`AcessoOIDCPolicy`** | a 3.3 configura o login de pessoa na AuthPolicy à mão, com o callback por fora | um CR cria a AuthPolicy e a HTTPRoute de callback do fluxo OAuth | o exemplo que a própria documentação dá para "coordenar policies" | 3.3 *Chave ou identidade* |
+
+Os três com ★ têm em comum o que o `ContratoPolicy` tem: um problema que o
+participante já sentiu no guia, uma solução que se lê num YAML de dez linhas,
+e uma evidência no painel ou no cabeçalho. Para a leitura, a proposta é
+`ContratoPolicy` por extenso e os três ★ em uma tabela.
+
 ## 4. Onde entra no guia
 
 **Uma leitura na Fase 7, numerada**: *7.8 Leitura: quando a policy que você
