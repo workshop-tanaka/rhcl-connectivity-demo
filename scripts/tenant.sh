@@ -2729,6 +2729,13 @@ json.dump({"apiVersion": "v1", "kind": "List", "items": out}, sys.stdout)' \
   # projeto: 'git status', 'commit' e 'push' funcionam sem credencial digitada.
   # Depois da copia, porque e ela que poe os arquivos no lugar.
   if [[ -n "$gl_proj" ]]; then
+    # o main do projeto dele recebe a onda nova ANTES de ligar o terminal: e o
+    # 'semeia' de novo, pela API e do lado de quem opera -- esteira/,
+    # planejamento/ e .tekton/ ficam como estao (sao dele e da administracao).
+    # Sem isso a arvore do terminal fica suja com a onda e o 'git commit -am'
+    # do roteiro leva tudo para o merge request (medido no user1, 2026-10-28).
+    bash "${_here}/scripts/gitlab-turma.sh" semeia "$t" >/dev/null 2>&1 \
+      || _warn "nao consegui atualizar o main do projeto de ${t} com a onda nova: bash scripts/gitlab-turma.sh semeia ${t}"
     bash "${_here}/scripts/gitlab-turma.sh" terminal "$t" >/dev/null 2>&1 \
       && _ok "terminal de ${t} ligado ao projeto dele (git push funciona de la)" \
       || _warn "o terminal de ${t} nao ficou ligado ao GitLab — o projeto existe e abre pelo navegador; para ligar: bash scripts/gitlab-turma.sh terminal ${t}"

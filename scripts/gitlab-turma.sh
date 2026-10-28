@@ -337,7 +337,7 @@ def arquivos(origem, url_projeto, so_versionados):
 # que veio e sobrescrito. 'esteira/' fica fora disso -- e o que o Argo CD
 # aplica, e la mora a mudanca que ele fez por merge request. Republicar por
 # cima desfaria a mudanca dele NO CLUSTER.
-PRESERVA = ("esteira/", ".tekton/")
+PRESERVA = ("esteira/", "planejamento/", ".tekton/")
 def publica(pid, caminho, arqs, msg):
     ja = arvore(pid)
     acoes = []
@@ -605,15 +605,13 @@ cmd_terminal() {
     # segue com a credencial de sempre.
     tokdev="$(_pat_terminal "${u}-dev")" || tokdev=""
     [[ -n "$tok" ]] || { _warn "${u}: nao consegui emitir o token dele (existe no GitLab? rode 'semeia ${u}')"; falhou=$((falhou+1)); continue; }
-    # TRES LINHAS NO STDIN: o token do participante, o do -dev e o da
-    # administracao (so este escreve no main: push_access_level 60). Nenhum
-    # vai em argumento nem em URL; o de administracao vira um credential-store
-    # temporario dentro do pod, apagado logo depois do push.
-    if printf '%s\n%s\n%s\n' "$tok" "$tokdev" "$TOKEN" | oc exec -i -n "showroom-${u}" deploy/showroom -c terminal -- env GL_HOST="$GITLAB_HOST" GL_USER="$u" bash -c '
+    # DUAS LINHAS NO STDIN: o token do participante e o do -dev. O token de
+    # administracao NUNCA entra no pod: o main do projeto e atualizado do lado
+    # de quem opera, pela API, no 'semeia' (que a republicacao chama antes).
+    if printf '%s\n%s\n' "$tok" "$tokdev" | oc exec -i -n "showroom-${u}" deploy/showroom -c terminal -- env GL_HOST="$GITLAB_HOST" GL_USER="$u" bash -c '
         set -e
         read -r TK || true
         read -r TKD || true
-        read -r TKA || true
         [ -n "$TK" ]
         D=/home/lab-user/rhcl-connectivity-demo; C=/home/lab-user/.git-credenciais-ambiente
         cd "$D"
@@ -632,22 +630,14 @@ cmd_terminal() {
         git fetch -q origin main
         git reset -q --mixed origin/main
         # A REPUBLICACAO TRAZ A ONDA NOVA PARA O TERMINAL, E O MAIN DO PROJETO
-        # PRECISA ACOMPANHAR. Sem isso a arvore fica suja com a onda inteira, e o
-        # "git commit -am" do roteiro (5.2) leva tudo para o merge request: medido
-        # no user1 em 2026-10-28, 28 arquivos, RECUSADO pela conferencia, merge
-        # bloqueado e o "esteira.sh espera" sem fim. esteira/ e planejamento/
-        # sao do participante: voltam ao que o projeto tem e ficam fora do commit.
-        git checkout -q -- esteira planejamento 2>/dev/null || true
-        git add -A -- . ":!esteira" ":!planejamento" 2>/dev/null || true
-        if [ -n "$TKA" ] && ! git diff --cached --quiet; then
-          CA=/home/lab-user/.git-credenciais-admin-tmp
-          ( umask 077; printf "https://oauth2:%s@%s\n" "$TKA" "$GL_HOST" > "$CA" )
-          git -c user.name=workshop -c user.email=workshop@example.invalid commit -qm "ambiente: conteudo republicado no terminal ($(date -u +%Y-%m-%dT%H:%MZ))"
-          git -c credential.helper="store --file=$CA" push -q origin HEAD:main || { rm -f "$CA"; exit 1; }
-          rm -f "$CA"
-          git fetch -q origin main
-          git reset -q --mixed origin/main
-        fi
+        # PRECISA ACOMPANHAR -- senao a arvore fica suja com a onda inteira e o
+        # "git commit -am" do roteiro (5.2) leva tudo para o merge request:
+        # medido no user1 em 2026-10-28, 28 arquivos, RECUSADO pela conferencia,
+        # merge bloqueado e o "esteira.sh espera" sem fim. Quem atualiza o main
+        # e o 'semeia', pela API, do lado de quem opera (tenant.sh o chama antes
+        # deste passo); aqui so se confere que a arvore ficou limpa.
+        n="$(git status --porcelain -- . ":!esteira" ":!planejamento" | grep -vc "^??" || true)"
+        [ "$n" -eq 0 ] || echo "AVISO: ${n} arquivo(s) do terminal diferem do main do projeto -- rode gitlab-turma.sh semeia ${GL_USER}" >&2
         # o participante pode ter mexido no terminal: o que ele mudou FICA; so volta
         # o que existe no projeto e sumiu do terminal (o README, na primeira vez)
         git ls-files -d -z | xargs -0 -r git checkout -q --
