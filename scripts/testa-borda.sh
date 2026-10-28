@@ -121,6 +121,6 @@ printf '\n'
 if [[ "$rc" == "0" ]]; then
   printf '%s[OK]%s a borda esta como o contrato diz (newman rc=0).\n' "$_GRN" "$_RST"
 else
-  printf '%s[X]%s a bateria reprovou (newman rc=%s): a borda nao esta como o contrato diz -- a assercao com nome acima e a promessa quebrada.\n' "$_RED" "$_RST" "$rc"
+  printf '%s[X]%s a bateria reprovou (newman rc=%s): a borda nao esta como o contrato diz -- a assercao com nome acima e a clausula que quebrou.\n' "$_RED" "$_RST" "$rc"
 fi
 exit "$rc"
