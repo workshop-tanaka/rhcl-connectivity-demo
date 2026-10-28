@@ -46,7 +46,7 @@ quando precisar.
 | 2.1 | painel de recusas | 401, 429 | **feito** (amostra) |
 | 4.1 | painel *Servidas por plano* | os três planos | **feito** (amostra) |
 | 2.1 | *Observe → Metrics* da console | o projeto do Gateway e a linha do resultado | **feito** (v0.118): login do Keycloak tratado; `viewport` e `clicar` por captura |
-| 4.2 | painel por parceiro | a linha do parceiro | |
+| 4.2 | tabela *Consumo na janela* do dashboard por parceiro | a linha do tráfego de teste | **feito** (v0.136): a linha da tabela do Grafana é `display: contents` e a célula corta o que sai dela (`overflow: clip`), então a borda vai na célula (`ate: [role=gridcell]`) e por dentro (`interna`) |
 | 2.3 | lista de policies do projeto na console | a AuthPolicy | **feito** (v0.119) |
 | 4.1 | API Products na console | o produto publicado | **feito** (v0.119) |
 | 5.2 | os merge requests do projeto no GitLab | o menu | **feito** (v0.119); o MR aberto com Changes e Merge fica |
@@ -54,7 +54,7 @@ quando precisar.
 | 5.1 | a Application no Argo CD, *Synced* | o status | **feito** (v0.120): a UI do Argo precisa de ~20 s depois do login |
 | 5.4 | o `OutOfSync` no Argo | o recurso divergente | a mesma tela com o desvio da 5.4 em curso; captura em duas etapas (patch, foto, revert) |
 | 6.2 | *Observe → Traces* do console: a lista filtrada pela API e o trace do `429` | instância, *Run query*, o trace; `should_rate_limit` e `send_reply` | **feito** (v0.129, no lugar do Jaeger da v0.128, que a própria tela marca como descontinuado); o rótulo do span mistura `<strong>` e texto, então `texto` casa também o elemento mais fundo com o texto inteiro |
-| 6.3 | *Observe → Alerts* no projeto do Gateway | a regra e o alerta aceso | console |
+| 6.4 | *Observe → Alerting rules* e *Alerts* no projeto do Gateway | as duas regras; o alerta e o estado Firing | **feito** (v0.136): a aba de regras abre com `alert-source=platform` e esconde a do participante -- a URL leva `?alert-source=user`; a de alertas abre por `alert-state=firing`. Para acender `ParceiroBatendoNoLimite` sem o `prova` (que derruba o Limitador da turma): uma rajada do plano gratuito a cada ~70 s por uns 7 min (`increase[10m] > 20` e `for: 5m`); o texto *Firing* casa primeiro o chip do filtro, por isso o estado é marcado por seletor (`tbody tr td:last-child`) |
 | 7.x | a topologia de policies na console | o Gateway e as policies | abre com o login da plataforma, mas desenha a turma inteira; falta filtrar o namespace pela UI |
 
 Também no backlog:
