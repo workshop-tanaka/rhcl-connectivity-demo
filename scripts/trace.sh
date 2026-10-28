@@ -128,9 +128,19 @@ case "$cmd" in
     ;;
   id)
     rid="${2:-}"; [[ -n "$rid" ]] || _die "uso: trace.sh id <x-request-id>"
-    ids="$(_busca "{ span.request_id = \"${rid}\" || span.authorino.request_id = \"${rid}\" }" 1)"
-    [[ "$ids" == ERRO* ]] && _die "$ids"
-    [[ -n "$ids" ]] || _die "nenhum trace com request_id ${rid} -- espere ~10 s e tente de novo; o id e o x-request-id que o curl -D - mostra"
+    # o collector envia em lotes e o Tempo indexa depois: a primeira chamada
+    # depois de um tempo parado leva ate ~30 s para aparecer (medido: 15 s nao
+    # bastou, 20 s sim). Tenta por ate 45 s antes de desistir.
+    ids=""
+    for _t in $(seq 1 9); do
+      ids="$(_busca "{ span.request_id = \"${rid}\" || span.authorino.request_id = \"${rid}\" }" 1)"
+      [[ "$ids" == ERRO* ]] && _die "$ids"
+      [[ -n "$ids" ]] && break
+      [[ "$_t" -eq 1 ]] && printf '%s[.]%s esperando o collector entregar o trace de %s' "$_DIM" "$_RST" "$rid" >&2
+      printf '.' >&2; sleep 5
+    done
+    [[ "$_t" -eq 1 ]] || printf '\n' >&2
+    [[ -n "$ids" ]] || _die "nenhum trace com request_id ${rid} em 45 s -- o id e o x-request-id que o curl -D - mostra; o tracing esta ligado no CR Kuadrant (spec.observability.tracing)?"
     _mostra "$ids"
     ;;
   url)
