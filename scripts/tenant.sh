@@ -121,8 +121,9 @@ BEGIN { $t = $ENV{TENANT}; $ns = qr/$ENV{ALT_NS}/; $h = qr/$ENV{ALT_HOST}/;
         # dois-pontos-hifen do default do bash (${X:-travel-agency}), que e onde
         # moram os namespaces dos Extras e os hostnames do new-env.sh
         $solto = qr/(?:(?<![\w-])|(?<=:-))/; }
-# chaves de API: o tenant entra no nome e no rotulo do seletor
-s/$solto apikey-(?=[a-z])/apikey-$t-/gx;
+# chaves de API: o tenant entra no nome e no rotulo do seletor -- menos na
+# tela /kuadrant/apikey-approvals da console, que nao e chave de ninguem
+s/$solto apikey-(?!approvals(?![\w-]))(?=[a-z])/apikey-$t-/gx;
 s/(\bapp["\x27]?\s*[:=]\s*["\x27]?)partner(?![\w-])/$1partner-$t/g;
 # namespaces e rotulos de hostname, so quando o nome esta solto
 s/$solto ($ns)(?![\w-])/$1-$t/gx;
