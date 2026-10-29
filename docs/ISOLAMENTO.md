@@ -96,7 +96,8 @@ Decisões tomadas:
   (`tenant.sh login-plataforma`, papel `rhcl-plataforma-leitura`). É a visão
   de quem opera o Connectivity Link: a topologia, `kuadrant-system` por
   dentro (Limitador, operadores), os objetos de Gateway API, de
-  Kuadrant e de Istio do cluster e os alertas de todos. **Não é o
+  Kuadrant e de Istio do cluster, as chaves de API pelo CR `APIKey` (dono,
+  plano e produto; o valor fica no Secret) e os alertas de todos. **Não é o
   `cluster-reader`**: esse lê a spec de Deployment, Pod e ConfigMap do
   cluster, e ali há credencial literal (medido no `cluster-mz8j7` em
   2026-10-26: o segredo HTTP do registro, ConfigMaps do GitLab, o segredo do

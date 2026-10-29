@@ -1328,8 +1328,15 @@ rules:
   - apiGroups: [extensions.kuadrant.io]
     resources: [planpolicies, telemetrypolicies]
     verbs: [get, list, watch]
+  # As telas API Key Approvals e My API Keys do plugin da console fazem um
+  # access review ('list apikeyrequests' e 'list apikeys') antes de desenhar
+  # e, sem ele, param em "Access Denied" com o menu a vista (cluster-mz8j7,
+  # 2026-10-29). O CR APIKey nao carrega o valor da chave -- so plano, dono,
+  # produto e um secretRef para o Secret, que este papel continua sem ler.
+  # Aprovar pede 'create apikeyapprovals', que fica de fora: a fila aparece,
+  # o botao nao.
   - apiGroups: [devportal.kuadrant.io]
-    resources: [apiproducts]
+    resources: [apiproducts, apikeys, apikeyrequests, apikeyapprovals]
     verbs: [get, list, watch]
   - apiGroups: [networking.istio.io]
     resources: [envoyfilters]
