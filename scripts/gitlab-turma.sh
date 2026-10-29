@@ -596,7 +596,7 @@ PY
 
 cmd_terminal() {
   [[ $# -ge 1 ]] || _die "uso: bash scripts/gitlab-turma.sh terminal <userN> [userM...]"
-  local u tok tokdev falhou=0
+  local u tok tokdev falhou=0 out faltam saida
   for u in "$@"; do
     [[ "$u" =~ ^user[0-9]{1,3}$ ]] || { _warn "${u}: nao e um nome de participante -- pulei"; falhou=$((falhou+1)); continue; }
     tok="$(_pat_terminal "$u")" || tok=""
@@ -608,7 +608,10 @@ cmd_terminal() {
     # DUAS LINHAS NO STDIN: o token do participante e o do -dev. O token de
     # administracao NUNCA entra no pod: o main do projeto e atualizado do lado
     # de quem opera, pela API, no 'semeia' (que a republicacao chama antes).
-    if printf '%s\n%s\n' "$tok" "$tokdev" | oc exec -i -n "showroom-${u}" deploy/showroom -c terminal -- env GL_HOST="$GITLAB_HOST" GL_USER="$u" bash -c '
+    # A SAIDA VAI PARA ARQUIVO, nao para "$(...)": o bash 3.2 do macOS reparseia
+    # o script inteiro dentro da substituicao e devolve vazio.
+    saida="$(mktemp)"
+    printf '%s\n%s\n' "$tok" "$tokdev" | oc exec -i -n "showroom-${u}" deploy/showroom -c terminal -- env GL_HOST="$GITLAB_HOST" GL_USER="$u" bash -c '
         set -e
         read -r TK || true
         read -r TKD || true
@@ -634,7 +637,7 @@ cmd_terminal() {
         # "git commit -am" do roteiro (5.2) leva tudo para o merge request:
         # medido no user1 em 2026-10-28, 28 arquivos, RECUSADO pela conferencia,
         # merge bloqueado e o "esteira.sh espera" sem fim. Quem atualiza o main
-        # e o 'semeia', pela API, do lado de quem opera (tenant.sh o chama antes
+        # e o semeia, pela API, do lado de quem opera (tenant.sh o chama antes
         # deste passo); aqui so se confere que a arvore ficou limpa.
         # esteira/ e planejamento/ sao do participante e nao sao republicadas no
         # projeto: a copia do terminal volta ao que o main tem, senao a versao
@@ -646,7 +649,15 @@ cmd_terminal() {
         # Spaces vem do CSV instalado), e a copia renderizada nao os traz: quando
         # o operador do Dev Spaces sobe de versao entre duas publicacoes, o main
         # muda e o terminal fica com o antigo como "modificado" (medido no user2
-        # em 2026-10-28: udi-rhel9 3.31.1, 'sujos: 1' depois da v0.133).
+        # em 2026-10-28: udi-rhel9 3.31.1, sujos=1 depois da v0.133).
+        #
+        # NENHUMA ASPA SIMPLES NESTE BLOCO, NEM EM COMENTARIO. Ele e UMA string
+        # entre aspas simples do bash de fora: uma aspa num comentario fecha a
+        # string, e o espaco seguinte corta o script ali. Foi assim que a
+        # versao de 2026-10-28 terminava logo depois do git reset, sem erro e
+        # sem a linha LIGADO: os 30 terminais do cluster-ksw2c ficaram com
+        # esteira/, .tekton/, README.md e devfile.yaml ausentes da arvore e a
+        # 5.2 recusada pela conferencia em todos (achado em 2026-10-29).
         for d in esteira planejamento devfile.yaml README.md; do git checkout -q -- "$d" 2>/dev/null || true; done
         n="$(git status --porcelain -- . ":!esteira" ":!planejamento" | grep -vc "^??" || true)"
         [ "$n" -eq 0 ] || echo "AVISO: ${n} arquivo(s) do terminal diferem do main do projeto -- rode gitlab-turma.sh semeia ${GL_USER}" >&2
@@ -658,8 +669,19 @@ cmd_terminal() {
         # (medido no 7kp5j: " M .tekton/confere.yaml" depois de republicar)
         git checkout -q -- .tekton 2>/dev/null || true
         git branch -q --set-upstream-to=origin/main main 2>/dev/null || true
-        echo "LIGADO $(git rev-parse --short HEAD) $(git status --porcelain | wc -l)"' 2>/dev/null | grep -q '^LIGADO '; then
-      _ok "${u}: o terminal dele e um clone de workshop/participantes/${u}/ambiente"
+        # O GUARDA: arquivo do main que continua FALTANDO na arvore e falha, nao
+        # aviso -- e a linha LIGADO leva a lista, para quem opera decidir.
+        if [ -n "$(git ls-files -d)" ]; then git ls-files -d -z | xargs -0 -r git checkout -q -- 2>/dev/null || true; fi
+        echo "LIGADO $(git rev-parse --short HEAD) $(git status --porcelain | wc -l) $(git ls-files -d | tr "\n" " ")"' > "$saida" 2>/dev/null
+    out="$(grep '^LIGADO ' "$saida" | tail -1)"; rm -f "$saida"
+    if [[ -n "$out" ]]; then
+      out="${out#LIGADO }"; faltam="${out#* * }"; faltam="${faltam% }"
+      if [[ -n "${faltam// /}" ]]; then
+        _warn "${u}: o terminal esta ligado, mas a arvore ficou SEM arquivos do main: ${faltam}-- o 'commit -am' do roteiro levaria essas remocoes ao merge request; no terminal dele: git checkout -- ."
+        falhou=$((falhou+1))
+      else
+        _ok "${u}: o terminal dele e um clone de workshop/participantes/${u}/ambiente"
+      fi
     else
       _warn "${u}: nao consegui ligar o terminal dele ao projeto"; falhou=$((falhou+1))
     fi
@@ -1047,8 +1069,13 @@ subjects:
   - {kind: ServiceAccount, name: showroom, namespace: showroom-${u}}
   - {kind: ServiceAccount, name: dev, namespace: travel-agency-${u}}
 EOF
+    # SEM A CONFERENCIA NAO HA ESTEIRA: com a Application de pe e o Repository
+    # faltando, o merge request fica preso em 'ci_must_pass' para sempre e nada
+    # acusa. Foi o user10 do cluster-ksw2c (2026-10-29): o 'oc label' falhou,
+    # a cadeia parou, o Argo subiu mesmo assim e o participante travou na 5.2.
+    # Aqui a falha interrompe o participante; reexecutar o 'esteira' conserta.
     if [[ $? -eq 0 ]]; then _ok "${u}: conferencia no OpenShift Pipelines (${ci})"
-    else _warn "${u}: a conferencia nao ficou de pe em ${ci}"; falhou=$((falhou+1)); fi
+    else _warn "${u}: a conferencia nao ficou de pe em ${ci} -- o Argo dele NAO foi criado; reexecute: bash scripts/gitlab-turma.sh esteira ${u}"; falhou=$((falhou+1)); cred=""; continue; fi
     cred=""
     if oc apply -f - >/dev/null <<EOF
 apiVersion: argoproj.io/v1alpha1

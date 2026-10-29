@@ -86,6 +86,7 @@
 #   SUBINDO_MIN=10          ate quantos minutos de vida uma falha e "subindo"
 #   AVANCO=0                nao le o log do Showroom (a coluna PAGINA some)
 #   WASM=0                  nao le o log dos Gateways (sem a falha do filtro Wasm)
+#   TERMINAL=0              nao entra no terminal de cada um (sem a arvore faltando arquivo)
 #   LARGURA=6               quantos logs de cada vez (default 6)
 #
 # COMPATIVEL COM BASH 3.2 (o /bin/bash do macOS): sem vetor associativo, sem
@@ -98,6 +99,7 @@ INV="${FROTA:-frota.local}"
 MEM_ALERTA="${MEM_ALERTA:-80}"
 AVANCO="${AVANCO:-1}"
 WASM="${WASM:-1}"
+TERMINAL="${TERMINAL:-1}"
 SUBINDO_MIN="${SUBINDO_MIN:-10}"
 LARGURA="${LARGURA:-6}"
 ROTULO="rhcl.demo/tenant"
@@ -187,6 +189,14 @@ _plataforma() { # le $TRAB/pods
   [[ "$achou" == 1 ]] || _warn "nenhum pod em ${NS_PLATAFORMA// / nem em } — o RHCL esta instalado?"
   PLAT_FALHA="$(grep -c '^F' "$TRAB/plat" || true)"
   PLAT_AVISO="$(grep -c '^A' "$TRAB/plat" || true)"
+  # A aba Observe -> Traces e um CR so (UIPlugin), e o provisionamento do
+  # cluster-ksw2c (2026-10-29) subiu COO e Tempo sem ele: a turma inteira sem a
+  # aba, e nada acusava. So vale onde o COO existe (o CRD esta no cluster).
+  if oc get crd uiplugins.observability.openshift.io >/dev/null 2>&1 \
+     && ! oc get uiplugin distributed-tracing >/dev/null 2>&1; then
+    _warn "console sem a aba Observe -> Traces: falta o UIPlugin distributed-tracing (COO instalado) — oc apply -f platform-reference/consoles/uiplugin-distributed-tracing.yaml"
+    PLAT_AVISO=$((PLAT_AVISO + 1))
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -253,11 +263,54 @@ _wasm() { # le $TRAB/gw e $TRAB/ns, escreve $TRAB/wasm: "<ns> <gateway> <n em 10
 }
 
 # ---------------------------------------------------------------------------
+# A esteira de cada um: o que a 5.2 precisa e o estado declarado nao mostra
+# ---------------------------------------------------------------------------
+# Duas faltas que deixaram o participante preso na 5.2 sem nada acusar, no
+# cluster-ksw2c em 2026-10-29:
+#   - a Application do Argo de pe e o Repository do Pipelines as Code
+#     faltando em esteira-ci-<t>: o merge request fica em 'ci_must_pass'
+#     para sempre (o 'esteira' do user10 parou no 'oc label' e seguiu);
+#   - o terminal ligado ao projeto, mas com arquivos do main AUSENTES da
+#     arvore (esteira/, .tekton/, README.md, devfile.yaml): o 'sed' do passo
+#     2 falha em silencio e o 'commit -am' leva as remocoes ao merge request,
+#     que a conferencia recusa. Os 30 terminais da turma estavam assim.
+# A primeira e uma leitura do cluster inteiro. A segunda e um 'oc exec' por
+# participante que tem terminal, em lotes de LARGURA -- a segunda leitura que
+# cresce com a turma. TERMINAL=0 desliga.
+_esteira() { # le $TRAB/ns, escreve $TRAB/est: "<tenant>\t<mensagem>"
+  local t n=0 ci
+  : > "$TRAB/est"
+  oc get applications.argoproj.io -n openshift-gitops -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+    | sed -n 's/^esteira-//p' > "$TRAB/est.app" || : > "$TRAB/est.app"
+  oc get repositories.pipelinesascode.tekton.dev -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null \
+    > "$TRAB/est.repo" || rm -f "$TRAB/est.repo"
+  oc get rolebindings.rbac.authorization.k8s.io -A -o jsonpath='{range .items[?(@.metadata.name=="rhcl-esteira-ve")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null \
+    > "$TRAB/est.rb" || rm -f "$TRAB/est.rb"
+  while read -r t; do
+    ci="esteira-ci-${t}"
+    [[ -f "$TRAB/est.repo" ]] && ! grep -qx "$ci" "$TRAB/est.repo" \
+      && printf '%s\testeira: o Argo aplica, mas %s NAO tem o Repository do Pipelines as Code — o merge request fica preso; corrige: bash scripts/gitlab-turma.sh esteira %s\n' "$t" "$ci" "$t" >> "$TRAB/est"
+    [[ -f "$TRAB/est.rb" ]] && ! grep -qx "$ci" "$TRAB/est.rb" \
+      && printf '%s\testeira: %s sem o RoleBinding rhcl-esteira-ve — a console responde Restricted access na tela de PipelineRuns\n' "$t" "$ci" >> "$TRAB/est"
+  done < "$TRAB/est.app"
+  if [[ "$TERMINAL" == 1 ]]; then
+    for t in $(awk '$2 == "showroom-" $1 { print $1 }' "$TRAB/ns"); do
+      ( oc exec -n "showroom-${t}" deploy/showroom -c terminal -- bash -c 'cd /home/lab-user/rhcl-connectivity-demo 2>/dev/null && [ -d .git ] && git ls-files -d | tr "\n" " "' 2>/dev/null \
+          | awk -v t="$t" 'NF { printf "%s\tterminal: arquivos do main AUSENTES da arvore (%s) — o commit -am da 5.2 os apagaria; corrige: bash scripts/gitlab-turma.sh terminal %s\n", t, $0, t }' > "$TRAB/est.${t}" ) &
+      n=$((n + 1)); [[ $((n % LARGURA)) == 0 ]] && wait
+    done
+    wait
+    cat "$TRAB"/est.user* >> "$TRAB/est" 2>/dev/null || true
+  fi
+  rm -f "$TRAB"/est.app "$TRAB"/est.repo "$TRAB"/est.rb "$TRAB"/est.user*
+}
+
+# ---------------------------------------------------------------------------
 # Um cluster: a plataforma e a tabela dos participantes
 # ---------------------------------------------------------------------------
 _cluster() { # <rotulo>
   local nome="$1" dom pol host tok tab; tab="$(printf '\t')"
-  rm -f "$TRAB"/ns "$TRAB"/pods "$TRAB"/gw "$TRAB"/pol "$TRAB"/req "$TRAB"/mem "$TRAB"/plat "$TRAB"/linhas "$TRAB"/pag "$TRAB"/pag.* "$TRAB"/wasm
+  rm -f "$TRAB"/ns "$TRAB"/pods "$TRAB"/gw "$TRAB"/pol "$TRAB"/req "$TRAB"/mem "$TRAB"/plat "$TRAB"/linhas "$TRAB"/pag "$TRAB"/pag.* "$TRAB"/wasm "$TRAB"/est "$TRAB"/est.*
   PLAT_FALHA=0; PLAT_AVISO=0
 
   # COM PRAZO: um cluster do inventario que ja foi desligado nao recusa a
@@ -328,10 +381,12 @@ for r in d["data"]["result"]:
 
   [[ "$AVANCO" == 1 ]] && _avanco
   [[ "$WASM" == 1 ]] && _wasm
+  _esteira
 
   {
     sed 's/^/N /' "$TRAB/ns"
     sed 's/^/P /' "$TRAB/pods"
+    [[ -s "$TRAB/est" ]] && sed 's/^/E /' "$TRAB/est"
     [[ -f "$TRAB/gw"  ]] && { echo "TEM gw";  sed 's/^/G /' "$TRAB/gw"; }
     [[ -f "$TRAB/pol" ]] && { echo "TEM pol"; sed 's/^/Y /' "$TRAB/pol"; }
     [[ -f "$TRAB/req" ]] && { echo "TEM req"; sed 's/^/R /' "$TRAB/req"; }
@@ -379,6 +434,7 @@ for r in d["data"]["result"]:
       falha(dono[$2], "Gateway " $2 "/" $3 ": o Envoy responde 503 wasm_fail_stream (" $4 " em 10 min, inclusive a ultima) — o filtro Wasm quebrou; corrige: oc rollout restart deploy/" $3 "-istio -n " $2)
       next
     }
+    $1 == "E" && ($2 in todos) { m = $0; sub(/^E[ \t]+[^ \t]+[ \t]+/, "", m); falha($2, m); next }
     $1 == "R" { req[$2] = $3; next }
     $1 == "V" { pag[$2] = $3; next }
     END {
