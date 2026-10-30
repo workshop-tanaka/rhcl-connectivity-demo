@@ -31,7 +31,34 @@ sem acentuação em comentários de script.
 Cluster de workshop, com prazo de validade. Tudo nesta seção envelhece; a
 seção 5 (armadilhas) não.
 
-### 2026-09-17 — ambiente ATUAL: `cluster-45bp4`, sandbox do workshop, RHCL 1.2.1
+### 2026-10-29 — ambiente de DESENVOLVIMENTO: `cluster-mz8j7`, RHCL **1.5.0** (OCP 4.22.18)
+
+Atualizado da 1.4.4 para a 1.5.0 em 2026-10-29 trocando só o canal da
+Subscription (`stable-1.4` → `stable-1.5`; neste catálogo o `stable` ainda
+publicava 1.4.3). O CSV chegou a `Succeeded` em ~2 min e todos os pods de
+`kuadrant-system` ficaram prontos em ~4 min. O que a 1.5 mudou no cluster:
+
+| Item | Antes (1.4.4) | Depois (1.5.0) |
+| --- | --- | --- |
+| Subscriptions em `kuadrant-system` | 4 (rhcl, authorino, limitador, dns) | **1** — os operators de componente deixaram de ser dependências OLM e passaram a Deployments geridos pelo próprio operator, via CR novo `KuadrantControlPlane/default` (singleton, criado sozinho, `spec` vazio) |
+| CRDs novas | — | `kuadrantcontrolplanes`, `oidcpolicies.extensions` (`auth`, `provider`, `targetRef`), `mcpserverregistrations`/`mcpvirtualservers`/`mcpgatewayextensions.mcp.kuadrant.io` |
+| Pods novos | — | `mcp-gateway-controller` |
+| ClusterRoles do catálogo | — | `kuadrant-operator-api-admin`, `-api-owner`, `-api-consumer`, `-api-catalog-browser` (o guia da 1.5 os cita sem o prefixo) |
+| Caminho de dados | — | **inalterado**: 12 Gateways `Programmed`, 18 RLP + 12 PlanPolicy + 12 TelemetryPolicy `Enforced`, `traffic.sh tiers` 3/10/14, `overlays/rhcl-1.4` continua válido (o `_overlay` já mapeia 1.5 para ele) |
+
+O `preflight.sh` fechou **igual ao baseline** (3 falhas do GitLab/ApplicationSet
+que são de todo cluster de turma + 7 avisos). Na primeira rodada logo após a
+troca apareceram dois avisos transitórios — contadores do Limitador e
+`gatewayapi_*` no Thanos — porque o Limitador acabara de reiniciar (cotas do
+dia zeradas) e o port-forward de 4 s perdeu a corrida com o API server, que
+neste cluster responde `TLS handshake timeout` de vez em quando. Não é da 1.5.
+
+Este cluster tem 5 participantes de teste (user1..user5, `workshop-v0.139-rhcl`)
+e NÃO é cluster de turma: mudança de plataforma pode ser feita sem janela.
+`platform-reference/operators/subscriptions.yaml` continua em `stable-1.4` de
+propósito: a 1.5 entra em cluster novo por decisão de edição, não por padrão.
+
+### 2026-09-17 — ambiente anterior: `cluster-45bp4`, sandbox do workshop, RHCL 1.2.1
 
 Sandbox do **Application Connectivity Workshop**, não um cluster provisionado
 por nós. Aqui a demo **não roda o `provision.sh`**: a plataforma inteira é

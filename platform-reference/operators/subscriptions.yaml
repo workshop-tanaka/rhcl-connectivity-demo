@@ -65,6 +65,12 @@ spec:
   # novo da edicao 1.x nasceria na 1.5 sem ninguem pedir (installPlanApproval
   # Automatic). O canal por minor e o que torna a edicao reproduzivel; a 1.5
   # entra por decisao, numa edicao propria, depois de medida.
+  # MEDIDO em 2026-10-29 no mz8j7 (OCP 4.22.18): trocar este campo para
+  # 'stable-1.5' com o cluster no ar leva a 1.4.4 -> 1.5.0 em ~2 min (CSV
+  # Succeeded) e ~4 min (pods prontos), sem tocar no caminho de dados -- 12
+  # Gateways, 42 policies Enforced e os tres planos 3/10/14 antes e depois. A
+  # 1.5 ABSORVE as Subscriptions de authorino/limitador/dns (ficam Deployments
+  # do CR novo KuadrantControlPlane/default), por isso elas nao estao aqui.
   channel: stable-1.4
   name: rhcl-operator
   source: redhat-operators
