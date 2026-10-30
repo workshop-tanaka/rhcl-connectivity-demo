@@ -1,0 +1,133 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: piloto-user1
+  labels: {rhcl.demo/area: piloto, rhcl.demo/tenant: user1, rhcl.demo/piloto: produtor}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: parceiro-user1
+  labels: {rhcl.demo/tenant: user1, rhcl.demo/piloto: consumidor}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: pagina, namespace: piloto-user1}
+data:
+  index.html: '{"api": "api-user1", "dono": "user1", "resposta": "ok"}'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-user1
+  namespace: piloto-user1
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: api-user1}}
+  template:
+    metadata: {labels: {app: api-user1}}
+    spec:
+      containers:
+        - name: httpd
+          image: registry.access.redhat.com/ubi9/httpd-24:latest
+          ports: [{containerPort: 8080, name: http}]
+          volumeMounts: [{name: pagina, mountPath: /var/www/html}]
+      volumes:
+        - name: pagina
+          configMap: {name: pagina}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: api-user1, namespace: piloto-user1}
+spec:
+  selector: {app: api-user1}
+  ports: [{name: http, port: 8080, targetPort: 8080}]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-user1
+  namespace: piloto-user1
+spec:
+  parentRefs: [{group: gateway.networking.k8s.io, kind: Gateway, name: gw-area, namespace: area-piloto}]
+  hostnames: ["piloto-api-user1.__DOMINIO__"]
+  rules:
+    - matches: [{path: {type: PathPrefix, value: /}}]
+      backendRefs: [{name: api-user1, port: 8080}]
+---
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: api-user1
+  namespace: piloto-user1
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: HTTPRoute, name: api-user1}
+  rules:
+    authentication:
+      api-key:
+        apiKey:
+          selector: {matchLabels: {devportal.kuadrant.io/apiproduct: api-user1}}
+        credentials:
+          authorizationHeader: {prefix: APIKEY}
+---
+apiVersion: extensions.kuadrant.io/v1alpha1
+kind: PlanPolicy
+metadata:
+  name: api-user1-planos
+  namespace: piloto-user1
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: HTTPRoute, name: api-user1}
+  plans:
+    - tier: gold
+      predicate: '(has(auth.identity.metadata.labels) && "kuadrant.io/plan-id" in auth.identity.metadata.labels ? auth.identity.metadata.labels["kuadrant.io/plan-id"] : (has(auth.identity.metadata.annotations) && "secret.kuadrant.io/plan-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] : "")) == "gold"'
+      limits: {custom: [{limit: 30, window: "10s"}], daily: 100000}
+    - tier: free
+      predicate: '(has(auth.identity.metadata.labels) && "kuadrant.io/plan-id" in auth.identity.metadata.labels ? auth.identity.metadata.labels["kuadrant.io/plan-id"] : (has(auth.identity.metadata.annotations) && "secret.kuadrant.io/plan-id" in auth.identity.metadata.annotations ? auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] : "")) == "free"'
+      limits: {custom: [{limit: 3, window: "10s"}], daily: 1000}
+    - tier: unclassified
+      predicate: "true"
+      limits: {custom: [{limit: 1, window: "60s"}]}
+---
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIProduct
+metadata:
+  name: api-user1
+  namespace: piloto-user1
+spec:
+  displayName: "API do user1"
+  description: "API publicada pelo user1 no Gateway de area compartilhado (piloto do modelo por area)."
+  version: v1
+  approvalMode: manual
+  publishStatus: Published
+  tags: [piloto]
+  targetRef: {group: gateway.networking.k8s.io, kind: HTTPRoute, name: api-user1}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: dono-da-api, namespace: piloto-user1}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: kuadrant-operator-api-owner}
+subjects: [{kind: User, name: user1}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: consumidor, namespace: parceiro-user1}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: kuadrant-operator-api-consumer}
+subjects: [{kind: User, name: user1}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: catalogo-piloto-user1}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: kuadrant-operator-api-catalog-browser}
+subjects: [{kind: User, name: user1}]
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: piloto-api-user1
+  namespace: area-piloto
+  labels: {rhcl.demo/piloto: "area"}
+spec:
+  host: piloto-api-user1.__DOMINIO__
+  to: {kind: Service, name: gw-area-istio}
+  port: {targetPort: 80}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}

@@ -287,7 +287,8 @@ instrutor, com cluster-admin.
   que só importa **uma vez**: mudar o CR não muda o realm, então a troca vai
   pela API de admin.
 - O participante **não é cluster-admin**: `admin` nos namespaces dele, leitura
-  enumerada da plataforma, e uma trava de admissão nas chaves. O **usuário de
+  enumerada da plataforma, e travas de admissão: chaves, rotas e DNS negam;
+  o teto das policies (`rhcl-tenant-tetos`) só avisa e registra. O **usuário de
   console** dele tem ainda menos que o terminal: só os namespaces dele, e é
   por isso que a console e o Kiali mostram o ambiente dele e mais nada.
 

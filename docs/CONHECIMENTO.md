@@ -58,6 +58,15 @@ e NÃO é cluster de turma: mudança de plataforma pode ser feita sem janela.
 `platform-reference/operators/subscriptions.yaml` continua em `stable-1.4` de
 propósito: a 1.5 entra em cluster novo por decisão de edição, não por padrão.
 
+**Piloto do modelo por área no ar (2026-10-30)**, fora do `tenant.sh`:
+`area-piloto` (Gateway `gw-area`, deny-all, teto `overrides`+`merge` 50/10s,
+Routes `piloto-api-user1` e `-user2`), `piloto-user1`/`piloto-user2` (API,
+rota, AuthPolicy, PlanPolicy, APIProduct, `api-owner`), `parceiro-user1`/
+`parceiro-user2` (`api-consumer`, uma chave aprovada em cada, cruzada) e os
+`ClusterRoleBinding` `catalogo-piloto-user1`/`-user2`. Manifests e medições em
+`docs/propostas/modelo-simples-1.5.md` §6. Para desmontar: `oc delete -f` dos
+três `piloto-*.yaml` com o domínio no lugar de `__DOMINIO__`.
+
 ### 2026-09-17 — ambiente anterior: `cluster-45bp4`, sandbox do workshop, RHCL 1.2.1
 
 Sandbox do **Application Connectivity Workshop**, não um cluster provisionado

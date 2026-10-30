@@ -1,5 +1,13 @@
 # Proposta: governança de admissão com Gatekeeper sobre Gateway API e Connectivity Link
 
+> **Estado em 2026-10-30.** A camada que o Gatekeeper faria para UM cluster foi
+> construída como `ValidatingAdmissionPolicy` (`rhcl-tenant-tetos`, em
+> `scripts/tenant.sh`, aplicada pelo `isola`; `Warn` + `Audit`), e virou a
+> leitura 7.9 do guia, "Duas camadas de governança", com o Gatekeeper e o RHACM
+> como horizonte multi-cluster. O Extra com o Gatekeeper de verdade continua
+> dependendo da pergunta 9 (entitlement no RHDP). Ver `docs/ISOLAMENTO.md` §5,
+> camada 9.
+
 Somente proposta. Nada foi instalado nem alterado; as leituras do cluster são de
 2026-10-06, no `cluster-x2gsq` (OpenShift 4.22.15, Connectivity Link 1.4.3,
 Service Mesh 3.4.3).

@@ -181,11 +181,11 @@ casa continua: TP ou DP só se a seção das notas listar.
 
 ## 4. Como chegar lá sem parar a turma
 
-1. **Subir a 1.5 num cluster de desenvolvimento** e medir o que quebra:
+1. **FEITO em 2026-10-29 (mz8j7, ver §6).** Subir a 1.5 num cluster de desenvolvimento e medir o que quebra:
    `overlays/rhcl-1.5` (o overlay muda com a release), `preflight.sh`,
    schema das policies, o plugin de console, o `PlanPolicy` como extensão.
    Sem isso nenhuma estimativa abaixo vale.
-2. **Dois participantes no modelo novo, no mesmo cluster:** um Gateway de área,
+2. **FEITO em 2026-10-30 (mz8j7, ver §6).** Dois participantes no modelo novo, no mesmo cluster: um Gateway de área,
    dois produtores, dois consumidores, o pedido de chave cruzado. É o teste da
    seção 2 inteiro, e cabe numa tarde.
 3. **A Fase 4 reescrita** sobre o catálogo: quatro páginas, a mais afetada.
@@ -217,3 +217,78 @@ trocar o Secret rotulado pelo pedido de chave quando a 1.5 chegar.
    próprio fica só com operação. Vale decidir antes de investir na 1.5.
 5. **Egress e sidecar exigem Service Mesh:** a sessão `foco_rhcl` fica sem
    eles, ou volta ao Service Mesh como provedor?
+
+## 6. O que o piloto mediu (mz8j7, 2026-10-29 e 2026-10-30)
+
+Os manifests estão ao lado: `piloto-plataforma.yaml` (o que a plataforma
+aplica), `piloto-user1.yaml` e `piloto-user2.yaml` (um por participante, com
+`__DOMINIO__` no lugar do domínio do cluster). Ficaram no ar no mz8j7:
+namespaces `area-piloto`, `piloto-user1`, `piloto-user2`, `parceiro-user1`,
+`parceiro-user2`.
+
+### 6.1 A 1.5 no cluster (passo 1)
+
+Trocar o canal da Subscription (`stable-1.4` → `stable-1.5`) levou a 1.4.4
+para a 1.5.0 em ~2 min, sem tocar no caminho de dados; `overlays/rhcl-1.4`
+continua válido, o `preflight.sh` fechou igual ao baseline. A 1.5 absorve os
+operators de componente num CR `KuadrantControlPlane`, traz `OIDCPolicy`, as
+CRDs do MCP gateway e as ClusterRoles do catálogo com o prefixo
+`kuadrant-operator-` (`api-admin`, `api-owner`, `api-consumer`,
+`api-catalog-browser`). Detalhe em `docs/CONHECIMENTO.md` §2.
+
+### 6.2 Dois participantes no modelo por área (passo 2)
+
+O desenho da §2 **funciona de ponta a ponta na 1.5**, e expôs três ajustes no
+`tenant.sh`, todos feitos:
+
+| O que | Resultado |
+| --- | --- |
+| Gateway de área (`area-piloto/gw-area`, provedor nativo, 1 réplica, `ClusterIP`, listener HTTP, `allowedRoutes` por rótulo `rhcl.demo/area`) | `Programmed` em 10 s; duas rotas de dois participantes presas nele |
+| "Nega tudo" no Gateway de área | rota sem `AuthPolicy` própria: 401 |
+| Produtor: `HTTPRoute` + `AuthPolicy` (chave no header `APIKEY`, seletor só pelo rótulo `devportal.kuadrant.io/apiproduct`) + `PlanPolicy` (gold 30/10s, free 3/10s) + `APIProduct` publicado | `APIProduct` descobre o `PlanPolicy` e a `AuthPolicy` sozinho (`discoveredPlans`, `discoveredAuthScheme`) |
+| Consumidor (`api-consumer` no namespace `parceiro-<user>`): cria o Secret com `api_key` e o `APIKey` apontando para o produto do **vizinho** | o controller cria o `APIKeyRequest` sombra no namespace do dono; o dono o lê, e **não** lê o Secret do consumidor (Forbidden) |
+| Dono (`api-owner`) cria o `APIKeyApproval` | o controller cria o Secret de enforcement em `kuadrant-system`, rotulado `devportal.kuadrant.io/apiproduct`, `.../apikey`, `.../apikey-namespace`, `.../apiproduct-namespace`, `.../enforcement: "true"`, com o plano na **anotação** `secret.kuadrant.io/plan-id` (não no rótulo) |
+| Tráfego cruzado | user2 com a chave gold na API do user1: 14 de 14; user1 com a chave free na API do user2: 3 ok e 11 `429`; a chave de um produto na API do outro: 401; `Bearer` em vez de `APIKEY`: 401 |
+| Teto da área no Gateway (`RateLimitPolicy`) | com `defaults`, o `PlanPolicy` da rota **sobrepõe** o teto (teto `Overridden`); com `overrides` atômico, o teto **apaga** o `PlanPolicy` (plano perde `Enforced`); com `overrides` + `strategy: merge` os dois valem: teto 5/10s deu 5 ok e 9 `429` com o plano `Enforced`. **É a forma certa do teto.** |
+| RBAC do participante (`oc auth can-i`, user2) | cria `APIKey` só no próprio `parceiro-`; aprova só no próprio `piloto-`; não lê `APIKeyRequest` alheio nem Secrets de `kuadrant-system`; **lista rotas e Gateways do cluster inteiro** por causa do `api-catalog-browser`, que o guia da 1.5 diz não poder ser restrito a namespaces |
+| `isolamento.sh user2 user1` depois das mudanças | 3 abertos / 24 barrados / 0 indeterminados, os três abertos de sempre |
+
+Os três ajustes:
+
+1. **`rhcl-tenant-rotas` recusava a primeira rota do piloto** ("rota em
+   namespace de participante só pode apontar para um Gateway dele"). As regras
+   3 e 4 ganharam a exceção `n.startsWith('area-')`: o namespace `area-*` é da
+   plataforma (o participante não tem `self-provisioner`, não cria namespace),
+   e as regras 1 e 2 (Gateway e hostname com nome de outro participante)
+   seguem valendo para ele.
+2. **A `NetworkPolicy` do `isola` matava a requisição entre o Gateway de área e
+   o pod do produtor**: a chave era aceita e a resposta era `000` (timeout), 14
+   vezes, no participante isolado depois de ganhar o namespace do piloto. A
+   `NetworkPolicy` ganhou a entrada `namespaceSelector` por
+   `rhcl.demo/gateway-de-area: "true"`, rótulo que a plataforma põe no
+   namespace do Gateway de área.
+3. O predicado do `PlanPolicy` **precisa ler a anotação**
+   `secret.kuadrant.io/plan-id`, não só o rótulo `kuadrant.io/plan-id`: é na
+   anotação que o controller da 1.5 grava o tier aprovado. O predicado padrão
+   da demo já tem esse fallback; um predicado só por rótulo cairia em
+   `unclassified`.
+
+Ficou medido também o que a proposta tinha como hipótese: o consumidor é um
+papel de verdade (RBAC próprio, namespace próprio, não enxerga a chave alheia),
+o momento "o vizinho aprova" existe como objeto (`APIKeyApproval`), e o
+Gateway de área com teto por `overrides` + `merge` já funciona na 1.4 (o
+`RateLimitPolicy` é o mesmo), de modo que a Fase 2 pode nascer nele antes da
+1.5 chegar à edição.
+
+### 6.3 O que o piloto não mediu
+
+- a tela: o fluxo inteiro foi pela API (`--as=user1`/`user2`); o guia da 1.5
+  descreve as páginas *API Products*, *My API Keys* e *API Key Approvals* do
+  plugin de console, e o login do participante na console é o próximo teste;
+- `approvalMode: automatic` (o piloto usou `manual`);
+- revogação: apagar o `APIKey` do consumidor e conferir se o Secret de
+  enforcement some;
+- o teto da área com `when`/`counters` por hostname, para o teto valer **por
+  produtor** e não por Gateway;
+- 30 participantes: o piloto foi com dois.
+

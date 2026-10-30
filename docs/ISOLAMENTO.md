@@ -125,14 +125,15 @@ participantes.
 
 | # | Camada | Mecanismo | Situação |
 | --- | --- | --- | --- |
-| 1 | O Gateway só aceita rotas do dono | `allowedRoutes` por seletor de namespace no listener; regra de admissão, válida para o cluster, que recusa a rota que aponta para Gateway ou hostname de outro participante | **medido** em dois participantes (`tenant.sh isola`) |
-| 2 | Rede fechada entre participantes | `NetworkPolicy` de entrada por namespace: só os namespaces do participante, o router e o monitoramento | **medido** em dois participantes (`tenant.sh isola`) |
+| 1 | O Gateway só aceita rotas do dono | `allowedRoutes` por seletor de namespace no listener; regra de admissão, válida para o cluster, que recusa a rota que aponta para Gateway ou hostname de outro participante | **medido** em dois participantes (`tenant.sh isola`); desde 2026-10-30 a regra aceita também o Gateway de **área** (namespace `area-*`, da plataforma) |
+| 2 | Rede fechada entre participantes | `NetworkPolicy` de entrada por namespace: só os namespaces do participante, o router, o monitoramento e, desde 2026-10-30, o namespace rotulado `rhcl.demo/gateway-de-area: "true"` (o Gateway de área da plataforma) | **medido** em dois participantes (`tenant.sh isola`) |
 | 3 | Dois perfis | dois conjuntos de `RoleBinding` por participante, conforme a tabela da seção 3 | a construir |
 | 4 | Chaves no namespace de cada um | `allNamespaces: true` na `AuthPolicy`; as chaves em `travel-agency-<tenant>`; a regra de admissão `rhcl-tenant-chaves-dono` recusa a chave de parceiro fora do namespace do dono; o participante perde o papel sobre os Secrets de `kuadrant-system` | **medido** em um participante (`tenant.sh chaves`) |
 | 5 | Sem leitura de cluster no terminal | sai `rhcl-tenant-leitura` em escopo de cluster e o `cluster-monitoring-view`; os comandos com `-A` passam a olhar os namespaces do participante | padrão já usado no `preflight.sh` |
 | 6 | Traces | consequência da 5: o Tempo decide por `get namespace`, e o terminal deixa de ter isso nos alheios | conteúdo **medido**; a busca ainda devolve o nome do serviço alheio |
 | 7 | Métricas e painéis | porta de isolamento do Thanos (existe: `tenancy`, 9092); um Grafana por participante; um repasse por participante para as séries do Limitador, que nascem em `kuadrant-system` | a parte mais incerta |
 | 8 | Limites de consumo | `ResourceQuota` por participante (pods, Gateways, policies); namespaces de laboratório pré-criados, sem `self-provisioner` | a construir |
+| 9 | Teto da plataforma sobre as policies | regra de admissão `rhcl-tenant-tetos` (`Warn` + `Audit`, `failurePolicy: Ignore`) sobre `RateLimitPolicy` e `PlanPolicy` em namespace de participante: taxa até 5000 por janela, cota diária até 1 milhão, janela na norma (10s, 30s, 60s, 1m, 1h). Só avisa e registra: é governança, não segurança | **medido** no mz8j7 em 2026-10-30 (`tenant.sh isola`) |
 
 ### O que as camadas 1 e 2 mediram
 
@@ -330,6 +331,58 @@ Não medido: a tentativa pelo caminho da `DNSPolicy` (Gateway com o hostname da
 zona alheia). Na única tentativa o operator não chegou a criar o registro, por
 outro motivo; a regra de admissão alcançaria esse registro do mesmo jeito,
 porque olha o objeto e não quem o cria.
+
+### O Gateway de área e as camadas 1 e 2 (2026-10-30)
+
+O piloto do modelo por área (`docs/propostas/modelo-simples-1.5.md` §6) prende
+a rota do participante num Gateway que **não é dele**: o da plataforma, em
+`area-piloto`. As duas camadas construídas para o modelo "um Gateway por
+participante" reagiram como deviam, e as duas precisaram de uma porta:
+
+- **camada 1**: a regra 3 de `rhcl-tenant-rotas` recusou a rota ("só pode
+  apontar para um Gateway dele"). Exceção: namespace de Gateway com prefixo
+  `area-*`. O prefixo é da plataforma porque o participante não tem
+  `self-provisioner` (`oc auth can-i create projectrequests --as=user2`: no);
+  as regras 1 e 2, que olham o **nome** do Gateway e do hostname, seguem
+  valendo para rotas presas ao Gateway de área.
+- **camada 2**: com a `NetworkPolicy`, a chave era aceita e a requisição morria
+  entre o Gateway de área e o pod (`000`, 14 vezes). Entrada nova no `from`:
+  `namespaceSelector` por `rhcl.demo/gateway-de-area: "true"`, rótulo que só a
+  plataforma põe.
+
+`isolamento.sh user2 user1` depois das duas: 3 abertos / 24 barrados / 0
+indeterminados, os três abertos conhecidos. A rota presa ao Gateway da vítima
+e a rota com o hostname da vítima continuam `BARRADO`.
+
+Aberto novo, por construção da 1.5: `api-catalog-browser` é um
+`ClusterRoleBinding` (o guia da 1.5 diz que não dá para restringir a
+namespaces) e dá ao participante `list` de `HTTPRoute` e `Gateway` no cluster
+inteiro -- a identidade `userN` passa a enxergar as rotas de todos. O terminal
+(ServiceAccount do Showroom) não recebeu o papel e continua `BARRADO` nessa
+linha. É o preço do catálogo, e vale decidir se o papel vai para o terminal.
+
+### O teto da plataforma sobre as policies (2026-10-30)
+
+O Connectivity Link governa a API; nada nele governa a **policy**. Numa turma
+de 30, um `PlanPolicy` com um milhão por 10 s passa pelo operator sem erro e
+vira "sem limite" num Limitador que é um só para o cluster. A camada 9 é a
+regra de admissão `rhcl-tenant-tetos`, aplicada pelo `tenant.sh isola` junto
+das de rotas e DNS, e é a primeira que **não nega**: `validationActions:
+[Warn, Audit]`, `failurePolicy: Ignore`. Um `apply` fora do teto volta com
+linhas `Warning:` e a policy entra; o desvio fica no log de auditoria do API
+server (`rhcl-tenant-tetos` aparece nas entradas). A escolha é deliberada: uma
+regra de teto nunca pode derrubar o `apply` de quem está no roteiro, e o aviso
+no terminal do participante é o próprio material da leitura 7.9 do guia
+("Duas camadas de governança"), que a dispara com `--dry-run=server`.
+
+Medido no mz8j7 com `--dry-run=server` e a identidade do `user2`: uma
+`RateLimitPolicy` com 1.000.000 por `7s` devolve dois avisos (janela e teto);
+um `PlanPolicy` com 50.000 por `10s` e 999.999.999 por dia devolve dois (teto
+por janela e teto diário); uma policy dentro do teto não devolve nenhum; a
+mesma policy fora do teto no namespace `travel-agency` da plataforma (sem dono)
+não devolve nenhum. É o lugar onde a proposta do Gatekeeper
+(`docs/propostas/gatekeeper.md`) se encaixa: a mesma regra, em Rego, com
+auditoria do que já existe e distribuição a vários clusters pelo RHACM.
 
 ## 6. Como os perfis chegam ao participante
 

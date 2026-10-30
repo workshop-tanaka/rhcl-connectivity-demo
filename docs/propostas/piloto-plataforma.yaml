@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: area-piloto
+  labels: {rhcl.demo/piloto: "area"}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: gateway-uma-replica, namespace: area-piloto}
+data:
+  deployment: "spec: {replicas: 1}"
+  horizontalPodAutoscaler: "spec: {minReplicas: 1, maxReplicas: 1}"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: gw-area
+  namespace: area-piloto
+  labels: {rhcl.demo/piloto: "area"}
+  annotations: {networking.istio.io/service-type: ClusterIP}
+spec:
+  gatewayClassName: istio
+  infrastructure:
+    parametersRef: {group: "", kind: ConfigMap, name: gateway-uma-replica}
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      hostname: "*.__DOMINIO__"
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {rhcl.demo/area: piloto}}
+---
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: gw-area-deny-all
+  namespace: area-piloto
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: Gateway, name: gw-area}
+  rules:
+    authorization:
+      deny-all:
+        opa: {rego: "allow = false"}
+    response:
+      unauthorized:
+        headers: {content-type: {value: application/json}}
+        body: {value: '{"error": "Forbidden", "message": "Rota sem AuthPolicy propria: a plataforma nega por padrao."}'}
+---
+apiVersion: kuadrant.io/v1
+kind: RateLimitPolicy
+metadata:
+  name: gw-area-teto
+  namespace: area-piloto
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: Gateway, name: gw-area}
+  # TETO DA AREA: 'overrides' + 'strategy: merge'. Medido no mz8j7 em
+  # 2026-10-30: com 'defaults' o PlanPolicy da rota SOBREPOE o teto (teto fica
+  # Overridden); com 'overrides' atomico o teto APAGA o PlanPolicy (plano perde
+  # Enforced); so com merge os dois valem -- teto 5/10s deu 5 ok e o plano
+  # continuou Enforced.
+  overrides:
+    strategy: merge
+    limits:
+      teto-area: {rates: [{limit: 50, window: "10s"}]}

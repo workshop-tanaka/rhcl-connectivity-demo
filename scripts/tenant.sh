@@ -1830,10 +1830,18 @@ spec:
       message: "o Gateway apontado e de outro participante"
     - expression: "variables.hosts.all(h, !h.matches('-user[0-9]{1,3}$') || (variables.dono != '' && h.endsWith('-' + variables.dono)))"
       message: "o hostname da rota e de outro participante"
-    - expression: "variables.dono == '' || variables.gateways.all(n, n == object.metadata.namespace || n.endsWith('-' + variables.dono))"
-      message: "rota em namespace de participante so pode apontar para um Gateway dele"
-    - expression: "variables.ator == '' || variables.gateways.all(n, n.endsWith('-' + variables.ator))"
-      message: "um participante so pode prender rota a um Gateway dele"
+    # GATEWAY DE AREA (namespace 'area-*'): o Gateway compartilhado que a
+    # PLATAFORMA opera para varios participantes, no modelo por area
+    # (docs/propostas/modelo-simples-1.5.md). Sem esta excecao as regras 3 e 4
+    # recusavam a primeira rota do piloto no mz8j7 (2026-10-30): "rota em
+    # namespace de participante so pode apontar para um Gateway dele". O
+    # prefixo e a convencao; o Gateway de area so aceita rota de namespace
+    # rotulado 'rhcl.demo/area', e as regras 1 e 2 (Gateway e hostname com nome
+    # de outro participante) seguem valendo para ele.
+    - expression: "variables.dono == '' || variables.gateways.all(n, n == object.metadata.namespace || n.endsWith('-' + variables.dono) || n.startsWith('area-'))"
+      message: "rota em namespace de participante so pode apontar para um Gateway dele ou para um Gateway de area (namespace area-*)"
+    - expression: "variables.ator == '' || variables.gateways.all(n, n.endsWith('-' + variables.ator) || n.startsWith('area-'))"
+      message: "um participante so pode prender rota a um Gateway dele ou a um Gateway de area (namespace area-*)"
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
@@ -1905,6 +1913,72 @@ spec:
 EOF
 }
 
+_admissao_tetos() {
+  # TETO DA PLATAFORMA SOBRE AS POLICIES DO PARTICIPANTE -- a segunda camada
+  # de governanca, a que o Gatekeeper faria (docs/propostas/gatekeeper.md):
+  # o Connectivity Link governa a API; isto governa a POLICY. Numa turma de
+  # 30, uma RateLimitPolicy com 1.000.000 por 10s ou um PlanPolicy com cota
+  # diaria de bilhoes passam pelo operator sem erro e sao, na pratica, "sem
+  # limite" -- o Limitador e um so, compartilhado.
+  # So AVISA (Warn + Audit), nao nega: e material do guia (7.9), e um Warn
+  # aparece no terminal do participante como 'Warning: ...' no proprio apply,
+  # que e exatamente o que se quer mostrar. failurePolicy Ignore porque uma
+  # regra de teto nunca pode derrubar o apply de quem esta no roteiro.
+  # Fora de namespace de participante (variables.dono vazio) nao se aplica: a
+  # plataforma pode ter o teto que quiser.
+  oc get crd ratelimitpolicies.kuadrant.io >/dev/null 2>&1 || return 0
+  _aplica_firme <<'EOF' || _die "falha ao aplicar a admissao de tetos"
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: rhcl-tenant-tetos
+  labels: {rhcl.demo/multitenant: "true"}
+spec:
+  failurePolicy: Ignore
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [kuadrant.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [ratelimitpolicies]
+      - apiGroups: [extensions.kuadrant.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [planpolicies]
+  variables:
+    - name: pediu
+      expression: "has(namespaceObject.metadata.annotations) && 'openshift.io/requester' in namespaceObject.metadata.annotations ? namespaceObject.metadata.annotations['openshift.io/requester'] : ''"
+    - name: dono
+      expression: "has(namespaceObject.metadata.labels) && 'rhcl.demo/tenant' in namespaceObject.metadata.labels ? namespaceObject.metadata.labels['rhcl.demo/tenant'] : (variables.pediu.matches('^system:serviceaccount:showroom-user[0-9]{1,3}:showroom$') ? variables.pediu.split(':')[2].replace('showroom-', '') : (variables.pediu.matches('^user[0-9]{1,3}$') ? variables.pediu : ''))"
+    # As janelas que o guia usa e as que o Limitador conta sem surpresa. Uma
+    # janela fora da lista nao e erro do produto; e desvio da norma da
+    # plataforma, e e isso que o aviso diz.
+    - name: janelas
+      expression: "['10s', '30s', '60s', '1m', '1h']"
+    # RateLimitPolicy: spec.limits e um MAPA nome -> {rates: [...]};
+    # PlanPolicy: spec.plans[].limits.custom e a lista de taxas (as cotas
+    # daily/weekly/... sao numeros soltos, conferidos na terceira validacao).
+    - name: taxas
+      expression: "object.kind == 'RateLimitPolicy' ? (has(object.spec.limits) ? object.spec.limits.map(k, has(object.spec.limits[k].rates) ? object.spec.limits[k].rates : []) : []) : (has(object.spec.plans) ? object.spec.plans.map(p, has(p.limits) && has(p.limits.custom) ? p.limits.custom : []) : [])"
+  validations:
+    - expression: "variables.dono == '' || variables.taxas.all(l, l.all(r, !has(r.window) || r.window in variables.janelas))"
+      message: "teto da plataforma: a janela de uma taxa e 10s, 30s, 60s, 1m ou 1h (a policy foi aceita; a plataforma registrou o desvio)"
+    - expression: "variables.dono == '' || variables.taxas.all(l, l.all(r, !has(r.limit) || r.limit <= 5000))"
+      message: "teto da plataforma: no maximo 5000 requisicoes por janela (a policy foi aceita; a plataforma registrou o desvio)"
+    - expression: "variables.dono == '' || object.kind != 'PlanPolicy' || !has(object.spec.plans) || object.spec.plans.all(p, !has(p.limits) || !has(p.limits.daily) || p.limits.daily <= 1000000)"
+      message: "teto da plataforma: no maximo 1000000 requisicoes por dia num plano (a policy foi aceita; a plataforma registrou o desvio)"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: rhcl-tenant-tetos
+  labels: {rhcl.demo/multitenant: "true"}
+spec:
+  policyName: rhcl-tenant-tetos
+  validationActions: [Warn, Audit]
+EOF
+}
+
 _isola() { # <tenant>
   local t="$1" ns gw n i nss
   _sec "isola ${t}: rede e rotas fechadas para os outros participantes"
@@ -1912,6 +1986,7 @@ _isola() { # <tenant>
   [[ -n "$nss" ]] || _die "nenhum namespace com o rotulo ${ROTULO}=${t} -- o participante existe? (tenant.sh lista)"
   _admissao_rotas
   _admissao_dns
+  _admissao_tetos
   for ns in $nss; do
     oc apply -f - >/dev/null <<EOF || _die "falha ao aplicar a NetworkPolicy em ${ns}"
 apiVersion: networking.k8s.io/v1
@@ -1929,6 +2004,15 @@ spec:
         - namespaceSelector: {matchLabels: {policy-group.network.openshift.io/ingress: ""}}
         - namespaceSelector: {matchLabels: {policy-group.network.openshift.io/host-network: ""}}
         - namespaceSelector: {matchLabels: {network.openshift.io/policy-group: monitoring}}
+        # O GATEWAY DE AREA, operado pela plataforma para varios participantes
+        # (modelo por area, docs/propostas/modelo-simples-1.5.md). Sem esta
+        # entrada a rota do participante prende no Gateway de area, a chave e
+        # aceita, e a requisicao MORRE no caminho Gateway -> pod: 14 vezes
+        # '000' (timeout) com a chave gold no piloto do mz8j7 (2026-10-30),
+        # enquanto o participante isolado ANTES de ganhar o namespace do piloto
+        # respondia normal. O rotulo e posto pela plataforma no namespace do
+        # Gateway de area; participante nao rotula namespace.
+        - namespaceSelector: {matchLabels: {rhcl.demo/gateway-de-area: "true"}}
 EOF
   done
   _ok "NetworkPolicy e admissao de rotas em: ${nss}"
