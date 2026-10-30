@@ -1979,6 +1979,56 @@ spec:
 EOF
 }
 
+_admissao_area() {
+  # O PREFIXO 'area-' E DA PLATAFORMA, E ISTO E O QUE GARANTE. As regras 3 e 4
+  # de rhcl-tenant-rotas aceitam rota presa a Gateway em namespace 'area-*'
+  # (o Gateway de area, compartilhado). Hoje o participante nao cria namespace
+  # (sem self-provisioner; 'oc auth can-i create projectrequests --as=user2'
+  # responde no, medido no mz8j7 em 2026-10-30), mas confiar nisso seria
+  # confiar num RBAC que um cluster de turma mal montado pode nao ter --
+  # apontado pela revisao de seguranca do commit 9f48f61. Esta regra recusa o
+  # namespace 'area-*' sempre que quem pede, ou o requester gravado pelo
+  # servidor, e um participante. A plataforma (admin) segue criando.
+  _aplica_firme <<'EOF' || _die "falha ao aplicar a admissao dos namespaces de area"
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: rhcl-tenant-area
+  labels: {rhcl.demo/multitenant: "true"}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [namespaces]
+      - apiGroups: [project.openshift.io]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [projectrequests]
+  variables:
+    - name: pediu
+      expression: "has(object.metadata.annotations) && 'openshift.io/requester' in object.metadata.annotations ? object.metadata.annotations['openshift.io/requester'] : ''"
+    - name: participante
+      expression: "request.userInfo.username.matches('^system:serviceaccount:showroom-user[0-9]{1,3}:showroom$') || request.userInfo.username.matches('^user[0-9]{1,3}(-dev)?$') || variables.pediu.matches('^system:serviceaccount:showroom-user[0-9]{1,3}:showroom$') || variables.pediu.matches('^user[0-9]{1,3}(-dev)?$')"
+  validations:
+    - expression: "!object.metadata.name.startsWith('area-') || !variables.participante"
+      message: "namespace 'area-*' e da plataforma (Gateway de area): participante nao cria nem altera"
+    - expression: "!has(object.metadata.labels) || !('rhcl.demo/gateway-de-area' in object.metadata.labels) || !variables.participante"
+      message: "o rotulo rhcl.demo/gateway-de-area e da plataforma: participante nao o poe"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: rhcl-tenant-area
+  labels: {rhcl.demo/multitenant: "true"}
+spec:
+  policyName: rhcl-tenant-area
+  validationActions: [Deny]
+EOF
+}
+
 _isola() { # <tenant>
   local t="$1" ns gw n i nss
   _sec "isola ${t}: rede e rotas fechadas para os outros participantes"
@@ -1987,6 +2037,7 @@ _isola() { # <tenant>
   _admissao_rotas
   _admissao_dns
   _admissao_tetos
+  _admissao_area
   for ns in $nss; do
     oc apply -f - >/dev/null <<EOF || _die "falha ao aplicar a NetworkPolicy em ${ns}"
 apiVersion: networking.k8s.io/v1

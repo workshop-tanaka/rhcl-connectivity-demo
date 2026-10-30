@@ -273,6 +273,18 @@ Os três ajustes:
    da demo já tem esse fallback; um predicado só por rótulo cairia em
    `unclassified`.
 
+Dois achados da revisão de segurança do commit, fechados no mesmo dia:
+
+- **o prefixo `area-*` precisava de guarda própria**: entrou a admissão
+  `rhcl-tenant-area` (`Deny`), que recusa namespace `area-*` ou com o rótulo
+  `rhcl.demo/gateway-de-area` quando quem pede é participante. Hoje o RBAC já
+  impede (sem `self-provisioner`), mas a regra não depende disso;
+- **o teto da área não é um balde só**: com `strategy: merge` o Limitador
+  registra `teto-area` dentro do namespace de **cada rota**, então o produtor
+  que esgota o teto dele não toca o do vizinho (teto 5/10s: user1 5 ok e 3
+  limitadas, user2 recebeu os 3 do plano free dele na mesma janela). O
+  manifest leva `counters: request.host` para deixar a intenção explícita.
+
 Ficou medido também o que a proposta tinha como hipótese: o consumidor é um
 papel de verdade (RBAC próprio, namespace próprio, não enxerga a chave alheia),
 o momento "o vizinho aprova" existe como objeto (`APIKeyApproval`), e o
@@ -288,7 +300,5 @@ Gateway de área com teto por `overrides` + `merge` já funciona na 1.4 (o
 - `approvalMode: automatic` (o piloto usou `manual`);
 - revogação: apagar o `APIKey` do consumidor e conferir se o Secret de
   enforcement some;
-- o teto da área com `when`/`counters` por hostname, para o teto valer **por
-  produtor** e não por Gateway;
 - 30 participantes: o piloto foi com dois.
 

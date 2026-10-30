@@ -350,6 +350,17 @@ participante" reagiram como deviam, e as duas precisaram de uma porta:
   `namespaceSelector` por `rhcl.demo/gateway-de-area: "true"`, rótulo que só a
   plataforma põe.
 
+A revisão de segurança do commit apontou que confiar no prefixo era confiar
+no RBAC: um cluster de turma sem o `self-provisioner` removido deixaria o
+participante criar `area-qualquer` e ganhar a exceção. Entrou a admissão
+`rhcl-tenant-area` (`Deny`), aplicada pelo `isola`: namespace `area-*`, ou
+qualquer namespace com o rótulo `rhcl.demo/gateway-de-area`, é recusado quando
+quem pede, ou o `openshift.io/requester` gravado pelo servidor, é um
+participante (`userN`, `userN-dev` ou a ServiceAccount do Showroom). Medido com
+`--dry-run=server`: `area-teste` com requester `user2` negado; o mesmo nome pela
+plataforma aceito; namespace comum do participante com o rótulo negado; sem o
+rótulo aceito.
+
 `isolamento.sh user2 user1` depois das duas: 3 abertos / 24 barrados / 0
 indeterminados, os três abertos conhecidos. A rota presa ao Gateway da vítima
 e a rota com o hostname da vítima continuam `BARRADO`.
