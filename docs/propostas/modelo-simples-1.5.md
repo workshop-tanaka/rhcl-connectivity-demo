@@ -282,8 +282,10 @@ Dois achados da revisão de segurança do commit, fechados no mesmo dia:
 - **o teto da área não é um balde só**: com `strategy: merge` o Limitador
   registra `teto-area` dentro do namespace de **cada rota**, então o produtor
   que esgota o teto dele não toca o do vizinho (teto 5/10s: user1 5 ok e 3
-  limitadas, user2 recebeu os 3 do plano free dele na mesma janela). O
-  manifest leva `counters: request.host` para deixar a intenção explícita.
+  limitadas, user2 recebeu os 3 do plano free dele na mesma janela). Um
+  `counters: request.host` que chegou a entrar para explicitar isso saiu em
+  seguida: o host é escolhido pelo cliente e, numa rota com hostname curinga,
+  cada host inventado ganharia um balde. A chave por rota vem do merge, e basta.
 
 Ficou medido também o que a proposta tinha como hipótese: o consumidor é um
 papel de verdade (RBAC próprio, namespace próprio, não enxerga a chave alheia),

@@ -60,17 +60,16 @@ spec:
   # Overridden); com 'overrides' atomico o teto APAGA o PlanPolicy (plano perde
   # Enforced); so com merge os dois valem -- teto 5/10s deu 5 ok e o plano
   # continuou Enforced.
-  # UM BALDE POR ROTA, NAO UM POR GATEWAY. A revisao de seguranca apontou o
-  # risco de o teto ser um contador so para a area inteira (o trafego de um
-  # produtor esgotaria o dos outros). Medido no mz8j7 em 2026-10-30 com o teto
-  # em 5/10s: com 'strategy: merge' o Limitador registra 'teto-area' DENTRO do
-  # namespace de cada rota (piloto-user1/api-user1, piloto-user2/api-user2),
-  # entao user1 gastou o balde dele (5 ok, 3 limitadas) e user2 recebeu os 3
-  # do plano free dele na mesma janela. 'counters: request.host' fica para
-  # tornar a intencao explicita no YAML; a chave por rota ja vem do merge.
+  # UM BALDE POR ROTA, NAO UM POR GATEWAY, E SEM 'counters'. A revisao de
+  # seguranca apontou o risco de o teto ser um contador so para a area inteira.
+  # Medido no mz8j7 em 2026-10-30 com o teto em 5/10s: com 'strategy: merge' o
+  # Limitador registra 'teto-area' DENTRO do namespace de cada rota, entao
+  # user1 gastou o balde dele (5 ok, 3 limitadas) e user2 recebeu os 3 do plano
+  # free dele na mesma janela. Uma versao intermediaria levava
+  # 'counters: request.host' para explicitar a intencao; saiu porque o host e
+  # escolhido pelo cliente e, numa rota com hostname curinga, viraria um balde
+  # por host inventado (segunda revisao). A chave por rota vem do merge.
   overrides:
     strategy: merge
     limits:
-      teto-area:
-        rates: [{limit: 50, window: "10s"}]
-        counters: [{expression: request.host}]
+      teto-area: {rates: [{limit: 50, window: "10s"}]}
