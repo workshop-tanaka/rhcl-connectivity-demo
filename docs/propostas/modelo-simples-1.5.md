@@ -200,13 +200,17 @@ casa continua: TP ou DP só se a seção das notas listar.
    passo 4.
 4. **`tenant.sh` com o modelo de área**, mantendo o modo
    atual atrás de uma opção enquanto a 1.4 for a edição entregue.
-   **FEITO em 2026-11-03 a infraestrutura** (`tenant.sh area <nome>`,
-   `AREA=<nome> tenant.sh sobe userN`, `AREAS="a b" tenant.sh turma N`;
-   ver `docs/TURMA.md` §5b; `user6` no mz8j7). **Falta o guia**: a Fase 2 e
-   a 3.1 ainda editam o Gateway próprio, e a reescrita delas para o modo de
-   área (o Infra como leitura e Extras com `gw-lab-<user>`, decisão 2) é a
-   segunda metade deste passo. Os `piloto-*.yaml` ao lado ficam como registro
-   do piloto; o que vale é o script.
+   **FEITO em 2026-11-03, as duas metades.** A infraestrutura
+   (`tenant.sh area <nome>`, `AREA=<nome> tenant.sh sobe userN`,
+   `AREAS="a b" tenant.sh turma N`; ver `docs/TURMA.md` §5b; `user6` no
+   mz8j7), a condição 1 (§6.4) e o guia: 2.1, 2.2, 2.3, 3.1, 6.1, 6.3 e as
+   leituras de arquitetura e instalação têm a variante atrás do atributo
+   `area`, conforme o corte de `fase-2-area.md`; 2.4 e 3.2 não mudam porque
+   já são laboratórios com Gateway próprio. Os `piloto-*.yaml` ao lado ficam
+   como registro do piloto; o que vale é o script. O que falta é publicar
+   uma onda com tudo isso e rodá-la num participante em modo de área de
+   ponta a ponta (hoje cada passo foi executado no `user6`, página a página,
+   mas não pelo Showroom dele).
 5. **Trilhas de 7 para 4**, com as somas e os resumos de fase gerados do nav em
    vez de mantidos à mão.
 6. **Extras novos** (MCP, Extension SDK) depois, cada um atrás de uma checagem,

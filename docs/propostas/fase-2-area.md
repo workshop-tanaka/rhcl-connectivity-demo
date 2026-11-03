@@ -64,6 +64,14 @@ Tudo pequeno, e tudo no `sobe` com `AREA`:
 
 ## 4. Ordem proposta
 
+**Feito em 2026-11-03, nesta ordem, com as duas recomendações da Fase 6
+adotadas** (6.1 lê o log da área e filtra; 6.3 vira leitura no modo de área).
+Workshop: 2.1 e 2.2 (`2139408`), 3.1 (`822e9e4`), 2.3 (`db4df8d`, `b07edb4`),
+6.1 e 6.3 (`aa2ff97`), leituras (`38a9a15`). Demo: `tenant.sh` (`2fc6a24`),
+`negado.sh` (`8a64336`), `preflight.sh` e `topologia.sh`. Cada comando das
+variantes foi executado no `user6` do mz8j7; a publicação pelo Showroom dele
+pede uma onda nova.
+
 1. `tenant.sh`: os quatro itens do §2 mais o `Telemetry` na área (meia hora,
    medidos no `user6`);
 2. 2.1 e 2.2: variantes por atributo (uma hora);

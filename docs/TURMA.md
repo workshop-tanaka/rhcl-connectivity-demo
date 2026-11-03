@@ -340,12 +340,17 @@ A condição que faltava antes de uma turma real foi medida: com 15 rotas no
 oscila é o número de policies no cluster, não o de rotas por Gateway
 (`docs/propostas/modelo-simples-1.5.md` §6.4).
 
-O que o modo ainda não cobre, por desenho: o perfil Dev (`login-dev`) exige o
-namespace do Gateway e fica de fora; o `restringe` passa a aceitar que o
-terminal leia as rotas de todos, porque o catálogo da 1.5 dá isso por
-construção, e confere os Secrets do outro em vez delas; e o guia de hoje
-(Fase 2 inteira, 3.1) ainda fala do Gateway próprio -- a reescrita é o passo
-seguinte do caminho.
+O que mais o modo faz, desde a tarde de 2026-11-03: o participante lê a área
+(Gateway, policies de Gateway, `EnvoyFilter`, `Routes`, pods e log, nunca
+Secrets) pela ClusterRole `rhcl-tenant-leitura-area`; o perfil Dev existe e
+lê o Gateway da área; o `render` prende as rotas de `passos/` ao `gw-area`,
+tira o `exposta/04` (a Route é da plataforma, publicada no `sobe` junto com a
+do `echo-exposta`) e o `degrada/` (cortar o Gateway da área derrubaria
+todos); o `Telemetry` da dimensão por parceiro é aplicado na área. O guia tem
+a variante de área em 2.1, 2.2, 2.3, 3.1, 6.1, 6.3 e nas leituras, atrás do
+atributo `area` que o `showroom` passa (`docs/propostas/fase-2-area.md`). O
+`restringe` aceita que o terminal leia as rotas de todos, porque o catálogo da
+1.5 dá isso por construção, e confere os Secrets do outro em vez delas.
 
 ## 6. O isolamento, e como ele foi fechado
 
