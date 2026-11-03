@@ -79,7 +79,13 @@ do catálogo (revogação, automatic, 30 chaves, fluxo pela console) em
 do `tenant.sh` (TURMA.md §5b): `area-a` com o Gateway `gw-area` da plataforma e
 o `user6` subido nela, sem `ingress-gateway-user6`; os cinco anteriores seguem
 no modo antigo. Para desmontar o user6: `tenant.sh remove user6`; a área:
-`oc delete ns area-a`.
+`oc delete ns area-a`. Às 14:20 um `apply` de 126 objetos de uma vez coincidiu
+com um episódio de API server lento: todos os controllers do `kuadrant-system`
+perderam a *lease* e reiniciaram, o operator ficou minutos em
+`CrashLoopBackOff` e voltou sozinho; os `kube-apiserver` deste cluster têm 7 a
+11 reinícios. Caminho de dados não parou. Antes de culpar o Connectivity Link
+por status vazio aqui: `oc get pods -n kuadrant-system` e os eventos de
+`LeaderElection`.
 
 ### 2026-09-17 — ambiente anterior: `cluster-45bp4`, sandbox do workshop, RHCL 1.2.1
 

@@ -404,6 +404,44 @@ Capturas das quatro telas ficaram no scratchpad desta sessão
 `u2-approve-modal.png`); entram no backlog de capturas do workshop quando a
 Fase 4 for reescrita.
 
+### 6.4 A condição 1 do passo 4: a oscilação de status com 15 rotas num Gateway (2026-11-03)
+
+A hipótese da §2.4 ("a oscilação cai com menos policies, mas é hipótese")
+foi medida no mz8j7, no mesmo método de outubro: recriar uma policy e sondar
+o `Enforced` de todas as outras, uma amostra a cada ~1,3 s, e contar quantas
+caem e por quanto tempo.
+
+| cenário | policies sondadas | pico de `Enforced=False` além da linha de base | volta à linha de base |
+| --- | --- | --- | --- |
+| **área**: 15 rotas no `gw-area` (14 produtores sintéticos + `user6`), recria um `PlanPolicy` | 51 | 28 | ~8 s (6 amostras) |
+| **área**, recria uma `AuthPolicy` | 51 | 1 | ~1 s |
+| **modo antigo**: 5 participantes com Gateway próprio, recria o `PlanPolicy` do `user1` | 55 | 26 | ~8 s (6 amostras) |
+| outubro, modo antigo com 30 participantes (ISOLAMENTO §7) | 313 | 138 | ~50 s |
+
+O que isso diz: **o número de rotas num Gateway não é o que oscila; é o
+número de policies no cluster.** Com ~50 policies os dois modos se comportam
+igual (um quarto a metade cai, por 8 s); com 313 eram 50 s. Como o modelo de
+área tem um terço das policies para a mesma turma, a oscilação por mudança
+cai junto, e 15 rotas por área não pioram nada. A `AuthPolicy` recriada
+quase não mexe nas outras; o `PlanPolicy` mexe porque gera uma
+`RateLimitPolicy`, e é o Limitador que reconcilia tudo.
+
+A linha de base da área é um `False` só: o "nega tudo" da área, sobreposto
+pelas policies das rotas, que é o esperado. No modo antigo são dez: os dois
+"nega tudo" de cada participante.
+
+**Dois achados do caminho, fora da medição.** Ao aplicar os 126 objetos dos
+14 produtores de uma vez, o cluster passou por um episódio de API server
+lento (o `mz8j7` tem isso de vez em quando): todos os controllers do
+`kuadrant-system` perderam a *lease* ao mesmo tempo e reiniciaram, e o
+operator ficou em `CrashLoopBackOff` por uns minutos. As policies
+convergiram em 17 s depois que ele voltou, e o caminho de dados dos
+participantes não parou (401 sem chave o tempo todo). Durante esse intervalo
+o controller do `PlanPolicy` registrou um *panic* (`client.Object is nil, not
+*v1.RateLimitPolicy`), recuperado por *requeue*; é comportamento sob rajada,
+não do modelo de área, e vale como registro para uma turma de 30 subindo de
+uma vez: não aplicar tudo no mesmo segundo.
+
 ## 7. O catálogo no terminal do participante (decisão de 2026-11-03)
 
 No piloto o papel `api-catalog-browser` foi dado ao usuário `userN` (o login

@@ -334,6 +334,12 @@ e os três planos iguais aos de sempre (3, 10 e 14 de 14); o teto da área
 tem a sua -- ele vale para a rota que não tiver. O cluster ficou com 14
 Gateways para seis participantes, e nenhum `ingress-gateway-user6`.
 
+A condição que faltava antes de uma turma real foi medida: com 15 rotas no
+`gw-area`, recriar um `PlanPolicy` derruba o status de 28 das 51 policies por
+~8 s, o mesmo que o modo antigo com 5 participantes (26 de 55, ~8 s). O que
+oscila é o número de policies no cluster, não o de rotas por Gateway
+(`docs/propostas/modelo-simples-1.5.md` §6.4).
+
 O que o modo ainda não cobre, por desenho: o perfil Dev (`login-dev`) exige o
 namespace do Gateway e fica de fora; o `restringe` passa a aceitar que o
 terminal leia as rotas de todos, porque o catálogo da 1.5 dá isso por
