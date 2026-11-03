@@ -203,6 +203,24 @@ trocar o Secret rotulado pelo pedido de chave quando a 1.5 chegar.
 
 ## 5. Perguntas
 
+**Decididas em 2026-11-03** (o Sandro seguiu a recomendação registrada em cada
+uma; a 5 não tinha recomendação e ficou com a que está abaixo):
+
+| # | decisão |
+| --- | --- |
+| 1 | **duas áreas**. Cada participante tem "o outro time" sem a plataforma ter de sustentar três Gateways de área por cluster. |
+| 2 | **o login Infra não sobrevive.** O que era dele vira a Fase 2 e os Extras de laboratório com o `gw-lab-<user>`; o Dev passa a ser barrado no Gateway de área, não no próprio. |
+| 3 | **sem trilha do instrutor**, como em outubro. A plataforma sobe por `provision.sh` antes da sessão; o que o participante não roda vira leitura. |
+| 4 | **o plugin próprio de Backstage fica só com operação** (estado, telemetria, deep-link); catálogo, chaves e aprovação ficam com o plugin de console, que é GA. |
+| 5 | **a sessão `foco_rhcl` fica sem egress e sidecar.** Os dois exigem Service Mesh e são tema da sessão completa e da sessão de Service Mesh; o Connectivity Link sobre o provedor nativo é a tese da sessão dedicada, e trazê-los de volta exigiria o Service Mesh como provedor só para dois Extras. |
+
+Junto: **a Fase 8 passa a ser padrão** (`fase8: '@'` em `content/antora.yml`
+do workshop; o playbook desliga com `fase8: false`), e **o papel
+`api-catalog-browser` vai para a identidade do terminal** do participante (ver
+§7). O Extra do Gatekeeper segue dependendo do entitlement no RHDP.
+
+As perguntas, como foram feitas:
+
 1. **Áreas: quantas, e por quê?** Três de dez simula times de uma empresa; uma
    só é mais simples e perde a história de "o outro time". Recomendo duas.
 2. **O papel Infra sobrevive como login?** Proposta: não; vira a Fase 2 e os
@@ -304,3 +322,31 @@ Gateway de área com teto por `overrides` + `merge` já funciona na 1.4 (o
   enforcement some;
 - 30 participantes: o piloto foi com dois.
 
+
+## 7. O catálogo no terminal do participante (decisão de 2026-11-03)
+
+No piloto o papel `api-catalog-browser` foi dado ao usuário `userN` (o login
+da console), não à ServiceAccount do terminal. A Fase 4 reescrita precisa que
+o participante **encontre a API do outro time pelo terminal**
+(`oc get apiproducts -A`, o `APIKey` apontando para o namespace do dono), e
+sem o papel o terminal vê só o próprio namespace.
+
+**Recomendação, aceita: dar o papel ao terminal.** Três razões, e uma
+mitigação:
+
+- o catálogo é **do cluster inteiro por desenho do produto**: o guia da 1.5
+  descreve o papel como leitura de `APIProduct`, `HTTPRoute` e `Gateway` em
+  todos os namespaces, porque a função dele é mostrar o que existe para pedir;
+- o que ele expõe é **o que o catálogo publica** (nomes de produto, hostname,
+  planos), nada do que o `isolamento.sh` mede como fechado (Secrets, chaves,
+  policies alheias); as rotas e Gateways já apareciam listados pelo Gateway
+  nativo, e isso está nos três "abertos" conhecidos;
+- sem ele a Fase 4 teria dois caminhos (console para achar, terminal para
+  pedir), e a página ficaria explicando a diferença em vez do produto.
+
+A mitigação é a mesma do piloto: pedir a chave continua exigindo `api-consumer`
+no **próprio** namespace, e aprovar exige `api-owner` no namespace do dono. O
+`ClusterRoleBinding` entra no `tenant.sh` junto com o modo de área (passo 4 do
+§4), com o mesmo nome por participante (`catalogo-<user>`) para o `apaga`
+recolher. A página do guia diz em uma linha que o catálogo é do cluster inteiro,
+e por quê.

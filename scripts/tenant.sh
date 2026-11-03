@@ -2654,10 +2654,12 @@ if os.environ.get("PERFIS") == "1":
 foco = os.environ.get("FOCO", "")
 if foco in ("rhcl", "ossm", "rhsi"):
     dados["foco_" + foco] = "1"
-# EXTRAS: atributos de conteudo ligados POR PARTICIPANTE (ex.: "fase8 trilhas"),
+# EXTRAS: atributos de conteudo ligados POR PARTICIPANTE (ex.: "trilhas"),
 # para validar paginas que existem inertes na onda (nav e paginas sob ifdef).
-# Ligar = EXTRAS="fase8 trilhas" tenant.sh showroom userN; desligar =
-# republicar sem EXTRAS. Nao precisa de onda nova para nenhum dos dois.
+# Ligar = EXTRAS="x" tenant.sh showroom userN; desligar = republicar sem
+# EXTRAS. Nao precisa de onda nova para nenhum dos dois. A Fase 8 deixou de
+# precisar disto em 2026-11-03: e padrao no content/antora.yml do workshop
+# (fase8: '@'); EXTRAS="fase8" continua valendo para ondas anteriores.
 for extra in os.environ.get("EXTRAS", "").split():
     if re.fullmatch(r"[a-z][a-z0-9_]*", extra): dados[extra] = "1"
 # TRILHAS: cada nome vira um guia INTEIRO a mais, construido pelo Antora com o
