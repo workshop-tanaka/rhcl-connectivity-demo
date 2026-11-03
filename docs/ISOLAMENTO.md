@@ -372,6 +372,15 @@ inteiro -- a identidade `userN` passa a enxergar as rotas de todos. O terminal
 (ServiceAccount do Showroom) não recebeu o papel e continua `BARRADO` nessa
 linha. É o preço do catálogo, e vale decidir se o papel vai para o terminal.
 
+**Decidido em 2026-11-03: vai.** O `tenant.sh rbac` passa a ligar, em cluster
+com as ClusterRoles do catálogo, o `api-catalog-browser` ao terminal e ao
+usuário (`rhcl-tenant-<t>-catalogo`, com o rótulo do tenant para o `apaga`
+recolher), mais `api-owner` em `travel-agency-<t>` e `api-consumer` em
+`parceiros-<t>`. O motivo está em `docs/propostas/modelo-simples-1.5.md` §7:
+a Fase 4 nova pede a chave do vizinho pelo terminal, e sem o papel o terminal
+não enxerga o produto dele. A linha do `isolamento.sh` que lista rotas e
+Gateways do cluster passa a `ABERTO` também para o terminal, por construção.
+
 ### O teto da plataforma sobre as policies (2026-10-30)
 
 O Connectivity Link governa a API; nada nele governa a **policy**. Numa turma

@@ -63,6 +63,28 @@ spec:
             prefix: APIKEY
         metrics: false
         priority: 0
+      # A CHAVE QUE O CATALOGO CUNHA (RHCL 1.5): o consumidor pede pelo APIKey,
+      # o dono aprova pelo APIKeyApproval, e o controller grava o Secret de
+      # enforcement em kuadrant-system SEM 'app: partner' -- com os rotulos
+      # devportal.kuadrant.io/apiproduct e .../apiproduct-namespace. Sem esta
+      # segunda identidade a chave aprovada leva 401 na rota. Os dois rotulos,
+      # porque na turma todo participante publica um 'travels-api' no proprio
+      # namespace: so o nome do produto deixaria a chave de um abrir a API do
+      # outro. Em cluster sem o catalogo (1.2/1.4) o seletor nao casa nada e
+      # a regra e inerte. O plano vem na anotacao secret.kuadrant.io/plan-id,
+      # que o predicado da PlanPolicy ja le (base/policies-plans/).
+      api-key-catalogo:
+        apiKey:
+          allNamespaces: false
+          selector:
+            matchLabels:
+              devportal.kuadrant.io/apiproduct: travels-api
+              devportal.kuadrant.io/apiproduct-namespace: travel-agency
+        credentials:
+          authorizationHeader:
+            prefix: APIKEY
+        metrics: false
+        priority: 0
     # IDENTIDADE COMO HEADER -- e o que torna possivel medir consumo POR
     # PARCEIRO, e nao so por plano.
     #

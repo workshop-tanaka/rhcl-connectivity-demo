@@ -1701,6 +1701,19 @@ DEV
     for r in $largos self-provisioner; do
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata: {name: rhcl-tenant-%s-%s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: %s}\nsubjects:\n' "$t" "$r" "$ROTULO" "$t" "$r"; _so_sa
     done
+    # O CATALOGO DE APIs DA 1.5 (decisao de 2026-11-03): o participante e dono
+    # do produto dele (api-owner em travel-agency-<t>), consumidor no
+    # parceiros-<t> (api-consumer) e navega o catalogo do cluster inteiro
+    # (api-catalog-browser, que o guia da 1.5 diz nao poder ser restrito a
+    # namespaces). Os dois sujeitos: o terminal pede e aprova pelos comandos
+    # da Fase 4, e o usuario faz o mesmo pela console. 'admin' nos namespaces
+    # dele ja cobre o que e do proprio namespace; o que falta e a leitura do
+    # cluster, e e so em cluster com as ClusterRoles (RHCL 1.5+).
+    if oc get clusterrole kuadrant-operator-api-catalog-browser >/dev/null 2>&1; then
+      printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata: {name: rhcl-tenant-%s-catalogo, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: kuadrant-operator-api-catalog-browser}\nsubjects:\n' "$t" "$ROTULO" "$t"; _sujeitos
+      printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-api-owner, namespace: travel-agency-%s}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: kuadrant-operator-api-owner}\nsubjects:\n' "$t"; _sujeitos
+      printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-api-consumer, namespace: parceiros-%s}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: kuadrant-operator-api-consumer}\nsubjects:\n' "$t"; _sujeitos
+    fi
     # o CoreDNS do Extra de DNS (ver 'rhcl-tenant-dns' em _plataforma). O
     # namespace 'dns-lab-<tenant>' so existe enquanto o Extra roda; ligacao a
     # uma ServiceAccount que ainda nao existe e valida e fica esperando por ela
@@ -2532,6 +2545,17 @@ _showroom() { # <tenant> <dir da copia>
   # A SESSAO: a do pedido, que o provisionamento grava no cluster; FOCO no
   # ambiente vence (inclusive vazio, que pede a completa para este participante).
   local foco; foco="$(_foco)"
+  # O CATALOGO DA 1.5 E O VIZINHO. A Fase 4 do guia pede a chave da API do
+  # vizinho (o proximo userN da turma, e o primeiro depois do ultimo) e aprova
+  # o pedido que chega do outro lado. O atributo 'catalogo' so liga em cluster
+  # com as ClusterRoles do catalogo; sem ele as paginas ficam no fluxo da 1.4.
+  local catalogo="" vizinho="$t"
+  if oc get clusterrole kuadrant-operator-api-catalog-browser >/dev/null 2>&1; then
+    catalogo=1
+    vizinho="$(oc get ns -l "$ROTULO" -o jsonpath='{range .items[*]}{.metadata.labels.rhcl\.demo/tenant}{"\n"}{end}' 2>/dev/null \
+      | grep -E '^user[0-9]+$' | sort -t r -k 2 -n | uniq | T="$t" awk 'BEGIN{p=ENVIRON["T"]} {a[++n]=$0} END{for(i=1;i<=n;i++) if(a[i]==p){print a[(i%n)+1]; exit} print p}')"
+    [[ -n "$vizinho" ]] || vizinho="$t"
+  fi
   [[ -z "$foco" ]] || _log "sessao de ${t}: ${foco}"
   local che_url=""
   if [[ -n "$gl_proj" ]] && oc get secret gitlab-oauth-config -n "${CHE_NS:-openshift-devspaces}" >/dev/null 2>&1; then
@@ -2580,7 +2604,7 @@ json.dump({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
     printf '\n\x1e\n'
     # o login Plataforma da turma (_login_plataforma): o mesmo em todos os guias
     oc get secret login-plataforma -n "${KEYCLOAK_NS:-keycloak}" -o json 2>/dev/null || printf '{}'
-  } | PERFIS="$perfis" PERFIL_SH="$_PERFIL_SH" FOCO="$foco" CHE_URL="$che_url" GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
+  } | PERFIS="$perfis" PERFIL_SH="$_PERFIL_SH" FOCO="$foco" CATALOGO="$catalogo" VIZINHO="$vizinho" CHE_URL="$che_url" GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
 import sys, json, os, re, base64
 t, dom = os.environ["TENANT"], os.environ["DOM"]
 objs, chaves, rotas, realms, logindev, loginplat = sys.stdin.read().split("\x1e")
@@ -2605,7 +2629,9 @@ _lp = json.loads(loginplat).get("data", {})
 if _lp.get("username") and _lp.get("password"):
     troca["usuario_console_plataforma"] = base64.b64decode(_lp["username"]).decode()
     troca["senha_console_plataforma"] = base64.b64decode(_lp["password"]).decode()
-novos = {"user": t, "sufixo": "-" + t}
+novos = {"user": t, "sufixo": "-" + t, "vizinho": os.environ.get("VIZINHO", t)}
+# o catalogo de APIs da 1.5 (ver o calculo de 'catalogo' e 'vizinho' acima)
+if os.environ.get("CATALOGO") == "1": novos["catalogo"] = "1"
 pode = {"api_host", "api_key_free", "api_key_silver", "api_key_gold", "cluster_domain", "guid",
         "usuario_console", "demo_ref", "repo_no_ambiente", "repo_policies", "repo_apis"}
 # Os atributos saem ANTES do laco: o Deployment precisa saber quais ficaram

@@ -256,6 +256,10 @@ oc get secrets -n kuadrant-system -l app=partner \
 > `Pending` de propósito. Aprovar cunha um Secret novo, visível ao Authorino,
 > com o plano gravado em *annotation* em vez do label que o `PlanPolicy` lê — a
 > chave sai **sem limite nenhum** e o Ato 2 perde o sentido. Armadilha 11.
+> (No RHCL 1.5 a aprovação **é** o fluxo: o predicado do `PlanPolicy` lê a
+> *annotation*, a `AuthPolicy` tem uma segunda identidade para a chave que o
+> catálogo cunha, e a Fase 4 do workshop faz o pedido e a aprovação entre dois
+> participantes. O aviso vale para a demo na 1.4.)
 
 ---
 
