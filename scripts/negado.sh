@@ -31,6 +31,11 @@
 #   bash scripts/negado.sh desafio      # sorteia uma; voce diagnostica
 #   bash scripts/negado.sh tabela       # a cola, para levar embora
 set -uo pipefail
+# O NEGA-TUDO que vale para a rota: o do Gateway proprio (modo de sempre) ou
+# o do Gateway de area (tenant.sh area), quando o namespace da aplicacao
+# carrega o rotulo rhcl.demo/area.
+_AREA="$(oc get ns travel-agency -o jsonpath='{.metadata.labels.rhcl\.demo/area}' 2>/dev/null)"
+if [[ -n "$_AREA" ]]; then DENY_NS="area-${_AREA}"; DENY_NOME="gw-area-deny-all"; else DENY_NS="ingress-gateway"; DENY_NOME="prod-web-deny-all"; fi
 
 if [[ -t 1 ]]; then
   _GRN=$'\033[0;32m'; _YEL=$'\033[0;33m'; _BLU=$'\033[0;34m'
@@ -222,8 +227,8 @@ e5() {
 e6() {
   _est 6 "a regra que voce esta lendo nao e a que vale"
   _aposta "Voce abre a configuracao, ela esta correta -- e nao e obedecida."
-  _cmd "oc get authpolicy prod-web-deny-all -n ingress-gateway (o status)"
-  oc get authpolicy prod-web-deny-all -n ingress-gateway \
+  _cmd "oc get authpolicy ${DENY_NOME} -n ${DENY_NS} (o status)"
+  oc get authpolicy "$DENY_NOME" -n "$DENY_NS" \
     -o jsonpath='{range .status.conditions[*]}    {.type}={.status}  {.message}{"\n"}{end}' 2>/dev/null | cut -c1-150
   _nota ""
   _nota "Duas linhas que parecem se contradizer, e nao se contradizem:"
@@ -299,7 +304,7 @@ desafio() {
          "$(oc exec -n travel-agency "$p" -c travels -- curl -s -m 6 -o /dev/null -w '%{http_code}' http://discounts:8000/ 2>/dev/null)" \
          "$(oc exec -n travel-agency "$p" -c travels -- curl -s -m 6 http://discounts:8000/ 2>/dev/null | head -c 40)" ;;
     6) _cmd "o status de uma AuthPolicy"
-       oc get authpolicy prod-web-deny-all -n ingress-gateway \
+       oc get authpolicy "$DENY_NOME" -n "$DENY_NS" \
          -o jsonpath='{range .status.conditions[*]}    → {.type}={.status}  {.message}{"\n"}{end}' 2>/dev/null | cut -c1-140 ;;
   esac
   if [[ -t 0 ]]; then
