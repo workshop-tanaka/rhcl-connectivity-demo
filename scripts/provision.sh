@@ -866,7 +866,9 @@ st_platform() {
   # namespace travel-db aposentou-se. O manifesto segue em workloads/travel-db/
   # de proposito: workloads/travel-agency/ e espelhado ao GitLab PUBLICO e o
   # mysqldb.yaml carrega Secret em stringData.
-  _ns ingress-gateway travel-agency echo-api
+  # AREA (modo de area do tenant.sh): o Gateway e da plataforma, o namespace
+  # de Gateway proprio nao existe
+  _ns $([[ -n "${AREA:-}" ]] || printf ingress-gateway) travel-agency echo-api
   if _sem_mesh; then
     # os manifestos pedem o proxy por rotulo no POD; sem isto, um injetor que
     # exista no cluster poderia atende-los
@@ -1076,25 +1078,36 @@ st_demo() {
   fi
   _ok "hostname do overlay confere com a rota deste cluster"
 
-  if _sem_mesh; then
+  if _sem_mesh || [[ -n "${AREA:-}" ]]; then
     # A camada e a mesma; saem os objetos que so existem com Service Mesh
     # (mTLS entre servicos, autorizacao de salto, regras de trafego) e o
     # Telemetry de tracing dos sidecars. O Telemetry da dimensao 'partner' no
     # Gateway fica: medido, o provedor nativo o honra.
-    if [[ $DRY_RUN -eq 1 ]]; then _cmd "oc kustomize ${OVERLAY} | (sem security.istio.io, networking.istio.io e o tracing) | oc apply -f -"; return 0; fi
-    oc kustomize "${_here}/${OVERLAY}" 2>/dev/null | TEM_TELEMETRY="$(_has_crd telemetries.telemetry.istio.io && echo 1)" python3 -c '
+    # AREA (modo de area do tenant.sh): o Gateway e o da plataforma, em
+    # area-<AREA>/gw-area. As rotas (HTTPRoute, GRPCRoute) passam a apontar
+    # para ele, e tudo o que morava no namespace do Gateway proprio (nega
+    # tudo, teto, TelemetryPolicy, Telemetry) sai: e da plataforma agora.
+    if [[ $DRY_RUN -eq 1 ]]; then _cmd "oc kustomize ${OVERLAY} | (sem security.istio.io, networking.istio.io e o tracing${AREA:+; rotas no Gateway de area-$AREA}) | oc apply -f -"; return 0; fi
+    oc kustomize "${_here}/${OVERLAY}" 2>/dev/null | SEM_MESH="$(_sem_mesh && echo 1)" AREA="${AREA:-}" TEM_TELEMETRY="$(_has_crd telemetries.telemetry.istio.io && echo 1)" python3 -c '
 import os, re, sys
+area = os.environ.get("AREA", ""); sem_mesh = os.environ.get("SEM_MESH") == "1"
 docs = [d for d in re.split(r"(?m)^---[ \t]*$", sys.stdin.read()) if d.strip()]
 fica = []
 for d in docs:
     g = re.search(r"(?m)^apiVersion:\s*(\S+)", d); g = g.group(1) if g else ""
     n = re.search(r"(?m)^  name:\s*(\S+)", d); n = n.group(1) if n else ""
-    if g.startswith(("security.istio.io/", "networking.istio.io/")): continue
-    if g.startswith("telemetry.istio.io/") and (not os.environ.get("TEM_TELEMETRY") or "tracing" in n): continue
+    ns = re.search(r"(?m)^  namespace:\s*(\S+)", d); ns = ns.group(1) if ns else ""
+    if sem_mesh:
+        if g.startswith(("security.istio.io/", "networking.istio.io/")): continue
+        if g.startswith("telemetry.istio.io/") and (not os.environ.get("TEM_TELEMETRY") or "tracing" in n): continue
+    if area:
+        if re.fullmatch(r"ingress-gateway(-[a-z0-9-]+)?", ns): continue
+        d = re.sub(r"(?m)^(\s+name:\s*)(prod-web|echo-web)(\s*)$", r"\g<1>gw-area\3", d)
+        d = re.sub(r"(?m)^(\s+namespace:\s*)ingress-gateway(-[a-z0-9-]+)?(\s*)$", r"\g<1>area-%s\3" % area, d)
     fica.append(d)
-sys.stderr.write("    %d de %d objetos (os demais sao de Service Mesh)\n" % (len(fica), len(docs)))
-sys.stdout.write("\n---\n".join(fica))' | oc apply -f - >/dev/null && _ok "camada de demo aplicada, sem os objetos de Service Mesh" \
-      || _die "falha ao aplicar a camada de demo sem os objetos de Service Mesh"
+sys.stderr.write("    %d de %d objetos%s\n" % (len(fica), len(docs), " (os demais sao de Service Mesh ou do Gateway proprio)" if len(fica) < len(docs) else ""))
+sys.stdout.write("\n---\n".join(fica))' | oc apply -f - >/dev/null && _ok "camada de demo aplicada${AREA:+, rotas no Gateway de area-$AREA}$(_sem_mesh && printf ', sem os objetos de Service Mesh')" \
+      || _die "falha ao aplicar a camada de demo (sem Service Mesh e/ou em modo de area)"
     return 0
   fi
   _run oc apply -k "${_here}/${OVERLAY}" >/dev/null && _ok "camada de demo aplicada"

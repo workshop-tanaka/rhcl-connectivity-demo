@@ -75,7 +75,11 @@ medição no piloto depois de um reboot: `curl` sem chave tem de dar 401, não
 503. No mesmo dia o piloto ganhou `RoleBinding` `view` em `piloto-<user>` e
 `parceiro-<user>` (sem ele a console não lista o projeto no seletor). Medições
 do catálogo (revogação, automatic, 30 chaves, fluxo pela console) em
-`docs/propostas/modelo-simples-1.5.md` §6.3.
+`docs/propostas/modelo-simples-1.5.md` §6.3. À tarde entrou o **modo de área**
+do `tenant.sh` (TURMA.md §5b): `area-a` com o Gateway `gw-area` da plataforma e
+o `user6` subido nela, sem `ingress-gateway-user6`; os cinco anteriores seguem
+no modo antigo. Para desmontar o user6: `tenant.sh remove user6`; a área:
+`oc delete ns area-a`.
 
 ### 2026-09-17 — ambiente anterior: `cluster-45bp4`, sandbox do workshop, RHCL 1.2.1
 

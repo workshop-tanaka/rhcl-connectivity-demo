@@ -198,8 +198,15 @@ casa continua: TP ou DP só se a seção das notas listar.
    produto **e** do namespace, porque os produtos têm o mesmo nome. A
    reescrita das outras páginas da Fase 4 sobre o modelo de área fica com o
    passo 4.
-4. **`tenant.sh` com o modelo de área** (`--area a|b|c`), mantendo o modo
+4. **`tenant.sh` com o modelo de área**, mantendo o modo
    atual atrás de uma opção enquanto a 1.4 for a edição entregue.
+   **FEITO em 2026-11-03 a infraestrutura** (`tenant.sh area <nome>`,
+   `AREA=<nome> tenant.sh sobe userN`, `AREAS="a b" tenant.sh turma N`;
+   ver `docs/TURMA.md` §5b; `user6` no mz8j7). **Falta o guia**: a Fase 2 e
+   a 3.1 ainda editam o Gateway próprio, e a reescrita delas para o modo de
+   área (o Infra como leitura e Extras com `gw-lab-<user>`, decisão 2) é a
+   segunda metade deste passo. Os `piloto-*.yaml` ao lado ficam como registro
+   do piloto; o que vale é o script.
 5. **Trilhas de 7 para 4**, com as somas e os resumos de fase gerados do nav em
    vez de mantidos à mão.
 6. **Extras novos** (MCP, Extension SDK) depois, cada um atrás de uma checagem,

@@ -490,6 +490,125 @@ _confere() { # <dir da copia> <tenant>
 # -- e a identidade -- do user9 vao nascer. Entao: namespace de tenant so e
 # aceito se fomos nos que criamos, e a marca e o rotulo, que admin de projeto
 # nao consegue escrever.
+# ===========================================================================
+# O MODO DE AREA (decisao de 2026-11-03, medido no piloto de 2026-10-30): em
+# vez de um Gateway por participante, a PLATAFORMA sobe um Gateway por area
+# ('tenant.sh area <nome>' -> namespace area-<nome>) e o participante que sobe
+# com AREA=<nome> prende a rota dele nesse Gateway, sem ingress-gateway-<t>. O
+# que e do Gateway (nega tudo, teto, telemetria, certificado) passa a ser da
+# plataforma; o participante fica com a rota, as policies da rota, os planos e
+# o catalogo. 'turma' com AREAS="a b" distribui os participantes em rodizio.
+# Sem AREA nada muda: e o modo de sempre.
+_area_nome() { printf '%s' "${AREA:-}"; }
+_area_de() { # <tenant> -> a area dele pelo rodizio de AREAS, ou AREA, ou nada
+  local t="$1" n i=0 a
+  if [[ -n "${AREAS:-}" ]]; then
+    n="${t#user}"; [[ "$n" =~ ^[0-9]+$ ]] || n=1
+    set -- $AREAS; i=$(( (n - 1) % $# + 1 )); eval "a=\${$i}"; printf '%s' "$a"
+  else _area_nome; fi
+}
+_area_tem() { # <nome> -> 0 se o Gateway de area existe
+  oc get gateway gw-area -n "area-$1" >/dev/null 2>&1
+}
+_area() { # <nome> : sobe (ou reaplica) a area como plataforma
+  local a="$1" dom teto="${TETO_AREA:-50}"
+  [[ "$a" =~ ^[a-z][a-z0-9]{0,15}$ ]] || _die "nome de area invalido: '${a}' (letras minusculas e digitos, ate 16)"
+  oc get kuadrant kuadrant -n kuadrant-system >/dev/null 2>&1 || _die "a plataforma nao esta de pe (sem CR Kuadrant)"
+  dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"; [[ -n "$dom" ]] || _die "sem dominio de aplicacoes"
+  _sec "area ${a}: Gateway compartilhado da plataforma"
+  # O namespace e DA PLATAFORMA: nao leva o rotulo de tenant (o 'remove' de
+  # ninguem o apaga) e leva os dois rotulos que o isolamento le -- o
+  # 'gateway-de-area' abre a NetworkPolicy do participante para este
+  # namespace, e a admissao rhcl-tenant-area impede participante de criar
+  # namespace area-* ou de por esse rotulo em outro.
+  # Gateway: provedor nativo (classe istio), uma replica (ConfigMap via
+  # infrastructure.parametersRef), ClusterIP -- quem publica sao as Routes
+  # 'edge' que o 'sobe' de cada participante cria aqui. Listener HTTP no
+  # curinga *.apps, e so rotas de namespace rotulado rhcl.demo/area=<a>.
+  cat <<EOF | oc apply -f - >/dev/null || _die "nao consegui aplicar a area ${a}"
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: area-${a}
+  labels: {rhcl.demo/gateway-de-area: "true", rhcl.demo/area: ${a}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: gateway-uma-replica, namespace: area-${a}}
+data:
+  deployment: "spec: {replicas: 1}"
+  horizontalPodAutoscaler: "spec: {minReplicas: 1, maxReplicas: 1}"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: gw-area
+  namespace: area-${a}
+  labels: {rhcl.demo/area: ${a}}
+  annotations: {networking.istio.io/service-type: ClusterIP}
+spec:
+  gatewayClassName: istio
+  infrastructure:
+    parametersRef: {group: "", kind: ConfigMap, name: gateway-uma-replica}
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      hostname: "*.${dom}"
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {rhcl.demo/area: ${a}}}
+---
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata: {name: gw-area-deny-all, namespace: area-${a}}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: Gateway, name: gw-area}
+  rules:
+    authorization:
+      deny-all:
+        opa: {rego: "allow = false"}
+    response:
+      unauthorized:
+        headers: {content-type: {value: application/json}}
+        body: {value: '{"error": "Forbidden", "message": "Rota sem AuthPolicy propria: a plataforma nega por padrao."}'}
+---
+# O TETO DA AREA: overrides + merge e a unica forma em que o teto do Gateway e
+# o PlanPolicy da rota valem juntos (defaults: o plano sobrepoe o teto;
+# overrides atomico: o teto apaga o plano). O Limitador registra o teto por
+# ROTA, entao o produtor que esgota o dele nao toca o do vizinho.
+apiVersion: kuadrant.io/v1
+kind: RateLimitPolicy
+metadata: {name: gw-area-teto, namespace: area-${a}}
+spec:
+  targetRef: {group: gateway.networking.k8s.io, kind: Gateway, name: gw-area}
+  overrides:
+    strategy: merge
+    limits:
+      teto-area: {rates: [{limit: ${teto}, window: "10s"}]}
+EOF
+  local i
+  for i in $(seq 1 24); do
+    [[ "$(oc get gateway gw-area -n "area-${a}" -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null)" == True ]] && break; sleep 5
+  done
+  [[ "$i" -lt 24 ]] || _die "o Gateway gw-area de area-${a} nao ficou Programmed em 2 min"
+  oc rollout status deploy/gw-area-istio -n "area-${a}" --timeout=120s >/dev/null 2>&1 || _warn "o pod do Gateway de area-${a} ainda nao esta pronto"
+  _ok "area-${a}: Gateway gw-area Programmed, nega tudo e teto ${teto}/10s por rota"
+  _log "participantes nela: AREA=${a} bash scripts/tenant.sh sobe userN   (ou AREAS=\"${a} ...\" tenant.sh turma N)"
+}
+# As Routes do participante NO namespace da area: sao a publicacao dele (o
+# Gateway e ClusterIP), levam o rotulo de tenant para o 'remove' recolher.
+_area_rotas() { # <tenant> <area> <host...>
+  local t="$1" a="$2" h; shift 2
+  for h in "$@"; do
+    oc create route edge "${h%%.*}" --service=gw-area-istio --port=80 --hostname="$h" -n "area-${a}" \
+       --dry-run=client -o yaml 2>/dev/null | oc apply -f - >/dev/null \
+      && oc label route "${h%%.*}" -n "area-${a}" "${ROTULO}=${t}" --overwrite >/dev/null \
+      && _ok "route ${h%%.*} -> ${h} (gw-area de area-${a})" || _warn "falha na route de ${h}"
+  done
+}
+
 _ns_nosso() { # <tenant> <namespace...>
   local t="$1" ns dono; shift
   for ns in "$@"; do
@@ -516,7 +635,16 @@ _sobe() { # <tenant> <dir da copia>
 
   # echo-exposta entra aqui e nao no provisionamento: e o namespace do passo
   # 'exposta', que num cluster de um participante o proprio passo cria e apaga
-  _ns_nosso "$t" "travel-agency-${t}" "ingress-gateway-${t}" "echo-api-${t}" "echo-exposta-${t}" "parceiros-${t}"
+  local area; area="$(_area_nome)"
+  if [[ -n "$area" ]]; then
+    _area_tem "$area" || _die "a area '${area}' nao existe. Suba-a antes, como plataforma: bash scripts/tenant.sh area ${area}"
+    _ns_nosso "$t" "travel-agency-${t}" "echo-api-${t}" "echo-exposta-${t}" "parceiros-${t}"
+    # o rotulo que o listener do Gateway de area exige das rotas dele
+    oc label ns "travel-agency-${t}" "echo-api-${t}" "rhcl.demo/area=${area}" --overwrite >/dev/null || _die "nao consegui rotular os namespaces de ${t} com a area"
+    _ok "${t} na area ${area}: sem Gateway proprio; as rotas dele vao para area-${area}/gw-area"
+  else
+    _ns_nosso "$t" "travel-agency-${t}" "ingress-gateway-${t}" "echo-api-${t}" "echo-exposta-${t}" "parceiros-${t}"
+  fi
   _render "$t" "$d"
   _ok "copia de ${t} em ${d#${_here}/}"
 
@@ -527,9 +655,19 @@ _sobe() { # <tenant> <dir da copia>
   # A sessao do cluster vai junto: numa sessao sem Service Mesh, o provision.sh
   # da copia tem de saber disso -- sem FOCO ele reaplicaria o Kuadrant com mTLS
   # e pediria sidecar para a aplicacao do participante.
-  ( cd "$d" && FOCO="$(_foco)" bash scripts/provision.sh platform gateway demo ) > "${d}/.provision.log" 2>&1 \
+  # No modo de area a etapa 'gateway' nao roda (o Gateway e da plataforma) e o
+  # provision.sh da copia recebe AREA: a etapa 'demo' troca o parentRef das
+  # rotas para o Gateway de area e omite o que mirava o Gateway proprio.
+  ( cd "$d" && FOCO="$(_foco)" AREA="$area" bash scripts/provision.sh platform $([[ -n "$area" ]] || printf gateway) demo ) > "${d}/.provision.log" 2>&1 \
     || { tail -25 "${d}/.provision.log"; _die "provision.sh falhou na copia de ${t} (log completo em ${d#${_here}/}/.provision.log)"; }
   grep -E '✓|!' "${d}/.provision.log" | tail -8
+  if [[ -n "$area" ]]; then
+    # a rota do echo, que a etapa 'gateway' aplicava, e as duas Routes na area
+    local _dom _eh; _dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')"; _eh="echo-travels-${t}.${_dom}"
+    sed -e "s|echo\.travels\.example\.com|${_eh}|" -e "s|^\( *name: \)echo-web$|\1gw-area|" -e "s|^\( *namespace: \)ingress-gateway-${t}$|\1area-${area}|" \
+        "${d}/platform-reference/gateway/httproute-echo-api.yaml" | oc apply -f - >/dev/null && _ok "HTTPRoute echo-api -> ${_eh} no Gateway de area" || _warn "falha na HTTPRoute do echo-api"
+    _area_rotas "$t" "$area" "api-travels-${t}.${_dom}" "$_eh"
+  fi
 
   # A COLETA DE METRICA DO TENANT. Os PodMonitors nascem na etapa 'consoles',
   # que e de plataforma e so conhece os namespaces do ambiente original. Sem
@@ -537,13 +675,15 @@ _sobe() { # <tenant> <dir da copia>
   # o grafo do Kiali sai vazio e o canario, que MEDE por metrica, nao tem o
   # que ler -- com tudo funcionando. Do arquivo de plataforma so se aplica o
   # que e do tenant; o resto e de outro dono.
-  TENANT="$t" python3 -c '
+  TENANT="$t" NS_EXISTEM="$(oc get ns -l "${ROTULO}=${t}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)" python3 -c '
 import sys, os, re
 t = os.environ["TENANT"]
 docs = re.split(r"(?m)^---\s*$", open(sys.argv[1]).read())
-print("\n---\n".join(d for d in docs if re.search(r"(?m)^\s*namespace:\s*\S+-%s\s*$" % re.escape(t), d)))
+# so os namespaces que existem: no modo de area nao ha ingress-gateway-<t>
+tem = set(os.environ.get("NS_EXISTEM", "").split())
+print("\n---\n".join(d for d in docs if (m := re.search(r"(?m)^\s*namespace:\s*(\S+-%s)\s*$" % re.escape(t), d)) and m.group(1) in tem))
 ' "${d}/platform-reference/monitoring/istio-monitors.yaml" | oc apply -f - >/dev/null 2>&1 \
-    && for ns in "travel-agency-${t}" "ingress-gateway-${t}"; do
+    && for ns in "travel-agency-${t}" $([[ -n "$area" ]] || printf 'ingress-gateway-%s' "$t"); do
          # O rotulo 'ambiente' em toda serie do Istio deste tenant: e ele que
          # o filtro dos paineis usa (o Limitador ganha o mesmo rotulo no
          # ServiceMonitor). Depois do apply, que devolve a lista ao que o
@@ -575,7 +715,9 @@ print("\n---\n".join(d for d in docs if re.search(r"(?m)^\s*namespace:\s*\S+-%s\
   for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
     cod="$(_borda "$host")"
     [[ "$cod" == 401 ]] && break
-    if [[ "$cod" == 503 && $i -eq 4 ]]; then
+    if [[ "$cod" == 503 && $i -eq 4 && -n "$area" ]]; then
+      _warn "503 persistente em ${host} — o Gateway de area-${area} e da plataforma; se o modulo wasm nao carregou: oc delete pod -n area-${area} -l gateway.networking.k8s.io/gateway-name=gw-area"
+    elif [[ "$cod" == 503 && $i -eq 4 ]]; then
       _warn "503 persistente em ${host} — trocando os pods do Gateway (modulo wasm nao carregou)"
       oc rollout restart deploy -n "ingress-gateway-${t}" >/dev/null 2>&1
       oc rollout status deploy/prod-web-istio -n "ingress-gateway-${t}" --timeout=120s >/dev/null 2>&1
@@ -629,6 +771,10 @@ _remove() { # <tenant>
   oc get apikeys.devportal.kuadrant.io -n kuadrant-system -o name 2>/dev/null | grep -- "-${t}\$" \
     | xargs -r oc delete -n kuadrant-system
   oc delete clusterrolebinding -l "${ROTULO}=${t}" --ignore-not-found >/dev/null 2>&1
+  # as Routes dele no namespace da area (modo de area): pelo rotulo, em todo area-*
+  for ns in $(oc get ns -l rhcl.demo/gateway-de-area=true -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    oc delete route -n "$ns" -l "${ROTULO}=${t}" --ignore-not-found >/dev/null 2>&1
+  done
   oc delete rolebinding "rhcl-tenant-${t}" "rhcl-tenant-${t}-logs" -n kuadrant-system --ignore-not-found >/dev/null 2>&1
   oc delete rolebinding -A -l "${ROTULO}=${t}" --ignore-not-found >/dev/null 2>&1
   # os projetos de laboratorio que o proprio participante pediu (Extras):
@@ -2385,12 +2531,26 @@ EOF
   pode="$(oc auth can-i list namespaces --as="$sa" 2>/dev/null | head -1)"
   [[ "$pode" == "no" ]] || _die "${t} ainda lista namespaces do cluster (resposta: '${pode:-vazia}') -- ha outra ligacao dando isso: oc get clusterrolebinding -o wide | grep showroom-${t}"
   if [[ -n "$outro" ]]; then
-    pode="$(oc auth can-i get httproutes.gateway.networking.k8s.io -n "travel-agency-${outro}" --as="$sa" 2>/dev/null | head -1)"
-    [[ "$pode" == "no" ]] || _die "${t} ainda le as rotas de ${outro} (resposta: '${pode:-vazia}')"
+    # Com o catalogo da 1.5 (decisao de 2026-11-03, ver _rbac) o terminal LE
+    # as rotas de todos por construcao: e o api-catalog-browser, que o guia da
+    # 1.5 diz nao poder ser restrito a namespaces. O que continua fechado, e
+    # e o que se confere entao, sao os Secrets do outro.
+    if oc get clusterrolebinding "rhcl-tenant-${t}-catalogo" >/dev/null 2>&1; then
+      pode="$(oc auth can-i get secrets -n "travel-agency-${outro}" --as="$sa" 2>/dev/null | head -1)"
+      [[ "$pode" == "no" ]] || _die "${t} le os Secrets de ${outro} (resposta: '${pode:-vazia}')"
+      _log "${t} le as rotas de ${outro}: e o catalogo da 1.5 (api-catalog-browser), por construcao; os Secrets dele seguem fechados"
+    else
+      pode="$(oc auth can-i get httproutes.gateway.networking.k8s.io -n "travel-agency-${outro}" --as="$sa" 2>/dev/null | head -1)"
+      [[ "$pode" == "no" ]] || _die "${t} ainda le as rotas de ${outro} (resposta: '${pode:-vazia}')"
+    fi
   fi
   pode="$(oc auth can-i get httproutes.gateway.networking.k8s.io -n "travel-agency-${t}" --as="$sa" 2>/dev/null | head -1)"
   [[ "$pode" == "yes" ]] || _die "${t} deixou de ler as PROPRIAS rotas (resposta: '${pode:-vazia}') -- desfaca: tenant.sh alarga ${t}"
-  _ok "${t}: nao lista namespaces nem le rotas de ${outro:-outro participante}; segue lendo as dele"
+  if oc get clusterrolebinding "rhcl-tenant-${t}-catalogo" >/dev/null 2>&1; then
+    _ok "${t}: nao lista namespaces nem le Secrets de ${outro:-outro participante}; le as rotas de todos pelo catalogo e segue lendo as dele"
+  else
+    _ok "${t}: nao lista namespaces nem le rotas de ${outro:-outro participante}; segue lendo as dele"
+  fi
   _log "agora rode os comandos do guia como ${t} e veja o que quebra; 'tenant.sh alarga ${t}' devolve tudo"
 }
 
@@ -2604,7 +2764,7 @@ json.dump({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
     printf '\n\x1e\n'
     # o login Plataforma da turma (_login_plataforma): o mesmo em todos os guias
     oc get secret login-plataforma -n "${KEYCLOAK_NS:-keycloak}" -o json 2>/dev/null || printf '{}'
-  } | PERFIS="$perfis" PERFIL_SH="$_PERFIL_SH" FOCO="$foco" CATALOGO="$catalogo" VIZINHO="$vizinho" CHE_URL="$che_url" GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
+  } | PERFIS="$perfis" PERFIL_SH="$_PERFIL_SH" FOCO="$foco" CATALOGO="$catalogo" VIZINHO="$vizinho" AREA_DO_TENANT="$(oc get ns "travel-agency-${t}" -o jsonpath='{.metadata.labels.rhcl\.demo/area}' 2>/dev/null)" CHE_URL="$che_url" GL_PROJ="$gl_proj" GL_ROTEIRO="$gl_roteiro" GL_URL="$gl_url" TENANT="$t" DOM="$dom" ALT_NS="$alt_ns" ALT_HOST="$alt_host" CHAVES="$(_chaves_no_tenant "$t" && echo 1)" PERL_TROCA="$_PERL_TROCA" PERL_VAZIOS="$_PERL_VAZIOS" python3 -c '
 import sys, json, os, re, base64
 t, dom = os.environ["TENANT"], os.environ["DOM"]
 objs, chaves, rotas, realms, logindev, loginplat = sys.stdin.read().split("\x1e")
@@ -2632,6 +2792,9 @@ if _lp.get("username") and _lp.get("password"):
 novos = {"user": t, "sufixo": "-" + t, "vizinho": os.environ.get("VIZINHO", t)}
 # o catalogo de APIs da 1.5 (ver o calculo de 'catalogo' e 'vizinho' acima)
 if os.environ.get("CATALOGO") == "1": novos["catalogo"] = "1"
+# o modo de area: o nome da area do participante (rotulo do namespace da
+# aplicacao), para o guia saber que o Gateway e compartilhado
+if os.environ.get("AREA_DO_TENANT", ""): novos["area"] = os.environ["AREA_DO_TENANT"]
 pode = {"api_host", "api_key_free", "api_key_silver", "api_key_gold", "cluster_domain", "guid",
         "usuario_console", "demo_ref", "repo_no_ambiente", "repo_policies", "repo_apis"}
 # Os atributos saem ANTES do laco: o Deployment precisa saber quais ficaram
@@ -3021,7 +3184,7 @@ _turma() { # <N> [primeiro=1]
     for j in $(seq "$i" $(( i + larg - 1 ))); do
       [[ $j -le $n ]] || break
       t="user${j}"
-      ( bash "${BASH_SOURCE[0]}" sobe "$t" \
+      ( AREA="$(_area_de "$t")" bash "${BASH_SOURCE[0]}" sobe "$t" \
           && { [[ $gitlab -eq 0 ]] || bash "${_here}/scripts/gitlab-turma.sh" semeia "$t" || echo "  ! o projeto de ${t} no GitLab nao foi publicado"; } \
           && { [[ $gitlab -eq 0 ]] || ! _sem_mesh || bash "${_here}/scripts/gitlab-turma.sh" esteira "$t" || echo "  ! a esteira de ${t} nao ficou de pe -- depois: bash scripts/gitlab-turma.sh esteira ${t}"; } \
           && bash "${BASH_SOURCE[0]}" showroom "$t" ) > "${_TDIR}/.${t}.log" 2>&1 &
@@ -3408,6 +3571,10 @@ case "${1:-}" in
   remove)
     _valida_tenant "${2:-}"; _remove "$2"; _ok "tenant ${2} removido"
     ;;
+  area)
+    [[ -n "${2:-}" ]] || _die "uso: tenant.sh area <nome>   (ex.: tenant.sh area a; depois AREA=a tenant.sh sobe userN)"
+    _area "$2"
+    ;;
   lista)
     _lista
     ;;
@@ -3484,5 +3651,5 @@ case "${1:-}" in
   ""|-h|--help)
     sed -n '2,/^set -uo pipefail/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'
     ;;
-  *) _die "subcomando desconhecido: $1 (render | confere | sobe | showroom | turma | rbac | kubeconfig | remove | lista | plataforma)" ;;
+  *) _die "subcomando desconhecido: $1 (render | confere | sobe | showroom | turma | area | rbac | kubeconfig | remove | lista | plataforma)" ;;
 esac

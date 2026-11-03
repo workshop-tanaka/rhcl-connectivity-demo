@@ -292,6 +292,55 @@ instrutor, com cluster-admin.
   console** dele tem ainda menos que o terminal: só os namespaces dele, e é
   por isso que a console e o Kiali mostram o ambiente dele e mais nada.
 
+## 5b. O modo de área: um Gateway por área, não por participante
+
+Desde 2026-11-03 o `tenant.sh` tem um segundo modo, atrás de uma variável, para
+o modelo descrito em `docs/propostas/modelo-simples-1.5.md`: a **plataforma**
+sobe um Gateway por área e o participante prende a rota dele nesse Gateway,
+sem `ingress-gateway-<user>`. Sem `AREA` nada muda.
+
+```bash
+bash scripts/tenant.sh area a            # a plataforma: namespace area-a, Gateway gw-area,
+                                         # nega tudo, teto 50/10s por rota (TETO_AREA=N muda)
+AREA=a bash scripts/tenant.sh sobe user6 # o participante, na area a
+AREAS="a b" bash scripts/tenant.sh turma 30   # rodizio: impares na a, pares na b
+```
+
+O que muda no `sobe` com `AREA`:
+
+- os namespaces dele são quatro (`travel-agency`, `echo-api`, `echo-exposta`,
+  `parceiros`), e os dois primeiros ganham o rótulo `rhcl.demo/area=<a>`, que
+  é o que o listener do Gateway de área exige de uma rota;
+- a etapa `gateway` do `provision.sh` não roda; a etapa `demo` recebe `AREA` e
+  troca o `parentRef` das rotas para `area-<a>/gw-area`, omitindo o que morava
+  no namespace do Gateway próprio (nega tudo, teto, `TelemetryPolicy`, o
+  `Telemetry` da dimensão por parceiro). O `kustomize` do overlay continua o
+  mesmo;
+- as duas `Route` dele (`api-travels-<user>`, `echo-travels-<user>`) nascem no
+  namespace da área, `edge`, apontando para `gw-area-istio:80`, com o rótulo do
+  tenant para o `remove` recolher;
+- os PodMonitors só nos namespaces que existem; a checagem da borda continua
+  exigindo 401, e em 503 persistente aponta o pod do Gateway de área, que é da
+  plataforma;
+- o `showroom` passa ao guia o atributo `area` (o nome), lido do rótulo do
+  namespace da aplicação.
+
+No mz8j7, `user6` subiu assim ao lado dos cinco do modo antigo: três rotas
+presas ao `gw-area` (`travel-agency`, `echo-api`, o callback do OIDC), todas
+`Accepted`; `AuthPolicy` e `PlanPolicy` dele `Enforced`; a borda 401 sem chave
+e os três planos iguais aos de sempre (3, 10 e 14 de 14); o teto da área
+`Enforced`; o "nega tudo" da área fica `Enforced=False` com a mensagem
+*overridden by* as policies das rotas, que é o esperado quando toda rota presa
+tem a sua -- ele vale para a rota que não tiver. O cluster ficou com 14
+Gateways para seis participantes, e nenhum `ingress-gateway-user6`.
+
+O que o modo ainda não cobre, por desenho: o perfil Dev (`login-dev`) exige o
+namespace do Gateway e fica de fora; o `restringe` passa a aceitar que o
+terminal leia as rotas de todos, porque o catálogo da 1.5 dá isso por
+construção, e confere os Secrets do outro em vez delas; e o guia de hoje
+(Fase 2 inteira, 3.1) ainda fala do Gateway próprio -- a reescrita é o passo
+seguinte do caminho.
+
 ## 6. O isolamento, e como ele foi fechado
 
 O participante não é cluster-admin, e cada peça disso foi fechada depois de uma
