@@ -398,12 +398,19 @@ fi
 # ---------------------------------------------------------------------------
 _sec "gateway e rota"
 
-_prog="$(oc get gateway prod-web -n ingress-gateway \
+# O MODO DE AREA (tenant.sh area / AREA=): o Gateway nao e deste ambiente, e o
+# da plataforma em area-<a>/gw-area, e o namespace da aplicacao carrega o nome
+# da area no rotulo rhcl.demo/area. As policies de Gateway sao as da area.
+_AREA="$(oc get ns travel-agency -o jsonpath='{.metadata.labels.rhcl\.demo/area}' 2>/dev/null)"
+if [[ -n "$_AREA" ]]; then GW_NS="area-${_AREA}"; GW_NOME="gw-area"; else GW_NS="ingress-gateway"; GW_NOME="prod-web"; fi
+[[ -z "$_AREA" ]] || _ok "modo de area '${_AREA}': o Gateway e ${GW_NS}/${GW_NOME}, da plataforma"
+
+_prog="$(oc get gateway "$GW_NOME" -n "$GW_NS" \
           -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null)"
 if [[ "$_prog" == "True" ]]; then
-  _ok "Gateway prod-web Programmed ($(oc get gateway prod-web -n ingress-gateway -o jsonpath='{.status.addresses[0].value}' 2>/dev/null))"
+  _ok "Gateway ${GW_NOME} Programmed ($(oc get gateway "$GW_NOME" -n "$GW_NS" -o jsonpath='{.status.addresses[0].value}' 2>/dev/null))"
 else
-  _bad "Gateway prod-web não está Programmed" "oc describe gateway prod-web -n ingress-gateway"
+  _bad "Gateway ${GW_NOME} não está Programmed" "oc describe gateway ${GW_NOME} -n ${GW_NS}"
 fi
 
 HOST="$(oc get httproute travel-agency -n travel-agency -o jsonpath='{.spec.hostnames[0]}' 2>/dev/null)"
@@ -443,10 +450,17 @@ _check_policy() { # kind name ns  (espera Accepted=True e Enforced=True)
 }
 
 _check_policy authpolicy       travel-agency-authpolicy      travel-agency
-_check_policy authpolicy       prod-web-deny-all             ingress-gateway
 _check_policy planpolicy       travels-plans                 travel-agency
-_check_policy telemetrypolicy  prod-web-telemetry            ingress-gateway
-_check_policy ratelimitpolicy  ingress-gateway-rlp-lowlimits ingress-gateway
+if [[ -n "$_AREA" ]]; then
+  # as policies de Gateway sao as da area; a TelemetryPolicy e a dimensao por
+  # parceiro nao existem nela (fora da camada do participante, por desenho)
+  _check_policy authpolicy       gw-area-deny-all              "$GW_NS"
+  _check_policy ratelimitpolicy  gw-area-teto                  "$GW_NS"
+else
+  _check_policy authpolicy       prod-web-deny-all             ingress-gateway
+  _check_policy telemetrypolicy  prod-web-telemetry            ingress-gateway
+  _check_policy ratelimitpolicy  ingress-gateway-rlp-lowlimits ingress-gateway
+fi
 
 # Precedência entre a RLP "plana" e a que o PlanPolicy gera -- e o regime MUDA
 # com a release, então o script decide o que esperar em vez de fixar um lado:
