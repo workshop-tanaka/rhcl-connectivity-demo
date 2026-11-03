@@ -67,6 +67,16 @@ rota, AuthPolicy, PlanPolicy, APIProduct, `api-owner`), `parceiro-user1`/
 `docs/propostas/modelo-simples-1.5.md` §6. Para desmontar: `oc delete -f` dos
 três `piloto-*.yaml` com o domínio no lugar de `__DOMINIO__`.
 
+**2026-11-03.** O RHDP religou o cluster às 11:45 e o Gateway de área do piloto
+(`area-piloto/gw-area`) voltou em `wasm_fail_stream` (503 em tudo, log
+`Plugin kuadrant-wasm-shim failed to load` + `fail closed`); os 12 Gateways
+dos participantes subiram bem. Recriar o pod resolve. Antes de qualquer
+medição no piloto depois de um reboot: `curl` sem chave tem de dar 401, não
+503. No mesmo dia o piloto ganhou `RoleBinding` `view` em `piloto-<user>` e
+`parceiro-<user>` (sem ele a console não lista o projeto no seletor). Medições
+do catálogo (revogação, automatic, 30 chaves, fluxo pela console) em
+`docs/propostas/modelo-simples-1.5.md` §6.3.
+
 ### 2026-09-17 — ambiente anterior: `cluster-45bp4`, sandbox do workshop, RHCL 1.2.1
 
 Sandbox do **Application Connectivity Workshop**, não um cluster provisionado

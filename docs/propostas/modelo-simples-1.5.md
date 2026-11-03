@@ -312,16 +312,81 @@ Gateway de área com teto por `overrides` + `merge` já funciona na 1.4 (o
 `RateLimitPolicy` é o mesmo), de modo que a Fase 2 pode nascer nele antes da
 1.5 chegar à edição.
 
-### 6.3 O que o piloto não mediu
+### 6.3 O que faltava, medido em 2026-11-03 (mz8j7, 1.5.0)
 
-- a tela: o fluxo inteiro foi pela API (`--as=user1`/`user2`); o guia da 1.5
-  descreve as páginas *API Products*, *My API Keys* e *API Key Approvals* do
-  plugin de console, e o login do participante na console é o próximo teste;
-- `approvalMode: automatic` (o piloto usou `manual`);
-- revogação: apagar o `APIKey` do consumidor e conferir se o Secret de
-  enforcement some;
-- 30 participantes: o piloto foi com dois.
+**Revogação.** Apagar o `APIKey` do consumidor (`--as=user1`) é a revogação,
+e é imediata:
 
+| momento | tempo depois do `delete` |
+| --- | --- |
+| Secret de enforcement some de `kuadrant-system` | 1,4 s e 2,3 s (duas medições) |
+| a chave passa a receber `401` no Gateway | 2,8 s |
+| `APIKeyRequest` e `APIKeyApproval` do dono | somem junto (0 restantes) |
+| o Secret do consumidor (`parceiro-user1/chave-...`) | **fica**: é dele, o controller não o toca |
+
+O Secret de enforcement não tem `ownerReference` (não pode: está em outro
+namespace); é o controller que o recolhe. Recriar o mesmo `APIKey` reconstrói
+a cadeia: `APIKeyRequest` em 2 a 9 s, enforcement 1 a 3 s depois da aprovação,
+primeira resposta `200` em até 3,3 s depois dela.
+
+**`approvalMode: automatic`.** O dono troca o campo no `APIProduct` (`patch`
+como user2); o pedido seguinte do consumidor virou enforcement em 3,4 s, com
+`200` em 4,0 s, **sem o dono tocar em nada**: o controller cria o
+`APIKeyApproval` sozinho, com `reviewedBy: system` e a mensagem
+"Automatically approved based on APIProduct approval mode". O `APIKey` do
+consumidor recebe a mesma frase no status. É o modo para APIs públicas; o
+guia fica no `manual`, porque "o vizinho aprova" é o momento da Fase 4.
+
+**Escala do catálogo.** 30 `APIKey` de uma vez (um `apply` com 30 Secrets +
+30 `APIKey`, produto em `automatic`):
+
+| | |
+| --- | --- |
+| 30 enforcements prontos | 72 s (serial, ~2,4 s por chave) |
+| 30 de 30 chaves respondem `200` | sim |
+| apagar os 30 `APIKey` até zerar os enforcements | 97 s (~3,2 s por chave) |
+| controller `developer-portal-controller` | 110 Mi, 6 m de CPU no pico |
+| Authorino | 171 → 173 Mi |
+
+Para uma turma de 30 em que cada um pede uma chave na mesma hora, é um minuto
+de fila: nenhum participante espera mais que isso. Não foi medido com 30
+namespaces de participante (isso é o `tenant.sh --area`, passo 4).
+
+**A tela**, como user1 e user2 na console (login pelo Keycloak, navegador
+headless, o plugin `kuadrant-console-plugin` da 1.5):
+
+| página | o que apareceu |
+| --- | --- |
+| *Connectivity Link API Catalog → API Products*, "All Projects" | os 14 produtos do cluster, inclusive os dos outros usuários da turma: é o `api-catalog-browser` em ação |
+| *My API Keys* (projeto `parceiro-user1`) | a chave free `Active`, tier, chave mascarada com *Reveal*, "No expiration" |
+| *Request API Key* (consumidor) | formulário: produto (lista com `displayName` + descrição), **tier com o limite lido do `PlanPolicy`** ("gold – 100000 requests per day"), nome, expiração, caso de uso. Ao enviar, a console cria o Secret `<nome>-secret` com uma chave de 64 hex e o `APIKey`; a linha aparece `Pending` |
+| *API Key Approvals* (dono, projeto `piloto-user2`) | o pedido com requisitante, produto, plano, caso de uso; menu *Actions → Approve / Deny*; modal de confirmação com os dados; depois do *Approve*: `APIKeyApproval` com `reviewedBy: user2`, `reason: ApprovedByOwner`, enforcement em `kuadrant-system`, e a chave respondeu 14 de 14 no plano gold |
+
+Dois comportamentos da console que mudam o guia e o `tenant.sh`:
+
+1. **A página de aprovações ignora o namespace da URL** e usa o projeto
+   ativo da console. Com "All Projects" ela lista o cluster inteiro e o
+   dono recebe *Access Denied* ("You do not have permission to view API key
+   requests"), que parece erro de RBAC e não é. O participante precisa
+   **escolher o projeto no seletor**. O guia tem de dizer isso na página.
+2. **O projeto só aparece no seletor se o usuário puder ler o namespace.** No
+   piloto o participante tinha só `api-owner` e `api-consumer`, e
+   `piloto-<user>` e `parceiro-<user>` não apareciam na lista de projetos
+   (a página de produtos por namespace ficava em branco pelo mesmo motivo).
+   Um `RoleBinding` com a ClusterRole `view` em cada um resolveu; entrou nos
+   `piloto-user1.yaml`/`piloto-user2.yaml` e vai para o `tenant.sh --area`.
+
+**O caminho de dados do piloto depois de um reboot do RHDP.** O cluster foi
+religado às 11:45 e o Gateway de área voltou com `wasm_fail_stream` (503 em
+tudo): o `kuadrant-wasm-shim` não baixou ao subir e o plugin é *fail closed*.
+É a armadilha já conhecida das turmas (CONHECIMENTO §2, `argo-controller-turma`
+na memória); recriar o pod do Gateway resolveu em 20 s. Os 12 Gateways dos
+participantes não tiveram o problema desta vez.
+
+Capturas das quatro telas ficaram no scratchpad desta sessão
+(`u1-apiproducts-all.png`, `u1-form-preenchido.png`, `u2-approvals-lista.png`,
+`u2-approve-modal.png`); entram no backlog de capturas do workshop quando a
+Fase 4 for reescrita.
 
 ## 7. O catálogo no terminal do participante (decisão de 2026-11-03)
 
