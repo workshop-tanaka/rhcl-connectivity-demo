@@ -20,6 +20,11 @@
 set -uo pipefail
 
 NS_DELE="${NS_DELE:-ingress-gateway travel-agency echo-api}"
+# MODO DE AREA (tenant.sh area): o Gateway e o da area, no namespace area-<a>,
+# e o rotulo rhcl.demo/area do namespace da aplicacao diz qual. As rotas dos
+# outros participantes da area ficam de fora do recorte.
+_area="$(oc get ns travel-agency -o jsonpath='{.metadata.labels.rhcl\.demo/area}' 2>/dev/null)"
+[[ -z "$_area" || -n "${NS_DELE_FIXO:-}" ]] || NS_DELE="area-${_area} travel-agency echo-api"
 
 command -v oc >/dev/null || { echo "oc nao encontrado" >&2; exit 1; }
 oc whoami >/dev/null 2>&1 || { echo "sem sessao no cluster" >&2; exit 1; }
@@ -58,13 +63,15 @@ for g in gws:
     filhos = saem.get(g, [])
     for l in [c for c in filhos if tipo(c) == "Listener"]:
         print("    Listener %s" % nome(l).split("#", 1)[-1])
-        for r in sorted(saem.get(l, []), key=nome):
+        outras = [r for r in saem.get(l, []) if ns(r) and ns(r) not in meus]
+        for r in sorted((r for r in saem.get(l, []) if r not in outras), key=nome):
             print("      HTTPRoute %s" % curto(r))
             for p in policies(r): print("        <- %s" % p)
             for x in sorted((x for x in saem.get(r, []) if tipo(x) == "HTTPRouteRule"), key=nome):
                 for p in policies(x): print("        regra %s <- %s" % (nome(x).split("#", 1)[-1], p))
                 for y in (y for y in saem.get(x, []) if tipo(y) == "AuthConfig"):
                     print("        regra %s -> AuthConfig %s... (gerado)" % (nome(x).split("#", 1)[-1], nome(y).split("/", 1)[-1][:12]))
+        if outras: print("      (+ %d rota(s) de outros participantes da area, fora do recorte)" % len(outras))
     ef = sorted(nome(c).split("/", 1)[-1] for c in filhos if tipo(c) == "EnvoyFilter")
     if ef:
         print("    gerado pelo operator no Gateway:")

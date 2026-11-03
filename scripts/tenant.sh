@@ -434,6 +434,19 @@ _render() { # <tenant> <destino>
     # so nos manifests: o README de cada pasta EXPLICA os dois marcadores
     find "${dest}/passos" -type f -name '*.yaml' -print0 | DOM="$_dom" SEG="$_seg" xargs -0 perl -pi -e 's/__DOMINIO__/$ENV{DOM}/g; s/__SEGREDO__/$ENV{SEG}/g' \
       || _die "a troca do dominio e da chave em passos/ falhou"
+    # MODO DE AREA: as rotas dos passos prendem ao Gateway de area, e o passo
+    # que criava a Route no namespace do Gateway (exposta/04) sai da copia --
+    # a Route e da plataforma e o 'sobe' ja a publicou.
+    local _area; _area="$(_area_do_tenant "$t")"
+    if [[ -n "$_area" ]]; then
+      # as duas formas do YAML (bloco e inline), so onde e referencia ao Gateway
+      find "${dest}/passos" -type f -name '*.yaml' -print0 | A="$_area" T="$t" xargs -0 perl -pi -e 's/\bname:\s*(prod-web|echo-web)(?![\w-])/name: gw-area/g; s/\bnamespace:\s*ingress-gateway(-$ENV{T})?(?![\w-])/namespace: area-$ENV{A}/g' \
+        || _die "a troca do Gateway de area em passos/ falhou"
+      rm -f "${dest}/passos/exposta/04-publica-no-router.yaml"
+      # 6.3 (degrada) corta o Gateway do Limitador por NetworkPolicy no
+      # namespace do Gateway: na area isso derrubaria todos; a parte vira leitura
+      rm -rf "${dest}/passos/degrada"
+    fi
   fi
 
   # 2. caminhos: arquivo ou diretorio cujo nome e o token. De baixo para cima,
@@ -506,6 +519,10 @@ _area_de() { # <tenant> -> a area dele pelo rodizio de AREAS, ou AREA, ou nada
     n="${t#user}"; [[ "$n" =~ ^[0-9]+$ ]] || n=1
     set -- $AREAS; i=$(( (n - 1) % $# + 1 )); eval "a=\${$i}"; printf '%s' "$a"
   else _area_nome; fi
+}
+_area_do_tenant() { # <tenant> -> AREA do ambiente, ou o rotulo do namespace da aplicacao, ou nada
+  [[ -n "${AREA:-}" ]] && { printf '%s' "$AREA"; return; }
+  oc get ns "travel-agency-$1" -o jsonpath='{.metadata.labels.rhcl\.demo/area}' 2>/dev/null
 }
 _area_tem() { # <nome> -> 0 se o Gateway de area existe
   oc get gateway gw-area -n "area-$1" >/dev/null 2>&1
@@ -588,6 +605,46 @@ spec:
     limits:
       teto-area: {rates: [{limit: ${teto}, window: "10s"}]}
 EOF
+  # O QUE O PARTICIPANTE LE NA AREA: o Gateway, as policies de Gateway, o
+  # EnvoyFilter em que elas viram (2.2), as Routes, e o pod e o log do
+  # Gateway (6.1 -- o log e de todos da area, so hostnames e codigos; ver
+  # docs/propostas/fase-2-area.md). Ligado por participante em _rbac.
+  cat <<'EOF' | oc apply -f - >/dev/null || _die "nao consegui aplicar o papel de leitura da area"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rhcl-tenant-leitura-area
+  labels: {rhcl.demo/multitenant: "true"}
+rules:
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [gateways]
+    verbs: [get, list, watch]
+  - apiGroups: [kuadrant.io, extensions.kuadrant.io]
+    resources: [authpolicies, ratelimitpolicies, planpolicies, telemetrypolicies, tlspolicies, dnspolicies, tokenratelimitpolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.istio.io]
+    resources: [envoyfilters]
+    verbs: [get, list, watch]
+  - apiGroups: [telemetry.istio.io]
+    resources: [telemetries]
+    verbs: [get, list, watch]
+  - apiGroups: [route.openshift.io]
+    resources: [routes]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods, pods/log, services, configmaps]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch]
+EOF
+  # A DIMENSAO POR PARCEIRO nas metricas do Gateway (base/policies-telemetry/
+  # istio-partner-dimension.yaml) morava no namespace do Gateway proprio e nao
+  # entra na camada do participante no modo de area: e da plataforma, aqui.
+  if oc get crd telemetries.telemetry.istio.io >/dev/null 2>&1; then
+    sed "s/^  namespace: ingress-gateway$/  namespace: area-${a}/" "${_here}/base/policies-telemetry/istio-partner-dimension.yaml" | oc apply -f - >/dev/null \
+      && _ok "Telemetry partner-dimension em area-${a} (consumo por parceiro)" || _warn "o Telemetry da dimensao por parceiro nao entrou em area-${a}"
+  fi
   local i
   for i in $(seq 1 24); do
     [[ "$(oc get gateway gw-area -n "area-${a}" -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null)" == True ]] && break; sleep 5
@@ -640,7 +697,7 @@ _sobe() { # <tenant> <dir da copia>
     _area_tem "$area" || _die "a area '${area}' nao existe. Suba-a antes, como plataforma: bash scripts/tenant.sh area ${area}"
     _ns_nosso "$t" "travel-agency-${t}" "echo-api-${t}" "echo-exposta-${t}" "parceiros-${t}"
     # o rotulo que o listener do Gateway de area exige das rotas dele
-    oc label ns "travel-agency-${t}" "echo-api-${t}" "rhcl.demo/area=${area}" --overwrite >/dev/null || _die "nao consegui rotular os namespaces de ${t} com a area"
+    oc label ns "travel-agency-${t}" "echo-api-${t}" "echo-exposta-${t}" "rhcl.demo/area=${area}" --overwrite >/dev/null || _die "nao consegui rotular os namespaces de ${t} com a area"
     _ok "${t} na area ${area}: sem Gateway proprio; as rotas dele vao para area-${area}/gw-area"
   else
     _ns_nosso "$t" "travel-agency-${t}" "ingress-gateway-${t}" "echo-api-${t}" "echo-exposta-${t}" "parceiros-${t}"
@@ -666,7 +723,9 @@ _sobe() { # <tenant> <dir da copia>
     local _dom _eh; _dom="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')"; _eh="echo-travels-${t}.${_dom}"
     sed -e "s|echo\.travels\.example\.com|${_eh}|" -e "s|^\( *name: \)echo-web$|\1gw-area|" -e "s|^\( *namespace: \)ingress-gateway-${t}$|\1area-${area}|" \
         "${d}/platform-reference/gateway/httproute-echo-api.yaml" | oc apply -f - >/dev/null && _ok "HTTPRoute echo-api -> ${_eh} no Gateway de area" || _warn "falha na HTTPRoute do echo-api"
-    _area_rotas "$t" "$area" "api-travels-${t}.${_dom}" "$_eh"
+    # o hostname do passo 'exposta' (3.1) tambem: no modo de area a Route e da
+    # plataforma, e o passo 4 daquela parte vira leitura
+    _area_rotas "$t" "$area" "api-travels-${t}.${_dom}" "$_eh" "echo-exposta-${t}.${_dom}"
   fi
 
   # A COLETA DE METRICA DO TENANT. Os PodMonitors nascem na etapa 'consoles',
@@ -776,7 +835,7 @@ _remove() { # <tenant>
     oc delete route -n "$ns" -l "${ROTULO}=${t}" --ignore-not-found >/dev/null 2>&1
   done
   oc delete rolebinding "rhcl-tenant-${t}" "rhcl-tenant-${t}-logs" -n kuadrant-system --ignore-not-found >/dev/null 2>&1
-  oc delete rolebinding -A -l "${ROTULO}=${t}" --ignore-not-found >/dev/null 2>&1
+  oc delete rolebinding,role -A -l "${ROTULO}=${t}" --ignore-not-found >/dev/null 2>&1
   # os projetos de laboratorio que o proprio participante pediu (Extras):
   # nao tem o nosso rotulo, entao vao pelo nome, que termina no tenant
   oc get ns -o name 2>/dev/null | grep -E -- "-${t}\$" | grep -E '/(tls|mtls|listas|saida|ia|dns|ctx)-lab-|/pfx-' \
@@ -1714,6 +1773,12 @@ _rbac() { # <tenant>
       oc get ns "$ns" >/dev/null 2>&1 || continue
       printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-leitura, namespace: %s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-leitura-plataforma}\nsubjects:\n' "$t" "$ns" "$ROTULO" "$t"; _so_sa
     done
+    # MODO DE AREA: o terminal e o usuario leem a area dele (papel criado por
+    # 'tenant.sh area'); o Gateway e as policies de Gateway sao de la
+    local area_t; area_t="$(_area_do_tenant "$t")"
+    if [[ -n "$area_t" ]] && oc get ns "area-${area_t}" >/dev/null 2>&1; then
+      printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-area, namespace: area-%s, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: rhcl-tenant-leitura-area}\nsubjects:\n' "$t" "$area_t" "$ROTULO" "$t"; _sujeitos
+    fi
     printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-logs, namespace: kuadrant-system}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-logs}\nsubjects:\n' "$t"; _so_sa
     printf -- '---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: rhcl-tenant-%s-topologia, namespace: kuadrant-system, labels: {%s: %s}}\nroleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: rhcl-tenant-topologia}\nsubjects:\n' "$t" "$ROTULO" "$t"; _so_sa
     # O PERFIL DEV DELE: a ServiceAccount 'dev' no namespace da aplicacao, com o
@@ -1724,7 +1789,11 @@ _rbac() { # <tenant>
     # cluster por uma persona que nao existe, e a resposta era 'yes' em tudo
     # (medido em 2026-10-07). E so o comeco dos dois perfis: nao ha ainda uma
     # segunda aba de terminal nem um segundo login de console.
-    if oc get ns "travel-agency-${t}" >/dev/null 2>&1 && oc get ns "ingress-gateway-${t}" >/dev/null 2>&1; then
+    # O NAMESPACE DO GATEWAY que o Dev le: o dele (modo antigo) ou o da area.
+    # Na area os Roles levam o sufixo do tenant, porque o namespace e de todos.
+    local gwns="ingress-gateway-${t}" dvg="dev-ve-o-gateway" dvp="dev-ve-o-projeto" dpg="dev-pessoa-ve-o-gateway" dpp="dev-pessoa-ve-o-projeto"
+    if [[ -n "$area_t" ]]; then gwns="area-${area_t}"; dvg="dev-ve-o-gateway-${t}"; dvp="dev-ve-o-projeto-${t}"; dpg="dev-pessoa-ve-o-gateway-${t}"; dpp="dev-pessoa-ve-o-projeto-${t}"; fi
+    if oc get ns "travel-agency-${t}" >/dev/null 2>&1 && oc get ns "$gwns" >/dev/null 2>&1; then
       cat <<DEV
 ---
 apiVersion: v1
@@ -1763,7 +1832,7 @@ subjects: [{kind: ServiceAccount, name: dev, namespace: travel-agency-${t}}]
 # resources", user5-dev no cluster-mz8j7 em 2026-10-26).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
-metadata: {name: dev-ve-o-gateway, namespace: ingress-gateway-${t}, labels: {${ROTULO}: ${t}}}
+metadata: {name: ${dvg}, namespace: ${gwns}, labels: {${ROTULO}: ${t}}}
 rules:
   - apiGroups: [gateway.networking.k8s.io]
     resources: [gateways]
@@ -1774,8 +1843,8 @@ rules:
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
-metadata: {name: dev-ve-o-gateway, namespace: ingress-gateway-${t}, labels: {${ROTULO}: ${t}}}
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: dev-ve-o-gateway}
+metadata: {name: ${dvg}, namespace: ${gwns}, labels: {${ROTULO}: ${t}}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: ${dvg}}
 subjects: [{kind: ServiceAccount, name: dev, namespace: travel-agency-${t}}]
 ---
 # O PERFIL DEV TAMBEM TEM LOGIN NA CONSOLE: o usuario '${t}-dev' do Keycloak
@@ -1792,8 +1861,8 @@ subjects: [{apiGroup: rbac.authorization.k8s.io, kind: User, name: ${t}-dev}]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
-metadata: {name: dev-pessoa-ve-o-gateway, namespace: ingress-gateway-${t}, labels: {${ROTULO}: ${t}}}
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: dev-ve-o-gateway}
+metadata: {name: ${dpg}, namespace: ${gwns}, labels: {${ROTULO}: ${t}}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: ${dvg}}
 subjects: [{apiGroup: rbac.authorization.k8s.io, kind: User, name: ${t}-dev}]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1811,15 +1880,15 @@ subjects: [{apiGroup: rbac.authorization.k8s.io, kind: User, name: ${t}-dev}]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
-metadata: {name: dev-ve-o-projeto, namespace: ingress-gateway-${t}, labels: {${ROTULO}: ${t}}}
+metadata: {name: ${dvp}, namespace: ${gwns}, labels: {${ROTULO}: ${t}}}
 rules:
-  - {apiGroups: [""], resources: [namespaces], resourceNames: [ingress-gateway-${t}], verbs: [get]}
-  - {apiGroups: [project.openshift.io], resources: [projects], resourceNames: [ingress-gateway-${t}], verbs: [get]}
+  - {apiGroups: [""], resources: [namespaces], resourceNames: [${gwns}], verbs: [get]}
+  - {apiGroups: [project.openshift.io], resources: [projects], resourceNames: [${gwns}], verbs: [get]}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
-metadata: {name: dev-pessoa-ve-o-projeto, namespace: ingress-gateway-${t}, labels: {${ROTULO}: ${t}}}
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: dev-ve-o-projeto}
+metadata: {name: ${dpp}, namespace: ${gwns}, labels: {${ROTULO}: ${t}}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: ${dvp}}
 subjects: [{apiGroup: rbac.authorization.k8s.io, kind: User, name: ${t}-dev}]
 ---
 # O TOKEN DELE, para a aba 'Terminal Dev' do guia: o pod do guia so monta
