@@ -207,10 +207,13 @@ casa continua: TP ou DP só se a seção das notas listar.
    leituras de arquitetura e instalação têm a variante atrás do atributo
    `area`, conforme o corte de `fase-2-area.md`; 2.4 e 3.2 não mudam porque
    já são laboratórios com Gateway próprio. Os `piloto-*.yaml` ao lado ficam
-   como registro do piloto; o que vale é o script. O que falta é publicar
-   uma onda com tudo isso e rodá-la num participante em modo de área de
-   ponta a ponta (hoje cada passo foi executado no `user6`, página a página,
-   mas não pelo Showroom dele).
+   como registro do piloto; o que vale é o script. A onda `workshop-v0.141`
+   leva tudo isso; está no `field-content` do mz8j7 e no Showroom do `user6`,
+   em modo de área: as variantes de 2.1, 2.2, 2.3, 3.1, 6.1 e 6.3, a 4.2 do
+   catálogo e a Fase 8 aparecem no guia dele (conferido página a página pelo
+   navegador em 2026-11-03), e cada comando delas foi executado antes como
+   `user6`. O que ainda não foi feito é uma turma inteira em modo de área
+   rodando o guia de ponta a ponta pelos terminais.
 5. **Trilhas de 7 para 4**, com as somas e os resumos de fase gerados do nav em
    vez de mantidos à mão.
 6. **Extras novos** (MCP, Extension SDK) depois, cada um atrás de uma checagem,
