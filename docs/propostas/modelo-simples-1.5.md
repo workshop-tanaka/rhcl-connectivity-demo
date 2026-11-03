@@ -188,7 +188,16 @@ casa continua: TP ou DP só se a seção das notas listar.
 2. **FEITO em 2026-10-30 (mz8j7, ver §6).** Dois participantes no modelo novo, no mesmo cluster: um Gateway de área,
    dois produtores, dois consumidores, o pedido de chave cruzado. É o teste da
    seção 2 inteiro, e cabe numa tarde.
-3. **A Fase 4 reescrita** sobre o catálogo: quatro páginas, a mais afetada.
+3. **FEITO em 2026-11-03 (workshop 0aef321, demo 4299518), na forma mínima.** A Fase 4 ganhou a
+   parte *4.2 O vizinho pede a chave* (pedido, aprovação, chamada e revogação
+   entre dois participantes, pela console e pelo terminal), atrás do atributo
+   `catalogo` que o `tenant.sh` só liga em cluster com as ClusterRoles da 1.5;
+   a 4.1 aponta para ela e perde o "não aprove nada". Ainda sobre a turma de
+   hoje (um `travels-api` por participante), não sobre o Gateway de área: a
+   `AuthPolicy` ganhou a identidade `api-key-catalogo` com os rótulos do
+   produto **e** do namespace, porque os produtos têm o mesmo nome. A
+   reescrita das outras páginas da Fase 4 sobre o modelo de área fica com o
+   passo 4.
 4. **`tenant.sh` com o modelo de área** (`--area a|b|c`), mantendo o modo
    atual atrás de uma opção enquanto a 1.4 for a edição entregue.
 5. **Trilhas de 7 para 4**, com as somas e os resumos de fase gerados do nav em
