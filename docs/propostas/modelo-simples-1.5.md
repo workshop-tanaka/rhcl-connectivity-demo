@@ -152,7 +152,7 @@ aparece como "GA (sem categoria própria na nota)".
 
 | Funcionalidade | Categoria | Onde entra | Condição |
 | --- | --- | --- | --- |
-| **Egress Gateway** | Technology Preview; **exige OpenShift Service Mesh** | Extra "A saída também é borda" reescrito | só na sessão que roda sobre o Service Mesh. A sessão `foco_rhcl` roda sobre o Gateway API nativo e fica com a leitura |
+| **Egress Gateway** | Technology Preview; **exige OpenShift Service Mesh** | Extra "A saída também é borda" reescrito | só na sessão que roda sobre o Service Mesh. A sessão `foco_rhcl` roda sobre o Gateway API nativo e fica com a leitura. O guia *Configure* da 1.5 traz uma variante em que o DNS dos pods aponta para um CoreDNS do Connectivity Link e a saída é resolvida por ele (§5.2.3): é o mesmo CoreDNS do Extra DNS, candidato a reaproveitar; fica como leitura enquanto for preview (decisão de 2026-11-27) |
 | **Extension SDK** | Technology Preview | 7.8 vira Extra prático | construir e implantar a extensão de exemplo; mostrar que a `PlanPolicy` da 1.5 **é** uma extensão (log "Discovered extension" do operator). Há desenho em `docs/propostas/extension-sdk.md` |
 | **DNS failover com grupos** (registro TXT `active-groups`) | Technology Preview | Extra DNS, como leitura ou como sondagem | é multicluster. Sondar se o CoreDNS do laboratório, que lê `DNSRecord`, serve dois grupos no mesmo cluster; se não, leitura |
 | **Console do MCP gateway** | Developer Preview | dentro do Extra de MCP | só como tela, com o selo |

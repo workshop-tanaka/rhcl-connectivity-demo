@@ -361,7 +361,7 @@ nem links, conferidos contra o artigo
 | Gateway API nativo no 4.19+ (`openshift-default`) | confere; o artigo diz que no 4.19 a Gateway API vem com o OpenShift. Medido: as classes `istio` e `openshift-default` usam o mesmo controller `openshift.io/gateway-controller/v1` |
 | cert-manager 1.19+ para a 1.4 | confere (artigo: 1.19 e 1.20); "1.17+ para 1.2/1.3" está meio certo (1.3 pede 1.18 a 1.20) |
 | datastores do Limitador: Redis Enterprise/Cloud, ElastiCache, Dragonfly, Valkey | confere com o artigo (1.4: Redis 8.6–8.10, ElastiCache, Dragonfly 1.39/1.40, Valkey 9.1) |
-| DNS inclui CoreDNS on-premises | **não está no artigo** (Route 53, Google Cloud DNS, Azure DNS) |
+| DNS inclui CoreDNS on-premises | **não está no artigo** (Route 53, Google Cloud DNS, Azure DNS), mas **confere com a documentação da 1.5**: o guia *Configure* traz um capítulo de `DNSPolicy` com CoreDNS para DNS on-premise, sem rótulo de preview. O Extra DNS do workshop já roda exatamente esse desenho |
 | "o plano de controle é Kuadrant Operator, Authorino e Limitador" | **errado no vocabulário**: Authorino e Limitador são o plano de dados (visão de arquitetura do Kuadrant) -- e é por isso que são eles que escalam com o tráfego |
 | Authorino intensivo em memória, Limitador intensivo em CPU | **o contrário do medido**: o Authorino custa 7–8 mCPU por requisição e satura primeiro (~400–500 RPS por pod, seção 2b); o Limitador não passou de ~150m a 800 RPS; memória: Authorino 89 Mi, Limitador 4–19 Mi |
 | tabela por requisições/dia (Small < 1M, Medium 1–10M, Large > 10M) | **sem fonte** (o artigo não trata sizing) e o eixo engana: 10M/dia são ~116 RPS de média; o que dimensiona é o pico (seção 4.3) |

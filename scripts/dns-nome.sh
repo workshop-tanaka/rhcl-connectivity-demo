@@ -22,7 +22,11 @@
 #
 # A IMAGEM DO COREDNS e do upstream do Kuadrant (nao ha equivalente conferido
 # em registry.redhat.io, que exige login). COREDNS_IMG troca a origem -- e o
-# mesmo tratamento que a imagem dos portais recebeu.
+# mesmo tratamento que a imagem dos portais recebeu. FIXADA POR DIGEST desde
+# 2026-11-27: a tag 'latest' mudava sem aviso e o laboratorio nao pode mudar
+# junto; o digest e o do manifest list (serve amd64 e arm64), lido do quay.io
+# na data. O guia Configure do Connectivity Link 1.5 documenta o CoreDNS como
+# provedor de DNS on-premise da DNSPolicy, sem rotulo de preview.
 #
 # Uso:
 #   bash scripts/dns-nome.sh          # a prova inteira (~2 min)
@@ -42,7 +46,7 @@ MANTER="${MANTER:-0}"
 ZONA="${ZONA:-dns-lab.rhcl.internal}"
 NOME="api.${ZONA}"
 IMG="registry.access.redhat.com/ubi9/python-311"
-COREDNS_IMG="${COREDNS_IMG:-quay.io/kuadrant/coredns-kuadrant:latest}"
+COREDNS_IMG="${COREDNS_IMG:-quay.io/kuadrant/coredns-kuadrant@sha256:d934f89c7904515ee54d44ab2f8fd7dec7bdc93cb39470de1d3506d9eef7da76}"
 
 if [[ -t 1 ]]; then
   _GRN=$'\033[0;32m'; _YEL=$'\033[0;33m'; _RED=$'\033[0;31m'; _BLU=$'\033[0;34m'
