@@ -6,6 +6,14 @@ participantes por cluster. Não é material de plateia e não está no `nav` do
 complemento: o FROTA trata de N clusters com um participante cada; este, de um
 cluster com N participantes.
 
+> **Congelada em 2026-11-27.** O último estado medido com turma real é a
+> edição `v1.2` (onda `workshop-v0.141`, cluster mz8j7). A partir da
+> `workshop-v0.142` a estratégia passa a ser **um cluster por participante**
+> (`workshop.modo: unica`, ver [propostas/instancia-unica.md](propostas/instancia-unica.md)),
+> e o conteúdo novo não precisa caber na turma. Voltar é pedir a tag
+> congelada. Este documento e o `tenant.sh` ficam como estão até a avaliação
+> fechar.
+
 ## 1. Por que existe
 
 O workshop nasceu um-cluster-por-participante. Uma turma de 35 pedia 35
