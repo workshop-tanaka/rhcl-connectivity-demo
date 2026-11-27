@@ -120,10 +120,20 @@ que o Job roda depois do `provision.sh`.
    provisionamento; com portal, `cicd` e `security` a medição do dcrth diz
    que o teto honesto é 3 h, a confirmar na primeira subida pelo Job.
 
-**Sizing.** O dcrth (3 × 16 vCPU / 32 Gi de worker) está segurando a
-plataforma completa menos `registry` e `pacotes`; a medida fecha quando o
-`consumo.sh` rodar com tudo no ar. A tabela da §2.1 do CONHECIMENTO continua
-a referência: o ACS é o que reserva mais, e é o último a subir.
+**Sizing, medido no dcrth em 2026-11-27 com o `preflight.sh` completo em
+zero avisos** (3 workers de 16 vCPU / 32 Gi, tudo menos `registry`,
+`pacotes`, `entrega` e `interconnect`):
+
+| | uso mem | req mem | uso cpu | req cpu | pvc |
+| --- | --- | --- | --- | --- | --- |
+| demo (sem OCP) | 26 Gi | 45 Gi | 2,2 c | 21 c | 477 Gi |
+| plataforma OCP (3 × control-plane) | 61 Gi | 73 Gi | 7,9 c | 22,7 c | 350 Gi |
+| **total** | **87 Gi** | **118 Gi** | **10 c** | **44 c** | **827 Gi** |
+
+Os workers ficam com ~45 Gi de request em 96 Gi e ~21 c em 48. O `security`
+(ACS) sozinho reserva 18 Gi e 8 c, como a §2.1 do CONHECIMENTO já dizia.
+Disco dos nós entre 20 % e 52 %. O padrão do pedido Dedicated, portanto,
+basta para o modo única sem as camadas pesadas; com elas, medir de novo.
 
 **Developer Lightspeed.** Entra nesta variante, depois do portal: o Lightspeed
 Core Service ao lado do RHDH, o provedor compatível com OpenAI apontando para o
