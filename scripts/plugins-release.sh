@@ -65,7 +65,10 @@ cmd_publica() {
   local pod; pod="$(_pod)"
   [[ -n "$pod" ]] || _die "plugin-registry nao esta no ar em ${RHDH_NS} -- nada a publicar (o que vale e o que o cluster aprovado serve)"
 
-  local stage; stage="$(mktemp -d)"; trap 'rm -rf "$stage"' EXIT
+  # global de proposito: o trap EXIT roda depois que a funcao devolveu, e com
+  # set -u uma 'local' ja nao existe ali ("stage: unbound variable")
+  _STAGE="$(mktemp -d)"; trap 'rm -rf "$_STAGE"' EXIT
+  local stage="$_STAGE"
   _log "extraindo do registry (${pod})"
   local f n=0
   while IFS= read -r f; do
