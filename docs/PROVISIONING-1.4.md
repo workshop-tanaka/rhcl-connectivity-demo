@@ -46,6 +46,8 @@ Num cluster novo, a ordem é esta, e **a posição do `identity` não é arbitr�
 ```bash
 bash scripts/new-env.sh
 bash scripts/provision.sh                      # até gitops
+bash scripts/gitlab-seed.sh                    # grupos rhcl/apis e rhcl/policies e o espelho rhcl/base — o preflight completo reprova sem eles
+bash scripts/provision.sh gitops               # de novo: os ApplicationSets de travel/ e samples/ só entram com o seed feito
 bash scripts/provision.sh identity             # ANTES do portal — ver abaixo
 bash rhdh/install.sh                           # o portal
 bash rhdh/setup-gitlab.sh                      # camada GitLab + 1ª passada de plugins
