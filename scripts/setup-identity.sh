@@ -373,7 +373,7 @@ fi
 # assinatura do proprio realm. O admin local continua existindo (break-glass,
 # como o root do GitLab).
 # ===========================================================================
-_SQ_HOST="$(oc get route -n cicd --no-headers 2>/dev/null | awk '{print $2}' | grep '^sonarqube' | head -1)"
+_SQ_HOST="$(oc get route -n cicd --no-headers 2>/dev/null | awk '{print $2}' | grep '^sonarqube' | head -1 || true)"
 _SQ_TOKEN="$(oc get secret rhdh-sonarqube-secret -n "$RHDH_NS" -o jsonpath='{.data.SONARQUBE_TOKEN}' 2>/dev/null | base64 -d || true)"
 if [[ -z "$_SQ_HOST" || -z "$_SQ_TOKEN" ]]; then
   _warn "SonarQube ou o token dele ausentes -- SAML fica para depois de 'cicd' + 'credenciais'"
@@ -442,7 +442,7 @@ fi
 # auth provider OIDC no Central via API, com papel minimo Analyst para quem
 # chega pelo SSO -- o admin local continua para break-glass e automacao.
 # ===========================================================================
-_ACS_HOST="$(oc get route central -n stackrox -o jsonpath='{.spec.host}' 2>/dev/null)"
+_ACS_HOST="$(oc get route central -n stackrox -o jsonpath='{.spec.host}' 2>/dev/null || true)"
 _ACS_PW="$(oc get secret central-htpasswd -n stackrox -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || true)"
 if [[ -z "$_ACS_HOST" || -z "$_ACS_PW" ]]; then
   _warn "Central do ACS ausente -- OIDC fica para depois de 'security'"
@@ -575,7 +575,7 @@ fi
 # O Nexus Community nao entra no login unificado: /v1/security/saml responde
 # 404 (recurso Pro). Autonomia total ali e conta local com nx-admin, mesma
 # senha do cofre. Repetir devolve 400 (ja existe) e segue.
-_NX_HOST="$(oc get route -n cicd --no-headers 2>/dev/null | awk '$1=="nexus"{print $2}')"
+_NX_HOST="$(oc get route -n cicd --no-headers 2>/dev/null | awk '$1=="nexus"{print $2}' || true)"
 _TPW="$(oc get secret "$_SEC" -n "$KC_NS" -o jsonpath='{.data.KC_TANAKA_PASSWORD}' 2>/dev/null | base64 -d)"
 if [[ -n "$_NX_HOST" && -n "$_TPW" ]]; then
   curl -sk -m 15 -u "admin:${NEXUS_ADMIN_PASS:-admin123}" -X POST \
@@ -591,8 +591,8 @@ fi
 # logo depois de 'provision.sh registry'. Token morto: criar pela UI, ou pela
 # sessao de login (csrf_token + /api/v1/signin), que exige decisao de quem
 # opera.
-_QHOST="$(oc get quayregistry registry -n quay -o jsonpath='{.status.registryEndpoint}' 2>/dev/null | sed 's|https://||')"
-_QTOK="$(oc get secret quay-admin -n quay -o jsonpath='{.data.token}' 2>/dev/null | base64 -d)"
+_QHOST="$(oc get quayregistry registry -n quay -o jsonpath='{.status.registryEndpoint}' 2>/dev/null | sed 's|https://||' || true)"
+_QTOK="$(oc get secret quay-admin -n quay -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || true)"
 if [[ -n "$_QHOST" && -n "$_QTOK" && -n "$_TPW" ]]; then
   _qapi=(-sk -m 15 -H "Authorization: Bearer ${_QTOK}" -H 'Content-Type: application/json')
   curl "${_qapi[@]}" -o /dev/null -X POST "https://${_QHOST}/api/v1/superuser/users/" \
