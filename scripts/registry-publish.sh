@@ -42,7 +42,7 @@ done
 
 _pod() {
   oc get pods -n "$RHDH_NS" --no-headers 2>/dev/null \
-    | grep plugin-registry | grep Running | awk '{print $1}' | head -1
+    | grep plugin-registry | grep Running | awk '{print $1}' | head -1 || true
 }
 
 _P="$(_pod)"
