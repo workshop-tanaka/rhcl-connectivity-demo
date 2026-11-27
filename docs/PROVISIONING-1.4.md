@@ -51,6 +51,7 @@ bash rhdh/install.sh                           # o portal
 bash rhdh/setup-gitlab.sh                      # camada GitLab + 1ª passada de plugins
 bash scripts/build-plugins.sh --publish        # Jaeger e Grafana, que não vêm prontos
 bash scripts/build-cl-ops.sh --publish         # o plugin próprio, daqui do repo
+bash scripts/plugins-release.sh publica <tag>  # os pacotes viram assets da Release da tag (o Job da instância única baixa daí)
 bash rhdh/setup-plugins.sh                     # 2ª passada: agora com os três
 bash rhdh/setup-catalog.sh
 bash scripts/provision.sh cicd security        # Tekton e RHACS

@@ -145,11 +145,20 @@ não paga por ela.
 
 1. **Fechar o dcrth à mão** e registrar a medição: tempo por etapa, `consumo.sh`
    com tudo no ar, `preflight.sh` completo em zero avisos. É a baseline da
-   variante.
-2. **Publicar os `.tgz` dos plugins com a tag.** Sem isso o passo 3 do desenho
-   não existe.
-3. **A variante no chart**: `workshop.modo`, as etapas, a sequência do portal
-   no playbook, o portão completo, a recusa de `multi_user`.
+   variante. *Em curso em 2026-11-27.* Dois ajustes que a sequência manual
+   expôs e o playbook já carrega: `gitops` roda de novo depois do portal (é
+   ele que cria o `rhdh-argocd-secret`), e o `setup-plugins.sh` só vale a
+   pena depois de `credenciais` e desse segundo `gitops`, senão as flags de
+   Argo, Sonar, Nexus, ACS e Tekton saem todas `false`.
+2. ~~**Publicar os `.tgz` dos plugins com a tag.**~~ **Feito**:
+   `scripts/plugins-release.sh publica <tag>` extrai do `plugin-registry` do
+   cluster aprovado e envia como assets da Release da tag; `baixa <tag> <dir>`
+   é o que o Job roda, com `SHA256SUMS` conferido. Falta publicar a primeira
+   Release, na próxima onda.
+3. ~~**A variante no chart**~~ **Feito** (`workshop-v0.141` + 1, commit
+   `bb0c762` do workshop): `workshop.modo`, `workshop.pesadas`, o bloco 5b do
+   playbook, o portão completo, a recusa de `multi_user` no render, o teto de
+   3 h.
 4. **Uma onda `workshop-vN-unica`** no RHDP Dedicated, zero intervenção manual,
    medida pelo `frota.sh valida`.
 5. **Developer Lightspeed**, depois que o passo 4 passar.

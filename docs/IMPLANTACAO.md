@@ -20,6 +20,17 @@ Showroom e a apresentação de abertura.
 | Quem monta | o `Job` do Argo, sozinho (25 a 40 min) | o `Job` monta a base (10 a 15 min, mais ~20 do GitLab a partir da `workshop-v0.29`); você sobe a turma (~40 min) |
 | Isolamento | real | de sala de aula — ver a seção 7 |
 
+**Instância única (`workshop.modo: unica`, desde 2026-11-27).** O modo de um
+cluster por participante tem agora uma variante em que o `Job` sobe **tudo** o
+que a demo pressupõe: portal, GitLab integrado, plugins, cicd, security,
+credenciais e samples, com o `preflight.sh` completo como portão. É o
+ambiente da demo, entregue pelo RHDP, sem passo manual. Pede o item
+*Dedicated Clusters*, *Create users* em 1 (mais de um é recusado no render
+do chart) e a Release da tag da demo com os pacotes de plugin publicada
+antes (`bash scripts/plugins-release.sh publica <tag>`, de um cluster
+aprovado). O desenho e o que ele corta da turma estão em
+[propostas/instancia-unica.md](propostas/instancia-unica.md).
+
 **Clientes diferentes nunca dividem cluster.** O modo de turma deixa um
 participante ler a chave de API do outro; entre colegas é aceitável, entre
 empresas não.
