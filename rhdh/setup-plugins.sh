@@ -298,6 +298,12 @@ if [[ "$WITH_CL_OPS" == "true" ]]; then
 fi
 [[ "$WITH_JAEGER"  == "true" ]] && JAEGER_INTEGRITY="${JAEGER_INTEGRITY:-$(_integrity_de 'backstage-community-plugin-jaeger-dynamic')}"
 [[ "$WITH_GRAFANA" == "true" ]] && GRAFANA_INTEGRITY="${GRAFANA_INTEGRITY:-$(_integrity_de 'backstage-community-plugin-grafana-dynamic')}"
+# Cluster virgem: nao ha ConfigMap de quem herdar, e a verdade e o registry --
+# o mesmo fallback que o Kafka ja tinha. Sem ele, WITH_JAEGER=true num cluster
+# novo era desligado em silencio ("sem integrity (nem herdada)"), medido no
+# dcrth em 2026-11-27 com os dois .tgz servidos pelo plugin-registry.
+[[ "$WITH_JAEGER"  == "true" ]] && JAEGER_INTEGRITY="${JAEGER_INTEGRITY:-$(_integrity_do_registry 'backstage-community-plugin-jaeger-dynamic')}"
+[[ "$WITH_GRAFANA" == "true" ]] && GRAFANA_INTEGRITY="${GRAFANA_INTEGRITY:-$(_integrity_do_registry 'backstage-community-plugin-grafana-dynamic')}"
 # Kafka: publicado no registry = ligado. Nao ha de quem herdar na primeiravez
 # (o plugin nasceu em 2026-08-31), e exigir WITH_KAFKA=true a mao repetiria a
 # falha silenciosa que o cl-ops.env existe para impedir.
