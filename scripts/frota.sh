@@ -33,6 +33,8 @@
 #   bash scripts/frota.sh lista              # o inventario, e quem responde
 #   bash scripts/frota.sh valida [filtro]    # as duas camadas, em paralelo
 #   bash scripts/frota.sh assina [filtro]    # a tabela para entregar
+#   pbpaste | bash scripts/frota.sh entra     # cola os e-mails do RHDP: um kubeconfig
+#                                             # por cluster + a linha no inventario
 #
 #   FROTA=outro.local       outro inventario
 #   CAMADA=core             plataforma em ~15s em vez de ~45s
@@ -88,6 +90,56 @@ _mede() { # <guid> <kubeconfig> <modo> -> arquivo de saida
 # ----- o resumo de um arquivo de medicao -----------------------------------
 _falhas() { awk -F'\t' '$1=="RESUMO"{split($3,a,"[= ]"); print a[2]+0; f=1} END{if(!f) print -1}' "$1"; }
 _avisos() { awk -F'\t' '$1=="RESUMO"{split($3,a,"[= ]"); print a[4]+0; f=1} END{if(!f) print -1}' "$1"; }
+
+# ----- entrar em N clusters de uma vez --------------------------------------
+# O RHDP manda um e-mail por cluster, cada um com a URL da API e a senha do
+# kubeadmin. Colar os N e-mails num stdin so e tudo o que esta maquina precisa:
+# o guid sai da URL, a senha e a primeira no formato do RHDP depois dela, e o
+# login grava um kubeconfig PROPRIO (frota/kc-<guid>) -- 'oc login' com
+# KUBECONFIG herdado grava o contexto novo dentro do kc errado. A senha nao e
+# impressa nem fica no inventario; mora so no kubeconfig (0600, gitignored).
+cmd_entra() {
+  local tmp; tmp="$(mktemp)"
+  [[ -t 0 ]] && _nota "cole os e-mails do RHDP e termine com Ctrl-D"
+  python3 - > "$tmp" <<'PYEOF'
+import re, sys
+t = sys.stdin.read()
+api = re.compile(r'https://api\.cluster-([a-z0-9]+)\.[A-Za-z0-9.-]+:6443')
+pw  = re.compile(r'\b[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}\b')
+hits = list(api.finditer(t))
+seen = set()
+for i, m in enumerate(hits):
+    guid = m.group(1)
+    if guid in seen: continue
+    seen.add(guid)
+    fim = hits[i+1].start() if i+1 < len(hits) else len(t)
+    # a senha do cluster e a primeira DEPOIS da URL dele e antes da URL do
+    # proximo -- e a ordem do e-mail do RHDP. Olhar para tras pegaria a senha
+    # do cluster anterior, entao um e-mail fora dessa ordem vira '-' (login a mao)
+    p = pw.search(t, m.end(), fim)
+    print(guid, m.group(0), p.group(0) if p else '-')
+PYEOF
+  [[ -s "$tmp" ]] || { rm -f "$tmp"; _die "nenhuma URL 'https://api.cluster-<guid>...:6443' no que foi colado"; }
+  mkdir -p frota; touch "$INV"
+  local guid url senha kc ok=0 n=0
+  while read -r guid url senha; do
+    n=$((n+1)); kc="frota/kc-${guid}"
+    if [[ "$senha" == "-" ]]; then
+      printf '    %-8s %ssem senha de kubeadmin no texto%s -- oc login --kubeconfig=%s a mao\n' "$guid" "$_YEL" "$_RST" "$kc"; continue
+    fi
+    if oc login --kubeconfig="$kc" -u kubeadmin -p "$senha" "$url" >/dev/null 2>&1 \
+       || oc login --kubeconfig="$kc" -u kubeadmin -p "$senha" "$url" --insecure-skip-tls-verify=true >/dev/null 2>&1; then
+      chmod 600 "$kc"
+      grep -qE "^${guid}[[:space:]]" "$INV" || printf '%-14s %s\n' "$guid" "$kc" >> "$INV"
+      printf '    %-8s %slogado%s  %s\n' "$guid" "$_GRN" "$_RST" "$kc"; ok=$((ok+1))
+    else
+      printf '    %-8s %sLOGIN FALHOU%s  (cluster ainda subindo? senha de outro e-mail?)\n' "$guid" "$_RED" "$_RST"
+    fi
+  done < "$tmp"
+  rm -f "$tmp"
+  _nota "${ok}/${n} cluster(s) no inventario ${INV}. Proximo: bash scripts/frota.sh valida"
+  [[ "$ok" -eq "$n" ]]
+}
 
 cmd_lista() {
   local filtro="${1:-}" guid kc n=0
@@ -180,5 +232,6 @@ case "${1:-lista}" in
   lista|status) cmd_lista "${2:-}" ;;
   valida|check) cmd_valida "${2:-}" ;;
   assina|tabela) cmd_assina "${2:-}" ;;
-  *) printf 'uso: bash scripts/frota.sh [lista|valida|assina] [filtro]\n' >&2; exit 2 ;;
+  entra|login)   cmd_entra ;;
+  *) printf 'uso: bash scripts/frota.sh [lista|valida|assina|entra] [filtro]\n' >&2; exit 2 ;;
 esac

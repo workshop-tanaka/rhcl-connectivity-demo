@@ -161,9 +161,17 @@ lentidão.
 
 ### Fase 2 · Colher o kubeconfig
 
-Um `oc login --kubeconfig=frota/kc-<guid>` por ambiente. É o único passo que
-não automatiza bem, e são dois minutos para vinte ambientes. É também o passo
-que torna **tudo depois dele** paralelo e não-interativo — vale o tédio.
+Um `oc login --kubeconfig=frota/kc-<guid>` por ambiente. O caminho curto é
+colar os e-mails do RHDP de uma vez:
+
+```bash
+pbpaste | bash scripts/frota.sh entra    # ou: bash scripts/frota.sh entra < emails.txt
+```
+
+O guid sai da URL da API, a senha do kubeadmin é a primeira depois dela no
+texto, e cada login grava o próprio `frota/kc-<guid>` (0600) e a linha no
+`frota.local`. Um e-mail sem senha legível vira aviso, e o login daquele é à
+mão. É o passo que torna **tudo depois dele** paralelo e não-interativo.
 
 ### Fase 3 · Validar em duas camadas
 
