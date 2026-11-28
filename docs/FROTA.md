@@ -162,16 +162,20 @@ lentidão.
 ### Fase 2 · Colher o kubeconfig
 
 Um `oc login --kubeconfig=frota/kc-<guid>` por ambiente. O caminho curto é
-colar os e-mails do RHDP de uma vez:
+guardar a aba **Details** de cada pedido do RHDP, o YAML com a URL da API, a
+senha do kubeadmin e a URL do Showroom, em `frota/pedidos/<guid>.yaml`. A
+pasta `frota/` já é gitignored, na mesma faixa do `ACESSOS.md`. Depois:
 
 ```bash
-pbpaste | bash scripts/frota.sh entra    # ou: bash scripts/frota.sh entra < emails.txt
+bash scripts/frota.sh entra              # lê frota/pedidos/*.yaml
+pbpaste | bash scripts/frota.sh entra    # ou os e-mails colados, sem arquivo
 ```
 
-O guid sai da URL da API, a senha do kubeadmin é a primeira depois dela no
-texto, e cada login grava o próprio `frota/kc-<guid>` (0600) e a linha no
-`frota.local`. Um e-mail sem senha legível vira aviso, e o login daquele é à
-mão. É o passo que torna **tudo depois dele** paralelo e não-interativo.
+Por arquivo, o guid sai da URL da API e a senha é a única no formato do RHDP
+dentro dele. Cada login grava o próprio `frota/kc-<guid>` (0600) e a linha no
+`frota.local`, com a URL do Showroom como coluna informativa. Um pedido sem
+senha legível vira aviso, e o login daquele é à mão. É o passo que torna
+**tudo depois dele** paralelo e não-interativo.
 
 ### Fase 3 · Validar em duas camadas
 

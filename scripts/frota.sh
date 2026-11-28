@@ -33,9 +33,9 @@
 #   bash scripts/frota.sh lista              # o inventario, e quem responde
 #   bash scripts/frota.sh valida [filtro]    # as duas camadas, em paralelo
 #   bash scripts/frota.sh assina [filtro]    # a tabela para entregar
-#   pbpaste | bash scripts/frota.sh entra     # cola os e-mails do RHDP: um kubeconfig
-#                                             # por cluster + a linha no inventario
-#                                             # (INSECURE=1 so para CA propria, explicito)
+#   bash scripts/frota.sh entra               # frota/pedidos/<guid>.yaml (aba Details do RHDP,
+#                                             # um por cluster): kubeconfig + linha no inventario
+#   pbpaste | bash scripts/frota.sh entra     # ou os e-mails colados (INSECURE=1 so p/ CA propria)
 #
 #   FROTA=outro.local       outro inventario
 #   CAMADA=core             plataforma em ~15s em vez de ~45s
@@ -93,48 +93,73 @@ _falhas() { awk -F'\t' '$1=="RESUMO"{split($3,a,"[= ]"); print a[2]+0; f=1} END{
 _avisos() { awk -F'\t' '$1=="RESUMO"{split($3,a,"[= ]"); print a[4]+0; f=1} END{if(!f) print -1}' "$1"; }
 
 # ----- entrar em N clusters de uma vez --------------------------------------
-# O RHDP manda um e-mail por cluster, cada um com a URL da API e a senha do
-# kubeadmin. Colar os N e-mails num stdin so e tudo o que esta maquina precisa:
-# o guid sai da URL, a senha e a primeira no formato do RHDP depois dela, e o
-# login grava um kubeconfig PROPRIO (frota/kc-<guid>) -- 'oc login' com
-# KUBECONFIG herdado grava o contexto novo dentro do kc errado. A senha nao e
-# impressa nem fica no inventario; mora so no kubeconfig (0600, gitignored).
+# O RHDP entrega, por cluster, a aba "Details" do pedido (um YAML com a URL da
+# API, a senha do kubeadmin e a URL do Showroom) e um e-mail com o mesmo
+# conteudo. Guardar um arquivo por cluster em frota/pedidos/<guid>.yaml (a
+# pasta frota/ ja e gitignored, mesma faixa do ACESSOS.md) e tudo o que esta
+# maquina precisa: o guid sai da URL da API, a senha e a unica no formato do
+# RHDP dentro DAQUELE arquivo, e o login grava um kubeconfig PROPRIO
+# (frota/kc-<guid>) -- 'oc login' com KUBECONFIG herdado grava o contexto novo
+# dentro do kc errado. A senha nao e impressa nem fica no inventario; mora so
+# no kubeconfig (0600) e no YAML do pedido, ambos fora do git.
+#
+# Sem arquivos, le o stdin como um bloco so (e-mails colados): ai a senha de
+# cada cluster e a primeira DEPOIS da URL dele, a ordem do e-mail.
 cmd_entra() {
   local tmp; tmp="$(mktemp)"
-  [[ -t 0 ]] && _nota "cole os e-mails do RHDP e termine com Ctrl-D"
-  python3 - > "$tmp" <<'PYEOF'
-import re, sys
-t = sys.stdin.read()
+  if [[ $# -eq 0 && -t 0 ]]; then
+    set -- frota/pedidos/*.yaml frota/pedidos/*.yml
+    local f any=0; for f in "$@"; do [[ -f "$f" ]] && any=1; done
+    [[ "$any" -eq 1 ]] || { rm -f "$tmp"; _die "nada em frota/pedidos/*.yaml e nada no stdin.
+    Salve a aba Details de cada pedido do RHDP em frota/pedidos/<guid>.yaml,
+    ou cole os e-mails: pbpaste | bash scripts/frota.sh entra"; }
+  fi
+  python3 - "$@" > "$tmp" <<'PYEOF'
+import re, sys, os
 api = re.compile(r'https://api\.cluster-([a-z0-9]+)\.[A-Za-z0-9.-]+:6443')
 pw  = re.compile(r'\b[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}\b')
-hits = list(api.finditer(t))
+show = re.compile(r'https://showroom-[A-Za-z0-9.-]+[^\s"\']*')
 seen = set()
-for i, m in enumerate(hits):
-    guid = m.group(1)
-    if guid in seen: continue
+def emite(guid, url, senha, showroom, origem):
+    if guid in seen: return
     seen.add(guid)
-    fim = hits[i+1].start() if i+1 < len(hits) else len(t)
-    # a senha do cluster e a primeira DEPOIS da URL dele e antes da URL do
-    # proximo -- e a ordem do e-mail do RHDP. Olhar para tras pegaria a senha
-    # do cluster anterior, entao um e-mail fora dessa ordem vira '-' (login a mao)
-    p = pw.search(t, m.end(), fim)
-    print(guid, m.group(0), p.group(0) if p else '-')
+    print(guid, url, senha or '-', showroom or '-', origem)
+arqs = [a for a in sys.argv[1:] if os.path.isfile(a)]
+if arqs:
+    for a in arqs:
+        t = open(a, encoding='utf-8', errors='replace').read()
+        m = api.search(t)
+        if not m:
+            print('-', '-', '-', '-', a); continue
+        p = pw.search(t); sh = show.search(t)
+        emite(m.group(1), m.group(0), p and p.group(0), sh and sh.group(0), a)
+else:
+    t = sys.stdin.read()
+    hits = list(api.finditer(t))
+    for i, m in enumerate(hits):
+        fim = hits[i+1].start() if i+1 < len(hits) else len(t)
+        p = pw.search(t, m.end(), fim); sh = show.search(t, m.end(), fim)
+        emite(m.group(1), m.group(0), p and p.group(0), sh and sh.group(0), 'stdin')
 PYEOF
-  [[ -s "$tmp" ]] || { rm -f "$tmp"; _die "nenhuma URL 'https://api.cluster-<guid>...:6443' no que foi colado"; }
+  [[ -s "$tmp" ]] || { rm -f "$tmp"; _die "nenhuma URL 'https://api.cluster-<guid>...:6443' encontrada"; }
   mkdir -p frota; touch "$INV"
-  local guid url senha kc ok=0 n=0
-  while read -r guid url senha; do
+  local guid url senha showroom origem kc ok=0 n=0
+  while read -r guid url senha showroom origem; do
     n=$((n+1)); kc="frota/kc-${guid}"
+    if [[ "$guid" == "-" ]]; then
+      printf '    %-8s %ssem URL de API%s em %s -- e a aba Details do pedido?\n' "?" "$_YEL" "$_RST" "$origem"; continue
+    fi
     if [[ "$senha" == "-" ]]; then
-      printf '    %-8s %ssem senha de kubeadmin no texto%s -- oc login --kubeconfig=%s a mao\n' "$guid" "$_YEL" "$_RST" "$kc"; continue
+      printf '    %-8s %ssem senha de kubeadmin%s em %s -- oc login --kubeconfig=%s a mao\n' "$guid" "$_YEL" "$_RST" "$origem" "$kc"; continue
     fi
     # TLS e verificado: a API do RHDP serve certificado valido. INSECURE=1 e um
     # opt-in explicito para um cluster com CA propria, nunca um fallback mudo.
     if oc login --kubeconfig="$kc" -u kubeadmin -p "$senha" "$url" \
          ${INSECURE:+--insecure-skip-tls-verify=true} >/dev/null 2>"$tmp.err"; then
       chmod 600 "$kc"
-      grep -qE "^${guid}[[:space:]]" "$INV" || printf '%-14s %s\n' "$guid" "$kc" >> "$INV"
-      printf '    %-8s %slogado%s  %s\n' "$guid" "$_GRN" "$_RST" "$kc"; ok=$((ok+1))
+      # colunas 3+ sao informativas ('_inv' le so guid e kubeconfig)
+      grep -qE "^${guid}[[:space:]]" "$INV" || printf '%-8s %-16s %s\n' "$guid" "$kc" "$showroom" >> "$INV"
+      printf '    %-8s %slogado%s  %s%s\n' "$guid" "$_GRN" "$_RST" "$kc" "${showroom:+  $showroom}"; ok=$((ok+1))
     else
       printf '    %-8s %sLOGIN FALHOU%s  %s\n' "$guid" "$_RED" "$_RST" "$(tail -1 "$tmp.err")"
     fi
@@ -235,6 +260,6 @@ case "${1:-lista}" in
   lista|status) cmd_lista "${2:-}" ;;
   valida|check) cmd_valida "${2:-}" ;;
   assina|tabela) cmd_assina "${2:-}" ;;
-  entra|login)   cmd_entra ;;
+  entra|login)   shift; cmd_entra "$@" ;;
   *) printf 'uso: bash scripts/frota.sh [lista|valida|assina|entra] [filtro]\n' >&2; exit 2 ;;
 esac
