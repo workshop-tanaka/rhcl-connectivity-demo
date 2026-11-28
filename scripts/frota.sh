@@ -35,6 +35,7 @@
 #   bash scripts/frota.sh assina [filtro]    # a tabela para entregar
 #   pbpaste | bash scripts/frota.sh entra     # cola os e-mails do RHDP: um kubeconfig
 #                                             # por cluster + a linha no inventario
+#                                             # (INSECURE=1 so para CA propria, explicito)
 #
 #   FROTA=outro.local       outro inventario
 #   CAMADA=core             plataforma em ~15s em vez de ~45s
@@ -127,16 +128,18 @@ PYEOF
     if [[ "$senha" == "-" ]]; then
       printf '    %-8s %ssem senha de kubeadmin no texto%s -- oc login --kubeconfig=%s a mao\n' "$guid" "$_YEL" "$_RST" "$kc"; continue
     fi
-    if oc login --kubeconfig="$kc" -u kubeadmin -p "$senha" "$url" >/dev/null 2>&1 \
-       || oc login --kubeconfig="$kc" -u kubeadmin -p "$senha" "$url" --insecure-skip-tls-verify=true >/dev/null 2>&1; then
+    # TLS e verificado: a API do RHDP serve certificado valido. INSECURE=1 e um
+    # opt-in explicito para um cluster com CA propria, nunca um fallback mudo.
+    if oc login --kubeconfig="$kc" -u kubeadmin -p "$senha" "$url" \
+         ${INSECURE:+--insecure-skip-tls-verify=true} >/dev/null 2>"$tmp.err"; then
       chmod 600 "$kc"
       grep -qE "^${guid}[[:space:]]" "$INV" || printf '%-14s %s\n' "$guid" "$kc" >> "$INV"
       printf '    %-8s %slogado%s  %s\n' "$guid" "$_GRN" "$_RST" "$kc"; ok=$((ok+1))
     else
-      printf '    %-8s %sLOGIN FALHOU%s  (cluster ainda subindo? senha de outro e-mail?)\n' "$guid" "$_RED" "$_RST"
+      printf '    %-8s %sLOGIN FALHOU%s  %s\n' "$guid" "$_RED" "$_RST" "$(tail -1 "$tmp.err")"
     fi
   done < "$tmp"
-  rm -f "$tmp"
+  rm -f "$tmp" "$tmp.err"
   _nota "${ok}/${n} cluster(s) no inventario ${INV}. Proximo: bash scripts/frota.sh valida"
   [[ "$ok" -eq "$n" ]]
 }
