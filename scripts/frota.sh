@@ -35,7 +35,9 @@
 #   bash scripts/frota.sh assina [filtro]    # a tabela para entregar
 #   bash scripts/frota.sh entra               # frota/pedidos/<guid>.yaml (aba Details do RHDP,
 #                                             # um por cluster): kubeconfig + linha no inventario
-#   pbpaste | bash scripts/frota.sh entra     # ou os e-mails colados (INSECURE=1 so p/ CA propria)
+#   pbpaste | bash scripts/frota.sh entra     # ou os e-mails colados
+#   (a CA de cada cluster e pinada em frota/ca-<guid>.crt no primeiro login;
+#    INSECURE=1 desliga a verificacao, explicitamente)
 #
 #   FROTA=outro.local       outro inventario
 #   CAMADA=core             plataforma em ~15s em vez de ~45s
@@ -98,7 +100,8 @@ _avisos() { awk -F'\t' '$1=="RESUMO"{split($3,a,"[= ]"); print a[4]+0; f=1} END{
 # conteudo. Guardar um arquivo por cluster em frota/pedidos/<guid>.yaml (a
 # pasta frota/ ja e gitignored, mesma faixa do ACESSOS.md) e tudo o que esta
 # maquina precisa: o guid sai da URL da API, a senha e a unica no formato do
-# RHDP dentro DAQUELE arquivo, e o login grava um kubeconfig PROPRIO
+# RHDP dentro DAQUELE arquivo (no ocp-field-asset o usuario e 'admin', nao o
+# kubeadmin, e as chaves openshift_cluster_admin_* dizem qual), e o login grava um kubeconfig PROPRIO
 # (frota/kc-<guid>) -- 'oc login' com KUBECONFIG herdado grava o contexto novo
 # dentro do kc errado. A senha nao e impressa nem fica no inventario; mora so
 # no kubeconfig (0600) e no YAML do pedido, ambos fora do git.
@@ -108,58 +111,88 @@ _avisos() { awk -F'\t' '$1=="RESUMO"{split($3,a,"[= ]"); print a[4]+0; f=1} END{
 cmd_entra() {
   local tmp; tmp="$(mktemp)"
   if [[ $# -eq 0 && -t 0 ]]; then
-    set -- frota/pedidos/*.yaml frota/pedidos/*.yml
-    local f any=0; for f in "$@"; do [[ -f "$f" ]] && any=1; done
-    [[ "$any" -eq 1 ]] || { rm -f "$tmp"; _die "nada em frota/pedidos/*.yaml e nada no stdin.
-    Salve a aba Details de cada pedido do RHDP em frota/pedidos/<guid>.yaml,
-    ou cole os e-mails: pbpaste | bash scripts/frota.sh entra"; }
+    # recursivo: um pedido de N clusters vira frota/pedidos/<pedido>/<guid>/<guid>.yaml
+    local lista; lista="$(find frota/pedidos -type f \( -name '*.yaml' -o -name '*.yml' \) 2>/dev/null | sort)"
+    [[ -n "$lista" ]] || { rm -f "$tmp"; _die "nada em frota/pedidos/ e nada no stdin.
+    Salve o YAML de cada cluster do pedido do RHDP em frota/pedidos/ (qualquer
+    profundidade), ou cole os e-mails: pbpaste | bash scripts/frota.sh entra"; }
+    set -- $lista
   fi
   python3 - "$@" > "$tmp" <<'PYEOF'
 import re, sys, os
-api = re.compile(r'https://api\.cluster-([a-z0-9]+)\.[A-Za-z0-9.-]+:6443')
-pw  = re.compile(r'\b[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}\b')
+# O YAML do ResourceClaim do RHDP traz as chaves; o e-mail traz so o texto. As
+# chaves vem primeiro (o usuario admin do ocp-field-asset NAO e o kubeadmin e a
+# senha dele nao tem o formato 5x4), e a regex fica como fallback do e-mail.
+api  = re.compile(r'https://api\.cluster-([a-z0-9]+)\.[A-Za-z0-9.-]+:6443')
+pw54 = re.compile(r'\b[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}-[A-Za-z0-9]{5}\b')
 show = re.compile(r'https://showroom-[A-Za-z0-9.-]+[^\s"\']*')
+def chave(t, nome):
+    m = re.search(r'^\s*' + nome + r':\s*[\'"]?([^\s\'"]+)', t, re.M)
+    return m.group(1) if m else None
 seen = set()
-def emite(guid, url, senha, showroom, origem):
+def emite(guid, url, user, senha, showroom, origem):
     if guid in seen: return
     seen.add(guid)
-    print(guid, url, senha or '-', showroom or '-', origem)
+    print(guid, url, user or 'kubeadmin', senha or '-', showroom or '-', origem)
 arqs = [a for a in sys.argv[1:] if os.path.isfile(a)]
 if arqs:
     for a in arqs:
         t = open(a, encoding='utf-8', errors='replace').read()
         m = api.search(t)
         if not m:
-            print('-', '-', '-', '-', a); continue
-        p = pw.search(t); sh = show.search(t)
-        emite(m.group(1), m.group(0), p and p.group(0), sh and sh.group(0), a)
+            print('-', '-', '-', '-', '-', a); continue
+        user  = chave(t, 'openshift_cluster_admin_username')
+        senha = chave(t, 'openshift_cluster_admin_password')
+        if not senha:
+            p = pw54.search(t); senha = p and p.group(0); user = user or 'kubeadmin'
+        sh = chave(t, 'showroom_primary_view_url') or chave(t, 'lab_ui_url')
+        if not sh:
+            x = show.search(t); sh = x and x.group(0)
+        emite(m.group(1), m.group(0), user, senha, sh, a)
 else:
     t = sys.stdin.read()
     hits = list(api.finditer(t))
     for i, m in enumerate(hits):
         fim = hits[i+1].start() if i+1 < len(hits) else len(t)
-        p = pw.search(t, m.end(), fim); sh = show.search(t, m.end(), fim)
-        emite(m.group(1), m.group(0), p and p.group(0), sh and sh.group(0), 'stdin')
+        p = pw54.search(t, m.end(), fim); sh = show.search(t, m.end(), fim)
+        emite(m.group(1), m.group(0), 'kubeadmin', p and p.group(0), sh and sh.group(0), 'stdin')
 PYEOF
   [[ -s "$tmp" ]] || { rm -f "$tmp"; _die "nenhuma URL 'https://api.cluster-<guid>...:6443' encontrada"; }
   mkdir -p frota; touch "$INV"
-  local guid url senha showroom origem kc ok=0 n=0
-  while read -r guid url senha showroom origem; do
-    n=$((n+1)); kc="frota/kc-${guid}"
+  local guid url user senha showroom origem kc ok=0 n=0
+  while read -r guid url user senha showroom origem; do
     if [[ "$guid" == "-" ]]; then
-      printf '    %-8s %ssem URL de API%s em %s -- e a aba Details do pedido?\n' "?" "$_YEL" "$_RST" "$origem"; continue
+      # o YAML do PEDIDO (kind Workshop) nao tem cluster -- so os filhos tem
+      _nota "sem URL de API em ${origem} (o YAML do pedido, nao de um cluster) -- ignorado"; continue
     fi
+    n=$((n+1)); kc="frota/kc-${guid}"
     if [[ "$senha" == "-" ]]; then
-      printf '    %-8s %ssem senha de kubeadmin%s em %s -- oc login --kubeconfig=%s a mao\n' "$guid" "$_YEL" "$_RST" "$origem" "$kc"; continue
+      printf '    %-8s %ssem senha de admin%s em %s -- oc login --kubeconfig=%s a mao\n' "$guid" "$_YEL" "$_RST" "$origem" "$kc"; continue
     fi
-    # TLS e verificado: a API do RHDP serve certificado valido. INSECURE=1 e um
-    # opt-in explicito para um cluster com CA propria, nunca um fallback mudo.
-    if oc login --kubeconfig="$kc" -u kubeadmin -p "$senha" "$url" \
-         ${INSECURE:+--insecure-skip-tls-verify=true} >/dev/null 2>"$tmp.err"; then
+    # TLS e VERIFICADO contra a CA do proprio cluster. A API dos clusters do RHDP
+    # (ocp-field-asset em cnv) e assinada pelo kube-apiserver-lb-signer, uma CA
+    # interna que nenhuma maquina conhece -- e o motivo de todo kubeconfig antigo
+    # desta pasta ter nascido com insecure-skip-tls-verify. Em vez disso, o
+    # servidor entrega a cadeia inteira (folha + signer) no handshake; ela e
+    # gravada UMA vez em frota/ca-<guid>.crt (confianca no primeiro uso, com a
+    # impressao digital impressa) e pinada no login. Um servidor trocado depois
+    # disso falha em vez de passar. INSECURE=1 continua como opt-in explicito.
+    local ca="frota/ca-${guid}.crt" host; host="${url#https://}"; host="${host%%:*}"
+    if [[ ! -s "$ca" ]]; then
+      openssl s_client -connect "${host}:6443" -servername "$host" -showcerts </dev/null 2>/dev/null \
+        | awk '/BEGIN CERT/,/END CERT/' > "$ca"
+      if grep -q 'BEGIN CERT' "$ca"; then
+        _nota "${guid}: CA do cluster pinada em ${ca} ($(openssl x509 -in "$ca" -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2 | cut -c1-23)...)"
+      else rm -f "$ca"; fi
+    fi
+    if oc login --kubeconfig="$kc" -u "$user" -p "$senha" "$url" \
+         ${INSECURE:+--insecure-skip-tls-verify=true} \
+         $([[ -z "${INSECURE:-}" && -s "$ca" ]] && printf -- '--certificate-authority=%s' "$ca") \
+         >/dev/null 2>"$tmp.err"; then
       chmod 600 "$kc"
       # colunas 3+ sao informativas ('_inv' le so guid e kubeconfig)
       grep -qE "^${guid}[[:space:]]" "$INV" || printf '%-8s %-16s %s\n' "$guid" "$kc" "$showroom" >> "$INV"
-      printf '    %-8s %slogado%s  %s%s\n' "$guid" "$_GRN" "$_RST" "$kc" "${showroom:+  $showroom}"; ok=$((ok+1))
+      printf '    %-8s %slogado%s como %s  %s%s\n' "$guid" "$_GRN" "$_RST" "$user" "$kc" "${showroom:+  $showroom}"; ok=$((ok+1))
     else
       printf '    %-8s %sLOGIN FALHOU%s  %s\n' "$guid" "$_RED" "$_RST" "$(tail -1 "$tmp.err")"
     fi

@@ -171,11 +171,20 @@ bash scripts/frota.sh entra              # lê frota/pedidos/*.yaml
 pbpaste | bash scripts/frota.sh entra    # ou os e-mails colados, sem arquivo
 ```
 
-Por arquivo, o guid sai da URL da API e a senha é a única no formato do RHDP
-dentro dele. Cada login grava o próprio `frota/kc-<guid>` (0600) e a linha no
-`frota.local`, com a URL do Showroom como coluna informativa. Um pedido sem
-senha legível vira aviso, e o login daquele é à mão. É o passo que torna
-**tudo depois dele** paralelo e não-interativo.
+Por arquivo, o guid sai da URL da API e usuário e senha vêm das chaves
+`openshift_cluster_admin_*` (no ocp-field-asset o admin é `admin`, não o
+kubeadmin). Um pedido de N clusters pode ficar como o RHDP o entrega,
+`frota/pedidos/<pedido>/<guid>/<guid>.yaml`: a busca é recursiva e o YAML do
+pedido em si, sem cluster, é ignorado com aviso. Cada login grava o próprio
+`frota/kc-<guid>` (0600) e a linha no `frota.local`, com a URL do Showroom
+como coluna informativa.
+
+A API desses clusters é assinada pela CA interna `kube-apiserver-lb-signer`,
+que nenhuma máquina conhece. Em vez de desligar a verificação, o `entra` grava
+a cadeia servida no primeiro contato em `frota/ca-<guid>.crt`, imprime a
+impressão digital e pina o login nela: um servidor trocado depois falha em vez
+de passar. Um pedido sem senha legível vira aviso, e o login daquele é à mão.
+É o passo que torna **tudo depois dele** paralelo e não-interativo.
 
 ### Fase 3 · Validar em duas camadas
 
